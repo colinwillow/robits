@@ -1173,7 +1173,7 @@ function neonMat(hex,emi=1.6){ return new THREE.MeshStandardMaterial({color:hex,
 
 // ── PLAYER MODEL — load GLB, fall back to procedural ship ──
 // Only load GLB when served over HTTP (not file://, not mobile for now)
-const ROBOT_GLB='https://colinwillow.github.io/robot_wars/3d_models/robot_run_forward.glb?v='+Date.now();
+const ROBOT_GLB='robot_run_forward.glb';
 let _robotGltf=null; // cached after first load
 let _robotLoadPromise=null;
 
@@ -1230,63 +1230,80 @@ function makePlayerModel(){
 
   // Kick off GLB load — swap in when ready
   loadRobotGLB().then(gltf=>{
-    if(!player||!player.model) return;
-    _applyRobotModel(player, gltf);
-  }).catch(()=>{ /* stay on saucer */ });
+    const tryApply=()=>{
+      if(player&&player.model){ _applyRobotModel(player,gltf); }
+      else { setTimeout(tryApply,200); }
+    };
+    tryApply();
+  }).catch(e=>{ console.warn('GLB failed:',e); });
 
   return grp;
 }
 
 function _applyRobotModel(player, gltf){
-  // Remove old placeholder from scene
   scene.remove(player.model);
 
-  // Clone the scene so multiple players could exist
-  const robotScene=gltf.scene.clone(true);
+  // DON'T clone — cloning breaks SkinnedMesh skeleton binding
+  // Use the original scene directly
+  const robotScene=gltf.scene;
 
-  // Scale/orient — C4D exports often need a Y-axis flip or scale fix
-  // Adjust ROBOT_SCALE if the model appears too big/small
-  const ROBOT_SCALE=0.15; // tweak this
-  robotScene.scale.setScalar(ROBOT_SCALE);
-  robotScene.rotation.y=Math.PI; // face forward — flip if backwards
+  // Size before scaling
+  const bbox=new THREE.Box3().setFromObject(robotScene);
+  const size=new THREE.Vector3(); bbox.getSize(size);
+  console.log('Robot raw size:', JSON.stringify({x:size.x.toFixed(2),y:size.y.toFixed(2),z:size.z.toFixed(2)}));
 
-  // Make all meshes additive-glow style to match game aesthetic
+  const targetHeight=30;
+  const autoScale=targetHeight/(size.y||1);
+  robotScene.scale.setScalar(autoScale);
+  robotScene.position.y=-bbox.min.y*autoScale;
+
+  // Add lights so MeshStandardMaterial is visible
+  if(!scene._robotLight){
+    const rl=new THREE.PointLight(0x00ccff,8,400);
+    scene.add(rl); scene._robotLight=rl;
+    const ambient=new THREE.AmbientLight(0x004466,3);
+    scene.add(ambient);
+  }
+
   robotScene.traverse(c=>{
-    if(c.isMesh){
+    if(c.isSkinnedMesh||c.isMesh){
+      c.frustumCulled=false;
+      c.castShadow=false;
+      // Use MeshBasicMaterial — works on both SkinnedMesh and regular Mesh
       c.material=new THREE.MeshBasicMaterial({
-        color:0x00ccff, transparent:true, opacity:0.9,
-        blending:THREE.AdditiveBlending, depthWrite:false
+        color:0x00ccff,
+        transparent:false,
+        depthWrite:true,
+        depthTest:true,
       });
     }
   });
 
-  // Preserve userData from old model (shield, jets etc.)
   const oldUD=player.model.userData;
-  robotScene.userData={...oldUD, isRobot:true};
-
-  // Shield and jets attach to robot group
+  robotScene.userData={...oldUD,isRobot:true};
   if(oldUD.shieldMat){
-    const shield=new THREE.Mesh(new THREE.SphereGeometry(22,10,8),oldUD.shieldMat);
-    robotScene.add(shield);
-    robotScene.userData.shieldMat=oldUD.shieldMat;
+    const sh=new THREE.Mesh(new THREE.SphereGeometry(22,10,8),oldUD.shieldMat);
+    robotScene.add(sh);
   }
+  if(player._weaponIndicator) player._weaponIndicator.visible=false;
 
-  // AnimationMixer
   const mixer=new THREE.AnimationMixer(robotScene);
+  player._mixer=mixer;
   robotScene.userData.mixer=mixer;
-
-  // Use first animation clip (Mixamo exports as "animation_0")
-  let runClip=gltf.animations[0];
-  if(runClip){
-    const runAction=mixer.clipAction(runClip);
-    runAction.play();
-    robotScene.userData.runAction=runAction;
-    robotScene.userData.runClip=runClip;
+  const clip=gltf.animations[0];
+  if(clip){
+    const a=mixer.clipAction(clip);
+    a.reset();
+    a.setEffectiveTimeScale(1);
+    a.setEffectiveWeight(1);
+    a.play();
+    robotScene.userData.runAction=a;
+    console.log('Animation playing:', clip.name, 'duration:', clip.duration.toFixed(2)+'s');
   }
 
   scene.add(robotScene);
   player.model=robotScene;
-  player._mixer=mixer;
+  console.log('Robot applied, scale:', autoScale.toFixed(2));
 }
 
 class Enemy{
@@ -4720,8 +4737,8 @@ const STREAK_WORDS=[[5,'NICE'],[10,'COMBO'],[20,'BLAZING'],[35,'SAVAGE'],[50,'UN
 // target. Result: the ship ramps up to speed and coasts down — no more
 // instant near-linear snap. Mobile gets a lower top speed + gentler ramp.
 const MOVE = IS_MOBILE
-  ? { topSpeed:220, inputEase:0.22, velEaseUp:0.20, velEaseDown:0.28 }
-  : { topSpeed:280, inputEase:0.32, velEaseUp:0.28, velEaseDown:0.38 };
+  ? { topSpeed:160, inputEase:0.22, velEaseUp:0.20, velEaseDown:0.28 }
+  : { topSpeed:200, inputEase:0.32, velEaseUp:0.28, velEaseDown:0.38 };
 
 class Player{
   constructor(){
@@ -5162,8 +5179,14 @@ class Player{
     const bob=(this.py>1)?0:Math.sin(performance.now()*0.003)*1.5;
     const shipY = 9 + this.py + bob;
     this.model.position.set(this.wx, shipY, this.wz);
-    this.model.rotation.y=-this.aim+Math.PI/2;
-    this.model.rotation.z=clamp(-this.pvy*0.0016,-0.35,0.35);
+    if(this.model.userData.isRobot){
+      // GLB model: just set Y rotation for aim direction, no Z tilt
+      this.model.rotation.y=-this.aim+Math.PI/2;
+      this.model.rotation.z=0;
+    } else {
+      this.model.rotation.y=-this.aim+Math.PI/2;
+      this.model.rotation.z=clamp(-this.pvy*0.0016,-0.35,0.35);
+    }
     // Respawn blink during grace period
     if(this._respawnBlink>0){
       this._respawnBlink--;
@@ -5185,7 +5208,9 @@ class Player{
   }
   _shoot(od){ const a=this.aim,bspd=520; Audio.shoot();
     const lvl=od?6:this.weaponLevel;
-    const y0=9+this.py;                                 // fire from the ship's actual height
+    // Raise bullet spawn for robot model (arms are higher than ship center)
+    const yOffset=this.model.userData.isRobot?22:9;
+    const y0=yOffset+this.py;
     const fire=(ang,kind)=>GS.bullets.push(new Bullet(this.wx,this.wz,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0));
     if(od){ fire(a,'laser');fire(a+0.16,'laser');fire(a-0.16,'laser'); if(Math.random()<0.4)fire(a+rand(-0.5,0.5),'homing'); }
     else if(lvl>=5){ fire(a,'normal'); fire(a+0.1,'normal'); } // lvl5 = faster bullets, missiles only via flick
@@ -5221,35 +5246,28 @@ class Player{
       ud.jetGlow.material.color.setHex(jcol);
     }
     // Weapon indicator on ship — shows what secondary is loaded
-    if(!this._weaponIndicator){
-      this._weaponIndicator=new THREE.Group();
-      this.model.add(this._weaponIndicator);
-      this._weaponIndicator.position.set(0,4,12); // front of ship
-    }
-    // Rebuild if weapon changed
-    if(this._lastSecWeapon!==this.secWeapon){
-      this._lastSecWeapon=this.secWeapon;
+    // Skip weapon indicator when GLB model is active (different coordinate space)
+    if(!this.model.userData.isRobot){
+      if(!this._weaponIndicator){
+        this._weaponIndicator=new THREE.Group();
+        this.model.add(this._weaponIndicator);
+        this._weaponIndicator.position.set(0,4,12); // front of ship
+      }
       while(this._weaponIndicator.children.length) this._weaponIndicator.remove(this._weaponIndicator.children[0]);
       if(this.secWeapon==='bomb'){
-        const bm=new THREE.Mesh(new THREE.SphereGeometry(3,8,8),
-          new THREE.MeshBasicMaterial({color:0xff3333,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
+        const bm=new THREE.Mesh(new THREE.SphereGeometry(2.5,8,6),new THREE.MeshBasicMaterial({color:0xff3366,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
         this._weaponIndicator.add(bm);
-      } else if(this.secWeapon==='missile'){
-        // Small missile shape pointing forward
-        const body=new THREE.Mesh(new THREE.CylinderGeometry(1,1.5,8,5),
-          new THREE.MeshBasicMaterial({color:0xff6600,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
-        body.rotation.x=Math.PI/2;
-        const nose=new THREE.Mesh(new THREE.ConeGeometry(1,4,5),
-          new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
-        nose.rotation.x=Math.PI/2; nose.position.z=6;
+      } else {
+        const body=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,5,6),new THREE.MeshBasicMaterial({color:0x44aaff,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+        const nose=new THREE.Mesh(new THREE.ConeGeometry(0.8,2.5,6),new THREE.MeshBasicMaterial({color:0xffe600,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+        nose.position.y=3.5; body.rotation.x=Math.PI/2;
         this._weaponIndicator.add(body,nose);
       }
-    }
-    // Pulse indicator
-    if(this._weaponIndicator.children.length){
-      const pulse=0.8+0.2*Math.sin(performance.now()*0.006);
-      this._weaponIndicator.children.forEach(c=>c.material&&(c.material.opacity=0.7+0.3*pulse));
-    }
+      if(this._weaponIndicator.children.length){
+        const pulse=0.8+0.2*Math.sin(performance.now()*0.006);
+        this._weaponIndicator.children.forEach(c=>c.material&&(c.material.opacity=0.7+0.3*pulse));
+      }
+    } // end if(!isRobot)
     if(Math.hypot(this.vx,this.vz)>200&&Math.random()<0.3)
       ps.spark(this.wx-Math.cos(this.aim)*10,this.wz-Math.sin(this.aim)*10,od?[1,0.9,0]:[0,0.4,1]);
   }
@@ -6521,6 +6539,7 @@ function loop(ts){ requestAnimationFrame(loop);
     for(const p of GS_portals) p.update(dt,player);
     // Tick robot animation mixer
     if(player&&player._mixer){
+      if(scene._robotLight) scene._robotLight.position.set(player.wx,player.py+40,player.wz);
       const spd=Math.hypot(player.vx,player.vz);
       // Scale animation playback speed: 0 when still, 1 at normal run, up to 2 at full sprint
       const animSpd=clamp(spd/180,0,2);
