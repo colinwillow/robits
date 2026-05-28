@@ -557,7 +557,7 @@ const Audio={
   setIntensity(v){ this.intensity=clamp(v,0,1); this.bpm=118+this.intensity*30; },
   setMult(m){ this._mult=m; },
 
-  startMusic(){
+  startMusic(){ return; // music disabled
     if(!this.on||!this.ctx)return;
     this.step=0; this.nextNote=this.ctx.currentTime+0.1;
     const tick=()=>{
@@ -1173,7 +1173,7 @@ function neonMat(hex,emi=1.6){ return new THREE.MeshStandardMaterial({color:hex,
 
 // ── PLAYER MODEL — load GLB, fall back to procedural ship ──
 // Only load GLB when served over HTTP (not file://, not mobile for now)
-const ROBOT_GLB='robot_run_forward.glb';
+const ROBOT_GLB='robot.glb';
 let _robotGltf=null; // cached after first load
 let _robotLoadPromise=null;
 
@@ -1252,7 +1252,7 @@ function _applyRobotModel(player, gltf){
   const size=new THREE.Vector3(); bbox.getSize(size);
   console.log('Robot raw size:', JSON.stringify({x:size.x.toFixed(2),y:size.y.toFixed(2),z:size.z.toFixed(2)}));
 
-  const targetHeight=30;
+  const targetHeight=18;
   const autoScale=targetHeight/(size.y||1);
   robotScene.scale.setScalar(autoScale);
   robotScene.position.y=-bbox.min.y*autoScale;
@@ -1265,17 +1265,34 @@ function _applyRobotModel(player, gltf){
     scene.add(ambient);
   }
 
+  // Always recreate robot light fresh
+  if(scene._robotLight){ scene.remove(scene._robotLight); scene._robotLight=null; }
+  const rl=new THREE.PointLight(0x88ccff,8,400);
+  scene.add(rl); scene._robotLight=rl;
+  if(!scene._robotAmbient){
+    const al=new THREE.AmbientLight(0x334466,3);
+    scene.add(al); scene._robotAmbient=al;
+  }
+
+  // Recreate follow light fresh each time
+  if(scene._robotLight){ scene.remove(scene._robotLight); scene._robotLight=null; }
+  scene._robotLight=new THREE.PointLight(0x4488ff,6,350);
+  scene.add(scene._robotLight);
+  if(!scene._robotAmbient){
+    scene.add(new THREE.AmbientLight(0x223355,2));
+    scene._robotAmbient=true;
+  }
+
   robotScene.traverse(c=>{
     if(c.isSkinnedMesh||c.isMesh){
       c.frustumCulled=false;
       c.castShadow=false;
-      // Use MeshBasicMaterial — works on both SkinnedMesh and regular Mesh
-      c.material=new THREE.MeshBasicMaterial({
-        color:0x00ccff,
-        transparent:false,
-        depthWrite:true,
-        depthTest:true,
-      });
+      if(c.material){
+        // Add cyan emissive glow on top of baked texture
+        c.material.emissive=new THREE.Color(0x0044aa);
+        c.material.emissiveIntensity=2.0;
+        c.material.needsUpdate=true;
+      }
     }
   });
 
@@ -1290,20 +1307,42 @@ function _applyRobotModel(player, gltf){
   const mixer=new THREE.AnimationMixer(robotScene);
   player._mixer=mixer;
   robotScene.userData.mixer=mixer;
-  const clip=gltf.animations[0];
-  if(clip){
-    const a=mixer.clipAction(clip);
-    a.reset();
-    a.setEffectiveTimeScale(1);
-    a.setEffectiveWeight(1);
-    a.play();
-    robotScene.userData.runAction=a;
-    console.log('Animation playing:', clip.name, 'duration:', clip.duration.toFixed(2)+'s');
+
+  // Load all clips by name
+  const clipNames=['idle','run_forward','run_backward','floating','landing','strafe_right','strafe_left'];
+  const clips={};
+  gltf.animations.forEach(clip=>{
+    if(clip.name==='CINEMA_4D_Main') return; // skip C4D default take
+    const action=mixer.clipAction(clip);
+    action.setLoop(THREE.LoopRepeat,Infinity);
+    action.stop();
+    clips[clip.name]=action;
+    console.log('Loaded clip:', clip.name);
+  });
+  robotScene.userData.clips=clips;
+  robotScene.userData.currentClip='idle';
+
+  // Store bone references for IK
+  const bones={};
+  robotScene.traverse(c=>{ if(c.isBone) bones[c.name]=c; });
+  robotScene.userData.bones=bones;
+  robotScene.userData.ikEnabled=false; // FK shoot anims handle arm position // disabled until bone rest dirs calibrated
+
+  // Start idle immediately
+  const startClip=clips['idle']||clips['run_forward']||Object.values(clips)[0];
+  if(startClip){
+    startClip.setEffectiveWeight(1).play();
+    const startName=Object.keys(clips).find(k=>clips[k]===startClip)||'idle';
+    robotScene.userData.currentClip=startName;
+    robotScene.userData.runAction=startClip;
   }
 
   scene.add(robotScene);
   player.model=robotScene;
-  console.log('Robot applied, scale:', autoScale.toFixed(2));
+  // Log all bone names for IK setup
+  robotScene.traverse(c=>{
+    if(c.isBone) console.log('Bone:', c.name);
+  });
 }
 
 class Enemy{
@@ -3867,7 +3906,7 @@ function buildTutorial(){
   TUT.floatingLabels=[];
   TUT.targets.forEach(t=>{ if(t.mesh) scene.remove(t.mesh); });
   TUT.targets=[];
-  player.bombs=99; player.boostFuel=3; player.boostMax=3;
+  player.bombs=99; player.boostFuel=100; player.boostMax=100;
   // Spawn a platform high up for the boost step
   const highPlat=new Platform(0,-100,80,100,80);
   GS_objects.push(highPlat);
@@ -4472,7 +4511,7 @@ class DropBomb{
     const frac=Math.max(0,this.timer/this._maxTimer);
     const pulse=Math.abs(Math.sin(this.t*(3+5*(1-frac))));
     // Body color: interpolate white→yellow→red
-    const r=1, g=Math.max(0,frac*0.9), b=Math.max(0,(frac-0.3)*0.7);
+    const r=1, g=Math.max(0.3,frac*0.9), b=Math.max(0,(frac-0.3)*0.7);
     this._bodyMat.color.setRGB(r,g,b);
     this._bodyMat.opacity=0.85+pulse*0.15;
     // Scale pulses faster as it gets closer to detonation
@@ -4765,7 +4804,8 @@ class Player{
     this.secWeapon='bomb';
     this.secWeapons=['bomb','missile'];
     this._disarmBomb();
-    this.boostFuel=3; this.boostMax=3; this.boostRecharge=0;
+    this.boostFuel=100; this.boostMax=100; this.boostRecharge=0;
+    this._jetting=false; // jetpack currently active
     this.bombState='none'; this.bombArmed=false; this._bombMesh=null;
     if(full)this.bombs=3; this.weaponLevel=1; this.model.visible=true;
     this._hideAimer(); this._disarmBomb();
@@ -4819,12 +4859,29 @@ class Player{
       this._showBombFlash();
     } else if(this.secWeapon==='missile'){
       const spread=0.18;
+      // Get hand position for missile spawn
+      const getHandPos=(side)=>{
+        const boneName=side===0?'mixamorig_RightHand':'mixamorig_LeftHand';
+        const bones=this.model?.userData?.bones;
+        if(bones&&bones[boneName]){
+          const hp=new THREE.Vector3();
+          bones[boneName].getWorldPosition(hp);
+          // Missile muzzle flash
+          ps.ring(hp.x,hp.z,[1,0.6,0.1],4,50);
+          for(let i=0;i<4;i++) ps._spawn(hp.x+rand(-2,2),hp.y,hp.z+rand(-2,2),
+            Math.cos(dx*Math.PI+rand(-0.3,0.3))*rand(40,90),rand(5,20),
+            Math.sin(dz*Math.PI+rand(-0.3,0.3))*rand(40,90),1,0.6,0.1,0.04+rand(0.02));
+          return {x:hp.x,z:hp.z,y:hp.y};
+        }
+        return {x:this.wx,z:this.wz,y:9+this.py};
+      };
       [-spread,0,spread].forEach((off,i)=>{
         setTimeout(()=>{
           if(GS.state!=='playing')return;
           const cos=Math.cos(off),sin=Math.sin(off);
           const mx=dx*cos-dz*sin, mz=dx*sin+dz*cos;
-          GS.missiles.push(new Missile(this.wx+mx*18,this.wz+mz*18,mx,mz,9+this.py));
+          const hp=getHandPos(i%2);
+          GS.missiles.push(new Missile(hp.x+mx*8,hp.z+mz*8,mx,mz,hp.y));
           Audio.blip(220+i*40,0.15,'sawtooth',0.2,80);
         },i*80);
       });
@@ -4844,6 +4901,7 @@ class Player{
 
   _showBombFlash(){
     if(this._bombMesh)return;
+    if(this.model.userData.isRobot){ setTimeout(()=>this._disarmBomb(),300); return; }
     const geo=new THREE.SphereGeometry(6,8,8);
     const mat=new THREE.MeshBasicMaterial({color:0xff4400,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
     this._bombMesh=new THREE.Mesh(geo,mat);
@@ -4861,7 +4919,8 @@ class Player{
     const mat=new THREE.MeshBasicMaterial({color:0xff4400,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
     this._bombMesh=new THREE.Mesh(geo,mat);
     this._bombMesh.position.set(0,-8,0);
-    this.model.add(this._bombMesh);
+    // Hide on robot model — position doesn't translate correctly
+    if(!this.model.userData.isRobot) this.model.add(this._bombMesh);
     this._showAimer(this.wx,this.wz,0,0);
   }
 
@@ -4936,33 +4995,9 @@ class Player{
   }
 
   _showAimer(ax,az,charge,_unused){
-    const isDrop=(ax===this.wx&&az===this.wz)||charge===0;
-    if(!this._aimer){
-      const geo=new THREE.RingGeometry(10,14,32);
-      const mat=new THREE.MeshBasicMaterial({color:0xff8800,transparent:true,opacity:0.85,
-        side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false});
-      this._aimer=new THREE.Mesh(geo,mat);
-      this._aimer.rotation.x=-Math.PI/2; this._aimer.position.y=3;
-      scene.add(this._aimer);
-      // Crosshair lines
-      this._aimerLines=new THREE.Group();
-      const lmat=new THREE.LineBasicMaterial({color:0xffe600,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending});
-      for(let i=0;i<2;i++){
-        const pts=[new THREE.Vector3(i===0?-16:0,0,i===1?-16:0),new THREE.Vector3(i===0?16:0,0,i===1?16:0)];
-        this._aimerLines.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),lmat));
-      }
-      this._aimerLines.rotation.x=-Math.PI/2; this._aimerLines.position.y=3.5;
-      scene.add(this._aimerLines);
-    }
-    const t=performance.now()*0.001;
-    const col=isDrop?0xffffff:0xff8800;
-    const pulse=0.7+0.3*Math.sin(t*8); // fast pulse when armed
-    this._aimer.material.color.setHex(col);
-    this._aimer.material.opacity=pulse*0.9;
-    this._aimer.position.set(ax,3,az);
-    this._aimerLines.position.set(ax,3.5,az);
-    const sc=isDrop?0.7:(0.7+charge*0.5);
-    this._aimer.scale.setScalar(sc); this._aimerLines.scale.setScalar(sc);
+    // Aimer hidden — robot character makes it visually redundant
+    if(this._aimer) this._aimer.visible=false;
+    if(this._aimerLines) this._aimerLines.visible=false;
   }
 
   _hideAimer(){
@@ -5073,8 +5108,53 @@ class Player{
     const fireRate=od?2:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
     if(firing&&al>0.15&&this.fireT>=fireRate){ this.fireT=0; this._shoot(od); }
 
-    // ── VERTICAL PHYSICS — normal gravity, tap for burst boosts ──
+    // ── VERTICAL PHYSICS — gravity + jetpack ──
     const GRAV=220;
+    const JET_FORCE=380;    // upward force when jetting (fights gravity + adds lift)
+    const JET_DRAIN=28;     // fuel per second while jetting
+    const JET_RECHARGE=12;  // fuel per second while not jetting and airborne
+    const GND_RECHARGE=35;  // fuel per second on ground
+
+    // Jetpack force — continuous upward push when held airborne
+    if(this._jetting&&this.py>4&&!this._onPlatform){
+      if(this.boostFuel>0){
+        this.pvy+=JET_FORCE*dt; // fight gravity + add lift
+        this.boostFuel=Math.max(0,this.boostFuel-JET_DRAIN*dt);
+        this.boostRecharge=0;
+        // Jet exhaust — two streams from left and right hip/back
+        const jetY=this.py+38; // lower back area
+        const sideOff=2.5;
+        const backOff=8; // further back behind robot
+        const bx=this.wx-Math.cos(this.aim)*backOff;
+        const bz=this.wz-Math.sin(this.aim)*backOff;
+        const perpX=Math.cos(this.aim+Math.PI/2)*sideOff;
+        const perpZ=Math.sin(this.aim+Math.PI/2)*sideOff;
+        for(const side of [-1,1]){
+          const ex=bx+perpX*side, ez=bz+perpZ*side;
+          for(let i=0;i<2;i++){
+            ps._spawn(ex+rand(-1,1),jetY,ez+rand(-1,1),
+              rand(-8,8),-rand(50,120),rand(-8,8),
+              1,0.4+Math.random()*0.4,0,0.04+rand(0.03));
+          }
+        }
+        if(this.boostFuel<=0){
+          this._jetting=false;
+          announce('NO FUEL','#ff4400');
+        }
+        // Jet sound
+        if(!this._jetSoundT||this._jetSoundT<=0){
+          Audio.blip(200+this.boostFuel*2,0.08,'sawtooth',0.05,80);
+          this._jetSoundT=8;
+        }
+        if(this._jetSoundT>0) this._jetSoundT--;
+      } else {
+        this._jetting=false;
+      }
+    } else if(this.py>4&&!this._jetting){
+      // Recharge slowly while airborne and not jetting
+      this.boostFuel=Math.min(this.boostMax,this.boostFuel+JET_RECHARGE*dt);
+    }
+
     this.pvy -= GRAV*dt;
     this.py += this.pvy*dt;
     const wasAirborne=this._wasAirborne||false;
@@ -5105,8 +5185,9 @@ class Player{
         this.pvy=0;
       }
       this._wasAirborne=false;
-      // Full boost recharge on ground contact
-      this.boostFuel=this.boostMax; this.boostRecharge=0;
+      this._jetting=false;
+      // Full recharge on ground
+      this.boostFuel=Math.min(this.boostMax,this.boostFuel+GND_RECHARGE*dt*60);
     } else {
       this._wasAirborne=true;
     }
@@ -5194,24 +5275,44 @@ class Player{
       if(this._respawnBlink<=0) this.model.visible=true;
     }
     playerLight.position.set(this.wx,40+this.py*0.5,this.wz);
-    CAM.tfocus.set(this.wx,4+this.py*0.35,this.wz);
-    // In landscape mode, limit how high the focus point rises so elevated player stays visible
+    // Smooth camera vertical tracking
+    if(!this._camFocY) this._camFocY=4;
+    this._camFocY=lerp(this._camFocY,4+this.py*0.55,0.05);
+    CAM.tfocus.set(this.wx,this._camFocY,this.wz);
     const aspect=window.innerWidth/window.innerHeight;
     if(aspect>1.1&&this.py>20){
-      // Pull camera back proportionally to height and reduce vertical focus
       const extraH=this.py-20;
-      CAM.tfocus.y=4+this.py*0.18; // much flatter rise in landscape
-      // Also auto-increase dist so player doesn't leave frame top
       const targetDist=Math.min(420,230+extraH*0.9);
-      CAM.dist=lerp(CAM.dist,targetDist,0.06);
+      CAM.dist=lerp(CAM.dist,targetDist,0.04);
     }
   }
   _shoot(od){ const a=this.aim,bspd=520; Audio.shoot();
     const lvl=od?6:this.weaponLevel;
-    // Raise bullet spawn for robot model (arms are higher than ship center)
-    const yOffset=this.model.userData.isRobot?22:9;
-    const y0=yOffset+this.py;
-    const fire=(ang,kind)=>GS.bullets.push(new Bullet(this.wx,this.wz,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0));
+    // Alternate between right and left hand each shot
+    if(!this._shotSide) this._shotSide=0;
+    this._shotSide=1-this._shotSide;
+    const handBone=this._shotSide===0?'mixamorig_RightHand':'mixamorig_LeftHand';
+    let y0=9+this.py, spawnX=this.wx, spawnZ=this.wz;
+    const bones=this.model?.userData?.bones;
+    if(bones&&bones[handBone]){
+      const hp=new THREE.Vector3();
+      bones[handBone].getWorldPosition(hp);
+      y0=hp.y; spawnX=hp.x; spawnZ=hp.z;
+      // Muzzle flash at hand tip
+      const fc=od?[1,0.9,0.2]:[0.4,0.9,1];
+      for(let i=0;i<5;i++){
+        ps._spawn(spawnX+rand(-3,3),y0,spawnZ+rand(-3,3),
+          Math.cos(a)*rand(60,140)+rand(-20,20),
+          rand(-10,20),
+          Math.sin(a)*rand(60,140)+rand(-20,20),
+          fc[0],fc[1],fc[2],0.03+rand(0.02));
+      }
+      // Flash ring
+      ps.ring(spawnX,spawnZ,fc,3,40);
+    } else if(this.model?.userData?.isRobot){
+      y0=22+this.py;
+    }
+    const fire=(ang,kind)=>GS.bullets.push(new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0));
     if(od){ fire(a,'laser');fire(a+0.16,'laser');fire(a-0.16,'laser'); if(Math.random()<0.4)fire(a+rand(-0.5,0.5),'homing'); }
     else if(lvl>=5){ fire(a,'normal'); fire(a+0.1,'normal'); } // lvl5 = faster bullets, missiles only via flick
     else if(lvl>=3){ fire(a,'laser');fire(a+0.1,'normal');fire(a-0.1,'normal'); }
@@ -6197,26 +6298,19 @@ function updateUI(){
   if(!bd){
     bd=document.createElement('div'); bd.id='boost-bar-wrap';
     bd.style.cssText='margin-top:6px;width:80px';
-    bd.innerHTML='<div style="font-size:7px;letter-spacing:3px;color:#00d9ff88;text-transform:uppercase;margin-bottom:3px">Boost</div><div style="display:flex;gap:5px;align-items:center"><div id="boost-pips" style="display:flex;gap:4px"></div></div><div style="height:3px;background:#00d9ff14;border-radius:2px;overflow:hidden;margin-top:3px"><div id="boost-fill" style="height:100%;border-radius:2px;background:#00d9ff;transition:width 0.05s"></div></div>';
+    bd.innerHTML=`<div style="font-size:7px;letter-spacing:3px;color:#00d9ff88;text-transform:uppercase;margin-bottom:3px">FUEL</div>
+    <div style="height:6px;background:#00d9ff14;border-radius:3px;overflow:hidden">
+      <div id="boost-fill" style="height:100%;border-radius:3px;background:#00d9ff;transition:width 0.05s"></div>
+    </div>`;
     document.getElementById('health-bar').parentElement.appendChild(bd);
-  }
-  const _bf=Math.floor(player.boostFuel);
-  const _bpips=document.getElementById('boost-pips');
-  if(_bpips){ _bpips.innerHTML='';
-    for(let i=0;i<player.boostMax;i++){
-      const p=document.createElement('div'); const on=i<_bf;
-      p.style.cssText=`width:16px;height:16px;border-radius:50%;`+
-        `border:2px solid ${on?'#00d9ff':'#ffffff22'};`+
-        `background:${on?'#00d9ff':'transparent'};`+
-        `box-shadow:${on?'0 0 14px #00d9ff':'none'};transition:all 0.1s`;
-      _bpips.appendChild(p);
-    }
   }
   const _bfill=document.getElementById('boost-fill');
   if(_bfill){
-    const pct=_bf>=player.boostMax?1:Math.max(0,1-(player.boostRecharge/72));
+    const pct=player.boostFuel/player.boostMax;
     _bfill.style.width=(pct*100)+'%';
-    _bfill.style.background=_bf===0?'#ff6600':'#00d9ff';
+    const jetting=player._jetting&&player.boostFuel>0;
+    _bfill.style.background=pct<0.15?'#ff4400':jetting?'#ffaa00':'#00d9ff';
+    _bfill.style.boxShadow=jetting?'0 0 8px #ffaa00':'none';
   }
   const bp=document.getElementById('bomb-pips');
   if(bp.childElementCount!==Math.max(3,player.bombs)){ bp.innerHTML=''; for(let i=0;i<Math.max(3,player.bombs);i++){const d=document.createElement('div');d.className='pip bomb';bp.appendChild(d);} }
@@ -6231,22 +6325,19 @@ window.addEventListener('keydown',e=>{ keys[e.code]=true;
   if(e.code==='Space'&&GS.state==='playing'&&player){
     e.preventDefault();
     if(player.py<=8||player._onPlatform){
-      player.pvy=170; player._onPlatform=false; Audio.blip(440,0.4,'sine',0.12,520);
-    } else if(player.boostFuel>0){
-      player.boostFuel--;
-      player.boostRecharge=72;
-      player.pvy=Math.max(player.pvy,140);
-      Audio.blip(520+player.boostFuel*60,0.15,'sine',0.12,800);
-      for(let i=0;i<6;i++) ps.spark(player.wx+rand(-8,8),player.wz+rand(-8,8),[0.4,0.8,1]);
+      // Grounded: single jump
+      player.pvy=180; player._onPlatform=false;
+      Audio.blip(440,0.4,'sine',0.12,520);
+      ps.burst(player.wx,player.wz,[0.4,0.8,1],6,50);
+    } else {
+      // Airborne: start jetpack if fuel available
+      player._jetting=true;
     }
   }
   if((e.code==='ShiftLeft'||e.code==='ShiftRight')&&GS.state==='playing'&&player){
     e.preventDefault();
     player.cycleWeapon();
     if(GS.zone===-1) TUT._weaponCycled=true;
-    announce('WEAPON: '+player.secWeapon.toUpperCase(),'#00ffc8');
-    e.preventDefault();
-    player.cycleWeapon();
     announce('WEAPON: '+player.secWeapon.toUpperCase(),'#00ffc8');
   }
   if(e.code==='KeyB'){player&&player.fireBomb();}
@@ -6284,13 +6375,22 @@ window.addEventListener('keydown',e=>{ keys[e.code]=true;
   if(e.code==='KeyQ'){CAM.tyaw-=Math.PI/10;}
   if(e.code==='KeyR'){CAM.tyaw+=Math.PI/10;}
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault(); });
-window.addEventListener('keyup',e=>{keys[e.code]=false;});
+window.addEventListener('keyup',e=>{
+  keys[e.code]=false;
+  if(e.code==='Space'&&player) player._jetting=false;
+});
 window.addEventListener('mousemove',e=>{ if(IS_TOUCH)return; mouse.has=true;mouse.px=e.clientX;mouse.py=e.clientY;});
 window.addEventListener('mousedown',e=>{ if(IS_TOUCH)return;
   if(e.button===0){mouse.has=true;mouse.down=true;}
   else if(e.button===2&&GS.state==='playing'&&player){
     // Right-click = fire secondary weapon in aim direction
     player.useSecWeapon(Math.cos(player.aim),Math.sin(player.aim));
+    // Trigger shoot animation — longer for rockets
+    player._lastFiring=true;
+    player._secFireActive=true;
+    clearTimeout(player._secFireTimeout);
+    const holdTime=player.secWeapon==='missile'?1500:400;
+    player._secFireTimeout=setTimeout(()=>{ if(player){ player._lastFiring=false; player._secFireActive=false; } },holdTime);
   }
 });
 window.addEventListener('mouseup',e=>{ if(IS_TOUCH)return;
@@ -6478,6 +6578,11 @@ jL.onTap=()=>{
             // Right stick flick = fire selected secondary weapon
             window._lastRFlickTime=performance.now(); // for dual-flick detection
             player.useSecWeapon(dx,dz);
+            player._lastFiring=true;
+            player._secFireActive=true;
+            clearTimeout(player._secFireTimeout);
+            const mHold=player.secWeapon==='missile'?1500:400;
+            player._secFireTimeout=setTimeout(()=>{ if(player){ player._lastFiring=false; player._secFireActive=false; } },mHold);
             player._flickCooldown=45; // suppress bullets for 0.75s after flick
             jR._tapMoved=true; // suppress onTap
             // Clear stick output so residual position doesn't fire main weapon
@@ -6494,21 +6599,15 @@ jL.onTap=()=>{
 jR.onTap=()=>{
   if(!player||GS.state!=='playing')return;
   if(player.py<=8||player._onPlatform){
-    // JUMP
-    player.pvy=170;
+    // JUMP — single
+    player.pvy=180;
+    player._onPlatform=false;
     Audio.blip(440,0.4,'sine',0.12,520);
     ps.ring(player.wx,player.wz,[0,0.85,1],12,90);
   } else if(player.boostFuel>0){
-    // AIR BOOST
-    player.boostFuel--;
-    player.boostRecharge=72;
-    player.pvy=Math.max(player.pvy,140);
-    if(!player._jetFlash) player._jetFlash=0;
-    player._jetFlash=1.0;
-    Audio.blip(520+player.boostFuel*60,0.15,'sine',0.12,800);
-    ps.ring(player.wx,player.wz,[0.3,0.8,1],8,55);
-    for(let i=0;i<6;i++) ps.spark(player.wx+rand(-8,8),player.wz+rand(-8,8),[0.4,0.8,1]);
-    if(player.boostFuel===0) announce('NO BOOST','#ff6600');
+    // Airborne tap = brief jet burst
+    player._jetting=true;
+    setTimeout(()=>{ if(player) player._jetting=false; },300);
   }
 };
 // contextmenu suppressed — right-click is jump
@@ -6539,14 +6638,117 @@ function loop(ts){ requestAnimationFrame(loop);
     for(const p of GS_portals) p.update(dt,player);
     // Tick robot animation mixer
     if(player&&player._mixer){
-      if(scene._robotLight) scene._robotLight.position.set(player.wx,player.py+40,player.wz);
+      if(scene._robotLight) scene._robotLight.position.set(player.wx,player.py+20,player.wz);
       const spd=Math.hypot(player.vx,player.vz);
-      // Scale animation playback speed: 0 when still, 1 at normal run, up to 2 at full sprint
-      const animSpd=clamp(spd/180,0,2);
-      if(player.model.userData.runAction){
-        player.model.userData.runAction.setEffectiveTimeScale(animSpd);
-      }
       player._mixer.update(dt);
+
+      // ── Procedural arm IK — runs after mixer so it overrides bone rotations ──
+      const ud2=player.model.userData;
+      // ── Animation blend system ──
+      const ud=player.model.userData;
+      if(ud.clips&&Object.keys(ud.clips).length>0){
+        const moveAngle=Math.atan2(player.vz,player.vx);
+        const aimAngle=player.aim;
+        let angleDiff=((moveAngle-aimAngle+Math.PI)%(Math.PI*2)+Math.PI*2)%(Math.PI*2)-Math.PI;
+        const moving=spd>20;
+        const onGround=player.py<=4||player._onPlatform;
+        const airborne=!onGround&&player.py>8;
+
+        // Landing detection — was airborne, now on ground
+        if(!ud._wasAirborne&&onGround&&ud._prevAirborne){
+          // Trigger one-shot landing animation
+          if(ud.clips['landing']){
+            Object.values(ud.clips).forEach(a=>a.fadeOut(0.1));
+            const land=ud.clips['landing'];
+            land.reset().setEffectiveWeight(1).setLoop(THREE.LoopOnce,1).clampWhenFinished=true;
+            land.fadeIn(0.1).play();
+            ud.currentClip='landing';
+            ud._landingTimer=land._clip.duration;
+          }
+        }
+        ud._prevAirborne=airborne;
+
+        // Don't interrupt landing animation
+        if(ud._landingTimer>0){
+          ud._landingTimer-=dt;
+          if(ud._landingTimer<=0){
+            // Landing done — go to idle
+            ud.clips['landing']&&ud.clips['landing'].fadeOut(0.15);
+            const next=ud.clips['idle']||Object.values(ud.clips)[0];
+            next.reset().setEffectiveWeight(1).fadeIn(0.15).play();
+            ud.currentClip='idle';
+          }
+          player._mixer.update(dt);
+          return;
+        }
+
+        let targetClip='idle';
+        if(airborne) targetClip='floating';
+        else if(!moving) targetClip='idle';
+        else if(Math.abs(angleDiff)<Math.PI*0.3) targetClip='run_forward';
+        else if(Math.abs(angleDiff)>Math.PI*0.7) targetClip='run_backward';
+        else if(angleDiff>0) targetClip='strafe_right';
+        else targetClip='strafe_left';
+
+        // Use .shoot variant if firing and it exists
+        const firing=player._lastFiring||false;
+        const shootClip=targetClip+'.shoot';
+        if(firing&&ud.clips[shootClip]) targetClip=shootClip;
+
+        // Only switch if clip exists and changed
+        if(targetClip!==ud.currentClip&&ud.clips[targetClip]){
+          // Stop all clips then start new one
+          Object.values(ud.clips).forEach(a=>a.fadeOut(0.15));
+          ud.clips[targetClip].reset().setEffectiveWeight(1).fadeIn(0.15).play();
+          ud.currentClip=targetClip;
+        }
+
+        // Speed scaling — idle always at 1, movement scales with speed
+        const cur=ud.clips[ud.currentClip];
+        if(cur){
+          const isIdle=ud.currentClip==='idle'||ud.currentClip==='floating';
+          const animSpd=isIdle?1.0:clamp(spd/160,0.4,1.5);
+          cur.setEffectiveTimeScale(animSpd);
+        }
+      } else if(ud.runAction){
+        const animSpd=clamp(spd/160,0,1.5);
+        ud.runAction.setEffectiveTimeScale(animSpd);
+      }
+
+      // ── Procedural arm IK — runs AFTER mixer+blend ──
+      if(ud2.ikEnabled&&ud2.bones){
+        const bones=ud2.bones;
+        const firing=player._lastFiring||false;
+        if(!ud2._ikBlend) ud2._ikBlend=0;
+        // Blend IK in when firing, out when not
+        ud2._ikBlend=clamp(ud2._ikBlend+(firing?0.08:-0.05),0,1);
+
+        if(ud2._ikBlend>0.01){
+          const solveArm=(armBoneName)=>{
+            const bone=bones[armBoneName]; if(!bone) return;
+            // Save animation pose
+            const animQuat=bone.quaternion.clone();
+            // Compute IK rotation
+            const boneWorldQuat=new THREE.Quaternion();
+            bone.getWorldQuaternion(boneWorldQuat);
+            const currentDir=new THREE.Vector3(0,1,0).applyQuaternion(boneWorldQuat);
+            const aimDir=new THREE.Vector3(Math.cos(player.aim),0.15,Math.sin(player.aim)).normalize();
+            const parentQ=new THREE.Quaternion();
+            if(bone.parent) bone.parent.getWorldQuaternion(parentQ);
+            const parentInv=parentQ.clone().invert();
+            const localCurrent=currentDir.clone().applyQuaternion(parentInv).normalize();
+            const localTarget=aimDir.clone().applyQuaternion(parentInv).normalize();
+            if(localCurrent.dot(localTarget)<0.9999){
+              const q=new THREE.Quaternion().setFromUnitVectors(localCurrent,localTarget);
+              bone.quaternion.premultiply(q);
+            }
+            // Blend between animation pose and IK pose
+            bone.quaternion.slerp(animQuat,1-ud2._ikBlend);
+          };
+          solveArm('mixamorig_RightArm');
+          solveArm('mixamorig_LeftArm');
+        }
+      }
     }
 
     if(GS.state==='playing'||GS.state==='zoneTransition'){
@@ -6595,6 +6797,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===0) updatePuzzleLevel(dt);
       if(GS.zone===-1) updateTutorial(dt);
       player.update(mvx,mvz,avx,avz,dt,firing,od,aiming); player.draw(od);
+      if(player) player._lastFiring=firing||player._secFireActive||false;
       // Subtle ground interaction — ship's presence slightly depresses nearby nodes
       const pmag=Math.hypot(player.vx,player.vz);
       const shimmerStr=0.3+pmag*0.001;
