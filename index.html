@@ -559,22 +559,28 @@ function updateCamera(dt){
   CAM.focus.lerp(CAM.tfocus,0.18);
 
   if(CAM.aimMode){
-    // ── 3D AIM MODE — free look with pitch + yaw, camera stays near player ──
-    CAM.pitch=lerp(CAM.pitch,CAM.tpitch,0.12);
-    const d=CAM.dist; // shorter dist stored by aim mode entry
-    // Camera offset: yaw around player, pitch tilts up/down
+    // ── 3D AIM MODE — over-shoulder, camera behind player looking forward ──
+    CAM.pitch=lerp(CAM.pitch,CAM.tpitch,0.14);
+    const d=CAM.dist;
     const cp=Math.cos(CAM.pitch), sp=Math.sin(CAM.pitch);
-    const cx=CAM.focus.x+Math.sin(CAM.yaw)*d*cp;
-    const cy=CAM.focus.y+d*sp+20; // pitch offset
-    const cz=CAM.focus.z+Math.cos(CAM.yaw)*d*cp;
-    const sh=CAM.trauma*CAM.trauma*0.3, t=performance.now()*0.05;
-    camera.position.set(cx+Math.sin(t*1.7)*sh*8, cy+Math.sin(t*2.1)*sh*8, cz);
-    // Look toward where the camera faces (ahead of player in yaw+pitch direction)
-    const lookDist=200;
-    const lx=CAM.focus.x-Math.sin(CAM.yaw)*lookDist*cp;
-    const ly=CAM.focus.y-lookDist*sp+20;
-    const lz=CAM.focus.z-Math.cos(CAM.yaw)*lookDist*cp;
-    camera.lookAt(lx,ly,lz);
+    // Camera sits BEHIND the player in the aim direction, elevated by pitch
+    // "Behind" = opposite of where we're looking, so +yaw offset
+    const camOffsetX= Math.sin(CAM.yaw)*d*cp;
+    const camOffsetY= d*sp + 30;   // 30 = fixed height above player center
+    const camOffsetZ= Math.cos(CAM.yaw)*d*cp;
+    const focusX=CAM.focus.x, focusY=CAM.focus.y+20, focusZ=CAM.focus.z;
+    camera.position.set(
+      focusX + camOffsetX,
+      focusY + camOffsetY,
+      focusZ + camOffsetZ
+    );
+    // Look FORWARD from camera — opposite of the offset direction
+    const lookDist=300;
+    camera.lookAt(
+      focusX - Math.sin(CAM.yaw)*lookDist*cp,
+      focusY - lookDist*sp,
+      focusZ - Math.cos(CAM.yaw)*lookDist*cp
+    );
     CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
     return;
   }
@@ -5035,16 +5041,17 @@ class Player{
   }
 
   _armBomb(){
-    this._disarmBomb(); // clear any leftover
+    this._disarmBomb();
     this.bombArmed=true;
     Audio.blip(600,0.12,'sine',0.2,900);
-    announce('BOMB ARMED — SWIPE RIGHT STICK TO THROW','#ff8800');
-    const geo=new THREE.SphereGeometry(6,8,8);
+    announce('BOMB READY','#ff8800');
+    const geo=new THREE.SphereGeometry(7,10,8);
     const mat=new THREE.MeshBasicMaterial({color:0xff4400,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
     this._bombMesh=new THREE.Mesh(geo,mat);
-    this._bombMesh.position.set(0,-8,0);
-    // Hide on robot model — position doesn't translate correctly
-    if(!this.model.userData.isRobot) this.model.add(this._bombMesh);
+    // Place above head — robot model is ~60 units tall, so y=70 puts it overhead
+    this._bombMesh.position.set(0,70,0);
+    if(this.model.userData.isRobot) this.model.add(this._bombMesh);
+    else { this._bombMesh.position.set(0,30,0); this.model.add(this._bombMesh); }
     this._showAimer(this.wx,this.wz,0,0);
   }
 
@@ -5065,15 +5072,20 @@ class Player{
   _throwBomb(dirX,dirZ){
     if(!this.bombArmed)return;
     const isDrop=(dirX===0&&dirZ===0);
-    const spd=isDrop?0:300;
-    const vx=dirX*spd + this.vx*0.25;
-    const vz=dirZ*spd + this.vz*0.25;
-    const fuse=isDrop?1.2:1.6;
-    const launchVY = isDrop ? -30 : 80; // drop falls, launch arcs up
-    const launchY = isDrop ? Math.max(5, 9+this.py-15) : 9+this.py+20;
+    // Scale speed by how far the crosshair is — min 120, max 420
+    const crossDist=Math.hypot(
+      (this._aimerX||this.wx)-this.wx,
+      (this._aimerZ||this.wz)-this.wz
+    );
+    const spd=isDrop?0:clamp(120+crossDist*1.4, 120, 420);
+    const vx=dirX*spd + this.vx*0.3;
+    const vz=dirZ*spd + this.vz*0.3;
+    const fuse=isDrop?1.2:clamp(0.8+crossDist*0.006, 1.0, 2.5);
+    const launchVY=isDrop?-30:clamp(60+crossDist*0.5, 60, 200);
+    const launchY=9+this.py+28; // always launch from above head
     const b=new DropBomb(
-      this.wx+(isDrop?0:Math.cos(this.aim)*12),
-      this.wz+(isDrop?0:Math.sin(this.aim)*12),
+      this.wx+(isDrop?0:dirX*14),
+      this.wz+(isDrop?0:dirZ*14),
       launchY, vx, vz, fuse, launchVY);
     GS.dropBombs.push(b);
     this._disarmBomb();
@@ -5131,28 +5143,65 @@ class Player{
       this._crosshair=new THREE.Mesh(geo,mat);
       this._crosshair.rotation.x=-Math.PI/2;
       scene.add(this._crosshair);
-      // Inner dot
       const dotGeo=new THREE.CircleGeometry(3,16);
       const dotMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false});
       this._crosshairDot=new THREE.Mesh(dotGeo,dotMat);
       this._crosshairDot.rotation.x=-Math.PI/2;
       scene.add(this._crosshairDot);
-      // Cross lines
       const lpts=[new THREE.Vector3(-18,0,0),new THREE.Vector3(-11,0,0),new THREE.Vector3(11,0,0),new THREE.Vector3(18,0,0),
                   new THREE.Vector3(0,0,-18),new THREE.Vector3(0,0,-11),new THREE.Vector3(0,0,11),new THREE.Vector3(0,0,18)];
       const lGeo=new THREE.BufferGeometry().setFromPoints(lpts);
       this._crosshairLines=new THREE.LineSegments(lGeo,new THREE.LineBasicMaterial({color:0xff4400,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false}));
       scene.add(this._crosshairLines);
+
+      // ── TRAJECTORY ARC — dotted ballistic path ──
+      const TDOTS=28;
+      const tdotGeo=new THREE.SphereGeometry(2,5,4);
+      this._trajDots=[];
+      for(let i=0;i<TDOTS;i++){
+        const m=new THREE.Mesh(tdotGeo,new THREE.MeshBasicMaterial({color:0xff8800,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+        scene.add(m);
+        this._trajDots.push(m);
+      }
     }
+
     const groundY=1.5;
     this._crosshair.position.set(ax,groundY,az);
     this._crosshairDot.position.set(ax,groundY+0.5,az);
     this._crosshairLines.position.set(ax,groundY+0.5,az);
     this._crosshair.visible=true; this._crosshairDot.visible=true; this._crosshairLines.visible=true;
-    // Pulse scale with charge
     const pulse=1+0.15*Math.sin(performance.now()*0.008);
     this._crosshair.scale.setScalar(pulse);
     this._crosshairLines.scale.setScalar(pulse);
+
+    // ── Simulate trajectory and position dots ──
+    if(this._trajDots&&this._pendingThrowX!==undefined){
+      const crossDist=Math.hypot(ax-this.wx, az-this.wz);
+      const spd=clamp(120+crossDist*1.4,120,420);
+      const launchVY=clamp(60+crossDist*0.5,60,200);
+      let sx=this.wx+(this._pendingThrowX||0)*14;
+      let sz=this.wz+(this._pendingThrowZ||0)*14;
+      let sy=9+this.py+28;
+      let svx=(this._pendingThrowX||0)*spd;
+      let svz=(this._pendingThrowZ||0)*spd;
+      let svy=launchVY;
+      const GRAV=320, DT=0.045;
+      let bounces=0;
+      for(let i=0;i<this._trajDots.length;i++){
+        svy-=GRAV*DT; sx+=svx*DT; sz+=svz*DT; sy+=svy*DT;
+        if(sy<=9&&bounces<2){
+          sy=9; svy=Math.abs(svy)*0.45; svx*=0.7; svz*=0.7; bounces++;
+        } else if(sy<=9){ sy=9; svy=0; }
+        const frac=1-(i/this._trajDots.length)*0.7;
+        // Every other dot for "dotted" look
+        const visible=(i%2===0);
+        this._trajDots[i].position.set(sx,sy,sz);
+        this._trajDots[i].material.opacity=visible?frac*0.65:0;
+        const t=i/this._trajDots.length;
+        this._trajDots[i].material.color.setRGB(1,0.5+t*0.4,t*0.2);
+      }
+    }
+
     if(this._aimerLines) this._aimerLines.visible=false;
   }
 
@@ -5160,6 +5209,7 @@ class Player{
     if(this._crosshair){ this._crosshair.visible=false; }
     if(this._crosshairDot){ this._crosshairDot.visible=false; }
     if(this._crosshairLines){ this._crosshairLines.visible=false; }
+    if(this._trajDots) this._trajDots.forEach(d=>{ d.material.opacity=0; });
     if(this._aimer){ scene.remove(this._aimer); this._aimer=null; }
     if(this._aimerLines){ scene.remove(this._aimerLines); this._aimerLines=null; }
   }
@@ -6031,13 +6081,16 @@ function startGame(levelIdx){
         e.preventDefault();
         if(!player||GS.state!=='playing')return;
         if(player.bombArmed){
+          // Second tap always drops below (instant if airborne, ground drop if not)
           player._throwBomb(0,0);
           newBomb.classList.remove('armed');
+          exitAimMode(); // ensure aim mode clears too
         } else {
           if(player.bombs<=0){ announce('NO BOMBS','#ff4400'); return; }
           player._armBomb();
           newBomb.classList.add('armed');
-          announce('BOMB ARMED — THROW WITH RIGHT STICK','#ff8800');
+          if(player.py>8) announce('BOMB READY — HOLD RIGHT STICK TO AIM','#ff8800');
+          else announce('BOMB READY — THROW WITH RIGHT STICK','#ff8800');
         }
       },{passive:false});
     }
@@ -6809,17 +6862,33 @@ function enterAimMode(){
   if(CAM.aimMode||!player||!player.bombArmed) return;
   CAM.aimMode=true;
   CAM._savedDist=CAM.dist; CAM._savedHeight=CAM.height;
-  CAM.dist=75; CAM.height=40;
-  CAM.tpitch=0.18;
+  CAM.dist=60;   // tighter over-shoulder
+  CAM.height=40;
+  CAM.tpitch=0;  // neutral pitch to start — player moves it with mouse
+  player._hideAimer();
   document.getElementById('fp-crosshair').style.display='block';
-  announce('3D BOMB AIM — RELEASE TO THROW','#ff8800');
+  announce('3D AIM — HOLD & RELEASE TO THROW','#ff8800');
 }
 function exitAimMode(){
   if(!CAM.aimMode) return;
   CAM.aimMode=false;
-  CAM.dist=CAM._savedDist||230; CAM.height=CAM._savedHeight||200;
+  // Smoothly lerp back to saved camera — set targets and let updateCamera ease to them
+  if(CAM._savedDist){ CAM.dist=lerp(CAM.dist,CAM._savedDist,0.08); }
+  CAM.dist=CAM._savedDist||230;
+  CAM.height=CAM._savedHeight||200;
   CAM.tpitch=0; CAM.pitch=0;
   document.getElementById('fp-crosshair').style.display='none';
+}
+
+// Smooth camera restore — called each frame after exitAimMode to ease dist/height back
+function _camRestoreTick(){
+  if(CAM.aimMode) return;
+  if(CAM._savedDist&&Math.abs(CAM.dist-CAM._savedDist)>1){
+    CAM.dist=lerp(CAM.dist,CAM._savedDist,0.1);
+    CAM.height=lerp(CAM.height,CAM._savedHeight||200,0.1);
+  } else if(CAM._savedDist){
+    CAM._savedDist=null; CAM._savedHeight=null;
+  }
 }
 
 window.addEventListener('mousemove',e=>{ if(IS_TOUCH)return;
@@ -6837,49 +6906,60 @@ window.addEventListener('mousedown',e=>{ if(IS_TOUCH)return;
   else if(e.button===2&&GS.state==='playing'&&player){
     e.preventDefault();
     if(!player.bombArmed){
-      // First right-click: arm the bomb
+      // First right-click: ARM only — no throw, no hold timer yet
       if(player.bombs>0){
         player._armBomb();
-        mouse._rightHoldStart=performance.now();
-        mouse._rightHeld=true;
+        mouse._rightHeld=false; // explicitly not starting hold yet
         mouse._rightDidAim=false;
       } else { announce('NO BOMBS','#ff4400'); }
     } else if(!CAM.aimMode){
-      // Already armed, second right-click: start hold timer for 3D aim
+      // Bomb already armed — second right-click starts the hold timer
+      // Quick release = throw; hold 300ms = 3D aim mode
       mouse._rightHoldStart=performance.now();
       mouse._rightHeld=true;
       mouse._rightDidAim=false;
     }
-    // If already in aim mode, do nothing — release throws
+    // In aim mode already: do nothing — release throws
   }
 });
 window.addEventListener('mouseup',e=>{ if(IS_TOUCH)return;
   if(e.button===0) mouse.down=false;
   else if(e.button===2&&GS.state==='playing'&&player){
     if(CAM.aimMode&&player.bombArmed){
-      // Release from 3D aim — throw along camera yaw+pitch
+      // Throw in the exact forward direction the camera is looking
+      // Camera looks toward: (-sin(yaw)*cos(pitch), -sin(pitch), -cos(yaw)*cos(pitch))
       const cp=Math.cos(CAM.pitch), sp=Math.sin(CAM.pitch);
-      const throwX=-Math.sin(CAM.yaw)*cp;
-      const throwZ=-Math.cos(CAM.yaw)*cp;
+      const fwdX=-Math.sin(CAM.yaw)*cp;
+      const fwdZ=-Math.cos(CAM.yaw)*cp;
+      const fwdY=-sp;  // negative because pitch up = look up = negative Y in lookAt math
+      // Actually: pitch positive = camera goes up, lookAt goes DOWN in Y → throw downward
+      // We want: pitch up = throw upward, so invert
+      const throwY=sp; // positive pitch = bomb goes upward
+      const spd=380;
       const b=new DropBomb(
-        player.wx+throwX*12, player.wz+throwZ*12,
-        9+player.py+20, throwX*320+player.vx*0.2, throwZ*320+player.vz*0.2, 1.8, sp*320
+        player.wx+fwdX*14, player.wz+fwdZ*14,
+        9+player.py+28,          // start above player head
+        fwdX*spd+player.vx*0.3,
+        fwdZ*spd+player.vz*0.3,
+        2.2,
+        throwY*spd               // initVY: up when looking up
       );
       GS.dropBombs.push(b);
       player.bombs=Math.max(0,player.bombs-1);
       player._disarmBomb();
       const bb=document.getElementById('btn-bomb-arm');
       if(bb) bb.classList.remove('armed');
-      Audio.blip(300,0.12,'sine',0.2,160);
+      Audio.blip(300,0.14,'sine',0.22,160);
       announce('BOMB THROWN','#ff8800');
       exitAimMode();
     } else if(mouse._rightHeld&&player&&player.bombArmed&&!mouse._rightDidAim){
-      // Short right-click while armed (no aim mode) → throw toward ground crosshair
+      // Second right-click quick release (not held long enough for aim mode) → throw to ground crosshair
       const tx=player._aimerX!==undefined?player._aimerX:player.wx+Math.cos(player.aim)*120;
       const tz=player._aimerZ!==undefined?player._aimerZ:player.wz+Math.sin(player.aim)*120;
       const dx=tx-player.wx, dz=tz-player.wz, dist=Math.hypot(dx,dz)||1;
       player._throwBomb(dx/dist,dz/dist);
     }
+    // Note: if mouse._rightHeld is false (first click release), we do nothing — bomb stays armed
     mouse._rightHeld=false;
     mouse._rightDidAim=false;
   }
@@ -7110,26 +7190,31 @@ jR.onHoldStart=function(){
 jR.onHoldEnd=function(){
   if(player){
     player._jetting=false;
-    if(jR._holdEnteredAimMode&&player.bombArmed){
-      // Release from 3D aim mode — throw along camera yaw+pitch
-      const cp=Math.cos(CAM.pitch), sp=Math.sin(CAM.pitch);
-      const throwX=-Math.sin(CAM.yaw)*cp;
-      const throwZ=-Math.cos(CAM.yaw)*cp;
-      const b=new DropBomb(
-        player.wx+throwX*12, player.wz+throwZ*12,
-        9+player.py+20, throwX*320+player.vx*0.2, throwZ*320+player.vz*0.2, 1.8, sp*320
-      );
-      GS.dropBombs.push(b);
-      player.bombs=Math.max(0,player.bombs-1);
-      player._disarmBomb();
-      const bb=document.getElementById('btn-bomb-arm');
-      if(bb) bb.classList.remove('armed');
-      Audio.blip(300,0.12,'sine',0.2,160);
-      announce('BOMB THROWN','#ff8800');
-      exitAimMode();
+    // If we were in 3D aim mode, throw bomb and exit — always, no conditions
+    if(CAM.aimMode){
+      if(player.bombArmed){
+        // Throw in camera forward direction
+        const cp=Math.cos(CAM.pitch), sp=Math.sin(CAM.pitch);
+        const fwdX=-Math.sin(CAM.yaw)*cp;
+        const fwdZ=-Math.cos(CAM.yaw)*cp;
+        const spd=380;
+        const b=new DropBomb(
+          player.wx+fwdX*14, player.wz+fwdZ*14,
+          9+player.py+28,
+          fwdX*spd+player.vx*0.3, fwdZ*spd+player.vz*0.3, 2.2, sp*spd
+        );
+        GS.dropBombs.push(b);
+        player.bombs=Math.max(0,player.bombs-1);
+        player._disarmBomb();
+        const bb=document.getElementById('btn-bomb-arm');
+        if(bb) bb.classList.remove('armed');
+        Audio.blip(300,0.14,'sine',0.22,160);
+        announce('BOMB THROWN','#ff8800');
+      }
+      exitAimMode(); // always exit, even if bomb was already gone
     }
-    jR._holdEnteredAimMode=false;
   }
+  jR._holdEnteredAimMode=false;
   jR._holdingForJet=false;
 };
 // contextmenu suppressed — right-click is jump
@@ -7155,27 +7240,32 @@ function loop(ts){ requestAnimationFrame(loop);
   try{
     let rawDt=Math.min((ts-lastT)/1000,0.033);lastT=ts;frame++;
     updateTime(); const dt=rawDt*TIME.scale;
-    // ── JETPACK HOLD — if right stick is held on mobile and player is airborne (no bomb), keep jetting ──
+    // ── JETPACK HOLD — airborne, no bomb ──
     if(IS_TOUCH&&jR._holdingForJet&&player&&player.py>8&&!player._onPlatform&&player.boostFuel>0&&!player.bombArmed){
       player._jetting=true;
     }
 
-    // ── 3D BOMB AIM MODE — right stick held still 500ms with bomb armed ──
+    // ── 3D BOMB AIM MODE — right stick held while bomb armed ──
+    // Enter immediately on hold (no 500ms wait). Exit always on stick release (handled in onHoldEnd).
     if(IS_TOUCH&&jR._holdingForJet&&player&&player.bombArmed&&!CAM.aimMode){
-      const held=performance.now()-(jR._holdStartTime||0);
-      const stickMag=Math.hypot(shootIn.x,shootIn.y);
-      if(held>500&&stickMag<0.25){
-        enterAimMode();
-        jR._holdEnteredAimMode=true;
-        player._jetting=false;
+      // Smooth transition into aim mode as soon as stick is held
+      enterAimMode();
+      jR._holdEnteredAimMode=true;
+      player._jetting=false;
+    }
+    // In 3D aim mode: right stick X = yaw, Y = pitch
+    if(IS_TOUCH&&CAM.aimMode&&jR._holdingForJet){
+      if(Math.hypot(shootIn.x,shootIn.y)>0.05){
+        CAM.tyaw-=shootIn.x*0.05;
+        CAM.tpitch=clamp((CAM.tpitch||0)+shootIn.y*0.035,-0.55,0.75);
       }
     }
-    // In 3D aim mode on mobile: stick orbits yaw and pitch
-    if(IS_TOUCH&&CAM.aimMode&&player&&player.bombArmed){
-      CAM.tyaw-=shootIn.x*0.045;
-      CAM.tpitch=clamp((CAM.tpitch||0)+shootIn.y*0.03, -0.55, 0.75);
+    // Safety: if aim mode is on but stick released and bomb gone, always exit
+    if(IS_TOUCH&&CAM.aimMode&&!jR._holdingForJet){
+      exitAimMode();
     }
 
+    _camRestoreTick();
     updateCamera(rawDt);
     grid.update(dt); ps.update(dt);
     for(const p of GS_portals) p.update(dt,player);
@@ -7239,9 +7329,7 @@ function loop(ts){ requestAnimationFrame(loop);
         // Tick roll lock timer
         if(ud._rollingTimer>0){
           ud._rollingTimer-=dt;
-          // While rolling: skip blend switch entirely, just run mixer
-          player._mixer.update(0); // already updated above
-          // Fall through to speed scaling so roll plays at right speed
+          if(ud._rollingTimer<0) ud._rollingTimer=0; // never go negative
         }
 
         // Landing detection — was airborne, now on ground (debounced)
@@ -7360,13 +7448,17 @@ function loop(ts){ requestAnimationFrame(loop);
         const ws=rotInput(shootIn.x,shootIn.y);
         avx=ws.x; avz=ws.z; aiming=true; firing=false;
       }
+      // In aim mode: aim direction follows camera yaw so robot faces forward, animation runs normally
+      if(IS_TOUCH&&CAM.aimMode&&player){
+        avx=-Math.sin(CAM.yaw); avz=-Math.cos(CAM.yaw); aiming=true; firing=false;
+      }
       if(!IS_TOUCH&&mouse.has){
         const a=screenToPlaneDir(mouse.px,mouse.py,player.wx,player.wz);
         avx=a.x; avz=a.z;
         firing=mouse.down&&!grenadeActive&&!flickActive;
         aiming=true;
-        // When bomb armed on desktop: crosshair follows mouse on ground plane
-        if(grenadeActive&&!mouse._bombAimMode){
+        // When bomb armed on desktop and NOT in aim mode: ground crosshair follows mouse
+        if(grenadeActive&&!CAM.aimMode){
           // Project mouse to a world position on the ground plane
           _ndc.x=(mouse.px/window.innerWidth)*2-1;
           _ndc.y=-(mouse.py/window.innerHeight)*2+1;
@@ -7389,17 +7481,12 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.streakT>0){GS.streakT--;if(GS.streakT<=0)GS.streak=0;}
 
       // ── DESKTOP BOMB HOLD-AIM MODE ──
-      // Holding right-click for 300ms with bomb armed → 3D aim mode
       if(!IS_TOUCH&&mouse._rightHeld&&player&&player.bombArmed&&!CAM.aimMode){
         const held=performance.now()-(mouse._rightHoldStart||0);
         if(held>300){
           enterAimMode();
           mouse._rightDidAim=true;
         }
-      }
-      // In 3D aim mode: hide ground crosshair, show FP crosshair instead
-      if(!IS_TOUCH&&CAM.aimMode&&player&&player.bombArmed){
-        player._hideAimer(); // hide ground-plane ring while in 3D mode
       }
       if(!IS_TOUCH&&!mouse._rightHeld&&CAM.aimMode&&(!player||!player.bombArmed)){
         exitAimMode();
@@ -7410,12 +7497,15 @@ function loop(ts){ requestAnimationFrame(loop);
       // (hover removed — tap-burst system now in jR.onTap)
       // Keyboard bomb arm/throw
       // G key removed - use F for triple burst or left stick tap to cycle weapons
-      // Update bomb crosshair — pass world-space stick direction for crosshair movement
-      if(player&&player.bombArmed){
+      // Update bomb ground crosshair — skip entirely in 3D aim mode
+      if(player&&player.bombArmed&&!CAM.aimMode){
         const sm=Math.hypot(shootIn.x,shootIn.y);
         let worldX=0,worldZ=0;
         if(sm>0.08){ const ws=rotInput(shootIn.x,shootIn.y); worldX=ws.x; worldZ=ws.z; }
         player.updateBomb(dt,worldX,worldZ);
+      } else if(player&&CAM.aimMode){
+        // Hide ground crosshair in 3D aim mode
+        player._hideAimer();
       }
       // Level objects: buttons/keys; platforms+blocks in updatePuzzleLevel (runs BEFORE player physics)
       GS_objects.forEach(o=>{ if(o instanceof LevelButton||o instanceof KeyPickup) o.update&&o.update(dt); });
