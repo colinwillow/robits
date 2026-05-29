@@ -560,22 +560,32 @@ function updateCamera(dt){
 
   if(CAM.aimMode){
     CAM.pitch=lerp(CAM.pitch,CAM.tpitch,0.18);
-    // Simple, direct over-shoulder camera from yaw + pitch
-    // Forward direction (what we're aiming AT):
+    // Forward direction (what we're aiming AT) — purely from yaw + pitch
     const fwdX=-Math.sin(CAM.yaw)*Math.cos(CAM.pitch);
-    const fwdY= Math.sin(CAM.pitch);   // positive pitch = look UP
+    const fwdY= Math.sin(CAM.pitch);   // positive = look UP
     const fwdZ=-Math.cos(CAM.yaw)*Math.cos(CAM.pitch);
-    // Store normalized forward for throw — this IS the throw direction
     CAM._aimFwdX=fwdX; CAM._aimFwdY=fwdY; CAM._aimFwdZ=fwdZ;
-    // Camera sits behind player (opposite of fwd) and slightly above
-    const d=CAM.dist;
-    const focusX=CAM.focus.x, focusY=CAM.focus.y+20, focusZ=CAM.focus.z;
-    const camX=focusX - fwdX*d;
-    const camY=focusY - fwdY*d + 15; // always slightly above player regardless of pitch
-    const camZ=focusZ - fwdZ*d;
-    camera.position.set(camX, camY, camZ);
-    // Look from camera toward focus+forward
-    camera.lookAt(focusX+fwdX*100, focusY+fwdY*100, focusZ+fwdZ*100);
+
+    // Camera: fixed over-shoulder position — high above player, pulled back, offset right
+    // Independent of pitch so the camera doesn't plunge into the ground when looking up
+    const playerX=CAM.focus.x, playerZ=CAM.focus.z;
+    const playerY=CAM.focus.y; // player feet/center Y
+    const backX= Math.sin(CAM.yaw)*90;  // 90 units behind player
+    const backZ= Math.cos(CAM.yaw)*90;
+    const rightX= Math.cos(CAM.yaw)*18; // 18 units to the right (over shoulder)
+    const rightZ=-Math.sin(CAM.yaw)*18;
+    camera.position.set(
+      playerX + backX + rightX,
+      playerY + 80,   // 80 units above player center — well above head
+      playerZ + backZ + rightZ
+    );
+    // Look toward aim point far in front of player
+    const aimDist=300;
+    camera.lookAt(
+      playerX + fwdX*aimDist,
+      playerY + 40 + fwdY*aimDist,  // 40 = approximate head height
+      playerZ + fwdZ*aimDist
+    );
     CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
     return;
   }
@@ -6876,10 +6886,18 @@ function enterAimMode(){
   if(CAM.aimMode||!player||!player.bombArmed) return;
   CAM.aimMode=true;
   CAM._savedDist=CAM.dist; CAM._savedHeight=CAM.height;
-  CAM.dist=60;   // tighter over-shoulder
-  CAM.height=40;
-  CAM.tpitch=0;  // neutral pitch to start — player moves it with mouse
+  CAM.dist=90; CAM.height=80;
+  CAM.tpitch=0;
   player._hideAimer();
+  // Make robot semi-transparent so camera can see through him
+  if(player.model) player.model.traverse(o=>{
+    if(o.isMesh&&o.material){
+      o._savedOpacity=o.material.opacity;
+      o._savedTransparent=o.material.transparent;
+      o.material.transparent=true;
+      o.material.opacity=Math.min(o.material.opacity,0.25);
+    }
+  });
   document.getElementById('fp-crosshair').style.display='block';
   announce('3D AIM — HOLD & RELEASE TO THROW','#ff8800');
 }
@@ -6887,7 +6905,14 @@ function exitAimMode(){
   if(!CAM.aimMode) return;
   CAM.aimMode=false;
   CAM.tpitch=0;
-  // Don't snap — _camRestoreTick lerps dist/height back over ~0.5s
+  // Restore robot opacity
+  if(player&&player.model) player.model.traverse(o=>{
+    if(o.isMesh&&o.material&&o._savedOpacity!==undefined){
+      o.material.opacity=o._savedOpacity;
+      o.material.transparent=o._savedTransparent;
+      o._savedOpacity=undefined;
+    }
+  });
   document.getElementById('fp-crosshair').style.display='none';
 }
 
