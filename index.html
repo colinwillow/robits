@@ -560,30 +560,28 @@ function updateCamera(dt){
 
   if(CAM.aimMode){
     CAM.pitch=lerp(CAM.pitch,CAM.tpitch,0.18);
-    // Forward direction (what we're aiming AT) — purely from yaw + pitch
     const fwdX=-Math.sin(CAM.yaw)*Math.cos(CAM.pitch);
-    const fwdY= Math.sin(CAM.pitch);   // positive = look UP
+    const fwdY= Math.sin(CAM.pitch);
     const fwdZ=-Math.cos(CAM.yaw)*Math.cos(CAM.pitch);
     CAM._aimFwdX=fwdX; CAM._aimFwdY=fwdY; CAM._aimFwdZ=fwdZ;
 
-    // Camera: fixed over-shoulder position — high above player, pulled back, offset right
-    // Independent of pitch so the camera doesn't plunge into the ground when looking up
     const playerX=CAM.focus.x, playerZ=CAM.focus.z;
-    const playerY=CAM.focus.y; // player feet/center Y
-    const backX= Math.sin(CAM.yaw)*90;  // 90 units behind player
+    const playerY=CAM.focus.y;
+    const backX= Math.sin(CAM.yaw)*90;
     const backZ= Math.cos(CAM.yaw)*90;
-    const rightX= Math.cos(CAM.yaw)*18; // 18 units to the right (over shoulder)
+    const rightX= Math.cos(CAM.yaw)*18;
     const rightZ=-Math.sin(CAM.yaw)*18;
     camera.position.set(
       playerX + backX + rightX,
-      playerY + 55,   // lowered from 80
+      playerY + 38,   // lowered — player stays in frame when looking up
       playerZ + backZ + rightZ
     );
-    // Look toward aim point far in front of player
-    const aimDist=300;
+    // Look toward player center + short forward offset in aim direction
+    // Short distance (80) keeps player in frame; aim direction still visible via trajectory
+    const aimDist=80;
     camera.lookAt(
       playerX + fwdX*aimDist,
-      playerY + 40 + fwdY*aimDist,  // 40 = approximate head height
+      playerY + 30 + fwdY*aimDist,  // 30 = player chest height
       playerZ + fwdZ*aimDist
     );
     CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
@@ -5230,26 +5228,28 @@ class Player{
   _buildShieldMesh(){
     if(this._shieldMesh3D) return;
     const group=new THREE.Group();
-    // Flatter half-sphere: thetaLength = π*0.35 (less tall, more disc-like)
-    // rotation.x = π/2 opens cap toward -Z (forward in local space)
-    const domeGeo=new THREE.SphereGeometry(30,14,6,0,Math.PI*2,0,Math.PI*0.35);
+    const R=32;
+    // Full half-sphere (thetaLength=π*0.5), then squish depth with scale.z so it looks flattened
+    const domeGeo=new THREE.SphereGeometry(R,16,10,0,Math.PI*2,0,Math.PI*0.5);
     this._shieldMat3D=new THREE.MeshBasicMaterial({color:0x00aaff,wireframe:true,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false});
     const dome=new THREE.Mesh(domeGeo,this._shieldMat3D);
-    dome.rotation.x=Math.PI/2;
+    dome.rotation.x=Math.PI/2; // open face toward -Z
+    // Don't scale the dome itself — scale the whole group's Z after adding everything
     group.add(dome);
-    // Rim ring
-    const rimGeo=new THREE.TorusGeometry(30,1.2,4,32,Math.PI*2);
+    // Rim ring at radius R in the XY plane — exactly matches the dome's flat edge
+    const rimGeo=new THREE.TorusGeometry(R,1.5,6,40,Math.PI*2);
     this._shieldRimMat=new THREE.MeshBasicMaterial({color:0x44ddff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
     const rim=new THREE.Mesh(rimGeo,this._shieldRimMat);
     group.add(rim);
-    // Face fill
-    const faceMat=new THREE.MeshBasicMaterial({color:0x0044aa,transparent:true,opacity:0.1,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
-    const face=new THREE.Mesh(new THREE.CircleGeometry(30,32),faceMat);
+    // Face fill disc
+    const faceMat=new THREE.MeshBasicMaterial({color:0x0055cc,transparent:true,opacity:0.1,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+    const face=new THREE.Mesh(new THREE.CircleGeometry(R,40),faceMat);
     face.rotation.y=Math.PI;
     group.add(face);
     this._shieldFaceMat=faceMat;
     scene.add(group);
     this._shieldMesh3D=group;
+    group.scale.z=0.3; // squish front-to-back depth, keep full circular shape
     this._shieldHitFlash=0;
   }
   activateShield(){
@@ -5299,7 +5299,7 @@ class Player{
       this._shieldMesh3D.visible=this.shieldActive;
       if(this.shieldActive){
         // Position shield in front of player at chest height, dome facing aim direction
-        const shieldDist=28;
+        const shieldDist=20;
         const sx=this.wx+Math.cos(this.aim)*shieldDist;
         const sz=this.wz+Math.sin(this.aim)*shieldDist;
         const chestY=28+this.py; // chest height above ground
@@ -6054,16 +6054,18 @@ function startGame(levelIdx){
   else spawnWave();
   setupSpecialLevel(GS.zone);
   if(IS_TOUCH){document.getElementById('joystick-left').style.display='block';document.getElementById('joystick-right').style.display='block';
-    // Show and position the cycle weapon button above the left stick
+    // All action buttons share the same bottom baseline: joystick bottom + joystick height + gap
+    const BTN_BOTTOM='calc(max(env(safe-area-inset-bottom), 28px) + 118px + 14px)';
+    const BTN_SIZE=52; // slightly larger buttons
+
+    // CYCLE button — centered above left stick
     const cycleBtn=document.getElementById('btn-cycle');
     if(cycleBtn){
       cycleBtn.style.display='flex';
-      const jlEl=document.getElementById('joystick-left');
-      const jlRect=jlEl.getBoundingClientRect();
-      const btnW=48, btnH=48;
-      cycleBtn.style.left=(jlRect.left+jlRect.width/2-btnW/2)+'px';
-      cycleBtn.style.bottom=(window.innerHeight-jlRect.top+28)+'px';
-      // Remove old listeners by cloning
+      cycleBtn.style.width=BTN_SIZE+'px'; cycleBtn.style.height=BTN_SIZE+'px';
+      cycleBtn.style.left='calc(max(env(safe-area-inset-left), 22px) + 33px)'; // center of left stick
+      cycleBtn.style.bottom=BTN_BOTTOM;
+      cycleBtn.style.right=''; // clear any right
       const newCycle=cycleBtn.cloneNode(true);
       cycleBtn.parentNode.replaceChild(newCycle,cycleBtn);
       newCycle.addEventListener('touchstart',e=>{
@@ -6074,27 +6076,23 @@ function startGame(levelIdx){
         updateWeaponHUD();
       },{passive:false});
     }
-    // Bomb arm button — centered above right stick
+
+    // BOMB button — above right stick, rightmost
     const bombBtn=document.getElementById('btn-bomb-arm');
     if(bombBtn){
       bombBtn.style.display='flex';
-      // Use same bottom offset as joystick-right, then add joystick height + gap
-      // joystick-right: bottom=max(env(safe-area-inset-bottom),28px), height=118px
-      // So bomb button bottom = joystick bottom + joystick height + 10px gap
-      bombBtn.style.right='max(env(safe-area-inset-right), 22px)';  // align with right joystick right edge center
-      bombBtn.style.bottom='calc(max(env(safe-area-inset-bottom), 28px) + 118px + 10px)';
-      // Center above the joystick: joystick right=22px, width=118px, center=22+59=81px from right
-      bombBtn.style.right='calc(max(env(safe-area-inset-right), 22px) + 35px)'; // 22 + (118/2) - (48/2) = 22+59-24=57
+      bombBtn.style.width=BTN_SIZE+'px'; bombBtn.style.height=BTN_SIZE+'px';
+      bombBtn.style.right='calc(max(env(safe-area-inset-right), 22px) + 22px)'; // near right edge of stick
+      bombBtn.style.bottom=BTN_BOTTOM;
       const newBomb=bombBtn.cloneNode(true);
       bombBtn.parentNode.replaceChild(newBomb,bombBtn);
       newBomb.addEventListener('touchstart',e=>{
         e.preventDefault();
         if(!player||GS.state!=='playing')return;
         if(player.bombArmed){
-          // Second tap always drops below (instant if airborne, ground drop if not)
           player._throwBomb(0,0);
           newBomb.classList.remove('armed');
-          exitAimMode(); // ensure aim mode clears too
+          exitAimMode();
         } else {
           if(player.bombs<=0){ announce('NO BOMBS','#ff4400'); return; }
           player._armBomb();
@@ -6104,19 +6102,18 @@ function startGame(levelIdx){
         }
       },{passive:false});
     }
-    // Shield button — to the left of bomb button, above right stick
+
+    // SHIELD button — to the left of bomb, with a comfortable gap
     const shieldBtn=document.getElementById('btn-shield');
     if(shieldBtn){
       shieldBtn.style.display='flex';
-      // Bomb is at right=57px, width=48px → bomb left edge at right=57+48=105px from right
-      // Shield goes left of bomb with 10px gap → right = 57+48+10 = 115px
-      shieldBtn.style.right='calc(max(env(safe-area-inset-right), 22px) + 83px)';
-      shieldBtn.style.bottom='calc(max(env(safe-area-inset-bottom), 28px) + 118px + 10px)';
-      // Position shield health bar above shield button
+      shieldBtn.style.width=BTN_SIZE+'px'; shieldBtn.style.height=BTN_SIZE+'px';
+      shieldBtn.style.right='calc(max(env(safe-area-inset-right), 22px) + 22px + '+BTN_SIZE+'px + 16px)'; // bomb right + bomb width + gap
+      shieldBtn.style.bottom=BTN_BOTTOM;
       const shieldBar=document.getElementById('shield-bar-wrap');
       if(shieldBar){
-        shieldBar.style.right='calc(max(env(safe-area-inset-right), 22px) + 80px)';
-        shieldBar.style.bottom='calc(max(env(safe-area-inset-bottom), 28px) + 118px + 10px + 54px)';
+        shieldBar.style.right='calc(max(env(safe-area-inset-right), 22px) + 22px + '+BTN_SIZE+'px + 14px)';
+        shieldBar.style.bottom='calc(max(env(safe-area-inset-bottom), 28px) + 118px + 14px + '+BTN_SIZE+'px + 6px)';
         shieldBar.style.position='fixed';
         shieldBar.style.display='block';
       }
