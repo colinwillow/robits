@@ -286,6 +286,7 @@ canvas{display:block}
 <div id="overlay">
   <div class="title-wrap" style="margin-top:8px"><h1>Robot Wars</h1><div class="title-sub">Dimension</div></div>
   <div class="subtitle">3D · Campaign Mode</div>
+  <div style="font-size:11px;letter-spacing:3px;color:#ffffff66;text-align:center;margin-top:-4px;margin-bottom:4px">v0.080</div>
 
   <!-- QUICK PLAY — always visible, no scrolling needed -->
   <button class="start-btn" id="quick-play-btn" style="margin:12px auto 4px;display:block;padding:16px 48px;font-size:1.1em;
@@ -8148,23 +8149,7 @@ jL.onTap=()=>{
       for(const t of e.changedTouches)if(t.identifier===jR.id){
         jR._swipeHist.push({x:t.clientX,y:t.clientY,time:performance.now()});
 
-        // Right stick flick = grab/release wall (puzzle lab)
-        if(player&&GS.state==='playing'&&GS.zone===-3&&!player.bombArmed){
-          const hist=jR._swipeHist||[];
-          if(hist.length>=2){
-            const first=hist[0], last=hist[hist.length-1];
-            const totalDist=Math.hypot(last.x-first.x,last.y-first.y);
-            const elapsed=(last.time-first.time)||1;
-            const now2=performance.now();
-            if(totalDist>12&&totalDist/elapsed>0.2&&elapsed<400&&
-               (!window._wallFlickT||now2-window._wallFlickT>500)){
-              window._wallFlickT=now2;
-              jR._tapMoved=true; // suppress onTap jump
-              // Defer to next frame so touch event finishes cleanly
-              setTimeout(()=>tryInteractWall(), 0);
-            }
-          }
-        }
+        // Right stick toward wall = grab; jump or stick away = release
 
         if(player&&GS.state==='playing'&&player.bombArmed&&!CAM.aimMode){
           const hist=jR._swipeHist||[];
@@ -8547,12 +8532,32 @@ function loop(ts){ requestAnimationFrame(loop);
       const flickActive=player&&player._flickCooldown>0;
       if(flickActive&&player) player._flickCooldown--;
 
+      // In puzzle lab: check if right stick is pointing toward a wall — suppress firing if so
+      let nearWallStick=false;
+      if(IS_TOUCH&&GS.zone===-3&&player){
+        const sx=shootIn.x, sy=shootIn.y;
+        const stickMag=Math.hypot(sx,sy);
+        if(stickMag>0.3){
+          const ws=rotInput(sx,sy);
+          for(const w of GS_moveableWalls){
+            const toWallX=w.wx-player.wx, toWallZ=w.wz-player.wz;
+            const dist=Math.hypot(toWallX,toWallZ);
+            if(dist<w.w/2+50){
+              const dot=(ws.x*toWallX+ws.z*toWallZ)/(dist||1);
+              if(dot>0.3){ nearWallStick=true; break; }
+            }
+          }
+          // Also suppress if already grabbed
+          if(GS_movingWall&&GS_movingWall._grabbed) nearWallStick=true;
+        }
+      }
+
       if(IS_TOUCH&&stickAim&&!grenadeActive&&!CAM.aimMode){
         // Right stick = twin-stick aim + fire primary weapon
         const ws=rotInput(shootIn.x,shootIn.y);
         avx=ws.x; avz=ws.z; aiming=true;
         const stickMag=Math.hypot(shootIn.x,shootIn.y);
-        firing=stickMag>0.6&&!flickActive;
+        firing=stickMag>0.6&&!flickActive&&!nearWallStick;
       }
       if(IS_TOUCH&&grenadeActive&&stickAim&&!CAM.aimMode){
         // Bomb armed (not in aim mode): right stick moves ground crosshair
@@ -8834,6 +8839,27 @@ function loop(ts){ requestAnimationFrame(loop);
       }
       // ── PUZZLE LAB WALLS ──
       if(GS.zone===-3){
+        // Right stick toward wall = grab; stick low or jump = release
+        if(player&&IS_TOUCH){
+          try{
+            const sx=shootIn.x, sy=shootIn.y;
+            const stickMag=Math.hypot(sx,sy);
+            const alreadyGrabbed=GS_movingWall&&GS_movingWall._grabbed;
+            if(stickMag>0.3&&!alreadyGrabbed){
+              const ws=rotInput(sx,sy);
+              for(const w of GS_moveableWalls){
+                const toWallX=w.wx-player.wx, toWallZ=w.wz-player.wz;
+                const dist=Math.hypot(toWallX,toWallZ);
+                if(dist<w.w/2+30){
+                  const dot=(ws.x*toWallX+ws.z*toWallZ)/(dist||1);
+                  if(dot>0.3){ w.grab(); GS_movingWall=w; break; }
+                }
+              }
+            } else if(alreadyGrabbed&&(stickMag<0.15||player.pvy>50)){
+              GS_movingWall.release(); GS_movingWall=null;
+            }
+          }catch(e){ console.error('Wall grab error:',e); GS_movingWall=null; }
+        }
         for(const w of GS_moveableWalls){
           w.update(dt);
           // Player can land on top of wall
@@ -9854,6 +9880,58 @@ window.addEventListener('unhandledrejection', e=>{
 try{ buildLevelSelect(); }catch(e){ console.warn('buildLevelSelect:',e); }
 try{ renderLeaderboard(document.getElementById('lb-list')); }catch(e){ const el=document.getElementById('lb-list'); if(el)el.innerHTML='<div style="text-align:center;color:#ffffff44;padding:16px">Scores saved locally</div>'; }
 try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:',e); }
+</script>
+<!-- ON-SCREEN DEBUG CONSOLE — remove when done -->
+<div id="dbg-panel" style="
+  position:fixed;bottom:0;left:0;right:0;
+  max-height:35vh;overflow-y:auto;
+  background:rgba(0,0,0,0.85);
+  font:11px/1.5 monospace;
+  color:#00ff88;
+  padding:6px 8px;
+  z-index:99999;
+  pointer-events:none;
+  display:none;
+  border-top:1px solid #00ff8844;
+"></div>
+<button id="dbg-toggle" style="
+  position:fixed;bottom:0;right:0;
+  background:#00ff8822;border:1px solid #00ff8866;
+  color:#00ff88;font:10px monospace;
+  padding:4px 8px;z-index:100000;
+  border-radius:4px 0 0 0;
+">DBG</button>
+<script>
+(function(){
+  const panel=document.getElementById('dbg-panel');
+  const toggle=document.getElementById('dbg-toggle');
+  let visible=true;
+  panel.style.display='block';
+  toggle.addEventListener('click',()=>{
+    visible=!visible;
+    panel.style.display=visible?'block':'none';
+  });
+  const MAX=60;
+  const lines=[];
+  function addLine(type,args){
+    const txt=args.map(a=>{
+      if(typeof a==='object'){try{return JSON.stringify(a);}catch(e){return String(a);}}
+      return String(a);
+    }).join(' ');
+    const color=type==='error'?'#ff4444':type==='warn'?'#ffaa00':'#00ff88';
+    lines.push(`<span style="color:${color}">${txt}</span>`);
+    if(lines.length>MAX) lines.shift();
+    panel.innerHTML=lines.join('<br>');
+    panel.scrollTop=panel.scrollHeight;
+  }
+  const _log=console.log.bind(console);
+  const _warn=console.warn.bind(console);
+  const _err=console.error.bind(console);
+  console.log=(...a)=>{_log(...a);addLine('log',a);};
+  console.warn=(...a)=>{_warn(...a);addLine('warn',a);};
+  console.error=(...a)=>{_err(...a);addLine('error',a);};
+  window.addEventListener('error',e=>addLine('error',[e.message+' '+e.filename+':'+e.lineno]));
+})();
 </script>
 </body>
 </html>
