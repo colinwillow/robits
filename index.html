@@ -4708,16 +4708,38 @@ class DropBomb{
     if(this.y<=9){
       this.y=9;
       if(Math.abs(this.vy)>40){
-        this.vy=Math.abs(this.vy)*0.45; // bounce up with energy loss
-        this.vx*=0.7; this.vz*=0.7; // friction on bounce
+        this.vy=Math.abs(this.vy)*0.45;
+        this.vx*=0.7; this.vz*=0.7;
         this.bounces++;
-        // Bounce spark
         ps.burst(this.wx,this.wz,[1,0.5,0.1],12,80);
         grid.push(this.wx,this.wz,2,60);
         Audio.blip(120+rand(40),0.1,'sine',0.15,60);
         if(this.bounces>=this.maxBounces){ this.vy=0; this.vx*=0.2; this.vz*=0.2; }
       } else {
-        this.vy=0; this.vx*=0.85; this.vz*=0.85; // rolling friction
+        this.vy=0; this.vx*=0.85; this.vz*=0.85;
+      }
+    }
+
+    // Bounce/rest on top of moveable walls — account for bomb radius (7 units)
+    if(typeof GS_moveableWalls!=='undefined'){
+      for(const w of GS_moveableWalls){
+        const hw=w.w/2, hd=w.d/2;
+        const BOMB_R=7;
+        const surfaceY=w.h+BOMB_R; // bomb center when resting on surface
+        if(Math.abs(this.wx-w.wx)<hw&&Math.abs(this.wz-w.wz)<hd&&this.y<=surfaceY+4&&this.vy<=0){
+          this.y=surfaceY;
+          if(Math.abs(this.vy)>40){
+            this.vy=Math.abs(this.vy)*0.4;
+            this.vx*=0.7; this.vz*=0.7;
+            this.bounces++;
+            ps.burst(this.wx,this.wz,[1,0.5,0.1],8,60);
+            Audio.blip(120+rand(40),0.08,'sine',0.12,60);
+            if(this.bounces>=this.maxBounces){ this.vy=0; this.vx*=0.2; this.vz*=0.2; }
+          } else {
+            this.vy=0; this.vx*=0.82; this.vz*=0.82;
+          }
+          break;
+        }
       }
     }
 
@@ -5682,20 +5704,58 @@ class Player{
       this._arrowIndicator=new THREE.LineSegments(aGeo,aMat);
       scene.add(this._arrowIndicator);
     }
-    // Find ground level — platform top or world floor
+    // Find the surface directly below player — world floor, platforms, walls, enemies
     let groundY=0;
+    let onSurface=false; // true if player is actually resting on a surface above world floor
+
+    // Platforms
     const platforms=typeof GS_objects!=='undefined'?GS_objects.filter(o=>o instanceof Platform):[];
     for(const p of platforms){
       if(Math.abs(this.wx-p.wx)<p.w/2&&Math.abs(this.wz-p.wz)<p.d/2){
         const pTop=p.y+p._slabH;
-        if(pTop<this.py-2) groundY=Math.max(groundY,pTop);
+        if(pTop<=this.py+2) groundY=Math.max(groundY,pTop);
+        if(Math.abs(this.py-pTop)<3) onSurface=true;
       }
     }
+    // Moveable walls
+    if(typeof GS_moveableWalls!=='undefined'){
+      for(const w of GS_moveableWalls){
+        if(Math.abs(this.wx-w.wx)<w.w/2&&Math.abs(this.wz-w.wz)<w.d/2){
+          if(w.h<=this.py+2) groundY=Math.max(groundY,w.h);
+          if(Math.abs(this.py-w.h)<3) onSurface=true;
+        }
+      }
+    }
+    // Enemies — show indicator projected onto their top
+    if(typeof GS!=='undefined'&&GS.enemies){
+      for(const e of GS.enemies){
+        if(!e.alive) continue;
+        const ed=Math.hypot(this.wx-e.wx,this.wz-e.wz);
+        if(ed<(e.size||20)){
+          const eTop=(e.size||20);
+          if(eTop<=this.py+2) groundY=Math.max(groundY,eTop);
+        }
+      }
+    }
+    // Bots
+    if(typeof GS_bots!=='undefined'){
+      for(const b of GS_bots){
+        if(!b.alive) continue;
+        const bd=Math.hypot(this.wx-b.wx,this.wz-b.wz);
+        if(bd<18){
+          if(40<=this.py+2) groundY=Math.max(groundY,40);
+        }
+      }
+    }
+
+    // World floor
+    if(this.py<3) onSurface=true;
+
     const height=this.py-groundY;
-    const airborne=height>3;
-    const pulse=0.5+0.5*Math.sin(performance.now()*0.007); // 0..1 pulsing
+    const airborne=!onSurface&&height>3;
+    const pulse=0.5+0.5*Math.sin(performance.now()*0.007);
     const fadeIn=clamp((height-3)/15,0,1);
-    const fadeOut=clamp(1-height/220,0.1,1); // very tall fades a little
+    const fadeOut=clamp(1-height/220,0.1,1);
     const vis=airborne?fadeIn*fadeOut:0;
 
     // Ring at landing point
@@ -8723,8 +8783,20 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-3){
         for(const w of GS_moveableWalls){
           w.update(dt);
-          // Player collision
-          if(player){
+          // Player can land on top of wall
+          if(player&&player.py>0){
+            const hw=w.w/2, hd=w.d/2;
+            if(Math.abs(player.wx-w.wx)<hw&&Math.abs(player.wz-w.wz)<hd){
+              if(player.py<=w.h+4&&player.py>=w.h-8&&player.pvy<=0){
+                player.py=w.h;
+                player.pvy=0;
+                player._onPlatform=true;
+                player._platformY=w.h;
+              }
+            }
+          }
+          // Player collision — skip when grabbed
+          if(player&&!w._grabbed){
             const halfW=w.w/2, halfD=w.d/2, halfH=w.h;
             const dx=player.wx-w.wx, dz=player.wz-w.wz;
             const overlapX=halfW+10-Math.abs(dx);
@@ -8806,24 +8878,62 @@ class MoveableWall{
     this._grabbed=false; this._axis=null;
 
     const geo=new THREE.BoxGeometry(w,h,d);
-    // Solid fill — translucent but clearly a solid block
+    // Solid fill
     this._fillMat=new THREE.MeshBasicMaterial({
-      color:0x220044, transparent:true, opacity:0.55,
+      color:0x110033, transparent:true, opacity:0.7,
       blending:THREE.NormalBlending, depthWrite:true
     });
     this._fill=new THREE.Mesh(geo,this._fillMat);
-    // Edge glow — use EdgesGeometry for clean outlines
+    // Edge outlines
     const edgesGeo=new THREE.EdgesGeometry(geo);
     this._wireMat=new THREE.LineBasicMaterial({
-      color:0xaa44ff, transparent:true, opacity:0.9,
+      color:0xaa44ff, transparent:true, opacity:1.0,
       blending:THREE.AdditiveBlending, depthWrite:false
     });
     this._wire=new THREE.LineSegments(edgesGeo,this._wireMat);
-    // Inner glow plane on each face for depth
+
+    // Face grid lines — subdivide each face, offset outward slightly so they show over fill
+    const gridPts=[];
+    const steps=4;
+    const ox=w/2+0.5, oy=h/2+0.5, oz=d/2+0.5; // slight outward offset per face
+    // Front/back faces (z faces)
+    for(let i=1;i<steps;i++){
+      const x=-w/2+w*i/steps;
+      gridPts.push(x,-h/2,-oz, x,h/2,-oz); // front vertical
+      gridPts.push(x,-h/2, oz, x,h/2, oz); // back vertical
+      const y=-h/2+h*i/steps;
+      gridPts.push(-w/2,y,-oz, w/2,y,-oz); // front horizontal
+      gridPts.push(-w/2,y, oz, w/2,y, oz); // back horizontal
+    }
+    // Left/right faces (x faces)
+    for(let i=1;i<steps;i++){
+      const z=-d/2+d*i/steps;
+      gridPts.push(-ox,-h/2,z, -ox,h/2,z);
+      gridPts.push( ox,-h/2,z,  ox,h/2,z);
+      const y=-h/2+h*i/steps;
+      gridPts.push(-ox,y,-d/2, -ox,y,d/2);
+      gridPts.push( ox,y,-d/2,  ox,y,d/2);
+    }
+    // Top face
+    for(let i=1;i<steps;i++){
+      const x=-w/2+w*i/steps;
+      gridPts.push(x,oy,-d/2, x,oy,d/2);
+      const z=-d/2+d*i/steps;
+      gridPts.push(-w/2,oy,z, w/2,oy,z);
+    }
+    const gridGeo=new THREE.BufferGeometry();
+    gridGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(gridPts),3));
+    this._gridLines=new THREE.LineSegments(gridGeo,new THREE.LineBasicMaterial({
+      color:0x9933ff, transparent:true, opacity:0.7,
+      blending:THREE.AdditiveBlending, depthWrite:false
+    }));
+
     this._group=new THREE.Group();
     this._group.add(this._fill);
     this._group.add(this._wire);
+    this._group.add(this._gridLines);
     this._group.position.set(wx,h/2,wz);
+    scene.add(this._group);
     scene.add(this._group);
 
     // Interact prompt (CSS element)
@@ -8842,29 +8952,27 @@ class MoveableWall{
     this._grabbed=true;
     if(this._wireMat) this._wireMat.color.setHex(0xff44ff);
 
-    // Determine which of the 4 faces the player is closest to
+    // Which face is player closest to?
     const dx=player.wx-this.wx, dz=player.wz-this.wz;
-    // Compare overlap on each axis to find nearest face
     if(Math.abs(dx)/this.w >= Math.abs(dz)/this.d){
-      // Left or right face — player stands on X face, pushes wall along Z
-      this._face = dx>0 ? 'right' : 'left';
+      // Left or right face — lock player X, wall moves on Z
       this._faceNX = dx>0 ? 1 : -1;
       this._faceNZ = 0;
-      this._snapX = this.wx + this._faceNX*(this.w/2+12);
-      this._snapZ = this.wz;
-      this._camTargetYaw = dx>0 ? -Math.PI/2 : Math.PI/2;
-      this._moveAxis = 'z'; // player walks along Z to push wall forward/back
+      this._moveAxis = 'z';
+      // Player on right face faces left (-X): camera behind = +X = yaw PI/2
+      // Player on left face faces right (+X): camera behind = -X = yaw -PI/2
+      this._camTargetYaw = dx>0 ? Math.PI/2 : -Math.PI/2;
     } else {
-      // Front or back face — player stands on Z face, pushes wall along X
-      this._face = dz>0 ? 'front' : 'back';
+      // Front or back face — lock player Z, wall moves on X
       this._faceNX = 0;
       this._faceNZ = dz>0 ? 1 : -1;
-      this._snapX = this.wx;
-      this._snapZ = this.wz + this._faceNZ*(this.d/2+12);
+      this._moveAxis = 'x';
+      // Player on front face (dz>0) faces -Z: camera behind = +Z = yaw 0
+      // Player on back face (dz<0) faces +Z: camera behind = -Z = yaw PI
       this._camTargetYaw = dz>0 ? 0 : Math.PI;
-      this._moveAxis = 'x'; // player walks along X to push wall left/right
     }
 
+    // Record current position — no teleporting
     this._lastPlayerX=player.wx;
     this._lastPlayerZ=player.wz;
     announce('GRAB · PUSH/PULL · L-STICK TO RELEASE','#aa44ff');
@@ -8894,35 +9002,36 @@ class MoveableWall{
         while(cd<-Math.PI) cd+=Math.PI*2;
         CAM.tyaw+=cd*0.1;
 
-        // Delta from where player actually moved (before snapping)
         const pdx=px-this._lastPlayerX;
         const pdz=pz-this._lastPlayerZ;
 
-        // Move wall along its free axis using player's movement on that axis
-        if(this._moveAxis==='x') this.wx+=pdx;
-        else this.wz+=pdz;
+        // Move wall: free axis gets full movement, locked axis gets none
+        if(this._moveAxis==='x'){
+          this.wx+=pdx;
+          // Player locked on Z — but wall can ALSO move Z if player somehow moves Z
+          // (face detection might be wrong, so accept Z movement too)
+          this.wz+=pdz;
+        } else {
+          this.wz+=pdz;
+          this.wx+=pdx;
+        }
 
         const maxR=ARENA_R-Math.max(this.w,this.d)/2-10;
         this.wx=clamp(this.wx,-maxR,maxR);
         this.wz=clamp(this.wz,-maxR,maxR);
 
-        // Snap player to face AFTER moving wall
-        // Store the pre-snap position so next frame's delta reflects actual stick input
-        const preSnapX=player.wx, preSnapZ=player.wz;
-        player.wx=this.wx+this._faceNX*(this.w/2+12);
-        player.wz=this.wz+this._faceNZ*(this.d/2+12);
-        player.vx=0; player.vz=0;
-
-        // Track the free axis position (not the locked one) for next frame's delta
-        if(this._moveAxis==='x'){
-          // Wall moves on X — track player's pre-snap X
-          this._lastPlayerX=preSnapX;
-          this._lastPlayerZ=player.wz; // locked axis: follow snap
+        // Keep player touching face — just maintain the correct stand-off distance
+        // on the locked axis. Don't touch the free axis at all.
+        if(this._faceNX!==0){
+          player.wx=this.wx+this._faceNX*(this.w/2+12);
+          player.vx=0;
         } else {
-          // Wall moves on Z — track player's pre-snap Z
-          this._lastPlayerX=player.wx; // locked axis: follow snap
-          this._lastPlayerZ=preSnapZ;
+          player.wz=this.wz+this._faceNZ*(this.d/2+12);
+          player.vz=0;
         }
+
+        this._lastPlayerX=player.wx;
+        this._lastPlayerZ=player.wz;
 
         const pulse=Math.sin(performance.now()*0.006)*0.5+0.5;
         if(this._wireMat) this._wireMat.color.setRGB(1,0.3+pulse*0.3,1);
@@ -8992,8 +9101,8 @@ function buildPuzzleLab(){
   GS_moveableWalls=[];
   GS_movingWall=null;
 
-  // One big moveable block in center
-  const wall=new MoveableWall(80,0,50,40,20);
+  // One big moveable block — taller than player but bombable over
+  const wall=new MoveableWall(80,0,60,60,60);
   GS_moveableWalls.push(wall);
 
   // Platform to jump up on (behind wall)
