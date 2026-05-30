@@ -8458,7 +8458,7 @@ function loop(ts){ requestAnimationFrame(loop);
         // ── WALL CLIMB ANIMATION ──
         if(player._wallClimb&&ud.clips){
           const climbClip=ud.clips['climbing']||ud.clips['climb']||ud.clips['wall_climb'];
-          if(climbClip){
+          if(climbClip&&climbClip._clip&&climbClip._clip.duration>0){
             const climbDir=-moveIn.y; // positive = climbing up, negative = down
             if(Math.abs(climbDir)>0.1){
               // Switch to climb clip if not already on it
@@ -8966,11 +8966,20 @@ function loop(ts){ requestAnimationFrame(loop);
           if(player._wallClimbCooldown>0) player._wallClimbCooldown--;
 
           // ── WALL CLIMBING SYSTEM ──
-          // Safety: if player is far from tower, clear climb state
+          // Safety: clear stale states
           if(player._wallClimb||player._crestSeq){
             const distToTower=Math.hypot(player.wx-t.wx, player.wz-t.wz);
-            if(distToTower>t.w/2+60){
-              player._wallClimb=null; player._crestSeq=null;
+            if(distToTower>t.w/2+80){ player._wallClimb=null; player._crestSeq=null; }
+          }
+          // Crest timeout safety — if stuck for >2s, force complete
+          if(player._crestSeq){
+            if(!player._crestSeq._total) player._crestSeq._total=0;
+            player._crestSeq._total+=(dt||0.016);
+            if(player._crestSeq._total>2){
+              player._crestSeq=null; player._wallClimb=null;
+              player._onPlatform=true; player._platformY=t.h;
+              player.py=t.h; player.vx=0; player.vz=0; player.pvy=0;
+              player._wallClimbCooldown=45;
             }
           }
 
@@ -8992,7 +9001,7 @@ function loop(ts){ requestAnimationFrame(loop);
             }
           }
 
-          // CLIMB ATTACH — right stick toward tower (same mechanic as block grab)
+          // CLIMB ATTACH — right stick toward tower, works from ground or air
           if(!player._wallClimb&&!player._crestSeq&&!player._wallClimbCooldown&&player.py<t.h-5){
             const sx=shootIn.x, sy=shootIn.y;
             const stickMag=Math.hypot(sx,sy);
@@ -9001,8 +9010,9 @@ function loop(ts){ requestAnimationFrame(loop);
               const toTX=t.wx-player.wx, toTZ=t.wz-player.wz;
               const toTLen=Math.hypot(toTX,toTZ)||1;
               const dot=(ws.x*toTX+ws.z*toTZ)/(toTLen*stickMag);
-              const nearFace=Math.abs(player.wx-t.wx)<t.w/2+20&&Math.abs(player.wz-t.wz)<t.d/2+20;
-              if(dot>0.5&&nearFace){
+              // Larger radius so ground attach works — 40 units from face
+              const nearFace=Math.abs(player.wx-t.wx)<t.w/2+40&&Math.abs(player.wz-t.wz)<t.d/2+40;
+              if(dot>0.4&&nearFace){
                 const faceX=Math.abs(player.wx-t.wx)/(t.w/2);
                 const faceZ=Math.abs(player.wz-t.wz)/(t.d/2);
                 const faceNX=faceX>=faceZ?Math.sign(player.wx-t.wx):0;
@@ -9011,7 +9021,6 @@ function loop(ts){ requestAnimationFrame(loop);
                 else player.wz=t.wz+faceNZ*(t.d/2+9);
                 player.vx=0; player.vz=0; player.pvy=0;
                 player._wallClimb={faceNX,faceNZ};
-                announce('CLIMBING — LEFT STICK UP/DOWN · RELEASE RIGHT STICK to drop','#cc44ff');
               }
             }
           }
