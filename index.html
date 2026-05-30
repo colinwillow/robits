@@ -8845,18 +8845,31 @@ function loop(ts){ requestAnimationFrame(loop);
             const sx=shootIn.x, sy=shootIn.y;
             const stickMag=Math.hypot(sx,sy);
             const alreadyGrabbed=GS_movingWall&&GS_movingWall._grabbed;
-            if(stickMag>0.3&&!alreadyGrabbed){
-              const ws=rotInput(sx,sy);
-              for(const w of GS_moveableWalls){
-                const toWallX=w.wx-player.wx, toWallZ=w.wz-player.wz;
-                const dist=Math.hypot(toWallX,toWallZ);
-                if(dist<w.w/2+30){
-                  const dot=(ws.x*toWallX+ws.z*toWallZ)/(dist||1);
-                  if(dot>0.3){ w.grab(); GS_movingWall=w; break; }
+            if(stickMag>0.3){
+              if(!alreadyGrabbed){
+                // Check every frame while stick is held — grab the moment we enter range
+                const ws=rotInput(sx,sy);
+                for(const w of GS_moveableWalls){
+                  const toWallX=w.wx-player.wx, toWallZ=w.wz-player.wz;
+                  const dist=Math.hypot(toWallX,toWallZ);
+                  if(dist<w.w/2+30){
+                    const dot=(ws.x*toWallX+ws.z*toWallZ)/(dist||1);
+                    if(dot>0.3&&!w._grabbed){
+                      // Only call grab() if not already grabbed this stick press
+                      if(w!==window._lastGrabbedWall){
+                        window._lastGrabbedWall=w;
+                        w.grab(); GS_movingWall=w;
+                      }
+                      break;
+                    }
+                  }
                 }
               }
-            } else if(alreadyGrabbed&&(stickMag<0.15||player.pvy>50)){
-              GS_movingWall.release(); GS_movingWall=null;
+            } else {
+              window._lastGrabbedWall=null; // reset on stick release
+              if(alreadyGrabbed){
+                GS_movingWall.release(); GS_movingWall=null;
+              }
             }
           }catch(e){ console.error('Wall grab error:',e); GS_movingWall=null; }
         }
@@ -9052,6 +9065,7 @@ class MoveableWall{
     }
 
     // Snap player aim to face the wall
+    console.warn('GRAB START moveAxis='+this._moveAxis);
     try{
       if(this._moveAxis==='z'){
         player.aim = this._faceNX > 0 ? Math.PI : 0;
@@ -9060,10 +9074,9 @@ class MoveableWall{
         player.aim = this._faceNZ > 0 ? -Math.PI/2 : Math.PI/2;
         this._animAim = this._faceNZ > 0 ? 0 : Math.PI;
       }
-      // Safely reset animation state so blend picks fresh clip
+      // Just clear state flags — don't touch mixer clips during grab
       const ud=player.model&&player.model.userData;
-      if(ud&&ud.clips){
-        try{ Object.values(ud.clips).forEach(a=>a.fadeOut(0.15)); }catch(e){}
+      if(ud){
         ud.currentClip=null;
         ud._landingTimer=0;
         ud._rollingTimer=0;
