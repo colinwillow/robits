@@ -8414,25 +8414,51 @@ function loop(ts){ requestAnimationFrame(loop);
         // Skip blend switch while roll or landing is playing
         if(!ud._rollingTimer&&!ud._landingTimer){
           let targetClip='idle';
-          if(airborne) targetClip='floating';
-          else if(!moving) targetClip='idle';
-          else if(Math.abs(angleDiff)<Math.PI*0.3) targetClip='run_forward';
+          const wallPushing=GS_movingWall&&GS_movingWall._grabbed;
+
+          if(airborne){
+            targetClip='floating';
+          } else if(wallPushing){
+            // Wall push: use actual velocity direction vs aim to pick animation
+            const mvSpd=Math.hypot(player.vx||0,player.vz||0);
+            if(mvSpd>15){
+              // Dot product: are we moving forward or backward relative to aim?
+              const aimFwdX=Math.sin(player.aim), aimFwdZ=Math.cos(player.aim);
+              const moveDot=(player.vx||0)*aimFwdX+(player.vz||0)*aimFwdZ;
+              targetClip=moveDot>=0?'run_forward':'run_backward';
+            } else {
+              targetClip='idle';
+            }
+            // Apply .shoot variant for arms-out look
+            const shootClip=targetClip+'.shoot';
+            if(ud.clips[shootClip]) targetClip=shootClip;
+          } else if(!moving){
+            targetClip='idle';
+          } else if(Math.abs(angleDiff)<Math.PI*0.3) targetClip='run_forward';
           else if(Math.abs(angleDiff)>Math.PI*0.7) targetClip='run_backward';
           else if(angleDiff>0) targetClip='strafe_right';
           else targetClip='strafe_left';
 
-          const firing=player._lastFiring||false;
-          // Use shoot animation variants when pushing/pulling a wall (arms outstretched)
-          const wallPushing=GS_movingWall&&GS_movingWall._grabbed;
-          const shootClip=targetClip+'.shoot';
-          if((firing||wallPushing)&&ud.clips[shootClip]) targetClip=shootClip;
+          // Non-wall: apply shoot variant if firing
+          if(!wallPushing){
+            const firing=player._lastFiring||false;
+            const shootClip=targetClip+'.shoot';
+            if(firing&&ud.clips[shootClip]) targetClip=shootClip;
+          }
 
-          if(targetClip!==ud.currentClip&&ud.clips[targetClip]){
+          // Only switch if clip exists — fallback to base clip without .shoot suffix
+          let resolvedClip=targetClip;
+          if(!ud.clips[resolvedClip]){
+            resolvedClip=targetClip.replace('.shoot','');
+          }
+          if(!ud.clips[resolvedClip]) resolvedClip='idle';
+
+          if(resolvedClip!==ud.currentClip&&ud.clips[resolvedClip]){
             Object.values(ud.clips).forEach(a=>a.fadeOut(0.15));
-            const next=ud.clips[targetClip];
+            const next=ud.clips[resolvedClip];
             if(!next.isRunning()) next.reset();
             next.setEffectiveWeight(1).setEffectiveTimeScale(1.0).fadeIn(0.15).play();
-            ud.currentClip=targetClip;
+            ud.currentClip=resolvedClip;
           }
         }
 
