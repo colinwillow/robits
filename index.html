@@ -9051,25 +9051,24 @@ class MoveableWall{
       this._camTargetYaw = dz>0 ? 0 : Math.PI;
     }
 
-    // Snap player aim to face the wall correctly
-    // model.rotation.y = -aim + PI/2, so aim=0 → rot=PI/2 → model faces +Z (GLB forward)
-    // moveAngle = atan2(vz, vx), so moving +Z → moveAngle=PI/2, need aim=PI/2 for run_forward
-    if(this._moveAxis==='z'){
-      // Free axis is Z — player walks in Z to push wall
-      // Need: model faces wall (along ±X), AND aim=PI/2 so vz>0 = run_forward
-      // Player on right face (faceNX=+1): wall is to left (-X), model should face -X
-      // aim=PI/2 → rot.y = -PI/2+PI/2 = 0 → faces +Z (wrong, off by 90°)
-      // Correct: aim=PI → rot.y = -PI+PI/2 = -PI/2 → faces -X ✓ but moveAngle mismatch
-      // So use aim=PI/2 for correct animation, accept model faces +Z (into wall side)
-      // Actually test: just use what makes animations right, fix model separately if needed
-      player.aim = this._faceNX > 0 ? Math.PI : 0;
-      // Override aim for animation: movement in Z needs aim=PI/2 or -PI/2
-      // We'll use a separate _wallAim that overrides just for angleDiff calculation
-      this._animAim = Math.PI/2 * (this._faceNX > 0 ? 1 : -1);
-    } else {
-      player.aim = this._faceNZ > 0 ? -Math.PI/2 : Math.PI/2;
-      this._animAim = this._faceNZ > 0 ? 0 : Math.PI;
-    }
+    // Snap player aim to face the wall
+    try{
+      if(this._moveAxis==='z'){
+        player.aim = this._faceNX > 0 ? Math.PI : 0;
+        this._animAim = Math.PI/2 * (this._faceNX > 0 ? 1 : -1);
+      } else {
+        player.aim = this._faceNZ > 0 ? -Math.PI/2 : Math.PI/2;
+        this._animAim = this._faceNZ > 0 ? 0 : Math.PI;
+      }
+      // Safely reset animation state so blend picks fresh clip
+      const ud=player.model&&player.model.userData;
+      if(ud&&ud.clips){
+        try{ Object.values(ud.clips).forEach(a=>a.fadeOut(0.15)); }catch(e){}
+        ud.currentClip=null;
+        ud._landingTimer=0;
+        ud._rollingTimer=0;
+      }
+    }catch(e){ console.error('Grab aim error:',e); }
 
     // Record current position — no teleporting
     this._lastPlayerX=player.wx;
@@ -9884,13 +9883,13 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
 <!-- ON-SCREEN DEBUG CONSOLE — remove when done -->
 <div id="dbg-panel" style="
   position:fixed;bottom:0;left:0;right:0;
-  max-height:35vh;overflow-y:auto;
+  max-height:35vh;overflow-y:scroll;-webkit-overflow-scrolling:touch;
   background:rgba(0,0,0,0.85);
   font:11px/1.5 monospace;
   color:#00ff88;
   padding:6px 8px;
   z-index:99999;
-  pointer-events:none;
+  pointer-events:all;
   display:none;
   border-top:1px solid #00ff8844;
 "></div>
@@ -9918,6 +9917,9 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
       if(typeof a==='object'){try{return JSON.stringify(a);}catch(e){return String(a);}}
       return String(a);
     }).join(' ');
+    // Filter noisy startup logs
+    if(txt.startsWith('Bone:')) return;
+    if(txt.startsWith('Animation:')) return;
     const color=type==='error'?'#ff4444':type==='warn'?'#ffaa00':'#00ff88';
     lines.push(`<span style="color:${color}">${txt}</span>`);
     if(lines.length>MAX) lines.shift();
