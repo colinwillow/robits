@@ -7015,7 +7015,9 @@ function startGame(levelIdx){
   if(GS_victoryFX){GS_victoryFX.remove();GS_victoryFX=null;}
   GS_puzzleBlocks.forEach(b=>b.remove()); GS_puzzleBlocks=[];
   player.reset(true);
-  player.wx=0; player.wz=0; // always start at arena center
+  // Puzzle lab spawn — far corner away from tower (which is at 0,0)
+  if(GS.zone===-3){ player.wx=200; player.wz=200; }
+  else { player.wx=0; player.wz=0; }
   grid.setZone(GS.zone);
   // Spawn alien plants scattered around the arena
   if(GS.zone>=0){  // no plants in training/puzzle rooms
@@ -8254,7 +8256,7 @@ jR.onHoldStart=function(){
   // Snapshot the stick position at hold-start so we can compare throughout
   jR._holdOriginX=shootIn.x;
   jR._holdOriginY=shootIn.y;
-  if(player.py>8&&!player._onPlatform&&!player.bombArmed){
+  if(player.py>8&&!player._onPlatform&&!player.bombArmed&&!player._wallClimb){
     player._jetting=true;
   }
 };
@@ -8308,7 +8310,7 @@ function loop(ts){ requestAnimationFrame(loop);
     let rawDt=Math.min((ts-lastT)/1000,0.033);lastT=ts;frame++;
     updateTime(); const dt=rawDt*TIME.scale;
     // ── JETPACK HOLD — airborne, no bomb ──
-    if(IS_TOUCH&&jR._holdingForJet&&player&&player.py>8&&!player._onPlatform&&player.boostFuel>0&&!player.bombArmed){
+    if(IS_TOUCH&&jR._holdingForJet&&player&&player.py>8&&!player._onPlatform&&player.boostFuel>0&&!player.bombArmed&&!player._wallClimb){
       player._jetting=true;
     }
 
@@ -8596,7 +8598,7 @@ function loop(ts){ requestAnimationFrame(loop);
         const ws=rotInput(shootIn.x,shootIn.y);
         avx=ws.x; avz=ws.z; aiming=true;
         const stickMag=Math.hypot(shootIn.x,shootIn.y);
-        firing=stickMag>0.6&&!flickActive&&!nearWallStick;
+        firing=stickMag>0.6&&!flickActive&&!nearWallStick&&!player._wallClimb;
       }
       if(IS_TOUCH&&grenadeActive&&stickAim&&!CAM.aimMode){
         // Bomb armed (not in aim mode): right stick moves ground crosshair
@@ -8953,101 +8955,150 @@ function loop(ts){ requestAnimationFrame(loop);
 
         // ── TOWER COLLISION + WALL CLIMBING ──
         if(window._tower&&player){
-          const t=window._tower;
+          const t=window._tower; // this is now a MoveableWall — use its properties
+          // Collision and landing handled by the main wall loop above
+          // Just handle climb attach and state here
+
           const dx=player.wx-t.wx, dz=player.wz-t.wz;
           const hw=t.w/2+10, hd=t.d/2+10;
 
-          // Solid collision when not climbing
-          if(!player._wallClimb&&player.py<t.topY){
-            const overlapX=hw-Math.abs(dx), overlapZ=hd-Math.abs(dz);
-            if(overlapX>0&&overlapZ>0){
-              if(overlapX<overlapZ){ player.wx+=overlapX*Math.sign(dx); player.vx=0; }
-              else { player.wz+=overlapZ*Math.sign(dz); player.vz=0; }
+          // Tick climb cooldown
+          if(player._wallClimbCooldown>0) player._wallClimbCooldown--;
+
+          // ── WALL CLIMBING SYSTEM ──
+          // Safety: if player is far from tower, clear climb state
+          if(player._wallClimb||player._crestSeq){
+            const distToTower=Math.hypot(player.wx-t.wx, player.wz-t.wz);
+            if(distToTower>t.w/2+60){
+              player._wallClimb=null; player._crestSeq=null;
             }
           }
 
-          // Land on top
-          if(Math.abs(dx)<t.w/2&&Math.abs(dz)<t.d/2&&
-             player.py<=t.topY+4&&player.py>=t.topY-10&&player.pvy<=0){
-            player.py=t.topY; player.pvy=0;
-            player._onPlatform=true; player._platformY=t.topY;
-            player._wallClimb=null;
+          // TOP EDGE → CLIMB: only when actually falling off
+          if(!player._wallClimb&&!player._crestSeq&&!player._wallClimbCooldown&&
+             !player._onPlatform&&player.pvy<=0&&
+             player.py<t.h&&player.py>t.h-25){
+            const overX=Math.abs(player.wx-t.wx)<t.w/2+20;
+            const overZ=Math.abs(player.wz-t.wz)<t.d/2+20;
+            if(overX&&overZ){
+              const faceX=Math.abs(player.wx-t.wx)/(t.w/2);
+              const faceZ=Math.abs(player.wz-t.wz)/(t.d/2);
+              const faceNX=faceX>=faceZ?Math.sign(player.wx-t.wx):0;
+              const faceNZ=faceX>=faceZ?0:Math.sign(player.wz-t.wz);
+              if(faceNX!==0) player.wx=t.wx+faceNX*(t.w/2+9);
+              else player.wz=t.wz+faceNZ*(t.d/2+9);
+              player.py=t.h-2; player.pvy=0; player.vx=0; player.vz=0;
+              player._wallClimb={faceNX,faceNZ};
+            }
           }
 
-          // ── CLIMB ATTACH ──
-          // Push stick toward tower face = attach and start climbing
-          if(!player._wallClimb&&player.py<t.topY-5){
-            const mv=rotInput(moveIn.x,moveIn.y);
-            const mvMag=Math.hypot(mv.x,mv.z);
-            if(mvMag>0.3){
+          // CLIMB ATTACH — right stick toward tower (same mechanic as block grab)
+          if(!player._wallClimb&&!player._crestSeq&&!player._wallClimbCooldown&&player.py<t.h-5){
+            const sx=shootIn.x, sy=shootIn.y;
+            const stickMag=Math.hypot(sx,sy);
+            if(stickMag>0.3){
+              const ws=rotInput(sx,sy);
               const toTX=t.wx-player.wx, toTZ=t.wz-player.wz;
               const toTLen=Math.hypot(toTX,toTZ)||1;
-              const dot=(mv.x*toTX+mv.z*toTZ)/(toTLen*mvMag);
-              const nearFace=Math.abs(dx)<hw+15&&Math.abs(dz)<hd+15;
+              const dot=(ws.x*toTX+ws.z*toTZ)/(toTLen*stickMag);
+              const nearFace=Math.abs(player.wx-t.wx)<t.w/2+20&&Math.abs(player.wz-t.wz)<t.d/2+20;
               if(dot>0.5&&nearFace){
-                const faceX=Math.abs(dx)/t.w*2, faceZ=Math.abs(dz)/t.d*2;
-                let faceNX=0, faceNZ=0;
-                if(faceX>=faceZ) faceNX=Math.sign(dx); else faceNZ=Math.sign(dz);
+                const faceX=Math.abs(player.wx-t.wx)/(t.w/2);
+                const faceZ=Math.abs(player.wz-t.wz)/(t.d/2);
+                const faceNX=faceX>=faceZ?Math.sign(player.wx-t.wx):0;
+                const faceNZ=faceX>=faceZ?0:Math.sign(player.wz-t.wz);
                 if(faceNX!==0) player.wx=t.wx+faceNX*(t.w/2+9);
                 else player.wz=t.wz+faceNZ*(t.d/2+9);
                 player.vx=0; player.vz=0; player.pvy=0;
-                player._wallClimb={faceNX, faceNZ};
-                announce('CLIMBING — STICK UP to climb · JUMP to leap off · STICK BACK to release','#cc44ff');
+                player._wallClimb={faceNX,faceNZ};
+                announce('CLIMBING — LEFT STICK UP/DOWN · RELEASE RIGHT STICK to drop','#cc44ff');
               }
             }
           }
 
-          // ── CLIMBING STATE ──
-          if(player._wallClimb){
+          // CLIMBING STATE
+          if(player._wallClimb&&!player._crestSeq){
             const wc=player._wallClimb;
+            // Force jetpack off — climbing uses right stick, not jetpack
+            player._jetting=false;
+            jR._holdingForJet=false;
+            // Glue to face
             if(wc.faceNX!==0) player.wx=t.wx+wc.faceNX*(t.w/2+9);
             else player.wz=t.wz+wc.faceNZ*(t.d/2+9);
             player.vx=0; player.vz=0; player.pvy=0;
+            player.aim=Math.atan2(-wc.faceNZ,-wc.faceNX);
 
-            // Stick Y = climb up/down — full range
-            player.py+=(-moveIn.y)*80*dt;
-            player.py=Math.max(0, Math.min(t.topY+5, player.py));
-
-            // Reach top = cleanly step onto top surface, stop climbing
-            if(player.py>=t.topY){
-              player.py=t.topY;
+            // Release when right stick drops — player falls
+            const stickMag=Math.hypot(shootIn.x,shootIn.y);
+            if(stickMag<0.15){
               player._wallClimb=null;
-              player._onPlatform=true; player._platformY=t.topY;
-              player.vx=0; player.vz=0; player.pvy=0;
-              // Fade out climb animation
               const ud2=player.model&&player.model.userData;
-              if(ud2&&ud2.clips){
-                const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];
-                if(cc) cc.fadeOut(0.2);
-                ud2.currentClip=null;
-              }
-            }
+              if(ud2&&ud2.clips){const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];if(cc)cc.fadeOut(0.15);ud2.currentClip=null;}
+            } else {
+              // Left stick Y = climb up/down
+              player.py+=(-moveIn.y)*80*dt;
+              player.py=Math.max(0,Math.min(t.h,player.py));
 
-            // Reach bottom = drop off
-            if(player.py<=1){
-              player.py=0; player._wallClimb=null;
-              const ud2=player.model&&player.model.userData;
-              if(ud2&&ud2.clips){
-                const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];
-                if(cc) cc.fadeOut(0.2);
-                ud2.currentClip=null;
+              // Near top + holding up = start crest
+              if(player.py>=t.h-8&&moveIn.y<-0.2){
+                player._crestSeq={phase:'up',timer:0,
+                  faceNX:wc.faceNX,faceNZ:wc.faceNZ,
+                  startY:player.py};
+                player._wallClimb=null;
               }
-            }
 
-            // Jump = ONLY way to leave wall (leap off)
-            if(player._jumpTapped){
-              player.vx=wc.faceNX*180; player.vz=wc.faceNZ*180; player.pvy=200;
-              player._wallClimb=null; player._jumpTapped=false;
-              const ud2=player.model&&player.model.userData;
-              if(ud2&&ud2.clips){
-                const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];
-                if(cc) cc.fadeOut(0.15);
-                ud2.currentClip=null;
+              // Bottom = drop
+              if(player.py<=1){
+                player.py=0; player._wallClimb=null;
+                const ud2=player.model&&player.model.userData;
+                if(ud2&&ud2.clips){const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];if(cc)cc.fadeOut(0.2);ud2.currentClip=null;}
+              }
+
+              // Jump = leap off
+              if(player._jumpTapped){
+                player.vx=wc.faceNX*180;player.vz=wc.faceNZ*180;player.pvy=200;
+                player._wallClimb=null;player._jumpTapped=false;
+                const ud2=player.model&&player.model.userData;
+                if(ud2&&ud2.clips){const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];if(cc)cc.fadeOut(0.15);ud2.currentClip=null;}
               }
             }
           }
-        }
-      }
+
+          // CREST SEQUENCE — scripted takeover
+          if(player._crestSeq){
+            const cs=player._crestSeq;
+            player.vx=0;player.vz=0;player.pvy=0;
+            cs.timer+=dt;
+            if(cs.phase==='up'){
+              const p=Math.min(cs.timer/0.18,1);
+              player.py=lerp(cs.startY,t.h,p);
+              if(p>=1){
+                cs.phase='in';cs.timer=0;
+                cs.inStartX=player.wx;cs.inStartZ=player.wz;
+                cs.inEndX=t.wx+cs.faceNX*(t.w/2-1);
+                cs.inEndZ=t.wz+cs.faceNZ*(t.d/2-1);
+              }
+            } else {
+              const p=Math.min(cs.timer/0.18,1);
+              player.wx=lerp(cs.inStartX,cs.inEndX,p);
+              player.wz=lerp(cs.inStartZ,cs.inEndZ,p);
+              player.py=t.h;
+              if(p>=1){
+                player._crestSeq=null;
+                player._onPlatform=true;player._platformY=t.h;
+                player.vx=0;player.vz=0;player.pvy=0;
+                player._wallClimbCooldown=45;
+                const ud2=player.model&&player.model.userData;
+                if(ud2&&ud2.clips){const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];if(cc)cc.fadeOut(0.2);ud2.currentClip=null;}
+              }
+            }
+          }
+
+          // Tick cooldown
+          if(player._wallClimbCooldown>0) player._wallClimbCooldown--;
+        } // end for GS_moveableWalls
+      } // end if GS.zone===-3
+
       for(let i=GS_bots.length-1;i>=0;i--){
         const bot=GS_bots[i];
         if(!bot.alive){ GS_bots.splice(i,1); continue; }
@@ -9170,7 +9221,7 @@ class MoveableWall{
       color:#aa44ff;pointer-events:none;z-index:12;text-align:center;
       background:rgba(0,0,0,0.5);padding:4px 10px;border-radius:6px;border:1px solid #aa44ff66;
       transform:translate(-50%,-50%);display:none;text-shadow:0 0 8px #aa44ff`;
-    this._promptEl.innerHTML=IS_TOUCH?'TAP L-STICK · GRAB':'[R-CLICK] GRAB';
+    this._promptEl.innerHTML=this._climbable?(IS_TOUCH?'PUSH TOWARD · CLIMB':'PUSH TOWARD · CLIMB'):(IS_TOUCH?'PUSH RIGHT STICK · GRAB':'[R-CLICK] GRAB');
     document.body.appendChild(this._promptEl);
     this._showPrompt=false;
   }
@@ -9253,6 +9304,8 @@ class MoveableWall{
 
         // Clamp movement delta against other blocks BEFORE moving — prevent penetration
         let cdx=pdx, cdz=pdz;
+        // Immovable walls never move
+        if(this._immovable){ cdx=0; cdz=0; }
         for(const other of GS_moveableWalls){
           if(other===this) continue;
           const cx=this.wx-other.wx, cz=this.wz-other.wz;
@@ -9385,36 +9438,13 @@ function buildPuzzleLab(){
   // Block 5 — small cube (30×30×30) at front-right
   GS_moveableWalls.push(new MoveableWall( 200, 150,  30, 30, 30));
 
-  // ── CENTRAL TOWER ── simple tall column
-  {
-    const TW=50, TH=200, TD=50;
-    const tGeo=new THREE.BoxGeometry(TW,TH,TD);
-    const tMat=new THREE.MeshBasicMaterial({color:0x110033,transparent:true,opacity:0.75,depthWrite:true});
-    const tMesh=new THREE.Mesh(tGeo,tMat);
-    tMesh.position.set(0,TH/2,0); scene.add(tMesh);
-    // Edges
-    const tEdge=new THREE.LineSegments(new THREE.EdgesGeometry(tGeo),
-      new THREE.LineBasicMaterial({color:0xcc44ff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
-    tEdge.position.copy(tMesh.position); scene.add(tEdge);
-    // Grid lines on faces
-    const pts=[]; const steps=5;
-    for(let i=1;i<steps;i++){
-      const x=-TW/2+TW*i/steps, z=-TD/2+TD*i/steps, y=-TH/2+TH*i/steps;
-      pts.push(x,-TH/2,-TD/2-0.5, x,TH/2,-TD/2-0.5);
-      pts.push(x,-TH/2, TD/2+0.5, x,TH/2, TD/2+0.5);
-      pts.push(-TW/2-0.5,y,-TD/2, TW/2+0.5,y,-TD/2);
-      pts.push(-TW/2-0.5,y, TD/2, TW/2+0.5,y, TD/2);
-      pts.push(-TW/2,y,-TD/2, -TW/2,y,TD/2);
-      pts.push( TW/2,y,-TD/2,  TW/2,y,TD/2);
-    }
-    const gGeo=new THREE.BufferGeometry();
-    gGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(pts),3));
-    scene.add(new THREE.LineSegments(gGeo,
-      new THREE.LineBasicMaterial({color:0x7722aa,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false}))
-      .translateY(TH/2));
-    // Store for collision + climbing
-    window._tower={wx:0,wz:0,w:TW,h:TH,d:TD,topY:TH};
-  }
+  // ── CENTRAL TOWER — MoveableWall with _immovable=true ──
+  // Reuses all collision, landing, drop indicator, bomb bounce etc.
+  const tower=new MoveableWall(0, 0, 50, 200, 50);
+  tower._immovable=true; // never moves when pushed
+  tower._climbable=true; // wall climbing enabled
+  GS_moveableWalls.push(tower);
+  window._tower=tower; // reference for climb system
 
   // Target ring — push the big cube here
   const targetMat=new THREE.MeshBasicMaterial({color:0xaa44ff,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
