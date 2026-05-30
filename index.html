@@ -8222,10 +8222,24 @@ jR.onTap=()=>{
     if(bb) bb.classList.remove('armed');
     return;
   }
+  if(player._wallClimb){
+    // While climbing: jump = leap off wall (handled in climb state)
+    player._jumpTapped=true;
+    setTimeout(()=>{ if(player) player._jumpTapped=false; },80);
+    return;
+  }
+  if(player._ledgeGrab){
+    player.py=player._ledgeGrab.topY+2;
+    player.pvy=80; player._ledgeGrab=null;
+    Audio.blip(440,0.4,'sine',0.12,520);
+    return;
+  }
   if(player.py<=8||player._onPlatform){
+    player._jumpTapped=true;
     player.pvy=180; player._onPlatform=false;
     Audio.blip(440,0.4,'sine',0.12,520);
     ps.ring(player.wx,player.wz,[0,0.85,1],12,90);
+    setTimeout(()=>{ if(player) player._jumpTapped=false; },80);
   }
 };
 
@@ -8439,8 +8453,33 @@ function loop(ts){ requestAnimationFrame(loop);
           }
         }
 
-        // Skip blend switch while roll or landing is playing
-        if(!ud._rollingTimer&&!ud._landingTimer){
+        // ── WALL CLIMB ANIMATION ──
+        if(player._wallClimb&&ud.clips){
+          const climbClip=ud.clips['climbing']||ud.clips['climb']||ud.clips['wall_climb'];
+          if(climbClip){
+            const climbDir=-moveIn.y; // positive = climbing up, negative = down
+            if(Math.abs(climbDir)>0.1){
+              // Switch to climb clip if not already on it
+              if(ud.currentClip!=='climbing'&&ud.currentClip!=='climb'&&ud.currentClip!=='wall_climb'){
+                Object.values(ud.clips).forEach(a=>a.fadeOut(0.15));
+                climbClip.reset().setEffectiveWeight(1).fadeIn(0.15).play();
+                ud.currentClip='climbing';
+              }
+              // Forward = climb up, reverse = climb down
+              climbClip.setEffectiveTimeScale(climbDir>0 ? 1.0 : -1.0);
+              // If reversed, make sure we're not at time=0 (would freeze)
+              if(climbDir<0&&climbClip.time<=0.01){
+                climbClip.time=climbClip._clip.duration;
+              }
+            } else {
+              // Stopped on wall — pause clip
+              if(climbClip.isRunning()) climbClip.setEffectiveTimeScale(0);
+            }
+          }
+        }
+
+        // Skip blend switch while roll, landing, or climbing
+        if(!ud._rollingTimer&&!ud._landingTimer&&!player._wallClimb){
           let targetClip='idle';
           if(airborne) targetClip='floating';
           else if(!moving) targetClip='idle';
@@ -8911,6 +8950,103 @@ function loop(ts){ requestAnimationFrame(loop);
           }
           for(const b of GS.dropBombs) w.checkProjectile(b,'bomb');
         }
+
+        // ── TOWER COLLISION + WALL CLIMBING ──
+        if(window._tower&&player){
+          const t=window._tower;
+          const dx=player.wx-t.wx, dz=player.wz-t.wz;
+          const hw=t.w/2+10, hd=t.d/2+10;
+
+          // Solid collision when not climbing
+          if(!player._wallClimb&&player.py<t.topY){
+            const overlapX=hw-Math.abs(dx), overlapZ=hd-Math.abs(dz);
+            if(overlapX>0&&overlapZ>0){
+              if(overlapX<overlapZ){ player.wx+=overlapX*Math.sign(dx); player.vx=0; }
+              else { player.wz+=overlapZ*Math.sign(dz); player.vz=0; }
+            }
+          }
+
+          // Land on top
+          if(Math.abs(dx)<t.w/2&&Math.abs(dz)<t.d/2&&
+             player.py<=t.topY+4&&player.py>=t.topY-10&&player.pvy<=0){
+            player.py=t.topY; player.pvy=0;
+            player._onPlatform=true; player._platformY=t.topY;
+            player._wallClimb=null;
+          }
+
+          // ── CLIMB ATTACH ──
+          // Push stick toward tower face = attach and start climbing
+          if(!player._wallClimb&&player.py<t.topY-5){
+            const mv=rotInput(moveIn.x,moveIn.y);
+            const mvMag=Math.hypot(mv.x,mv.z);
+            if(mvMag>0.3){
+              const toTX=t.wx-player.wx, toTZ=t.wz-player.wz;
+              const toTLen=Math.hypot(toTX,toTZ)||1;
+              const dot=(mv.x*toTX+mv.z*toTZ)/(toTLen*mvMag);
+              const nearFace=Math.abs(dx)<hw+15&&Math.abs(dz)<hd+15;
+              if(dot>0.5&&nearFace){
+                const faceX=Math.abs(dx)/t.w*2, faceZ=Math.abs(dz)/t.d*2;
+                let faceNX=0, faceNZ=0;
+                if(faceX>=faceZ) faceNX=Math.sign(dx); else faceNZ=Math.sign(dz);
+                if(faceNX!==0) player.wx=t.wx+faceNX*(t.w/2+9);
+                else player.wz=t.wz+faceNZ*(t.d/2+9);
+                player.vx=0; player.vz=0; player.pvy=0;
+                player._wallClimb={faceNX, faceNZ};
+                announce('CLIMBING — STICK UP to climb · JUMP to leap off · STICK BACK to release','#cc44ff');
+              }
+            }
+          }
+
+          // ── CLIMBING STATE ──
+          if(player._wallClimb){
+            const wc=player._wallClimb;
+            if(wc.faceNX!==0) player.wx=t.wx+wc.faceNX*(t.w/2+9);
+            else player.wz=t.wz+wc.faceNZ*(t.d/2+9);
+            player.vx=0; player.vz=0; player.pvy=0;
+
+            // Stick Y = climb up/down — full range
+            player.py+=(-moveIn.y)*80*dt;
+            player.py=Math.max(0, Math.min(t.topY+5, player.py));
+
+            // Reach top = cleanly step onto top surface, stop climbing
+            if(player.py>=t.topY){
+              player.py=t.topY;
+              player._wallClimb=null;
+              player._onPlatform=true; player._platformY=t.topY;
+              player.vx=0; player.vz=0; player.pvy=0;
+              // Fade out climb animation
+              const ud2=player.model&&player.model.userData;
+              if(ud2&&ud2.clips){
+                const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];
+                if(cc) cc.fadeOut(0.2);
+                ud2.currentClip=null;
+              }
+            }
+
+            // Reach bottom = drop off
+            if(player.py<=1){
+              player.py=0; player._wallClimb=null;
+              const ud2=player.model&&player.model.userData;
+              if(ud2&&ud2.clips){
+                const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];
+                if(cc) cc.fadeOut(0.2);
+                ud2.currentClip=null;
+              }
+            }
+
+            // Jump = ONLY way to leave wall (leap off)
+            if(player._jumpTapped){
+              player.vx=wc.faceNX*180; player.vz=wc.faceNZ*180; player.pvy=200;
+              player._wallClimb=null; player._jumpTapped=false;
+              const ud2=player.model&&player.model.userData;
+              if(ud2&&ud2.clips){
+                const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];
+                if(cc) cc.fadeOut(0.15);
+                ud2.currentClip=null;
+              }
+            }
+          }
+        }
       }
       for(let i=GS_bots.length-1;i>=0;i--){
         const bot=GS_bots[i];
@@ -9065,7 +9201,6 @@ class MoveableWall{
     }
 
     // Snap player aim to face the wall
-    console.warn('GRAB START moveAxis='+this._moveAxis);
     try{
       if(this._moveAxis==='z'){
         player.aim = this._faceNX > 0 ? Math.PI : 0;
@@ -9116,13 +9251,47 @@ class MoveableWall{
         const pdx=px-this._lastPlayerX;
         const pdz=pz-this._lastPlayerZ;
 
-        // Move wall on both axes — player input covers both
-        this.wx+=pdx;
-        this.wz+=pdz;
+        // Clamp movement delta against other blocks BEFORE moving — prevent penetration
+        let cdx=pdx, cdz=pdz;
+        for(const other of GS_moveableWalls){
+          if(other===this) continue;
+          const cx=this.wx-other.wx, cz=this.wz-other.wz;
+          const gapX=Math.abs(cx)-(this.w/2+other.w/2);
+          const gapZ=Math.abs(cz)-(this.d/2+other.d/2);
+          // Only constrain if blocks are close enough to collide this frame
+          if(gapX<2&&gapZ<0){
+            // Blocks touching on X face — clamp X movement toward other
+            if(Math.sign(cdx)===-Math.sign(cx)) cdx=0;
+          }
+          if(gapZ<2&&gapX<0){
+            // Blocks touching on Z face — clamp Z movement toward other
+            if(Math.sign(cdz)===-Math.sign(cz)) cdz=0;
+          }
+        }
+
+        // Move wall on both axes with clamped deltas
+        this.wx+=cdx;
+        this.wz+=cdz;
 
         const maxR=ARENA_R-Math.max(this.w,this.d)/2-10;
         this.wx=clamp(this.wx,-maxR,maxR);
         this.wz=clamp(this.wz,-maxR,maxR);
+
+        // Block-vs-block collision — hard stop at perimeter, no chain pushing
+        for(const other of GS_moveableWalls){
+          if(other===this) continue;
+          const odx=this.wx-other.wx, odz=this.wz-other.wz;
+          const overlapX=(this.w/2+other.w/2)-Math.abs(odx);
+          const overlapZ=(this.d/2+other.d/2)-Math.abs(odz);
+          if(overlapX>0&&overlapZ>0){
+            // Push THIS block out fully — never move the other block
+            if(overlapX<overlapZ){
+              this.wx+=overlapX*Math.sign(odx);
+            } else {
+              this.wz+=overlapZ*Math.sign(odz);
+            }
+          }
+        }
 
         // Keep player touching face — just maintain the correct stand-off distance
         // on the locked axis. Don't touch the free axis at all.
@@ -9205,32 +9374,60 @@ function buildPuzzleLab(){
   GS_moveableWalls=[];
   GS_movingWall=null;
 
-  // One big moveable block — taller than player but bombable over
-  const wall=new MoveableWall(80,0,60,60,60);
-  GS_moveableWalls.push(wall);
+  // Block 1 — big cube (60×60×60) at right-center
+  GS_moveableWalls.push(new MoveableWall( 150,   0,  60, 60, 60));
+  // Block 2 — wide flat slab (120×30×40) at far left
+  GS_moveableWalls.push(new MoveableWall(-180,  80, 120, 30, 40));
+  // Block 3 — tall pillar (35×90×35) at back-center
+  GS_moveableWalls.push(new MoveableWall(   0,-160,  35, 90, 35));
+  // Block 4 — long narrow wall (140×20×55) at far back-left
+  GS_moveableWalls.push(new MoveableWall(-200,-120, 140, 20, 55));
+  // Block 5 — small cube (30×30×30) at front-right
+  GS_moveableWalls.push(new MoveableWall( 200, 150,  30, 30, 30));
 
-  // Platform to jump up on (behind wall)
-  const platGeo=new THREE.BoxGeometry(70,10,70);
-  const platMat=new THREE.MeshBasicMaterial({color:0xaa44ff,transparent:true,opacity:0.15,blending:THREE.AdditiveBlending,depthWrite:false,wireframe:true});
-  const platform=new THREE.Mesh(platGeo,platMat);
-  platform.position.set(-80,5,-60);
-  scene.add(platform);
+  // ── CENTRAL TOWER ── simple tall column
+  {
+    const TW=50, TH=200, TD=50;
+    const tGeo=new THREE.BoxGeometry(TW,TH,TD);
+    const tMat=new THREE.MeshBasicMaterial({color:0x110033,transparent:true,opacity:0.75,depthWrite:true});
+    const tMesh=new THREE.Mesh(tGeo,tMat);
+    tMesh.position.set(0,TH/2,0); scene.add(tMesh);
+    // Edges
+    const tEdge=new THREE.LineSegments(new THREE.EdgesGeometry(tGeo),
+      new THREE.LineBasicMaterial({color:0xcc44ff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
+    tEdge.position.copy(tMesh.position); scene.add(tEdge);
+    // Grid lines on faces
+    const pts=[]; const steps=5;
+    for(let i=1;i<steps;i++){
+      const x=-TW/2+TW*i/steps, z=-TD/2+TD*i/steps, y=-TH/2+TH*i/steps;
+      pts.push(x,-TH/2,-TD/2-0.5, x,TH/2,-TD/2-0.5);
+      pts.push(x,-TH/2, TD/2+0.5, x,TH/2, TD/2+0.5);
+      pts.push(-TW/2-0.5,y,-TD/2, TW/2+0.5,y,-TD/2);
+      pts.push(-TW/2-0.5,y, TD/2, TW/2+0.5,y, TD/2);
+      pts.push(-TW/2,y,-TD/2, -TW/2,y,TD/2);
+      pts.push( TW/2,y,-TD/2,  TW/2,y,TD/2);
+    }
+    const gGeo=new THREE.BufferGeometry();
+    gGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(pts),3));
+    scene.add(new THREE.LineSegments(gGeo,
+      new THREE.LineBasicMaterial({color:0x7722aa,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false}))
+      .translateY(TH/2));
+    // Store for collision + climbing
+    window._tower={wx:0,wz:0,w:TW,h:TH,d:TD,topY:TH};
+  }
 
-  // Target markers on floor showing where to push block
-  const targetGeo=new THREE.RingGeometry(20,22,32);
+  // Target ring — push the big cube here
   const targetMat=new THREE.MeshBasicMaterial({color:0xaa44ff,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
-  const target=new THREE.Mesh(targetGeo,targetMat);
-  target.rotation.x=-Math.PI/2; target.position.set(-60,1,60);
-  scene.add(target);
-
-  const crossH=new THREE.Mesh(new THREE.PlaneGeometry(40,2),targetMat.clone());
-  crossH.rotation.x=-Math.PI/2; crossH.position.set(-60,1.5,60); scene.add(crossH);
-  const crossV=new THREE.Mesh(new THREE.PlaneGeometry(2,40),targetMat.clone());
-  crossV.rotation.x=-Math.PI/2; crossV.position.set(-60,1.5,60); scene.add(crossV);
+  const target=new THREE.Mesh(new THREE.RingGeometry(28,30,32),targetMat);
+  target.rotation.x=-Math.PI/2; target.position.set(-60,1,80); scene.add(target);
+  const crossH=new THREE.Mesh(new THREE.PlaneGeometry(50,2),targetMat.clone());
+  crossH.rotation.x=-Math.PI/2; crossH.position.set(-60,1.5,80); scene.add(crossH);
+  const crossV=new THREE.Mesh(new THREE.PlaneGeometry(2,50),targetMat.clone());
+  crossV.rotation.x=-Math.PI/2; crossV.position.set(-60,1.5,80); scene.add(crossV);
 
   setTimeout(()=>{
-    announce('PUZZLE LAB — GET CLOSE TO GRAB THE BLOCK','#aa44ff');
-    setTimeout(()=>announce('PUSH BLOCK TO THE GLOWING TARGET','#aa44ff88'),2500);
+    announce('PUZZLE LAB — PUSH RIGHT STICK TOWARD BLOCK TO GRAB','#aa44ff');
+    setTimeout(()=>announce('5 BLOCKS · VARIOUS SIZES · PUSH TO TARGET','#aa44ff88'),2500);
   },800);
 }
 
