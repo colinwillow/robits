@@ -5942,7 +5942,6 @@ class Player{
     const fire=(ang,kind)=>{
       const b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0);
       GS.bullets.push(b);
-      if(MP.active) mpSend('event',{event:'bullet',data:{x:spawnX,z:spawnZ,dx:Math.cos(ang)*bspd,dz:Math.sin(ang)*bspd,y:y0,kind}});
     };
     if(od){ fire(a,'laser');fire(a+0.16,'laser');fire(a-0.16,'laser'); if(Math.random()<0.4)fire(a+rand(-0.5,0.5),'homing'); }
     else if(lvl>=5){ fire(a,'normal'); fire(a+0.1,'normal'); } // lvl5 = faster bullets, missiles only via flick
@@ -7488,6 +7487,8 @@ function rewardKill(e){
 //  WAVE SPAWNING — telegraphed with formation
 // ════════════════════════════════════════════════════════════
 function spawnWave(){
+  // In multiplayer, only host spawns enemies
+  if(MP.active&&!MP.isHost) return;
   GS.wave++; GS.waveInZone++;
   const zd=getZoneDef(GS.zone);
   Audio.setIntensity(clamp(0.1+GS.zone*0.12+GS.waveInZone*0.04,0,1));
@@ -10130,7 +10131,6 @@ function mpConnectAbly(roomCode){
     });
     ch.subscribe('player_data', (msg)=>{
       if(msg.data.id===MP.myId) return;
-      console.log('MP: received player_data from',msg.data.id);
       if(!MP.players[msg.data.id]) mpAddRemotePlayer(msg.data.id, msg.data);
     });
 
@@ -10245,7 +10245,6 @@ function MP_PLAYER_COLOR_HEX(idx){
 // ── Remote Player Mesh ──
 function mpAddRemotePlayer(id, state){
   if(MP.players[id]) return;
-  console.log('MP: adding remote player',id, state.name);
 
   const color=MP.PLAYER_COLORS[state.color||0];
 
@@ -10332,9 +10331,10 @@ function mpAddRemotePlayer(id, state){
 
     rp.mesh=group;
     rp.mixer=mixer;
-    rp._clips=clips;
+    // Store only valid AnimationAction objects
+    rp._clips=Object.fromEntries(Object.entries(clips).filter(([k,v])=>v&&typeof v.fadeOut==='function'));
     rp._clone=clone;
-    console.log('MP: GLB clone ready for',id,'clips=',Object.keys(clips).join(','));
+    rp._currentClip='idle';
   }).catch(()=>{}); // keep placeholder if GLB fails
 }
 
@@ -10347,7 +10347,7 @@ function mpRemoveRemotePlayer(id){
 
 function mpUpdateRemotePlayer(msg){
   const rp=MP.players[msg.id];
-  if(!rp){ console.warn('MP: state for unknown player',msg.id); return; }
+  if(!rp) return;
   Object.assign(rp.state, msg);
   rp.mesh.position.set(
     lerp(rp.mesh.position.x, msg.x, 0.3),
@@ -10357,20 +10357,27 @@ function mpUpdateRemotePlayer(msg){
   rp.mesh.rotation.y = -msg.aim + Math.PI/2;
 
   const clips=rp._clips;
-  if(!clips&&!rp._loggedNoClips){ console.warn('MP: no clips yet for',msg.id,'mixer=',!!rp.mixer); rp._loggedNoClips=true; }
   if(clips&&msg.clip){
     const wantClip=msg.clip.replace('.bomb','').replace('.shoot','');
     if(wantClip!==rp._currentClip){
       const target=clips[msg.clip]||clips[wantClip]||clips['idle'];
-      console.log('MP: switching',msg.id,'to clip',wantClip,'found=',!!target,'available=',Object.keys(clips).join(','));
-      if(target){
-        Object.values(clips).forEach(a=>a.fadeOut(0.12));
+      if(target&&target.fadeOut){
+        // Only fade valid AnimationAction objects
+        Object.values(clips).forEach(a=>{ if(a&&a.fadeOut) a.fadeOut(0.12); });
         if(!target.isRunning()) target.reset();
         target.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.12).play();
         rp._currentClip=wantClip;
       }
     }
   }
+
+  // Simulate bullets locally when remote player fires
+  if(msg.firing&&!rp._wasFiring&&GS.state==='playing'){
+    const bspd=480, a=msg.aim||0;
+    const sx=msg.x+Math.cos(a)*14, sz=msg.z+Math.sin(a)*14, sy=(msg.y||0)+22;
+    GS.bullets.push(new Bullet(sx,sz,Math.cos(a)*bspd,Math.sin(a)*bspd,'normal',sy));
+  }
+  rp._wasFiring=msg.firing;
 }
 
 function mpHandleRemoteEvent(msg){
@@ -10416,14 +10423,14 @@ let _mpTick=0;
 function mpTick(){
   if(!MP.active||!MP.connected||!player||GS.state!=='playing') return;
   _mpTick++;
-  if(_mpTick%3!==0) return; // every 3 frames ≈ 50ms at 60fps
+  if(_mpTick%6!==0) return; // every 6 frames ≈ 100ms at 60fps — under rate limit
   mpSend('state', {
     x:player.wx, z:player.wz, y:player.py,
     aim:player.aim, hp:GS.hp,
     shieldActive:player.shieldActive,
-    shieldHp:player.shieldHp,
     bombArmed:player.bombArmed,
     firing:player._lastFiring||false,
+    weapon:GS.weapon||'bullets',
     dead:!player.alive,
     clip:player.model?.userData?.currentClip||'idle',
   });
