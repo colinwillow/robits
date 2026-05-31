@@ -5939,7 +5939,11 @@ class Player{
     } else if(this.model?.userData?.isRobot){
       y0=22+this.py;
     }
-    const fire=(ang,kind)=>GS.bullets.push(new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0));
+    const fire=(ang,kind)=>{
+      const b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0);
+      GS.bullets.push(b);
+      if(MP.active) mpSend('event',{event:'bullet',data:{x:spawnX,z:spawnZ,dx:Math.cos(ang)*bspd,dz:Math.sin(ang)*bspd,y:y0,kind}});
+    };
     if(od){ fire(a,'laser');fire(a+0.16,'laser');fire(a-0.16,'laser'); if(Math.random()<0.4)fire(a+rand(-0.5,0.5),'homing'); }
     else if(lvl>=5){ fire(a,'normal'); fire(a+0.1,'normal'); } // lvl5 = faster bullets, missiles only via flick
     else if(lvl>=3){ fire(a,'laser');fire(a+0.1,'normal');fire(a-0.1,'normal'); }
@@ -10116,7 +10120,18 @@ function mpConnectAbly(roomCode){
     ch.subscribe('leave', (msg)=>{ mpHandleMessage({type:'player_left', id:msg.data.id}); });
     ch.subscribe('state', (msg)=>{ if(msg.data.id!==MP.myId) mpHandleMessage({type:'state',...msg.data}); });
     ch.subscribe('event', (msg)=>{ if(msg.data.id!==MP.myId) mpHandleMessage({type:'event',...msg.data}); });
-    ch.subscribe('start', (msg)=>{ if(msg.data.id!==MP.myId) mpBeginGame(); });
+    ch.subscribe('start', (msg)=>{
+      if(msg.data.id===MP.myId) return;
+      // Add host as remote player if not already added
+      if(msg.data.hostId&&msg.data.hostId!==MP.myId&&!MP.players[msg.data.hostId]){
+        mpAddRemotePlayer(msg.data.hostId,{id:msg.data.hostId,name:msg.data.hostName||'HOST',color:0,x:0,y:0,z:0,aim:0});
+      }
+      mpBeginGame();
+    });
+    ch.subscribe('player_data', (msg)=>{
+      if(msg.data.id===MP.myId) return;
+      if(!MP.players[msg.data.id]) mpAddRemotePlayer(msg.data.id, msg.data);
+    });
 
     // Presence: track who's in room
     ch.presence.subscribe('enter', (m)=>{
@@ -10331,22 +10346,25 @@ function mpUpdateRemotePlayer(msg){
   const rp=MP.players[msg.id];
   if(!rp) return;
   Object.assign(rp.state, msg);
-  // Smooth position lerp
   rp.mesh.position.set(
-    lerp(rp.mesh.position.x, msg.x, 0.2),
-    lerp(rp.mesh.position.y, msg.y||0, 0.2),
-    lerp(rp.mesh.position.z, msg.z, 0.2)
+    lerp(rp.mesh.position.x, msg.x, 0.3),
+    lerp(rp.mesh.position.y, msg.y||0, 0.3),
+    lerp(rp.mesh.position.z, msg.z, 0.3)
   );
   rp.mesh.rotation.y = -msg.aim + Math.PI/2;
 
-  // Drive animation from received clip name
-  if(rp._clips&&msg.clip&&msg.clip!==rp._currentClip){
-    const targetClip=rp._clips[msg.clip]||rp._clips['idle'];
-    if(targetClip){
-      Object.values(rp._clips).forEach(a=>a.fadeOut(0.15));
-      if(!targetClip.isRunning()) targetClip.reset();
-      targetClip.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.15).play();
-      rp._currentClip=msg.clip;
+  // Drive animation — use _clips which is set on the rp object directly
+  const clips=rp._clips;
+  if(clips&&msg.clip){
+    const wantClip=msg.clip.replace('.bomb','').replace('.shoot',''); // simplify for remote
+    if(wantClip!==rp._currentClip){
+      const target=clips[msg.clip]||clips[wantClip]||clips['idle'];
+      if(target){
+        Object.values(clips).forEach(a=>a.fadeOut(0.12));
+        if(!target.isRunning()) target.reset();
+        target.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.12).play();
+        rp._currentClip=wantClip;
+      }
     }
   }
 }
@@ -10378,8 +10396,14 @@ function mpHandleRemoteEvent(msg){
 function mpBeginGame(){
   document.getElementById('overlay').style.display='none';
   MP.active=true;
-  startGame(0); // start at zone 0 for multiplayer
-  // Show connected players count
+  startGame(0);
+  // Broadcast our own player data so everyone can add us as remote
+  setTimeout(()=>{
+    if(player) mpSend('player_data',{
+      id:MP.myId, name:MP.myName, color:MP.myColor||0,
+      x:player.wx, z:player.wz, y:player.py, aim:player.aim
+    });
+  }, 500);
   announce(`MULTIPLAYER · ${Object.keys(MP.players).length+1} PILOTS`,'#aa44ff');
 }
 
