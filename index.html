@@ -7727,6 +7727,8 @@ function showGameOver(){ Audio.stopMusic();
 }
 
 function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
+  // In multiplayer, only host processes enemy hits
+  const mpNonHost=MP.active&&!MP.isHost;
   // First: sweep out any dead-but-not-removed enemies (Swarm self-destructs)
   for(let ei=GS.enemies.length-1;ei>=0;ei--){
     const e=GS.enemies[ei];
@@ -7735,12 +7737,15 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
   for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi];
     for(let ei=GS.enemies.length-1;ei>=0;ei--){ const e=GS.enemies[ei]; if(b.hitSet.has(e))continue;
       const dx=b.wx-e.wx,dz=b.wz-e.wz,rr=e.size+5; if(dx*dx+dz*dz<rr*rr){
-        // 3D height check: enemies sit at y≈9. Bullet must be within 28 units
-        // vertically to hit. Bullets fired from the air arc down, so they'll
-        // register once they descend close to the enemy's level.
         const enemyY=9, bulletY=b.y, vertOk=Math.abs(bulletY-enemyY)<28;
         if(!vertOk)continue;
-        if(e._invulnerable){ b.life=0; continue; } // HoverBomber only hittable on ground
+        if(e._invulnerable){ b.life=0; continue; }
+        // Non-host: send hit to host, don't apply damage locally
+        if(mpNonHost){
+          b.life=0;
+          mpSend('event',{event:'enemy_hit',data:{idx:ei, dmg:b.dmg}});
+          continue;
+        }
         kt+=0.015; const pts=e.hit(b.dmg); if(b.pierce>0){b.pierce--;b.hitSet.add(e);}else b.life=0;
         // VertexBoss: give hit vertex momentum
         if(e instanceof VertexBoss){
@@ -10133,6 +10138,22 @@ function mpConnectAbly(roomCode){
       if(msg.data.id===MP.myId) return;
       if(!MP.players[msg.data.id]) mpAddRemotePlayer(msg.data.id, msg.data);
     });
+    ch.subscribe('enemies', (msg)=>{
+      if(MP.isHost) return;
+      if(msg.data.enemies&&GS.enemies){
+        msg.data.enemies.forEach((ed,i)=>{
+          if(GS.enemies[i]){
+            GS.enemies[i].wx=ed.wx; GS.enemies[i].wz=ed.wz;
+            GS.enemies[i].hp=ed.hp;
+            if(!ed.alive&&GS.enemies[i].alive){
+              GS.enemies[i].alive=false;
+              GS.enemies[i].remove&&GS.enemies[i].remove();
+              GS.enemies.splice(i,1);
+            }
+          }
+        });
+      }
+    });
 
     // Presence: track who's in room
     ch.presence.subscribe('enter', (m)=>{
@@ -10354,7 +10375,8 @@ function mpUpdateRemotePlayer(msg){
     lerp(rp.mesh.position.y, msg.y||0, 0.3),
     lerp(rp.mesh.position.z, msg.z, 0.3)
   );
-  rp.mesh.rotation.y = -msg.aim + Math.PI/2;
+  // Aim: player.aim is atan2(z,x) in world space — convert to Three.js Y rotation
+  rp.mesh.rotation.y = -msg.aim - Math.PI/2;
 
   const clips=rp._clips;
   if(clips&&msg.clip){
@@ -10362,7 +10384,6 @@ function mpUpdateRemotePlayer(msg){
     if(wantClip!==rp._currentClip){
       const target=clips[msg.clip]||clips[wantClip]||clips['idle'];
       if(target&&target.fadeOut){
-        // Only fade valid AnimationAction objects
         Object.values(clips).forEach(a=>{ if(a&&a.fadeOut) a.fadeOut(0.12); });
         if(!target.isRunning()) target.reset();
         target.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.12).play();
@@ -10371,13 +10392,12 @@ function mpUpdateRemotePlayer(msg){
     }
   }
 
-  // Simulate bullets locally when remote player fires
-  if(msg.firing&&!rp._wasFiring&&GS.state==='playing'){
+  // Simulate bullets — fire on every state packet while firing (throttled by 100ms tick)
+  if(msg.firing&&GS.state==='playing'){
     const bspd=480, a=msg.aim||0;
     const sx=msg.x+Math.cos(a)*14, sz=msg.z+Math.sin(a)*14, sy=(msg.y||0)+22;
     GS.bullets.push(new Bullet(sx,sz,Math.cos(a)*bspd,Math.sin(a)*bspd,'normal',sy));
   }
-  rp._wasFiring=msg.firing;
 }
 
 function mpHandleRemoteEvent(msg){
@@ -10385,7 +10405,27 @@ function mpHandleRemoteEvent(msg){
   if(!rp) return;
   const d=msg.data||{};
   switch(msg.event){
-    case 'bomb_thrown':
+    case 'enemy_hit':
+      // Host processes damage from non-host player
+      if(MP.isHost&&GS.enemies[d.idx]){
+        const e=GS.enemies[d.idx];
+        const pts=e.hit(d.dmg||1);
+        if(pts>0||!e.alive){
+          // Broadcast kill to all
+          mpSend('event',{event:'enemy_killed',data:{idx:d.idx}});
+        }
+      }
+      break;
+    case 'enemy_killed':
+      // Non-host removes enemy on kill broadcast from host
+      if(!MP.isHost&&GS.enemies[d.idx]){
+        const e=GS.enemies[d.idx];
+        e.hp=0; e.alive=false;
+        ps.burst(e.wx,e.wz,[1,0.5,0],12,100);
+        e.remove(); GS.enemies.splice(d.idx,1);
+        Audio.enemyDie();
+      }
+      break;
       // Spawn a bomb from their position
       if(GS.state==='playing'){
         const b=new DropBomb(d.x,d.z,d.y, d.vx,d.vz,d.fuse,d.vy);
@@ -10423,7 +10463,7 @@ let _mpTick=0;
 function mpTick(){
   if(!MP.active||!MP.connected||!player||GS.state!=='playing') return;
   _mpTick++;
-  if(_mpTick%6!==0) return; // every 6 frames ≈ 100ms at 60fps — under rate limit
+  if(_mpTick%6!==0) return;
   mpSend('state', {
     x:player.wx, z:player.wz, y:player.py,
     aim:player.aim, hp:GS.hp,
@@ -10434,6 +10474,13 @@ function mpTick(){
     dead:!player.alive,
     clip:player.model?.userData?.currentClip||'idle',
   });
+  // Host broadcasts enemy positions every 12 frames
+  if(MP.isHost&&_mpTick%12===0&&GS.enemies.length){
+    const enemyData=GS.enemies.slice(0,20).map(e=>({
+      wx:Math.round(e.wx), wz:Math.round(e.wz), hp:e.hp, alive:e.alive
+    }));
+    mpSend('enemies',{enemies:enemyData});
+  }
 }
 
 // Call mpTick from the main loop (add after player.update)
