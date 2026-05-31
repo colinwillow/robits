@@ -10242,6 +10242,16 @@ function mpHandleMessage(msg){
       break;
 
     case 'start':
+      // Add all existing players as remote (including host) before game begins
+      for(const [id,state] of Object.entries(MP.players)){
+        if(id!==MP.myId&&!MP.players[id]._clone){
+          mpAddRemotePlayer(id, state);
+        }
+      }
+      // Also add host if we don't have them yet
+      if(msg.hostId&&msg.hostId!==MP.myId&&!MP.players[msg.hostId]){
+        mpAddRemotePlayer(msg.hostId, {id:msg.hostId, name:msg.hostName||'HOST', color:0, x:0,y:0,z:0,aim:0});
+      }
       mpBeginGame();
       break;
   }
@@ -10371,14 +10381,25 @@ function mpRemoveRemotePlayer(id){
 function mpUpdateRemotePlayer(msg){
   const rp=MP.players[msg.id];
   if(!rp) return;
-  // Lerp position
   Object.assign(rp.state, msg);
+  // Smooth position lerp
   rp.mesh.position.set(
     lerp(rp.mesh.position.x, msg.x, 0.2),
-    lerp(rp.mesh.position.y, msg.y, 0.2),
+    lerp(rp.mesh.position.y, msg.y||0, 0.2),
     lerp(rp.mesh.position.z, msg.z, 0.2)
   );
   rp.mesh.rotation.y = -msg.aim + Math.PI/2;
+
+  // Drive animation from received clip name
+  if(rp._clips&&msg.clip&&msg.clip!==rp._currentClip){
+    const targetClip=rp._clips[msg.clip]||rp._clips['idle'];
+    if(targetClip){
+      Object.values(rp._clips).forEach(a=>a.fadeOut(0.15));
+      if(!targetClip.isRunning()) targetClip.reset();
+      targetClip.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.15).play();
+      rp._currentClip=msg.clip;
+    }
+  }
 }
 
 function mpHandleRemoteEvent(msg){
@@ -10427,6 +10448,7 @@ function mpTick(){
     bombArmed:player.bombArmed,
     firing:player._lastFiring||false,
     dead:!player.alive,
+    clip:player.model?.userData?.currentClip||'idle',
   });
 }
 
@@ -10445,7 +10467,7 @@ document.getElementById('mp-create-btn')?.addEventListener('click',()=>{
   document.getElementById('mp-start-btn').style.display='none';
   mpConnect(code);
   document.getElementById('mp-start-btn')?.addEventListener('click',()=>{
-    if(MP.connected){ mpSend('start',{}); mpBeginGame(); }
+    if(MP.connected){ mpSend('start',{hostId:MP.myId, hostName:MP.myName}); mpBeginGame(); }
   },{once:true});
 });
 
