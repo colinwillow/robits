@@ -197,6 +197,10 @@ canvas{display:block}
 <div id="dmg-vig"></div>
 <div id="flash"></div>
 <button id="btn-home">⌂ HOME</button>
+<div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
+  <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px">♪ MUSIC</button>
+  <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px">🔊 SFX</button>
+</div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
 
 <div id="ui">
@@ -303,6 +307,15 @@ canvas{display:block}
       <button id="ctrl-hybrid" onclick="window.CTRL_MODE='hybrid';['ctrl-standard','ctrl-follow','ctrl-hybrid'].forEach(id=>{document.getElementById(id).style.borderColor=id==='ctrl-hybrid'?'#00ffc8':'#ffffff22'});document.getElementById('ctrl-desc').textContent='FREE-AIM: camera follows movement only · right stick aims only'" style="padding:8px 14px;font-size:0.65em;letter-spacing:2px;border:1px solid #ffffff22;background:#00000022;color:#ffffff88;border-radius:6px">🕹️ FREE-AIM</button>
     </div>
     <div id="ctrl-desc" style="font-size:7px;color:#ffffff33;margin-top:5px;letter-spacing:1px;text-align:center">STANDARD: right stick aims + rotates camera</div>
+  </div>
+
+  <!-- DESKTOP KEY LAYOUT -->
+  <div style="text-align:center;margin:0 0 14px">
+    <div style="font-size:8px;letter-spacing:3px;color:#ffffff55;margin-bottom:6px">── DESKTOP KEYS ──</div>
+    <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap">
+      <button id="keys-default" onclick="window.KEYS_SWAP=false;document.getElementById('keys-default').style.borderColor='#00ffc8';document.getElementById('keys-swapped').style.borderColor='#ffffff22'" style="padding:8px 12px;font-size:0.62em;letter-spacing:1px;border:1px solid #ffffff22;background:#00000022;color:#ffffff88;border-radius:6px">SPACE=BOMB · RMB=JUMP</button>
+      <button id="keys-swapped" onclick="window.KEYS_SWAP=true;document.getElementById('keys-swapped').style.borderColor='#00ffc8';document.getElementById('keys-default').style.borderColor='#ffffff22'" style="padding:8px 12px;font-size:0.62em;letter-spacing:1px;border:1px solid #00ffc8;background:#00ffc811;color:#00ffc8;border-radius:6px">SPACE=JUMP · RMB=BOMB</button>
+    </div>
   </div>
 
   <!-- VERSUS BOT -->
@@ -5003,13 +5016,28 @@ class Missile{
     grid.shock(this.wx,this.wz,8); grid.push(this.wx,this.wz,-6,120); grid.pulse(0.5);
     addTrauma(0.08); flashScreen(0.25);
     Audio.blip(80,0.5,'sawtooth',0.4,30); Audio.blip(440,0.2,'sine',0.2,60);
-    // Damage enemies — never damages player
+    // Damage enemies — award score and register kills
     for(const e of GS.enemies){
       const d=Math.hypot(e.wx-this.wx,e.wz-this.wz);
-      if(d<BLAST){ e.hp=(e.hp||1)-this.dmg; if(e.hp<=0){e.die&&e.die();} }
+      if(d<BLAST){
+        const dmgAmt=Math.ceil(this.dmg*(1-(d/BLAST)*0.5));
+        if(e.hit){
+          const score=e.hit(dmgAmt,this.wx,this.wz);
+          if(e.hp<=0||score>0){
+            const g=(e.score||100)*GS.mult;
+            GS.score+=g; GS.multT=GS.multMax; if(GS.mult<25)GS.mult++;
+            registerKill&&registerKill(e);
+            const ng=e.score>=200?3:1;
+            for(let gi=0;gi<ng;gi++) GS.gems.push(new Gem3D(e.wx+rand(-16,16),e.wz+rand(-16,16),'mult'));
+            e.remove&&e.remove();
+            const idx=GS.enemies.indexOf(e); if(idx>=0) GS.enemies.splice(idx,1);
+            Audio.bigDie(); updateUI();
+          }
+        }
+      }
     }
     if(typeof GS_bots!=='undefined') for(const bot of GS_bots){
-      if(bot.alive) bot.checkBombHit(this.wx,this.wz);
+      if(bot.alive) bot.checkBombHit(this.wx,this.wz,BLAST);
     }
     // Hit training dummy — rockets do big sway (dmg=18 → force=216)
     // Use dummy position as "from" so push is always away from dummy center
@@ -5196,11 +5224,17 @@ class Player{
     this.bombArmed=true;
     Audio.blip(600,0.12,'sine',0.2,900);
     announce('BOMB READY — AIM WITH RIGHT STICK','#ff8800');
+    // Match DropBomb appearance exactly
     const geo=new THREE.SphereGeometry(7,10,8);
-    const mat=new THREE.MeshBasicMaterial({color:0xff4400,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
-    this._bombMesh=new THREE.Mesh(geo,mat);
-    this._bombMesh.position.set(0,this.model.userData.isRobot?70:30,0);
-    this.model.add(this._bombMesh);
+    this._bombBodyMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+    this._bombMesh=new THREE.Mesh(geo,this._bombBodyMat);
+    const coreMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false});
+    this._bombCoreMesh=new THREE.Mesh(new THREE.SphereGeometry(3,6,6),coreMat);
+    this._bombCoreMat=coreMat;
+    scene.add(this._bombMesh);
+    scene.add(this._bombCoreMesh);
+    this._bombInScene=true;
+    this._aimerX=undefined; this._aimerZ=undefined;
     // Don't show aimer yet — only shows when player actually aims with stick
     this._aimerX=undefined; this._aimerZ=undefined;
   }
@@ -5208,7 +5242,9 @@ class Player{
   _disarmBomb(){
     this.bombArmed=false;
     if(this._bombMesh){
-      if(this.model) this.model.remove(this._bombMesh);
+      if(this._bombInScene){ scene.remove(this._bombMesh); if(this._bombCoreMesh) scene.remove(this._bombCoreMesh); }
+      else if(this._bombMesh.parent) this._bombMesh.parent.remove(this._bombMesh);
+      this._bombInScene=false; this._bombCoreMesh=null;
       this._bombMesh.geometry&&this._bombMesh.geometry.dispose();
       this._bombMesh.material&&this._bombMesh.material.dispose();
       this._bombMesh=null;
@@ -5246,10 +5282,11 @@ class Player{
     const vx=dirX*spd+this.vx*0.3;
     const vz=dirZ*spd+this.vz*0.3;
     const fuse=isDrop?1.2:clamp(0.8+crossDist*0.006,1.0,2.5);
-    const b=new DropBomb(
-      this.wx+(isDrop?0:dirX*14),
-      this.wz+(isDrop?0:dirZ*14),
-      launchY, vx, vz, fuse, launchVY);
+    // Spawn from hand position if available, otherwise default
+    const spawnX=this._bombHandPos?this._bombHandPos.x:this.wx+(isDrop?0:dirX*14);
+    const spawnZ=this._bombHandPos?this._bombHandPos.z:this.wz+(isDrop?0:dirZ*14);
+    const spawnY=this._bombHandPos?this._bombHandPos.y:launchY;
+    const b=new DropBomb(spawnX, spawnZ, spawnY, vx, vz, fuse, launchVY);
     GS.dropBombs.push(b);
     this._disarmBomb();
     Audio.blip(300,0.12,'sine',0.2,160);
@@ -5260,7 +5297,7 @@ class Player{
     if(!this.bombArmed)return;
     const sm=Math.hypot(stickX,stickZ);
     if(sm>0.12){
-      // Stick pushed — move crosshair and show aimer
+      // Stick pushed — move crosshair
       if(!this._aimerX){this._aimerX=this.wx;this._aimerZ=this.wz;}
       const throwDist=60+sm*160;
       const targetX=this.wx+stickX*throwDist;
@@ -5270,14 +5307,37 @@ class Player{
       this._showAimer(this._aimerX,this._aimerZ,sm,0);
       this._pendingThrowX=stickX; this._pendingThrowZ=stickZ;
       this._stickWasPushed=true;
+    } else if(!IS_TOUCH){
+      // Desktop: always show aimer ahead of player
+      if(!this._aimerX||Math.hypot(this._aimerX-this.wx,this._aimerZ-this.wz)<10){
+        this._aimerX=this.wx+Math.cos(this.aim)*120;
+        this._aimerZ=this.wz+Math.sin(this.aim)*120;
+      }
+      this._showAimer(this._aimerX,this._aimerZ,0.8,0);
     } else {
-      // Stick at center — hide aimer, keep position stored for release throw
       this._hideAimer();
     }
     if(this.bombArmed&&this._bombMesh){
-      const pulse=1+0.25*Math.sin(performance.now()*0.012);
+      const t=performance.now()*0.001;
+      // Find world position of both hands and center between them
+      let lx=this.wx,ly=this.py+70,lz=this.wz;
+      let rx=this.wx,ry=this.py+70,rz=this.wz;
+      const _v=new THREE.Vector3();
+      this.model.traverse(o=>{
+        if(!o.isBone) return;
+        if(o.name==='mixamorig_LeftHand'){ o.getWorldPosition(_v); lx=_v.x;ly=_v.y;lz=_v.z; }
+        if(o.name==='mixamorig_RightHand'){ o.getWorldPosition(_v); rx=_v.x;ry=_v.y;rz=_v.z; }
+      });
+      const cx=(lx+rx)/2, cy=(ly+ry)/2+8, cz=(lz+rz)/2;
+      this._bombMesh.position.set(cx,cy,cz);
+      if(this._bombCoreMesh) this._bombCoreMesh.position.set(cx,cy,cz);
+      this._bombHandPos={x:cx,y:cy,z:cz}; // store for throw spawn
+      const pulse=1+0.15*Math.sin(t*8);
       this._bombMesh.scale.setScalar(pulse);
-      this._bombMesh.material.color.setHex(this._stickWasPushed?0xffe600:0xff4400);
+      const rage=this._stickWasPushed?0.8:0.3;
+      const g=Math.max(0,1-rage*0.6);
+      this._bombBodyMat&&this._bombBodyMat.color.setRGB(1,g,0);
+      if(this._bombCoreMesh) this._bombCoreMesh.scale.setScalar(0.8+0.4*Math.sin(t*6));
     } else if(!this.bombArmed&&this._bombMesh){
       this._disarmBomb();
     }
@@ -5515,22 +5575,21 @@ class Player{
 
       // ── DASH IMPULSE — directly set velocity, bypass eased input for dashDuration frames ──
       if(this._dashRamp>0&&this._dashDir){
-        // Direct velocity set — no lerp fighting it
-        const frac=this._dashRamp/12; // 1→0 as dash progresses
-        const power=this._dashPeak*(0.6+frac*0.4); // sustain at 60–100% peak
+        if(!this._dashRampMax) this._dashRampMax=this._dashRamp;
+        const t=1-(this._dashRamp/this._dashRampMax); // 0→1 over duration
+        const bell=Math.sin(t*Math.PI); // 0→1→0 bell curve
+        const power=this._dashPeak*bell;
         this.vx=this._dashDir[0]*power;
         this.vz=this._dashDir[1]*power;
-        this.inX=this._dashDir[0]; // align eased input so it doesn't fight
+        this.inX=this._dashDir[0];
         this.inZ=this._dashDir[1];
         this._dashRamp--;
-        if(this._dashRamp<=0){ this._dashDir=null; }
-        // Skip the normal eased velocity update below while dashing
+        if(this._dashRamp<=0){ this._dashDir=null; this._dashRampMax=0; }
         let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
         const _zc2=zoneCenter(GS.zone);
         const edge2=ARENA_R-12, dist2=Math.hypot(nx-_zc2.x,nz-_zc2.z);
         if(dist2>edge2){ const nrmX=(nx-_zc2.x)/dist2,nrmZ=(nz-_zc2.z)/dist2; nx=_zc2.x+nrmX*edge2; nz=_zc2.z+nrmZ*edge2; grid.shock(nx,nz,1); }
         this.wx=nx; this.wz=nz;
-        // Dash trail sparks — only if dashDir still valid
         if(this._dashDir&&Math.random()<0.7) ps.spark(this.wx-this._dashDir[0]*rand(4,18),this.wz-this._dashDir[1]*rand(4,18),[0,0.9,1]);
       } else {
 
@@ -5567,13 +5626,13 @@ class Player{
       const mvMag=Math.hypot(moveIn.x,moveIn.y);
       if(al>0.3){
         CAM.tyaw-=shootIn.x*0.05;
-        if(!this._wallClimb&&!this._crestSeq) this.aim=Math.atan2(avz,avx);
+        if(!this._wallClimb&&!this._crestSeq&&!this._rollAimLock) this.aim=Math.atan2(avz,avx);
       } else if(mvMag>0.2){
         const behindYaw=-this.aim-Math.PI/2;
         let diff=behindYaw-CAM.tyaw;
         if(diff>Math.PI) diff-=TAU; if(diff<-Math.PI) diff+=TAU;
         CAM.tyaw+=clamp(diff*0.04,-0.05,0.05);
-        if(!this._wallClimb&&!this._crestSeq){
+        if(!this._wallClimb&&!this._crestSeq&&!this._rollAimLock){
           const ws=rotInput(moveIn.x,moveIn.y);
           const moveAngle=Math.atan2(ws.z,ws.x);
           let fd=((moveAngle-this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
@@ -5583,7 +5642,7 @@ class Player{
     } else if(window.CTRL_MODE==='hybrid'){
       // HYBRID: camera 100% follows left stick. Right stick ONLY aims/shoots, never camera.
       const mvMag=Math.hypot(moveIn.x,moveIn.y);
-      if(!this._wallClimb&&!this._crestSeq){
+      if(!this._wallClimb&&!this._crestSeq&&!this._rollAimLock){
         if(mvMag>0.15){
           const ws=rotInput(moveIn.x,moveIn.y);
           const moveAngle=Math.atan2(ws.z,ws.x);
@@ -5600,7 +5659,7 @@ class Player{
       CAM.tyaw+=clamp(diff*0.04,-0.05,0.05);
     } else {
       // STANDARD: camera softly follows aim, right stick fully controls aim+camera
-      if(!this._wallClimb&&!this._crestSeq){
+      if(!this._wallClimb&&!this._crestSeq&&!this._rollAimLock){
         if(mvMagnitude>0.15){
           const moveAngleWorld=Math.atan2(rawZ,rawX);
           const rightOpposes=al>0.3&&(avx*rawX+avz*rawZ)<-0.1*al*mvMagnitude;
@@ -7807,13 +7866,16 @@ function checkDoubleTapDash(code){
     // Double-tap — dash in that direction
     const mv=keyMoveVec();
     const len=Math.hypot(mv.x,mv.z);
-    if(len>0.1){
+    if(len>0.01){ // lowered threshold — W forward should always trigger
       const dx=mv.x/len, dz=mv.z/len;
       player._dashDir=[dx,dz];
-      player._dashRamp=9;
-      player._dashPeak=MOVE.topSpeed*2.8;
+      player._dashRamp=30;
+      player._dashPeak=MOVE.topSpeed*2.2;
       player._diveRollDir=[dx,dz];
-      player.aim=Math.atan2(dz,dx); // face dash direction for roll animation
+      // Pre-block blend system immediately so roll fires this frame
+      if(player.model?.userData) player.model.userData._rollingTimer=0.01;
+      // Force aim to dash direction so roll animation faces correctly
+      player.aim=Math.atan2(dz,dx);
       player.inv=Math.max(player.inv,20);
       ps.ring(player.wx,player.wz,[0,0.85,1],22,150);
       ps.burst(player.wx,player.wz,[0,0.85,1],14,110);
@@ -7821,7 +7883,7 @@ function checkDoubleTapDash(code){
       addTrauma(0.05);
       Audio.blip(380,0.18,'sine',0.18,1400);
     }
-    _dashTap.code=null; // reset so triple-tap doesn't chain
+    _dashTap.code=null;
   } else {
     _dashTap.code=code;
     _dashTap.time=now;
@@ -7836,18 +7898,32 @@ window.addEventListener('keydown',e=>{
   if(!wasHeld&&['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowLeft','ArrowDown','ArrowRight'].includes(e.code)&&GS.state==='playing'){
     checkDoubleTapDash(e.code);
   }
-  if(e.code==='Space'&&GS.state==='playing'&&player){
+  if(e.code==='Space'&&!wasHeld&&GS.state==='playing'&&player){
     e.preventDefault();
-    if(player.py<=8||player._onPlatform){
-      // Grounded: single jump
-      player.pvy=180; player._onPlatform=false;
-      Audio.blip(440,0.4,'sine',0.12,520);
-      ps.burst(player.wx,player.wz,[0.4,0.8,1],6,50);
+    if(GS.zone===-3&&!window.KEYS_SWAP){ tryInteractWall(); return; }
+    if(window.KEYS_SWAP){
+      // Swapped: space = jump — works everywhere including puzzle lab
+      if(player._grinding){ player._jumpTapped=true; setTimeout(()=>{ if(player) player._jumpTapped=false; },80); return; }
+      if(player._wallClimb){ player._jumpTapped=true; setTimeout(()=>{ if(player) player._jumpTapped=false; },80); return; }
+      if(player.py<=8||player._onPlatform){ player.pvy=180; player._onPlatform=false; Audio.blip(440,0.4,'sine',0.12,520); ps.burst(player.wx,player.wz,[0.4,0.8,1],6,50); }
+      else { player._jetting=true; }
     } else {
-      // Airborne: start jetpack if fuel available
-      player._jetting=true;
+      if(!player.bombArmed){
+        // First tap: arm bomb, show aimer
+        if(player.bombs>0){
+          player._armBomb();
+          // Initialize aimer ahead of player
+          player._aimerX=player.wx+Math.cos(player.aim)*120;
+          player._aimerZ=player.wz+Math.sin(player.aim)*120;
+        } else announce('NO BOMBS','#ff4400');
+      } else {
+        // Bomb already armed: start timing hold
+        mouse._spaceDown=true;
+        mouse._spaceDownTime=performance.now();
+      }
     }
   }
+  if(e.code==='Space'&&GS.state==='playing') e.preventDefault();
   if((e.code==='ShiftLeft'||e.code==='ShiftRight')&&GS.state==='playing'&&player){
     e.preventDefault();
     player.cycleWeapon();
@@ -7896,7 +7972,28 @@ window.addEventListener('keydown',e=>{
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault(); });
 window.addEventListener('keyup',e=>{
   keys[e.code]=false;
-  if(e.code==='Space'&&player) player._jetting=false;
+  if(e.code==='Space'&&player&&GS.state==='playing'){
+    if(window.KEYS_SWAP){
+      player._jetting=false; return;
+    }
+    if(!player.bombArmed){ mouse._spaceDown=false; return; }
+    const held=performance.now()-(mouse._spaceDownTime||0);
+    if(CAM.aimMode){
+      // Release from FP aim mode = throw
+      const fx=CAM._aimFwdX||0,fy=CAM._aimFwdY||0,fz=CAM._aimFwdZ||0;
+      const spd=480;
+      GS.dropBombs.push(new DropBomb(player.wx+fx*14,player.wz+fz*14,9+player.py+28,fx*spd+player.vx*0.3,fz*spd+player.vz*0.3,2.5,fy*spd));
+      player.bombs=Math.max(0,player.bombs-1); player._disarmBomb();
+      Audio.blip(300,0.14,'sine',0.22,160); announce('BOMB THROWN','#ff8800'); exitAimMode();
+    } else if(mouse._spaceDown){
+      // Short tap while armed = throw to mouse aimer
+      const tx=player._aimerX||player.wx+Math.cos(player.aim)*120;
+      const tz=player._aimerZ||player.wz+Math.sin(player.aim)*120;
+      const dx=tx-player.wx,dz=tz-player.wz,dist=Math.hypot(dx,dz)||1;
+      player._throwBomb(dx/dist,dz/dist);
+    }
+    mouse._spaceDown=false;
+  }
 });
 // ── 3D BOMB AIM MODE helpers ──
 function enterAimMode(){
@@ -7959,70 +8056,56 @@ window.addEventListener('mousemove',e=>{ if(IS_TOUCH)return;
 window.addEventListener('mousedown',e=>{ if(IS_TOUCH)return;
   if(e.button===0){
     mouse.has=true;
-    // Left-click while bomb armed = cancel without firing
-    if(player&&player.bombArmed&&GS.state==='playing'){
-      player._disarmBomb();
-      exitAimMode();
-      announce('BOMB STOWED','#ffffff88');
-      // mouse.down stays false so we don't shoot
-    } else {
-      mouse.down=true;
-    }
+    // Left-click always shoots — bomb stays armed
+    mouse.down=true;
   }
   else if(e.button===2&&GS.state==='playing'&&player){
     e.preventDefault();
-    // Puzzle lab: right-click = grab/release wall
-    if(GS.zone===-3){ tryInteractWall(); return; }
-    if(!player.bombArmed){
-      // First right-click: ARM only — no throw, no hold timer yet
-      if(player.bombs>0){
-        player._armBomb();
-        mouse._rightHeld=false; // explicitly not starting hold yet
-        mouse._rightDidAim=false;
-      } else { announce('NO BOMBS','#ff4400'); }
-    } else if(!CAM.aimMode){
-      // Bomb already armed — second right-click starts the hold timer
-      // Quick release = throw; hold 300ms = 3D aim mode
-      mouse._rightHoldStart=performance.now();
-      mouse._rightHeld=true;
-      mouse._rightDidAim=false;
+    if(GS.zone===-3&&window.KEYS_SWAP){ tryInteractWall(); return; }
+    if(window.KEYS_SWAP){
+      // Swapped: RMB = bomb (same logic as space default)
+      if(!player.bombArmed){
+        if(player.bombs>0){
+          player._armBomb();
+          player._aimerX=player.wx+Math.cos(player.aim)*120;
+          player._aimerZ=player.wz+Math.sin(player.aim)*120;
+        } else announce('NO BOMBS','#ff4400');
+      } else {
+        mouse._spaceDown=true;
+        mouse._spaceDownTime=performance.now();
+      }
+    } else {
+      // Default: RMB = jump/jetpack
+      if(player._grinding){ player._jumpTapped=true; setTimeout(()=>{ if(player) player._jumpTapped=false; },80); return; }
+      if(player._wallClimb){ player._jumpTapped=true; setTimeout(()=>{ if(player) player._jumpTapped=false; },80); return; }
+      if(player.py<=8||player._onPlatform){ player.pvy=180; player._onPlatform=false; Audio.blip(440,0.4,'sine',0.12,520); ps.burst(player.wx,player.wz,[0.4,0.8,1],6,50); }
+      else { player._jetting=true; }
     }
-    // In aim mode already: do nothing — release throws
   }
 });
 window.addEventListener('mouseup',e=>{ if(IS_TOUCH)return;
   if(e.button===0) mouse.down=false;
   else if(e.button===2&&GS.state==='playing'&&player){
-    if(CAM.aimMode&&player.bombArmed){
-      const fx=CAM._aimFwdX||0, fy=CAM._aimFwdY||0, fz=CAM._aimFwdZ||0;
-      // fy = sin(pitch): positive = looking up = bomb goes up
-      const spd=480;
-      const b=new DropBomb(
-        player.wx+fx*14, player.wz+fz*14,
-        9+player.py+28,
-        fx*spd+player.vx*0.3,
-        fz*spd+player.vz*0.3,
-        2.5,
-        fy*spd   // positive when looking up = bomb launches upward
-      );
-      GS.dropBombs.push(b);
-      player.bombs=Math.max(0,player.bombs-1);
-      player._disarmBomb();
-      const bb=document.getElementById('btn-bomb-arm');
-      if(bb) bb.classList.remove('armed');
-      Audio.blip(300,0.14,'sine',0.22,160);
-      announce('BOMB THROWN','#ff8800');
-      exitAimMode();
-    } else if(mouse._rightHeld&&player&&player.bombArmed&&!mouse._rightDidAim){
-      // Second right-click quick release (not held long enough for aim mode) → throw to ground crosshair
-      const tx=player._aimerX!==undefined?player._aimerX:player.wx+Math.cos(player.aim)*120;
-      const tz=player._aimerZ!==undefined?player._aimerZ:player.wz+Math.sin(player.aim)*120;
-      const dx=tx-player.wx, dz=tz-player.wz, dist=Math.hypot(dx,dz)||1;
-      player._throwBomb(dx/dist,dz/dist);
+    if(window.KEYS_SWAP){
+      // Swapped RMB release = same logic as space keyup default
+      if(!player.bombArmed){ mouse._spaceDown=false; return; }
+      if(CAM.aimMode){
+        const fx=CAM._aimFwdX||0,fy=CAM._aimFwdY||0,fz=CAM._aimFwdZ||0;
+        const spd=480;
+        GS.dropBombs.push(new DropBomb(player.wx+fx*14,player.wz+fz*14,9+player.py+28,fx*spd+player.vx*0.3,fz*spd+player.vz*0.3,2.5,fy*spd));
+        player.bombs=Math.max(0,player.bombs-1); player._disarmBomb();
+        Audio.blip(300,0.14,'sine',0.22,160); announce('BOMB THROWN','#ff8800'); exitAimMode();
+      } else if(mouse._spaceDown){
+        const tx=player._aimerX||player.wx+Math.cos(player.aim)*120;
+        const tz=player._aimerZ||player.wz+Math.sin(player.aim)*120;
+        const dx=tx-player.wx,dz=tz-player.wz,dist=Math.hypot(dx,dz)||1;
+        player._throwBomb(dx/dist,dz/dist);
+      }
+      mouse._spaceDown=false;
+    } else {
+      // Default RMB release = stop jetpack
+      player._jetting=false;
     }
-    // Note: if mouse._rightHeld is false (first click release), we do nothing — bomb stays armed
-    mouse._rightHeld=false;
-    mouse._rightDidAim=false;
   }
 });
 window.addEventListener('contextmenu',e=>e.preventDefault());
@@ -8429,20 +8512,27 @@ function loop(ts){ requestAnimationFrame(loop);
         if(player._diveRollDir&&ud.clips){
           const dir=player._diveRollDir;
           player._diveRollDir=null;
+          // Force aim to dash direction so roll faces correctly on desktop too
+          player.aim=Math.atan2(dir[1],dir[0]);
           const rollClip=ud.clips['dive_roll']||ud.clips['roll']||ud.clips['dash']||ud.clips['dive']
             ||ud.clips['strafe_roll']||ud.clips['dodge'];
           if(rollClip){
             const rollName=Object.keys(ud.clips).find(k=>ud.clips[k]===rollClip)||'roll';
-            Object.values(ud.clips).forEach(a=>a.fadeOut(0.05));
+            // Lock aim to dash direction for roll duration
+            player.aim=Math.atan2(dir[1],dir[0]);
+            player._rollAimLock=true;
+            const rollDur=(rollClip._clip?.duration||0.45)/1.4;
+            setTimeout(()=>{ if(player) player._rollAimLock=false; }, rollDur*1000);
+            // Play roll at full weight FIRST, then stop others — never a zero-weight frame
             rollClip.reset();
             rollClip.setEffectiveWeight(1);
             rollClip.setEffectiveTimeScale(1.4);
             rollClip.setLoop(THREE.LoopOnce,1);
             rollClip.clampWhenFinished=true;
-            rollClip.fadeIn(0.05).play();
+            rollClip.play();
+            Object.values(ud.clips).forEach(a=>{ if(a!==rollClip){ a.stop(); a.setEffectiveWeight(0); } });
             ud.currentClip=rollName;
             // Lock blend system for the full roll duration
-            const rollDur=(rollClip._clip?.duration||0.45)/1.4;
             ud._rollingTimer=rollDur;
             setTimeout(()=>{
               if(!player||!ud.clips)return;
@@ -8472,16 +8562,63 @@ function loop(ts){ requestAnimationFrame(loop);
 
         // Landing detection — was airborne, now on ground (debounced)
         if(!ud._landingTimer&&!ud._rollingTimer&&onGround&&ud._prevAirborne){
+          // Clear any flip state
+          ud._flippingTimer=0; ud._flipToFloat=false; ud._flipToFloatT=0;
+          if(ud._flipClipName&&ud.clips[ud._flipClipName]){ ud.clips[ud._flipClipName].stop(); ud.clips[ud._flipClipName].setEffectiveWeight(0); }
           if(ud.clips['landing']){
-            Object.values(ud.clips).forEach(a=>a.fadeOut(0.1));
+            Object.values(ud.clips).forEach(a=>a.fadeOut(0.25));
             const land=ud.clips['landing'];
             land.reset().setEffectiveWeight(1).setLoop(THREE.LoopOnce,1);
-            land.clampWhenFinished=true; // must be set on clip directly
-            land.fadeIn(0.1).play();
+            land.clampWhenFinished=true;
+            land.fadeIn(0.25).play();
             ud.currentClip='landing';
             ud._landingTimer=land._clip?.duration||0.4;
           }
         }
+        // ── FLIP ON JUMP ──
+        const justLeftGround=airborne&&ud._prevAirborne===false&&player.pvy>50;
+        if(justLeftGround&&ud.clips&&!ud._flippingTimer){
+          const frontFlip=ud.clips['front_flip']||ud.clips['frontflip'];
+          const backFlip=ud.clips['back_flip']||ud.clips['backflip'];
+          const flipClip=frontFlip||backFlip;
+          if(flipClip){
+            const mvMagForFlip=Math.hypot(player.vx,player.vz);
+            let useBack=false;
+            if(mvMagForFlip>20&&backFlip){
+              const mvAngle=Math.atan2(player.vz,player.vx);
+              let diff=((mvAngle-player.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
+              useBack=Math.abs(diff)>Math.PI*0.6;
+            }
+            const chosen=useBack&&backFlip?backFlip:frontFlip||backFlip;
+            const chosenName=useBack&&backFlip?'back_flip':'front_flip';
+            Object.values(ud.clips).forEach(a=>a.fadeOut(0.12));
+            chosen.reset().setEffectiveWeight(1).setEffectiveTimeScale(1.0).setLoop(THREE.LoopOnce,1).fadeIn(0.12).play();
+            chosen.clampWhenFinished=false;
+            ud.currentClip=chosenName;
+            ud._flipClipName=chosenName;
+            ud._flippingTimer=chosen._clip?.duration||0.5;
+            console.warn('FLIP: '+chosenName+' dur='+chosen._clip?.duration?.toFixed(2)+'s timer='+ud._flippingTimer.toFixed(2));
+          }
+        }
+
+        // Tick flip timer — start floating crossfade 0.2s before flip ends
+        if(ud._flippingTimer>0){
+          ud._flippingTimer-=dt;
+          if(ud._flippingTimer<=0.25&&!ud._flipFadeStarted&&airborne&&ud.clips['floating']){
+            ud._flipFadeStarted=true;
+            const flipAction=ud._flipClipName&&ud.clips[ud._flipClipName];
+            const fl=ud.clips['floating'];
+            if(!fl.isRunning()) fl.reset().play();
+            fl.setEffectiveWeight(1).setEffectiveTimeScale(1);
+            if(flipAction) flipAction.fadeOut(0.25);
+            ud.currentClip='floating';
+          }
+          if(ud._flippingTimer<=0){
+            ud._flippingTimer=0; ud._flipFadeStarted=false;
+            if(!airborne) ud.currentClip=null;
+          }
+        }
+
         ud._prevAirborne=airborne;
 
         // Don't interrupt landing or roll animations with blend switch
@@ -8489,8 +8626,7 @@ function loop(ts){ requestAnimationFrame(loop);
           ud._landingTimer-=dt;
           if(ud._landingTimer<=0){
             ud._landingTimer=0;
-            ud.clips['landing']&&ud.clips['landing'].fadeOut(0.15);
-            // Force blend switch next frame by clearing currentClip
+            ud.clips['landing']&&ud.clips['landing'].fadeOut(0.3);
             ud.currentClip=null;
           }
         }
@@ -8520,8 +8656,8 @@ function loop(ts){ requestAnimationFrame(loop);
           }
         }
 
-        // Skip blend switch while roll, landing, or climbing
-        if(!ud._rollingTimer&&!ud._landingTimer&&!player._wallClimb){
+        // Skip blend switch while roll, landing, climbing, or flipping
+        if(!ud._rollingTimer&&!ud._landingTimer&&!player._wallClimb&&!ud._flippingTimer){
           let targetClip='idle';
           if(airborne) targetClip='floating';
           else if(!moving) targetClip='idle';
@@ -8536,14 +8672,18 @@ function loop(ts){ requestAnimationFrame(loop);
           // Wall push: standard angleDiff works since aim is snapped to face wall on grab
           // No override needed — run_forward/backward/strafe all work correctly
 
-          // Apply .shoot variant for firing or wall pushing
-          const shootClip=targetClip+'.shoot';
-          if((firing||wallPushing)&&ud.clips[shootClip]) targetClip=shootClip;
-
-          // Fallback: strip .shoot if clip missing, then fall to idle
-          if(!ud.clips[targetClip]){
-            targetClip=targetClip.replace('.shoot','');
+          // Apply .bomb variant when bomb is armed (overrides .shoot)
+          const bombArmed=player.bombArmed;
+          const bombClip=targetClip.replace('.shoot','')+'.bomb';
+          if(bombArmed&&ud.clips[bombClip]) targetClip=bombClip;
+          // Apply .shoot variant for firing or wall pushing (only if no bomb)
+          else {
+            const shootClip=targetClip+'.shoot';
+            if((firing||wallPushing)&&ud.clips[shootClip]) targetClip=shootClip;
           }
+
+          // Fallback: strip suffixes if clip missing
+          if(!ud.clips[targetClip]) targetClip=targetClip.replace('.bomb','').replace('.shoot','');
           if(!ud.clips[targetClip]) targetClip='idle';
 
           if(targetClip!==ud.currentClip&&ud.clips[targetClip]){
@@ -8558,7 +8698,7 @@ function loop(ts){ requestAnimationFrame(loop);
         // Speed scaling — stationary/air clips always at 1.0, movement clips scale with speed
         const cur=ud.clips[ud.currentClip];
         if(cur){
-          const isStationary=['idle','floating','landing','dive_roll','roll','dash','dive','climbing','climb','wall_climb'].some(n=>ud.currentClip&&ud.currentClip.includes(n));
+          const isStationary=['idle','floating','landing','dive_roll','roll','dash','dive','climbing','climb','wall_climb','front_flip','back_flip','frontflip','backflip'].some(n=>ud.currentClip&&ud.currentClip.includes(n));
           const animSpd=isStationary?1.0:clamp(spd/140,0.5,1.6);
           if(!player._wallClimb) cur.setEffectiveTimeScale(animSpd);
         }
@@ -8605,7 +8745,7 @@ function loop(ts){ requestAnimationFrame(loop);
 
     if(GS.state==='playing'||GS.state==='zoneTransition'||GS.state==='countdown'){
       const frozen=GS.state==='countdown';
-      const km=frozen?{x:0,z:0}:keyMoveVec(), tm=frozen?{x:0,z:0}:rotInput(moveIn.x,moveIn.y);
+      const km=frozen||player._grinding?{x:0,z:0}:keyMoveVec(), tm=frozen||player._grinding?{x:0,z:0}:rotInput(moveIn.x,moveIn.y);
       const mvx=clamp(km.x+tm.x,-1,1),mvz=clamp(km.z+tm.z,-1,1);
       let avx=0,avz=0,firing=frozen?false:false,aiming=false;
       const stickAim=(shootIn.x*shootIn.x+shootIn.y*shootIn.y)>0.02;
@@ -8658,10 +8798,10 @@ function loop(ts){ requestAnimationFrame(loop);
       if(IS_TOUCH&&CAM.aimMode&&player){
         avx=-Math.sin(CAM.yaw); avz=-Math.cos(CAM.yaw); aiming=true; firing=false;
       }
-      if(!IS_TOUCH&&mouse.has){
+      if(!IS_TOUCH&&mouse.has&&!player._rollAimLock){
         const a=screenToPlaneDir(mouse.px,mouse.py,player.wx,player.wz);
         avx=a.x; avz=a.z;
-        firing=mouse.down&&!grenadeActive&&!flickActive;
+        firing=mouse.down&&!flickActive;
         aiming=true;
         // When bomb armed on desktop and NOT in aim mode: ground crosshair follows mouse
         if(grenadeActive&&!CAM.aimMode){
@@ -8686,16 +8826,28 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.multT>0){GS.multT--;if(GS.multT===0&&GS.mult>1)GS.mult--;}
       if(GS.streakT>0){GS.streakT--;if(GS.streakT<=0)GS.streak=0;}
 
-      // ── DESKTOP BOMB HOLD-AIM MODE ──
-      if(!IS_TOUCH&&mouse._rightHeld&&player&&player.bombArmed&&!CAM.aimMode){
-        const held=performance.now()-(mouse._rightHoldStart||0);
-        if(held>300){
+      // ── DESKTOP BOMB HOLD (Space 300ms) → first-person aim mode ──
+      if(!IS_TOUCH&&mouse._spaceDown&&player&&player.bombArmed&&!CAM.aimMode){
+        if(performance.now()-(mouse._spaceDownTime||0)>300){
           enterAimMode();
-          mouse._rightDidAim=true;
         }
       }
-      if(!IS_TOUCH&&!mouse._rightHeld&&CAM.aimMode&&(!player||!player.bombArmed)){
-        exitAimMode();
+      if(!IS_TOUCH&&player&&player.bombArmed){
+        const mx=(mouse.x/window.innerWidth)*2-1;
+        const my=-(mouse.y/window.innerHeight)*2+1;
+        const vec=new THREE.Vector3(mx,my,0.5).unproject(camera);
+        const dir=vec.sub(camera.position).normalize();
+        if(dir.y<-0.01){
+          const t=-camera.position.y/dir.y;
+          const gx=camera.position.x+dir.x*t;
+          const gz=camera.position.z+dir.z*t;
+          const maxR=280;
+          const dist=Math.hypot(gx-player.wx,gz-player.wz);
+          const cx=dist>maxR?player.wx+(gx-player.wx)/dist*maxR:gx;
+          const cz=dist>maxR?player.wz+(gz-player.wz)/dist*maxR:gz;
+          player._aimerX=lerp(player._aimerX||cx,cx,0.15);
+          player._aimerZ=lerp(player._aimerZ||cz,cz,0.15);
+        }
       }
 
       const od=GS.odActive>0;
@@ -8929,6 +9081,25 @@ function loop(ts){ requestAnimationFrame(loop);
       }
       // ── PUZZLE LAB WALLS ──
       if(GS.zone===-3){
+        updateGrindRail(dt);
+        // Balance bar UI
+        let bb=document.getElementById('grind-balance');
+        if(player._grinding){
+          if(!bb){
+            bb=document.createElement('div');
+            bb.id='grind-balance';
+            bb.style.cssText='position:fixed;bottom:220px;left:50%;transform:translateX(-50%);width:160px;height:10px;background:#ffffff22;border-radius:5px;z-index:999;overflow:hidden';
+            const fill=document.createElement('div');
+            fill.id='grind-balance-fill';
+            fill.style.cssText='position:absolute;top:0;height:100%;width:8px;background:#00ffcc;border-radius:5px;transition:left 0.05s';
+            bb.appendChild(fill); document.body.appendChild(bb);
+          }
+          bb.style.display='block';
+          const bal=player._grinding.balance||0;
+          const pct=((bal+1)/2)*100;
+          const fill=document.getElementById('grind-balance-fill');
+          if(fill){ fill.style.left=clamp(pct-2,0,92)+'%'; fill.style.background=Math.abs(bal)>0.6?'#ff4400':'#00ffcc'; }
+        } else if(bb){ bb.style.display='none'; }
         // Right stick toward wall = grab; stick low or jump = release
         if(player&&IS_TOUCH){
           try{
@@ -9491,7 +9662,7 @@ function buildPuzzleLab(){
 
   // ── CENTRAL TOWER — MoveableWall with _immovable=true ──
   // Reuses all collision, landing, drop indicator, bomb bounce etc.
-  const tower=new MoveableWall(0, 0, 50, 200, 50);
+  const tower=new MoveableWall(-320, 0, 50, 200, 50);
   tower._immovable=true; // never moves when pushed
   tower._climbable=true; // wall climbing enabled
   GS_moveableWalls.push(tower);
@@ -9506,10 +9677,203 @@ function buildPuzzleLab(){
   const crossV=new THREE.Mesh(new THREE.PlaneGeometry(2,50),targetMat.clone());
   crossV.rotation.x=-Math.PI/2; crossV.position.set(-60,1.5,80); scene.add(crossV);
 
+  // ── GRIND RAIL ──
+  // A curved rail elevated on two pillars — runs from (-250, 60, -80) to (250, 60, 80)
+  {
+    const RAIL_POINTS=[
+      new THREE.Vector3(-280, 55, -200),
+      new THREE.Vector3(-160, 80, -160),
+      new THREE.Vector3( -80, 90, -80),
+      new THREE.Vector3(  80, 90,  80),
+      new THREE.Vector3( 160, 80, 160),
+      new THREE.Vector3( 280, 55, 200),
+    ];
+    const curve=new THREE.CatmullRomCurve3(RAIL_POINTS);
+    window._grindRail=curve;
+
+    // Visual tube
+    const tubeGeo=new THREE.TubeGeometry(curve,60,2,8,false);
+    const tubeMat=new THREE.MeshBasicMaterial({color:0x00ffcc,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false});
+    scene.add(new THREE.Mesh(tubeGeo,tubeMat));
+
+    // Glow outline
+    const edgeMat=new THREE.LineBasicMaterial({color:0x00ffff,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false});
+    const pts=curve.getPoints(80);
+    const lineGeo=new THREE.BufferGeometry().setFromPoints(pts);
+    scene.add(new THREE.Line(lineGeo,edgeMat));
+
+    // Support pillars
+    [0.05,0.95].forEach(t=>{
+      const p=curve.getPoint(t);
+      const pillarGeo=new THREE.CylinderGeometry(3,3,p.y,8);
+      const pillarMat=new THREE.MeshBasicMaterial({color:0x003333,transparent:true,opacity:0.8});
+      const pillar=new THREE.Mesh(pillarGeo,pillarMat);
+      pillar.position.set(p.x,p.y/2,p.z);
+      scene.add(pillar);
+      const pEdge=new THREE.LineSegments(new THREE.EdgesGeometry(pillarGeo),
+        new THREE.LineBasicMaterial({color:0x00ffcc,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending}));
+      pEdge.position.copy(pillar.position); scene.add(pEdge);
+    });
+  }
+
   setTimeout(()=>{
     announce('PUZZLE LAB — PUSH RIGHT STICK TOWARD BLOCK TO GRAB','#aa44ff');
-    setTimeout(()=>announce('5 BLOCKS · VARIOUS SIZES · PUSH TO TARGET','#aa44ff88'),2500);
+    setTimeout(()=>announce('JUMP ONTO THE RAIL TO GRIND · JUMP TO LEAP OFF','#00ffcc88'),2500);
   },800);
+}
+
+// ── GRIND RAIL SYSTEM ──
+function updateGrindRail(dt){
+  if(!player||!window._grindRail) return;
+  const rail=window._grindRail;
+
+  if(player._grinding){
+    const gr=player._grinding;
+    gr.t+=gr.speed*dt;
+
+    // ── BALANCE MECHANIC — wobble physics ──
+    // A/D keys or right stick X = balance correction
+    // W/S keys or left stick Y = speed adjustment
+    const balInput=IS_TOUCH?shootIn.x:(keys['KeyD']||keys['ArrowRight']?1:keys['KeyA']||keys['ArrowLeft']?-1:0);
+    const speedInput=IS_TOUCH?-moveIn.y:(keys['KeyW']||keys['ArrowUp']?1:keys['KeyS']||keys['ArrowDown']?-1:0);
+
+    // Speed adjustment — progressive, small effect
+    gr.speed+=speedInput*0.002*dt*60;
+    gr.speed=clamp(gr.speed, gr.speed>0?0.1:-0.1, gr.speed>0?0.8:-0.8);
+
+    if(!gr.balVel) gr.balVel=0;
+    gr.balVel += gr.balance * 0.15 * dt;      // very slow drift away from center
+    gr.balVel += balInput * 0.8 * dt;          // input correction (flipped: A=left=negative)
+    gr.balVel += (Math.random()-0.5)*0.05*dt;  // tiny wobble
+    gr.balVel *= 0.85;                          // strong damping so it doesn't build up
+    gr.balance += gr.balVel;
+    gr.balance = clamp(gr.balance,-1,1);
+
+    // Lean character model based on balance
+    if(player.model){
+      // Rotate model along the rail tangent axis
+      const leanAngle=gr.balance*0.35; // max ~20 degrees lean
+      player.model.rotation.z=leanAngle;
+    }
+
+    // Fall off if too unbalanced — toss sideways off the rail, no jump
+    if(Math.abs(gr.balance)>=0.9){
+      const tan=rail.getTangent(clamp(gr.t,0,1));
+      const side=gr.balance>0?1:-1;
+      if(player.model) player.model.rotation.z=0;
+      // Perpendicular to rail direction: cross product with up vector
+      const perpX= tan.z*side;
+      const perpZ=-tan.x*side;
+      player.vx=perpX*200; player.vz=perpZ*200; player.pvy=0;
+      player._grinding=null; player._grindCooldown=90;
+      const ud2=player.model?.userData;
+      if(ud2?.clips){const gc=ud2.clips['grinding']||ud2.clips['grind'];if(gc)gc.fadeOut(0.2);ud2.currentClip=null;ud2._rollingTimer=0;}
+      announce('BAILED!','#ff4400');
+      return;
+    }
+
+    // Jump off
+    if(player._jumpTapped){
+      const tan=rail.getTangent(clamp(gr.t,0,1));
+      const dir=gr.speed>=0?1:-1;
+      if(player.model) player.model.rotation.z=0;
+      player._dashDir=[tan.x*dir,tan.z*dir];
+      player._dashRamp=6; player._dashPeak=250;
+      player.pvy=280;
+      player._grinding=null; player._jumpTapped=false; player._grindCooldown=60;
+      const ud=player.model?.userData;
+      if(ud?.clips){const gc=ud.clips['grinding']||ud.clips['grind'];if(gc)gc.fadeOut(0.2);ud.currentClip=null;ud._rollingTimer=0;}
+      return;
+    }
+
+    // Reached end — fly off using dash impulse so velocity isn't killed by movement lerp
+    if(gr.t>=1||gr.t<=0){
+      gr.t=clamp(gr.t,0,1);
+      const tan=rail.getTangent(gr.t);
+      const dir=gr.t>=1?1:-1;
+      if(player.model) player.model.rotation.z=0;
+      // Use dash system to carry momentum — same as double-tap dash
+      const speed=550;
+      player._dashDir=[tan.x*dir,tan.z*dir];
+      player._dashRamp=14;
+      player._dashPeak=speed;
+      player.pvy=60;
+      player._grinding=null; player._grindCooldown=90;
+      const ud=player.model?.userData;
+      if(ud?.clips){const gc=ud.clips['grinding']||ud.clips['grind'];if(gc)gc.fadeOut(0.2);ud.currentClip=null;ud._rollingTimer=0;}
+      return;
+    }
+
+    const pos=rail.getPoint(gr.t);
+    const tan=rail.getTangent(gr.t);
+
+    // Smooth lerp to rail position instead of snap
+    const targetX=pos.x, targetY=pos.y-8, targetZ=pos.z;
+    const snapSpeed=gr.snapIn?12:20; // faster lock-in after first frame
+    gr.snapIn=true;
+    player.wx=lerp(player.wx,targetX,Math.min(1,snapSpeed*dt));
+    player.py=lerp(player.py,targetY,Math.min(1,snapSpeed*dt));
+    player.wz=lerp(player.wz,targetZ,Math.min(1,snapSpeed*dt));
+    player.vx=0; player.vz=0; player.pvy=0;
+    player._onPlatform=false;
+
+    // Tilt character based on balance (visual only via aim offset)
+    player.aim=Math.atan2(tan.z,tan.x);
+
+    // Sparks at rail height using burst with offset
+    const railY=pos.y;
+    ps.spark(player.wx, player.wz, [0,1,0.8]); // will appear at y=5 but close enough
+    if(Math.random()<0.6){
+      // Manual spark at rail height
+      for(let i=0;i<3;i++){
+        const a=Math.random()*Math.PI*2;
+        const spd=30+Math.random()*60;
+        ps._spawn(player.wx,railY,player.wz,Math.cos(a)*spd,10+Math.random()*30,Math.sin(a)*spd,
+          Math.random()<0.5?1:0, Math.random()<0.5?0.8:1, 0.2, 0.04+Math.random()*0.03);
+      }
+    }
+
+    // ── GRIND ANIMATION — force it, block blend system ──
+    const ud=player.model?.userData;
+    if(ud){
+      const grindClip=ud.clips&&(ud.clips['grinding']||ud.clips['grind']);
+      if(grindClip){
+        if(ud.currentClip!=='grinding'&&ud.currentClip!=='grind'){
+          Object.values(ud.clips).forEach(a=>a.fadeOut(0.15));
+          grindClip.reset().setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.15).play();
+          ud.currentClip='grinding';
+        }
+      // Keep blend system blocked while grinding — only if grind clip exists
+      if(grindClip) ud._rollingTimer=0.1;
+      else ud._rollingTimer=0; // no grind clip — don't block blend
+      }
+    }
+    return;
+  }
+
+  // Tick cooldown
+  if(player._grindCooldown>0) player._grindCooldown--;
+
+  // Detect rail contact — only when no cooldown
+  if(!player._grinding&&!player._grindCooldown){
+    let best=null, bestDist=Infinity;
+    for(let i=0;i<=100;i++){
+      const t=i/100;
+      const p=rail.getPoint(t);
+      const dxz=Math.hypot(player.wx-p.x, player.wz-p.z);
+      const dy=Math.abs((player.py-2)-p.y);
+      const d=Math.hypot(dxz,dy);
+      if(d<bestDist){ bestDist=d; best={t,p}; }
+    }
+    if(bestDist<25&&best&&!player._grinding){
+      const tan=rail.getTangent(best.t);
+      const dot=player.vx*tan.x+player.vz*tan.z;
+      const dir=dot>=0?1:-1;
+      player._grinding={t:best.t, speed:dir*0.45, balance:0, balVel:0, snapIn:false};
+      Audio.blip(300,0.2,'sawtooth',0.3,600);
+      announce('GRINDING — TILT TO BALANCE · JUMP TO LEAP','#00ffcc');
+    }
+  }
 }
 
 // Interact with nearest moveable wall — called on right-stick click (mobile) or right-click (desktop)
@@ -10100,7 +10464,47 @@ document.getElementById('mp-code-input')?.addEventListener('keydown',e=>{
 window._MP=MP;
 window._mpTick=mpTick;
 
-window.CTRL_MODE=window.CTRL_MODE||'standard'; // 'standard' or 'follow' — resume on any interaction
+window.KEYS_SWAP=window.KEYS_SWAP!==undefined?window.KEYS_SWAP:true;
+window.CTRL_MODE=window.CTRL_MODE||'standard';
+
+// ── MUSIC PLAYER ──
+const MusicPlayer={
+  audio:null, muted:false,
+  load(url){
+    if(this.audio){this.audio.pause();this.audio=null;}
+    this.audio=new window.Audio(url);
+    this.audio.loop=true;
+    this.audio.volume=this.muted?0:0.5;
+    this.audio.play().catch(()=>{});
+  },
+  play(){ if(this.audio&&!this.muted) this.audio.play().catch(()=>{}); },
+  pause(){ if(this.audio) this.audio.pause(); },
+  setMuted(m){
+    this.muted=m;
+    if(this.audio) this.audio.volume=m?0:0.5;
+    const btn=document.getElementById('btn-mute-music');
+    if(btn){btn.style.borderColor=m?'#ff444488':'#ffffff33';btn.style.color=m?'#ff4444aa':'#ffffffaa';btn.textContent=m?'♪ MUTED':'♪ MUSIC';}
+  },
+};
+window.MusicPlayer=MusicPlayer;
+
+let _sfxMuted=false;
+window.toggleMuteMusic=function(){ MusicPlayer.setMuted(!MusicPlayer.muted); }
+window.toggleMuteSfx=function(){
+  _sfxMuted=!_sfxMuted;
+  if(Audio.sfxGain) Audio.sfxGain.gain.value=_sfxMuted?0:0.55;
+  const btn=document.getElementById('btn-mute-sfx');
+  if(btn){btn.style.borderColor=_sfxMuted?'#ff444488':'#ffffff33';btn.style.color=_sfxMuted?'#ff4444aa':'#ffffffaa';btn.textContent=_sfxMuted?'🔇 SFX':'🔊 SFX';}
+}
+
+// Auto-resume when page visible or user touches screen
+function _resumeAll(){
+  Audio.resume();
+  if(MusicPlayer.audio&&!MusicPlayer.muted) MusicPlayer.audio.play().catch(()=>{});
+}
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') _resumeAll(); });
+window.addEventListener('touchstart',_resumeAll,{passive:true});
+window.addEventListener('click',_resumeAll);
 function _tryResumeAudio(){
   Audio.init();
   if(Audio.ctx&&Audio.ctx.state==='suspended') Audio.ctx.resume();
