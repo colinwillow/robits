@@ -444,6 +444,8 @@ canvas{display:block}
         <div style="font-size:20px">🧩</div><div style="font-size:9px;letter-spacing:2px;color:#aa44ff">PUZZLE LAB</div></button>
       <button onclick="window._launchLevel(-4)" class="zone-btn" style="--c:#4488ff;flex:1;min-width:90px">
         <div style="font-size:20px">🪐</div><div style="font-size:9px;letter-spacing:2px;color:#4488ff">GALAXY</div></button>
+      <button onclick="window._launchLevel(-5)" class="zone-btn" style="--c:#33ffcc;flex:1;min-width:90px">
+        <div style="font-size:20px">🌀</div><div style="font-size:9px;letter-spacing:2px;color:#33ffcc">TRANSITION</div></button>
     </div>
     <div style="font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:4px;color:#ffffff33;margin:8px 0 12px;text-align:center">── CAMPAIGN ZONES ──</div>
     <div id="ls-grid" style="width:100%;max-width:360px;padding:0 16px"></div>
@@ -5926,7 +5928,7 @@ class Player{
     const GRAV=220;
     const JET_FORCE=200;    // reduced — was 380, too much vertical loft
     const JET_DRAIN=55;     // faster drain — was 28
-    const JET_RECHARGE=5;   // slow airborne recharge unchanged
+    const JET_RECHARGE=14;  // in-air recharge when not jetting — boost returns over a jump's arc
     const GND_RECHARGE=35;  // ground recharge unchanged
 
     // Jetpack force — continuous upward push when held airborne
@@ -6345,6 +6347,7 @@ function getZoneDef(z){
   if(z===-2) return {name:'TRAINING ROOM',subtitle:'Weapons Lab',color:0xff8800,glowCol:[1,0.5,0],waves:0,enemies:[],special:'none',desc:'Test weapons on the dummy'};
   if(z===-3) return {name:'PUZZLE LAB',subtitle:'Block Workshop',color:0xaa44ff,glowCol:[0.67,0.27,1],waves:0,enemies:[],special:'none',desc:'Move blocks, jump platforms'};
   if(z===-4) return {name:'GALAXY',subtitle:'Planetoid Cluster',color:0x8844ff,glowCol:[0.53,0.27,1],waves:0,enemies:[],special:'none',desc:'Three worlds, one gravity'};
+  if(z===-5) return {name:'TRANSITION',subtitle:'Construct Test',color:0x33ffcc,glowCol:[0.2,1,0.8],waves:0,enemies:[],special:'none',desc:'Walk through the gate'};
   return ZONES[Math.min(z,ZONES.length-1)];
 }
 
@@ -6449,7 +6452,7 @@ class Powerup{
 // ════════════════════════════════════════════════════════════
 const ZONE_STRIDE=0; // all zones at world origin — grid stays centered // distance between zone centers
 
-function zoneCenter(z){ return {x:z*ZONE_STRIDE, z:0}; }
+function zoneCenter(z){ return {x:(z===-5?0:z*ZONE_STRIDE), z:0}; }
 function toZoneLocal(wx,wz,z){ const c=zoneCenter(z); return {x:wx-c.x,z:wz-c.z}; }
 function fromZoneLocal(lx,lz,z){ const c=zoneCenter(z); return {x:lx+c.x,z:lz+c.z}; }
 
@@ -7372,6 +7375,8 @@ function startGame(levelIdx){
   for(const m of GS.enemyMissiles)m.remove();GS.enemyMissiles=[];
   for(const r of GS.deathRings)r.remove();GS.deathRings=[];
   if(GS_gate){GS_gate.remove();GS_gate=null;}
+  if(_transGate){ scene.remove(_transGate); _transGate=null; } _transState=null;
+  if(_spawnBeams&&_spawnBeams.length){ _spawnBeams.forEach(b=>scene.remove(b.grp)); _spawnBeams=[]; }
   GS_powerups.forEach(p=>p.remove()); GS_powerups=[];
   GS_plants.forEach(p=>p.remove()); GS_plants=[];
   GS_bots.forEach(b=>{ if(b.alive) b.die(); }); GS_bots=[];
@@ -7383,10 +7388,12 @@ function startGame(levelIdx){
   // Puzzle lab spawn — far corner away from tower (which is at 0,0)
   if(GS.zone===-3){ player.wx=200; player.wz=200; }
   else if(GS.zone===-4){
+    window._galaxyStage=0;
     player.wx=400; player.wz=400; player.py=0;
-    _gPos=null; _gVel=null; _g3D=false; _gPlanet=null; _gOnSurface=false;
+    _gPos=null; _gVel=null; _g3D=false; _gPlanet=null; _gOnSurface=false; _gOnPlatform=null;
     _gUp=new THREE.Vector3(0,1,0); _gN=new THREE.Vector3(0,1,0); _gQ=new THREE.Quaternion();
-  }  else { player.wx=0; player.wz=0; }
+  }  else if(GS.zone===-5){ player.wx=0; player.wz=150; player.py=0; }
+  else { player.wx=0; player.wz=0; }
   grid.setZone(GS.zone);
   // Spawn alien plants scattered around the arena
   if(GS.zone>=0){  // no plants in training/puzzle rooms
@@ -7424,6 +7431,7 @@ function startGame(levelIdx){
   else if(GS.zone===-2){ buildTrainingRoom(); }
   else if(GS.zone===-3){ buildPuzzleLab(); }
   else if(GS.zone===-4){ buildGalaxy(); }
+  else if(GS.zone===-5){ buildTransition(); }
   else if(GS.zone===0) buildZone1Puzzle();
   else spawnWave();
   setupSpecialLevel(GS.zone);
@@ -7485,6 +7493,180 @@ function startGame(levelIdx){
   } // end if(IS_TOUCH)
 
 } // end startGame
+
+function ascendGalaxyStage(){
+  if(window._galAscending) return;
+  window._galAscending=true;
+  // mask the rebuild behind a flash + shake so it feels like rising into a new space
+  flashScreen(0.8); addTrauma(0.25);
+  Audio.blip(320,0.3,'sine',0.3,1000); Audio.blip(640,0.45,'sine',0.25,1500);
+  setTimeout(()=>{
+    window._galaxyStage=(window._galaxyStage||0)+1;
+    buildGalaxy();                       // tears down + rebuilds with the next stage's layout
+    // drop the player in at the bottom of the new cylinder
+    player.wx=400; player.wz=400; player.py=0; player.pvy=0; player.vx=0; player.vz=0;
+    _gPos=null; _gVel=null; _g3D=false; _gPlanet=null; _gOnSurface=false; _gOnPlatform=null;
+    _gUp=new THREE.Vector3(0,1,0); _gN=new THREE.Vector3(0,1,0); _gQ=new THREE.Quaternion();
+    player._inPlanetGravity=false; player._onPlatform=false;
+    if(player.model) player.model.rotation.set(0,player.model.rotation.y,0);
+    CAM.tfocus.set(player.wx,4,player.wz); CAM.focus.copy(CAM.tfocus);
+    flashScreen(0.8);
+    window._galAscending=false;
+  },420);
+}
+
+// ════════════════════════════════════════════════════════════
+//  TRANSITION ZONE (-5) — a lab for the zone-to-zone handoff, using the REAL grid.
+//  Construct: hold every interior node displaced above + off its rest spot, then let a
+//  wavefront expanding from the arena centre release them one ring at a time — the grid's
+//  own spring eases each node home with the natural rebound + colour flash. Deconstruct:
+//  the wavefront kicks nodes up & outward so the floor erupts. Walk through the gate to fire it.
+// ════════════════════════════════════════════════════════════
+let _transGate=null;
+let _transState=null;                       // { mode:'build'|'combat'|'active'|'dissolve', ... }
+let _spawnBeams=[];
+const _T_GATE_Z=-190, _T_BUILD_H=140, _T_OFF=16;   // gate on the FAR side (into the screen): walking to it matches the camera, so no 180° swing
+const _T_SPAWN_Z=150;                              // player start, near side
+let _T_WAVE=1.4;        // construction wavefront sweep time
+let _T_K=0.055;         // transition-only spring stiffness (higher = snappier descent)
+let _T_D=0.86;          // transition-only damping (lower = softer landing, higher = bouncier)
+let _T_OFFDECAY=0.90;   // how fast the horizontal offset eases back to centre
+
+// ── BEAM-DOWN SPAWN FX (reusable) — a bright column drops from the sky, flashes, leaves the thing behind ──
+function spawnBeam(x,z,color,onLand){
+  const grp=new THREE.Group(); const col=new THREE.Color(color); const h=340;
+  const beam=new THREE.Mesh(new THREE.CylinderGeometry(11,11,h,18,1,true),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  beam.position.y=h/2; grp.add(beam);
+  const core=new THREE.Mesh(new THREE.CylinderGeometry(3.5,3.5,h,10,1,true),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  core.position.y=h/2; grp.add(core);
+  const disc=new THREE.Mesh(new THREE.CircleGeometry(20,28),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  disc.rotation.x=-Math.PI/2; disc.position.y=0.6; grp.add(disc);
+  grp.position.set(x,0,z); scene.add(grp);
+  _spawnBeams.push({grp,beam,core,disc,col,t:0,dur:0.7,onLand,landed:false});
+}
+function updateSpawnBeams(dt){
+  for(let i=_spawnBeams.length-1;i>=0;i--){
+    const b=_spawnBeams[i]; b.t+=dt; const k=clamp(b.t/b.dur,0,1);
+    const a=k<0.45?(k/0.45):(1-(k-0.45)/0.55);
+    b.beam.material.opacity=a*0.6; b.core.material.opacity=a*0.95; b.disc.material.opacity=a*0.7;
+    b.disc.scale.setScalar(0.4+k*1.8);
+    const wob=1+Math.sin(b.t*30)*0.06; b.beam.scale.set(wob,1,wob);
+    if(!b.landed && k>=0.45){ b.landed=true; if(b.onLand) b.onLand(); ps.ring(b.grp.position.x,b.grp.position.z,[b.col.r,b.col.g,b.col.b],16,100); addTrauma(0.03); Audio.blip(640,0.18,'sine',0.12,230); }
+    if(k>=1){ scene.remove(b.grp); b.beam.geometry.dispose(); b.core.geometry.dispose(); b.disc.geometry.dispose(); _spawnBeams.splice(i,1); }
+  }
+}
+
+function makeTransGate(color){
+  const g=new THREE.Group(); const col=new THREE.Color(color);
+  const mat=()=>new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
+  const H=82,W=72,T=5;
+  const add=(m,b)=>{ m.userData.baseOp=b; g.add(m); return m; };
+  add(new THREE.Mesh(new THREE.BoxGeometry(T,H,T),mat()),1).position.set(-W/2,H/2,0);
+  add(new THREE.Mesh(new THREE.BoxGeometry(T,H,T),mat()),1).position.set(W/2,H/2,0);
+  add(new THREE.Mesh(new THREE.TorusGeometry(W/2,T/2,8,28,Math.PI),mat()),1).position.set(0,H,0);
+  const portal=add(new THREE.Mesh(new THREE.PlaneGeometry(W,H),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})),1);
+  portal.position.set(0,H/2,0); portal.userData.isPortal=true;
+  // arrow points toward the gate (into the screen), waiting on the approach side
+  const arrow=add(new THREE.Mesh(new THREE.ConeGeometry(12,22,3),mat()),1);
+  arrow.rotation.x=-Math.PI/2; arrow.position.set(0,H*0.45,42); arrow.userData.isArrow=true;
+  // locked barrier — red wireframe lattice filling the doorway; disintegrates on clear
+  const barrier=new THREE.Mesh(new THREE.PlaneGeometry(W*0.92,H*0.92,6,6),new THREE.MeshBasicMaterial({color:0xff3355,wireframe:true,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  barrier.position.set(0,H*0.46,0); barrier.userData.isBarrier=true; barrier.userData.baseOp=1; g.add(barrier);
+  g.userData={portal,arrow,barrier,H,W}; g.position.set(0,0,_T_GATE_Z);
+  scene.add(g); return g;
+}
+function _setGateState(state){     // 'hidden' | 'locked' | 'open'
+  if(!_transGate) return;
+  _transGate.traverse(o=>{
+    if(!o.material||o.userData.baseOp==null) return;
+    if(o.userData.isBarrier)      o.material.opacity=(state==='locked')?0.7:0;
+    else if(o.userData.isArrow)   o.material.opacity=(state==='open')?0.9:0;
+    else if(o.userData.isPortal)  o.material.opacity=(state==='open')?0.16:(state==='locked')?0.05:0;
+    else                          o.material.opacity=(state==='open')?1:(state==='locked')?0.24:0; // frame: dim when locked
+  });
+}
+
+function buildTransition(){
+  if(_transGate){ scene.remove(_transGate); _transGate=null; }
+  _spawnBeams.forEach(b=>scene.remove(b.grp)); _spawnBeams=[];
+  _transGate=makeTransGate(0x33ffcc);
+  _setGateState('hidden');
+  _transState=_makeBuildState();
+  announce('TRANSITION · CONSTRUCT','#33ffcc');
+}
+function _makeBuildState(){
+  const n=grid.n;
+  const st={mode:'build', t:0, ty:new Float32Array(n), tvy:new Float32Array(n), tox:new Float32Array(n), toz:new Float32Array(n), released:new Uint8Array(n)};
+  for(let r=1;r<grid.nz-1;r++) for(let c=1;c<grid.nx-1;c++){
+    const i=r*grid.nx+c; st.ty[i]=_T_BUILD_H; st.tox[i]=Math.sin(i*1.3)*_T_OFF; st.toz[i]=Math.cos(i*0.9)*_T_OFF;
+  }
+  return st;
+}
+function _transSpawnEnemies(){
+  const spots=[[-95,-30],[95,-30],[0,-95]];
+  const makers=[ (x,z)=>new Diamond(x,z,1), (x,z)=>new Bouncer(x,z,1), (x,z)=>new Diamond(x,z,1) ];
+  spots.forEach(([x,z],i)=>{ spawnBeam(x,z,0x66ddff,()=>{ const e=makers[i](x,z); e.addToScene(); GS.enemies.push(e); }); });
+}
+
+function updateTransition(dt){
+  if(!_transState) return;
+  updateSpawnBeams(dt);
+  const now=performance.now()/1000, st=_transState, maxR=ARENA_R*1.18;
+
+  if(st.mode==='build'){
+    st.t+=dt;
+    const front=(st.t/_T_WAVE)*maxR;
+    let maxY=0, allReleased=true;
+    for(let r=1;r<grid.nz-1;r++) for(let c=1;c<grid.nx-1;c++){
+      const i=r*grid.nx+c;
+      const dist=Math.hypot(grid.rx[i],grid.rz[i]);
+      if(dist<=front) st.released[i]=1; else allReleased=false;
+      if(st.released[i]){
+        st.tvy[i]=(st.tvy[i]+(0-st.ty[i])*_T_K)*_T_D; st.ty[i]+=st.tvy[i];
+        st.tox[i]*=_T_OFFDECAY; st.toz[i]*=_T_OFFDECAY;
+      }
+      grid.y[i]=st.ty[i]; grid.x[i]=grid.rx[i]+st.tox[i]; grid.z[i]=grid.rz[i]+st.toz[i];
+      grid.vy[i]=0; grid.vx[i]=0; grid.vz[i]=0;
+      const ay=st.ty[i]<0?-st.ty[i]:st.ty[i]; if(ay>maxY) maxY=ay;
+    }
+    if(allReleased && maxY<2.0){
+      st.mode='combat'; _setGateState('locked'); _transSpawnEnemies();
+      announce('CLEAR THE SECTOR','#ff3355');
+    }
+  } else if(st.mode==='combat'){
+    if(_transGate){ const b=_transGate.userData.barrier; b.material.opacity=0.55+0.2*Math.sin(now*5); b.rotation.z=Math.sin(now*0.6)*0.04; }
+    if(GS.enemies.length===0){
+      st.mode='active'; _setGateState('open');
+      const bx=_transGate.position.x, bz=_transGate.position.z;
+      ps.ring(bx,bz,[1,0.2,0.33],26,150); ps.burst(bx,bz,[0.2,1,0.8],30,160); addTrauma(0.08); flashScreen(0.3);
+      announce('SECTOR CLEAR · GATE OPEN','#33ffcc');
+    }
+  } else if(st.mode==='active'){
+    const pulse=0.55+0.45*Math.sin(now*3.2);
+    _transGate.traverse(o=>{ if(o.material&&o.userData.baseOp!=null&&!o.userData.isArrow&&!o.userData.isBarrier&&!o.userData.isPortal) o.material.opacity=o.userData.baseOp*(0.6+0.4*pulse); });
+    const ar=_transGate.userData.arrow; ar.material.opacity=0.5+0.5*pulse; ar.position.z=42+Math.sin(now*4)*9;
+    const W=_transGate.userData.W;
+    if(player.wz<_T_GATE_Z+8 && Math.abs(player.wx)<W/2+12){
+      st.mode='dissolve'; st.t=0; st.kicked=new Uint8Array(grid.n);
+      _setGateState('hidden'); flashScreen(0.5); addTrauma(0.06); grid.shock(0,0,4);
+      announce('TRANSITION · DECONSTRUCT','#ff5b8a');
+    }
+  } else if(st.mode==='dissolve'){
+    st.t+=dt;
+    const front=(st.t/_T_WAVE)*maxR;
+    for(let r=1;r<grid.nz-1;r++) for(let c=1;c<grid.nx-1;c++){
+      const i=r*grid.nx+c;
+      const dist=Math.hypot(grid.rx[i],grid.rz[i]);
+      if(dist<front && !st.kicked[i]){ st.kicked[i]=1; grid.vy[i]+=6+Math.random()*5; const d=dist||1; grid.vx[i]+=(grid.rx[i]/d)*1.3; grid.vz[i]+=(grid.rz[i]/d)*1.3; }
+    }
+    if(st.t>=_T_WAVE){
+      _transState=_makeBuildState();
+      player.wx=0; player.wz=_T_SPAWN_Z; player.py=0; player.vx=0; player.vz=0;
+      CAM.tyaw=0; CAM.yaw=0; CAM.tfocus.set(player.wx,4,player.wz); CAM.focus.copy(CAM.tfocus);   // keep camera behind, facing the gate
+      announce('TRANSITION · CONSTRUCT','#33ffcc');
+    }
+  }
+}
 
 function zoneClear(){
   if(GS.transitioning)return; GS.transitioning=true;
@@ -8560,8 +8742,11 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
 }
 const jR=new Joystick(document.getElementById('joystick-right'),document.getElementById('joy-knob-right'));jR.setOutput(shootIn);
 
-// Universal charge jump — hold right stick, release to launch
+// Universal charge jump — DISABLED. Hold-right-stick-to-launch removed: it fired on release, so
+// aiming or peeking the camera and then letting go would fling the player unintentionally.
+// Now tap = hop, hold-while-airborne = jetpack. To restore, un-comment the listeners below.
 {
+  /* DISABLED super jump
   const jrEl=document.getElementById('joystick-right');
   let _chargeStart=0;
   jrEl.addEventListener('touchstart',()=>{
@@ -8585,6 +8770,7 @@ const jR=new Joystick(document.getElementById('joystick-right'),document.getElem
       _chargeStart=0;
     }
   },{passive:true});
+  */
 }
 
 // LEFT stick tap = drop bomb straight down if airborne with bomb selected
@@ -8672,6 +8858,18 @@ jL.onTap=()=>{
   };
 }
 
+// ── BOOST-COUPLED CHARGE JUMP ──
+// Holding the jump spends boost fuel for extra height (capped by what you have);
+// whatever you don't spend stays available to jetpack-float on the way up/down.
+// A plain tap costs no fuel and gives a normal hop.
+const JUMP_BASE=150, JUMP_BOOST_COST=55, JUMP_PER_FUEL=7;
+function _chargeJumpVel(charge){
+  if(!player) return {vel:JUMP_BASE,frac:0};
+  const spend=Math.min(Math.max(0,charge)*JUMP_BOOST_COST, player.boostFuel);
+  player.boostFuel=Math.max(0,player.boostFuel-spend); player.boostRecharge=0;
+  return {vel:JUMP_BASE+spend*JUMP_PER_FUEL, frac: JUMP_BOOST_COST>0? spend/JUMP_BOOST_COST : 0};
+}
+
 jR.onTap=()=>{
   if(!player||GS.state!=='playing')return;
   // Galaxy planet: use hold duration for charge (set in _start/_end hooks below)
@@ -8721,14 +8919,14 @@ jR.onTap=()=>{
   }
   if(player.py<=8||player._onPlatform){
     const charge=player._jumpCharge||0;
-    const jumpVel=180+charge*320; // 180 tap, 500 full charge
+    const {vel:jumpVel,frac:cFrac}=_chargeJumpVel(charge);
     player._jumpTapped=true;
     player.pvy=jumpVel; player._onPlatform=false;
-    // Big particles on charged launch
-    const rings=charge>0.5?3:1;
-    for(let i=0;i<rings;i++) ps.ring(player.wx,player.wz,[0,0.85,1],8+Math.floor(charge*12),60+charge*80);
-    if(charge>0.3) grid.shock(player.wx,player.wz,charge*4);
-    Audio.blip(300+charge*200,0.3+charge*0.3,'sine',0.1+charge*0.15,400+charge*300);
+    // Big particles scale with how much boost was actually spent
+    const rings=cFrac>0.5?3:1;
+    for(let i=0;i<rings;i++) ps.ring(player.wx,player.wz,[0,0.85,1],8+Math.floor(cFrac*12),60+cFrac*80);
+    if(cFrac>0.3) grid.shock(player.wx,player.wz,cFrac*4);
+    Audio.blip(300+cFrac*200,0.3+cFrac*0.3,'sine',0.1+cFrac*0.15,400+cFrac*300);
     setTimeout(()=>{ if(player) player._jumpTapped=false; },80);
   }
 };
@@ -8739,11 +8937,13 @@ jR.onTap=()=>{
 jR.onHoldStart=function(){
   if(!player||GS.state!=='playing')return;
   const onGround=player.py<=8||player._onPlatform||_gOnSurface;
+  // ── CHARGE / SUPER JUMP DISABLED ──
+  // Holding the right stick on the ground/surface used to charge a big launch that fired on release —
+  // far too easy to fling yourself by accident while aiming or peeking the camera. Now: tap = hop,
+  // hold-while-airborne = jetpack. (To restore the super jump: re-enable the _charging block below.)
   if(onGround&&!player.bombArmed){
-    player._charging=true;
-    player._chargeStart=performance.now();
-    player._jumpCharge=0;
-    return; // don't fire jetpack when charging jump
+    return; // do nothing on the ground/surface — no charge, no launch on release
+    // player._charging=true; player._chargeStart=performance.now(); player._jumpCharge=0; return;
   }
   // Galaxy: hold on surface = charge jump (handled above)
   if(GS.zone===-4&&_gOnSurface) return;
@@ -8771,13 +8971,13 @@ jR.onHoldEnd=function(){
         player._jumpTapped=true;
         setTimeout(()=>{ if(player){ player._jumpTapped=false; player._jumpCharge=0; } },80);
       } else {
-        // Ground jump
-        const jumpVel=180+charge*320;
+        // Ground jump — boost-coupled (spend fuel for height, keep the rest to float)
+        const {vel:jumpVel,frac:cFrac}=_chargeJumpVel(charge);
         player.pvy=jumpVel; player._onPlatform=false;
-        const rings=charge>0.5?3:1;
-        for(let i=0;i<rings;i++) ps.ring(player.wx,player.wz,[0.2,0.8,1],8+Math.floor(charge*14),60+charge*100);
-        if(charge>0.3) grid.shock(player.wx,player.wz,charge*5);
-        Audio.blip(280+charge*220,0.3+charge*0.4,'sine',0.1+charge*0.2,350+charge*400);
+        const rings=cFrac>0.5?3:1;
+        for(let i=0;i<rings;i++) ps.ring(player.wx,player.wz,[0.2,0.8,1],8+Math.floor(cFrac*14),60+cFrac*100);
+        if(cFrac>0.3) grid.shock(player.wx,player.wz,cFrac*5);
+        Audio.blip(280+cFrac*220,0.3+cFrac*0.4,'sine',0.1+cFrac*0.2,350+cFrac*400);
       }
       return;
     }
@@ -9313,6 +9513,7 @@ function loop(ts){ requestAnimationFrame(loop);
       GS_objects.forEach(o=>{ if(o instanceof LevelButton||o instanceof KeyPickup) o.update&&o.update(dt); });
       if(GS.zone===0) updatePuzzleLevel(dt);
       if(GS.zone===-1) updateTutorial(dt);
+      if(GS.zone===-5) updateTransition(dt);
       player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall,od,aiming); player.draw(od);
       if(player) player.updateShield(dt);
       if(player) player._lastFiring=firing||player._secFireActive||false;
@@ -10080,10 +10281,14 @@ function buildGalaxy(){
   window._galaxyObjects=[];
   window._galaxyPlanets=[];
 
+  const stage=window._galaxyStage||0;
+  const aOff=stage*0.8, R=190;
+  const cols=[0x44ff88,0x4488ff,0xff5533,0xffaa33,0xaa44ff,0x44ffdd];
+  const ang=k=>Math.PI/2+aOff+k*TAU/3;
   const defs=[
-    {wx:  0, wy:130, wz:   0, r:60, col:0x4488ff},
-    {wx:320, wy:150, wz: 140, r:50, col:0xff5533},
-    {wx:-280,wy:140, wz:-180, r:55, col:0x44ff88},
+    {wx:Math.cos(ang(0))*R, wy:130, wz:Math.sin(ang(0))*R, r:46, col:cols[stage%cols.length]},       // step 1
+    {wx:Math.cos(ang(1))*R, wy:300, wz:Math.sin(ang(1))*R, r:44, col:cols[(stage+1)%cols.length]},   // step 2
+    {wx:Math.cos(ang(2))*R, wy:470, wz:Math.sin(ang(2))*R, r:42, col:cols[(stage+2)%cols.length]},   // step 3
   ];
 
   defs.forEach(d=>{
@@ -10095,10 +10300,10 @@ function buildGalaxy(){
     innerSphere.position.set(d.wx,d.wy,d.wz);
     scene.add(innerSphere); _galaxyObjects.push(innerSphere);
 
-    // Faint glow halo
+    // Faint glow halo — hugs the surface so the player doesn't look like he's floating inside a ring
     const glow=new THREE.Mesh(
-      new THREE.SphereGeometry(d.r*1.15,16,12),
-      new THREE.MeshBasicMaterial({color:d.col,transparent:true,opacity:0.06,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.BackSide})
+      new THREE.SphereGeometry(d.r*1.04,16,12),
+      new THREE.MeshBasicMaterial({color:d.col,transparent:true,opacity:0.05,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.BackSide})
     );
     glow.position.set(d.wx,d.wy,d.wz); scene.add(glow); _galaxyObjects.push(glow);
 
@@ -10132,6 +10337,37 @@ function buildGalaxy(){
     _galaxyPlanets.push(planet);
   });
 
+  // ── TOP PLATFORM (climb goal) + DOWN-TELEPORTER back to the ground ──
+  window._arenaPlatforms=[];
+  const topPlat={type:'disc',x:0,z:0,y:600,r:66};
+  window._arenaPlatforms.push(topPlat);
+  {
+    const thick=8;
+    const geo=new THREE.CylinderGeometry(66,66,thick,44);
+    const fill=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0x0a0e1a,transparent:true,opacity:0.85,depthWrite:true}));
+    fill.position.set(0,600-thick/2,0); scene.add(fill); _galaxyObjects.push(fill);
+    const edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:0xffcc33,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+    edge.position.copy(fill.position); scene.add(edge); _galaxyObjects.push(edge);
+    // trap-door pad (gold ring) — step in at the top to ascend to the next stage
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(18,2.4,8,28),new THREE.MeshBasicMaterial({color:0xffdd44,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+    ring.rotation.x=Math.PI/2; ring.position.set(0,601,30); scene.add(ring); _galaxyObjects.push(ring);
+  }
+  window._galTele={ down:{x:0,z:30,r:18}, topPlat, ground:{x:400,z:300} };
+
+  // ── DROP INDICATOR — a glowing ring projected straight down onto whatever platform you're above ──
+  {
+    const ind=new THREE.Group();
+    const ring=new THREE.Mesh(new THREE.RingGeometry(9,13,28),
+      new THREE.MeshBasicMaterial({color:0x33ddff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,depthWrite:false}));
+    ring.rotation.x=-Math.PI/2; ind.add(ring);
+    const dot=new THREE.Mesh(new THREE.CircleGeometry(3,16),
+      new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,depthWrite:false}));
+    dot.rotation.x=-Math.PI/2; ind.add(dot);
+    ind.visible=false;
+    scene.add(ind); _galaxyObjects.push(ind);
+    window._dropIndicator=ind;
+  }
+
   // Stars
   const pts=[];
   for(let i=0;i<600;i++) pts.push((Math.random()-0.5)*2000,(Math.random()-0.5)*2000,(Math.random()-0.5)*2000);
@@ -10139,7 +10375,7 @@ function buildGalaxy(){
   const stars=new THREE.Points(sg,new THREE.PointsMaterial({color:0xffffff,size:1.5,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false}));
   scene.add(stars); _galaxyObjects.push(stars);
 
-  setTimeout(()=>announce('GALAXY — JUMP TOWARD A PLANET TO ENTER ITS GRAVITY','#8844ff'),800);
+  setTimeout(()=>announce('GALAXY · STAGE '+((window._galaxyStage||0)+1)+' — CLIMB TO THE TRAP DOOR','#8844ff'),800);
 }
 
 // ── PLANET DEFORMATION — local geodesic ripples + radial spring, coloured by height ──
@@ -10213,21 +10449,24 @@ let _gPos=null, _gVel=null;
 let _g3D=false;                 // are we in 3D galaxy physics (on/around a planet)?
 let _gPlanet=null;              // current dominant planet (for camera framing)
 let _gOnSurface=false;          // touching a surface this frame
+let _gOnPlatform=null;          // arena platform we're standing on (null = not on one)
 let _gUp=new THREE.Vector3(0,1,0);
 let _gQ=new THREE.Quaternion();
 let _gN=new THREE.Vector3(0,1,0); // current gravity-up (surface normal)
+let _galCamOrbit=0;             // EXPERIMENTAL: right-stick peek offset around the planet (springs back to 0)
 
 // ── TUNABLES ──
 const _G_GRAV       = 900;   // gravity accel toward planet centre
 const _G_PR         = 9;     // player foot offset above surface (matches model's 9-unit ground offset)
-const _G_INFLU      = 3.0;   // a planet pulls you when dist < r * this (escape past this)
+const _G_INFLU      = 4.5;   // a planet pulls you when dist < r * this — wide enough that neighbouring wells overlap (no dead gap)
 const _G_MOVE_ACCEL = 950;   // tangential running accel
 const _G_MAX_SPD    = 230;   // top running speed on a surface
 const _G_FRICTION   = 0.80;  // per-frame velocity retention when no input (grounded)
-const _G_JUMP_BASE  = 240;   // tap-jump radial impulse (small hop, stays on planet)
-const _G_JUMP_RANGE = 720;   // extra impulse at full charge (enough to escape)
+const _G_JUMP_BASE  = 200;   // tap-jump radial impulse (small hop, stays on planet)
+const _G_JUMP_RANGE = 360;   // extra impulse at full charge — toned down (was 720, felt insane)
 const _G_AIR_CAP    = 920;   // max speed in flight
 const _G_JET        = 1100;  // jetpack accel — boost-fuel based, helps escape / hover
+const _G_ORBIT_DAMP = 2.4;   // bleeds sideways speed when close to a planet so you spiral in and land (not sling around)
 const _G_GROUND_Y   = _G_PR; // y at/below which "in orbit of none" lands back on the flat grid
 
 // Returns the dominant planet at a world position, or null if none in range.
@@ -10244,6 +10483,11 @@ function _dominantPlanet(p){
   return best;
 }
 
+// ── ARENA PLATFORM helpers (walkable tiers) ──
+function _platformContains(pf,x,z){
+  if(pf.type==='disc'){ const dx=x-pf.x, dz=z-pf.z; return dx*dx+dz*dz<=pf.r*pf.r; }
+  return Math.abs(x-pf.x)<=pf.w/2 && Math.abs(z-pf.z)<=pf.d/2;
+}
 function updateGalaxy(dt){
   if(!_galaxyPlanets?.length||!player) return;
   const UP=new THREE.Vector3(0,1,0);
@@ -10260,13 +10504,14 @@ function updateGalaxy(dt){
   if(!_g3D){
     _gPos.set(player.wx,player.py,player.wz);
     _gVel.set(player.vx,player.pvy,player.vz);
-    const dom = player.py>12 ? _dominantPlanet(_gPos) : null;
-    if(dom){
-      _g3D=true; _gPlanet=dom; _gOnSurface=false;
+    const dom0 = player.py>12 ? _dominantPlanet(_gPos) : null;
+    if(dom0){
+      _g3D=true; _gPlanet=dom0; _gOnSurface=false; _gOnPlatform=null;
       _gQ.copy(player.model?player.model.quaternion.clone():new THREE.Quaternion());
     } else {
       player._inPlanetGravity=false; _gOnSurface=false;
       _gUp.lerp(UP,0.07).normalize();
+      if(window._dropIndicator) window._dropIndicator.visible=false;
       return;
     }
   }
@@ -10278,45 +10523,79 @@ function updateGalaxy(dt){
   if(dom){
     center=new THREE.Vector3(dom.wx,dom.wy,dom.wz);
     dist=_gPos.distanceTo(center)||1;
-    N=_gPos.clone().sub(center).divideScalar(dist);
     surfD=dom.r+_G_PR;
+  }
+  if(dom && !_gOnPlatform){
+    N=_gPos.clone().sub(center).divideScalar(dist);
   } else {
-    N=UP.clone();           // free space: "up" is world up, gravity pulls straight down
+    N=UP.clone();           // free space / on a platform: "up" is world up
     _gOnSurface=false;
   }
   _gN.copy(N);
 
-  // ── MOVEMENT BASIS — camera-screen-relative, projected onto the tangent plane ──
-  // (fixes "pushing up just circles the equator": up = toward the top of the visible sphere)
+  // ── MOVEMENT BASIS — on a surface: planet-relative (up = toward the pole). In the air: camera-relative (up = into the screen), held the whole flight so it never flips. ──
   let tangentMove=null, inMag=0;
   {
-    let sx,sy;
-    if(IS_TOUCH){ sx=moveIn.x; sy=-moveIn.y; }
-    else { sx=0; sy=0;
-      if(keys['KeyD']||keys['ArrowRight'])sx+=1; if(keys['KeyA']||keys['ArrowLeft'])sx-=1;
-      if(keys['KeyW']||keys['ArrowUp'])sy+=1;   if(keys['KeyS']||keys['ArrowDown'])sy-=1; }
-    inMag=Math.hypot(sx,sy);
+    let rx,ry;   // ground convention: rx = right, ry = up(−)/down(+)
+    if(IS_TOUCH){ rx=moveIn.x; ry=moveIn.y; }
+    else { rx=0; ry=0;
+      if(keys['KeyD']||keys['ArrowRight'])rx+=1; if(keys['KeyA']||keys['ArrowLeft'])rx-=1;
+      if(keys['KeyW']||keys['ArrowUp'])ry-=1;    if(keys['KeyS']||keys['ArrowDown'])ry+=1; }
+    inMag=Math.hypot(rx,ry);
     if(inMag>0.05){
-      // Planet-relative basis: up = toward the planet's north pole, right = around it (east).
-      // Stable everywhere (no near/far-face sign flip), matches "push up = toward the top".
-      const north=new THREE.Vector3(0,1,0);
-      let tNorth=north.clone().addScaledVector(N,-north.dot(N)); // surface direction toward north pole
-      let tEast;
-      if(tNorth.lengthSq()<1e-3){
-        // exactly at a pole — fall back to camera-right so control stays defined
-        const camRight=new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));
-        tEast=camRight.addScaledVector(N,-camRight.dot(N)).normalize();
-        tNorth=new THREE.Vector3().crossVectors(tEast,N).normalize();
+      if(_gOnSurface && dom){
+        // planet-relative: up = toward the planet's north pole, right = east
+        const sx=rx, sy=-ry;
+        const north=new THREE.Vector3(0,1,0);
+        let tNorth=north.clone().addScaledVector(N,-north.dot(N));
+        let tEast;
+        if(tNorth.lengthSq()<1e-3){
+          const camRight=new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));
+          tEast=camRight.addScaledVector(N,-camRight.dot(N)).normalize();
+          tNorth=new THREE.Vector3().crossVectors(tEast,N).normalize();
+        } else {
+          tNorth.normalize();
+          tEast=new THREE.Vector3().crossVectors(tNorth,N).normalize();
+        }
+        tangentMove=tNorth.multiplyScalar(sy).addScaledVector(tEast,sx);
       } else {
-        tNorth.normalize();
-        tEast=new THREE.Vector3().crossVectors(N,tNorth).normalize();
+        // airborne — camera-relative, identical to ground walking (up = forward into the screen)
+        const ws=rotInput(rx,ry);
+        tangentMove=new THREE.Vector3(ws.x,0,ws.z);
       }
-      tangentMove=tNorth.multiplyScalar(sy).addScaledVector(tEast,sx);
-      if(tangentMove.lengthSq()>1e-4) tangentMove.normalize(); else tangentMove=null;
+      if(tangentMove && tangentMove.lengthSq()>1e-4) tangentMove.normalize(); else tangentMove=null;
     }
   }
 
-  if(dom && _gOnSurface){
+  if(_gOnPlatform){
+    // ── ON THE TOP PLATFORM — flat walk, charge-jump off, teleporter pad drops you home ──
+    const pf=_gOnPlatform, top=pf.y+_G_PR;
+    if(tangentMove) _gVel.addScaledVector(tangentMove,_G_MOVE_ACCEL*Math.min(1,inMag)*dt);
+    _gVel.y=0;
+    if(!tangentMove){ _gVel.x*=_G_FRICTION; _gVel.z*=_G_FRICTION; }
+    const sp=Math.hypot(_gVel.x,_gVel.z); if(sp>_G_MAX_SPD) _gVel.multiplyScalar(_G_MAX_SPD/sp);
+    _gPos.addScaledVector(_gVel,dt); _gPos.y=top;
+    player._onPlatform=true; player._galSpeed=Math.hypot(_gVel.x,_gVel.z);
+    player.boostFuel=Math.min(player.boostMax,player.boostFuel+40*dt);
+    // trap-door pad → ascend to the next stacked stage
+    const T=window._galTele;
+    if(T && pf===T.topPlat){
+      const dx=_gPos.x-T.down.x, dz=_gPos.z-T.down.z;
+      if(dx*dx+dz*dz<=T.down.r*T.down.r){
+        ascendGalaxyStage();
+        return;
+      }
+    }
+    // walked off the edge → fall
+    if(_gOnPlatform && !_platformContains(pf,_gPos.x,_gPos.z)) _gOnPlatform=null;
+    // charge-jump off the platform
+    if(_gOnPlatform && player._jumpTapped){
+      const charge=player._jumpCharge||0;
+      _gVel.y=_G_JUMP_BASE+charge*_G_JUMP_RANGE;
+      _gOnPlatform=null; player._jumpTapped=false; player._jumpCharge=0;
+      Audio.blip(280+charge*220,0.4,'sine',0.14,460+charge*260);
+    }
+  } else if(dom && _gOnSurface){
     // ── ON SURFACE — walk + re-project to sphere (anti-jitter) + charge jump ──
     if(tangentMove) _gVel.addScaledVector(tangentMove,_G_MOVE_ACCEL*Math.min(1,inMag)*dt);
     _gVel.addScaledVector(N,-_gVel.dot(N));        // velocity stays purely tangential while grounded
@@ -10348,18 +10627,41 @@ function updateGalaxy(dt){
     _gVel.addScaledVector(N,-_G_GRAV*dt);
     if(tangentMove) _gVel.addScaledVector(tangentMove,_G_AIR_STEER*Math.min(1,inMag)*dt);
     if(player._jetting && player.boostFuel>0){
-      _gVel.addScaledVector(N,_G_JET*dt);
-      player.boostFuel=Math.max(0,player.boostFuel-45*dt);
+      _gVel.y += _G_JET*dt;                 // straight up — consistent lift no matter which planet you're near
+      player.boostFuel=Math.max(0,player.boostFuel-38*dt);
       player._jetFlash=1;
     } else {
-      player.boostFuel=Math.min(player.boostMax,player.boostFuel+8*dt);
+      player.boostFuel=Math.min(player.boostMax,player.boostFuel+18*dt);
+    }
+    // orbital damping near a planet — bleed sideways speed so you spiral in and settle instead of slinging around
+    if(dom && center){
+      const ndc=_gPos.distanceTo(center)||1;
+      if(ndc < surfD*2.6){
+        const radd=_gPos.clone().sub(center).divideScalar(ndc);
+        const vr=_gVel.dot(radd);
+        const vtan=_gVel.clone().addScaledVector(radd,-vr);
+        _gVel.addScaledVector(vtan,-Math.min(0.5,_G_ORBIT_DAMP*dt));
+      }
     }
     if(_gVel.length()>_G_AIR_CAP) _gVel.setLength(_G_AIR_CAP);
+    const prevY=_gPos.y;
     _gPos.addScaledVector(_gVel,dt);
     player._galSpeed=0;
 
+    // LAND on the top platform? (descending, crossed its top, inside its footprint)
+    if(_gVel.y<=0){
+      for(const pf of (window._arenaPlatforms||[])){
+        const top=pf.y+_G_PR;
+        if(prevY>=top-2 && _gPos.y<=top && _platformContains(pf,_gPos.x,_gPos.z)){
+          _gPos.y=top; _gVel.y=0; _gOnPlatform=pf; player._onPlatform=true;
+          Audio.blip(130,0.1,'sine',0.14,70);
+          break;
+        }
+      }
+    }
+
     // LAND on a planet?
-    if(dom){
+    if(!_gOnPlatform && dom){
       const nd=_gPos.distanceTo(center);
       if(nd<=surfD){
         const Nl=_gPos.clone().sub(center).normalize();
@@ -10412,11 +10714,11 @@ function updateGalaxy(dt){
   // ── CAMERA — ease focus so launches stay in frame and re-center on the next planet ──
   {
     let ft, dTarget, hTarget, doYaw=false;
-    if(dom && _gOnSurface){
+    if(dom && _gOnSurface && !_gOnPlatform){
       // grounded: classic diorama framing on the planet
       ft=center.clone().addScaledVector(N,dom.r*0.5);
       dTarget=dom.r*4.4; hTarget=dom.r*2.6; doYaw=true;
-    } else if(dom){
+    } else if(dom && !_gOnPlatform){
       // airborne but still in a planet's pull: frame between planet and player so both stay visible
       ft=center.clone().lerp(_gPos,0.55);
       dTarget=dom.r*5.2; hTarget=dom.r*3.0;
@@ -10429,12 +10731,20 @@ function updateGalaxy(dt){
     CAM.dist=lerp(CAM.dist,dTarget,0.04);
     CAM.height=lerp(CAM.height,hTarget,0.04);
     if(doYaw){
+      // EXPERIMENTAL right-stick peek: push the right stick sideways to swing the camera around the
+      // planet (planets sit 120° apart, so ~135° of peek lets you spot a neighbour); springs back on release.
+      // Movement on a planet is planet-relative, so this never touches the left-stick directionality.
+      const PEEK_MAX=2.4;                       // ~137° max swing
+      const peekTarget=-(_gOnSurface?shootIn.x:0)*PEEK_MAX;  // negated so look-direction matches the flat-plane camera
+      _galCamOrbit+=(peekTarget-_galCamOrbit)*0.10;   // ease in while held, spring back to 0 when released
       const flat=_gPos.clone().sub(center); flat.y=0;
       if(flat.lengthSq()>1){
-        const desiredYaw=Math.atan2(flat.x,flat.z);
+        const desiredYaw=Math.atan2(flat.x,flat.z)+_galCamOrbit;
         let dy=((desiredYaw-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-        CAM.tyaw+=dy*0.02;
+        CAM.tyaw+=dy*0.06;                      // a touch snappier so the peek reads quickly
       }
+    } else {
+      _galCamOrbit+=(0-_galCamOrbit)*0.10;       // bleed any peek back out when airborne / off-surface
     }
   }
 
@@ -10445,6 +10755,25 @@ function updateGalaxy(dt){
     player.model.quaternion.copy(_gQ);
     if(player.model.userData.turretGroup){
       player.model.userData.turretGroup.rotation.y=-player.aim-Math.PI/2;
+    }
+  }
+
+  // ── DROP INDICATOR — show a ring on whatever platform we're directly above (so you can line up a landing) ──
+  if(window._dropIndicator){
+    let best=null;
+    for(const pf of (window._arenaPlatforms||[])){
+      if(_gPos.y>pf.y+2 && _platformContains(pf,_gPos.x,_gPos.z)){
+        if(!best || pf.y>best.y) best=pf;
+      }
+    }
+    if(best){
+      const ind=window._dropIndicator;
+      ind.visible=true;
+      ind.position.set(_gPos.x, best.y+1.2, _gPos.z);
+      const h=_gPos.y-best.y;
+      ind.scale.setScalar(clamp(0.8+h/180,0.8,2.4));   // grows the higher you are
+    } else {
+      window._dropIndicator.visible=false;
     }
   }
 
@@ -11736,9 +12065,9 @@ function _startRobotViewer(canvasId, opts={}){
     } else {
       const ldr=new GLTFLoader();
       ldr.load('robot.glb',
-        gltf=>{ window._cachedRobotGltf=gltf; onGltf(gltf); },
+        gltf=>{ window._cachedRobotGltf=gltf; window._titleRobotReady=true; onGltf(gltf); },
         null,
-        e=>{ _robotViewerFallback(canvasId); }
+        e=>{ window._titleRobotReady=true; _robotViewerFallback(canvasId); }
       );
     }
   } catch(e){ _robotViewerFallback(canvasId); }
@@ -11785,16 +12114,24 @@ window._showScreen=function(name){
     if(bar) bar.style.width='200px';
   },400);
 
-  // Transition to title
+  // Transition to title — show the title UNDERNEATH the still-opaque splash first, let it paint,
+  // THEN fade the splash. This removes the ~140ms dead-air gap where neither was drawn (the "flash").
   setTimeout(()=>{
-    if(splash) splash.style.opacity='0';
-    splash.style.transition='opacity 0.6s';
-    setTimeout(()=>{
-      if(splash) splash.style.display='none';
-      window._showScreen('title');
-      _startTitleGrid();
-      setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3}),200);
-    },600);
+    // bring up title behind the splash WITHOUT _showScreen (which would hide the splash and re-open the gap)
+    ['title','mode','character','levelselect','mp','settings'].forEach(s=>{
+      const el=document.getElementById('screen-'+s);
+      if(el) el.style.display=(s==='title')?'flex':'none';
+    });
+    _startTitleGrid();
+    setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3}),100);
+    // wait two frames so the title is actually painted under the splash, then fade the splash away
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      if(splash){
+        splash.style.transition='opacity 0.6s';
+        splash.style.opacity='0';
+        setTimeout(()=>{ if(splash) splash.style.display='none'; },640);
+      }
+    }));
   },2200);
 })();
 
