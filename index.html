@@ -347,14 +347,11 @@ canvas{display:block}
       <div style="font-family:'Orbitron',sans-serif;font-size:clamp(10px,3vw,14px);letter-spacing:10px;color:#4488ff;margin-top:6px">DIMENSION</div>
       <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;color:#ffffff22;margin-top:4px">v0.080</div>
     </div>
-    <!-- Robot placeholder area -->
-    <div style="height:120px;display:flex;align-items:center;justify-content:center;position:relative">
-      <div style="width:80px;height:80px;border:2px solid #00ffc844;border-radius:50%;
-        background:radial-gradient(circle,#00ffc811,transparent);
-        box-shadow:0 0 30px #00ffc833;animation:robotFloat 3s ease-in-out infinite;
-        display:flex;align-items:center;justify-content:center;font-size:32px">🤖</div>
-      <div style="position:absolute;bottom:-10px;width:100px;height:20px;
-        background:radial-gradient(ellipse,#00ffc822,transparent);filter:blur(6px)"></div>
+    <!-- Robot 3D viewer -->
+    <div style="height:160px;display:flex;align-items:center;justify-content:center;position:relative">
+      <canvas id="title-robot-canvas" style="width:160px;height:160px;border-radius:50%;background:transparent"></canvas>
+      <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:120px;height:24px;
+        background:radial-gradient(ellipse,#00ffc833,transparent);filter:blur(8px);pointer-events:none"></div>
     </div>
     <!-- START button -->
     <button onclick="window._showScreen('mode')" style="
@@ -403,7 +400,7 @@ canvas{display:block}
       <!-- Robot 1 — selected -->
       <div onclick="window._selectChar(0)" id="char-0" style="cursor:pointer;text-align:center;padding:20px 16px;border:2px solid #00ffc8;
         background:#00ffc808;border-radius:12px;min-width:130px;box-shadow:0 0 20px #00ffc833;transition:all 0.2s">
-        <div style="font-size:48px;margin-bottom:8px;animation:robotFloat 2.5s ease-in-out infinite">🤖</div>
+        <canvas id="char-robot-canvas-0" style="width:80px;height:80px;margin-bottom:8px"></canvas>
         <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#00ffc8">UNIT-01</div>
         <div style="font-family:'Orbitron',sans-serif;font-size:8px;color:#00ffc866;letter-spacing:2px;margin-top:3px">STANDARD</div>
         <div style="margin-top:8px;font-family:'Orbitron',sans-serif;font-size:7px;color:#ffffff55;letter-spacing:1px">ATK ████░<br>DEF ███░░<br>SPD █████</div>
@@ -1635,10 +1632,11 @@ function loadRobotGLB(){
     const loader=new GLTFLoader();
     loader.load(ROBOT_GLB, gltf=>{
       _robotGltf=gltf;
+      window._cachedRobotGltf=gltf; // cache for title screen viewer
       console.log('Robot loaded. Animations:',gltf.animations.map(a=>a.name));
       resolve(gltf);
     }, undefined, err=>{
-      resolve(null); // no GLB available, placeholder saucer will be used
+      resolve(null);
     });
   });
   return _robotLoadPromise;
@@ -11563,6 +11561,90 @@ function _startTitleGrid(canvasId='title-grid-canvas'){
   draw();
 }
 
+// ══ ROBOT GLB VIEWERS ══
+function _robotViewerFallback(canvasId){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas) return;
+  canvas._robotRunning=false;
+  const size=canvasId==='title-robot-canvas'?'64px':'48px';
+  const div=document.createElement('div');
+  div.style.cssText=`font-size:${size};animation:robotFloat 3s ease-in-out infinite;display:flex;align-items:center;justify-content:center;width:${canvas.style.width||'160px'};height:${canvas.style.height||'160px'}`;
+  div.textContent='🤖';
+  canvas.parentNode.replaceChild(div,canvas);
+}
+
+function _startRobotViewer(canvasId, opts={}){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas||canvas._robotRunning) return;
+  canvas._robotRunning=true;
+  const w=canvas.offsetWidth||160, h=canvas.offsetHeight||160;
+  canvas.width=w*2; canvas.height=h*2; // retina
+  canvas.style.width=w+'px'; canvas.style.height=h+'px';
+
+  const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true});
+  renderer.setSize(w*2,h*2,false);
+  renderer.setClearColor(0x000000,0);
+
+  const sc=new THREE.Scene();
+  const cam=new THREE.PerspectiveCamera(45,w/h,0.1,100);
+  cam.position.set(0,1.2,3.5);
+  cam.lookAt(0,0.5,0);
+
+  sc.add(new THREE.AmbientLight(0x4488ff,0.8));
+  const kl=new THREE.DirectionalLight(0x00ffc8,1.4); kl.position.set(1,2,2); sc.add(kl);
+  const rl=new THREE.DirectionalLight(0xaa44ff,0.9); rl.position.set(-2,1,-1); sc.add(rl);
+
+  let mixer=null, modelRoot=null;
+
+  function onGltf(gltf){
+    const model=gltf.scene.clone(true);
+    const box=new THREE.Box3().setFromObject(model);
+    const center=box.getCenter(new THREE.Vector3());
+    const size=box.getSize(new THREE.Vector3());
+    const s=1.8/Math.max(size.x,size.y,size.z);
+    model.scale.setScalar(s);
+    model.position.sub(center.multiplyScalar(s));
+    model.position.y+=(opts.yOffset||0);
+    modelRoot=new THREE.Group(); modelRoot.add(model); sc.add(modelRoot);
+    if(gltf.animations&&gltf.animations.length>0){
+      mixer=new THREE.AnimationMixer(model);
+      mixer.clipAction(gltf.animations[0]).play();
+    }
+  }
+
+  try{
+    if(window._cachedRobotGltf){
+      onGltf(window._cachedRobotGltf);
+    } else {
+      const ldr=new GLTFLoader();
+      ldr.load('robot.glb',
+        gltf=>{ window._cachedRobotGltf=gltf; onGltf(gltf); },
+        null,
+        e=>{ _robotViewerFallback(canvasId); }
+      );
+    }
+  } catch(e){ _robotViewerFallback(canvasId); }
+
+  const clock=new THREE.Clock();
+  function render(){
+    if(!canvas._robotRunning) return;
+    const dt=clock.getDelta();
+    if(mixer) mixer.update(dt);
+    if(modelRoot) modelRoot.rotation.y+=dt*0.5;
+    renderer.render(sc,cam);
+    requestAnimationFrame(render);
+  }
+  render();
+}
+
+// Start robot viewers when screens shown
+const _origShowScreen=window._showScreen;
+window._showScreen=function(name){
+  _origShowScreen(name);
+  if(name==='title') setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-0.1}),100);
+  if(name==='character') setTimeout(()=>_startRobotViewer('char-robot-canvas-0',{yOffset:0,startRot:0.5}),100);
+};
+
 // ══ SPLASH SEQUENCE ══
 (function(){
   // Start on splash
@@ -11593,6 +11675,7 @@ function _startTitleGrid(canvasId='title-grid-canvas'){
       if(splash) splash.style.display='none';
       window._showScreen('title');
       _startTitleGrid();
+      setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-0.1}),200);
     },600);
   },2200);
 })();
