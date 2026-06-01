@@ -8190,6 +8190,12 @@ window.addEventListener('keydown',e=>{
   }
   if(e.code==='Space'&&!wasHeld&&GS.state==='playing'&&player){
     e.preventDefault();
+    // ── GALAXY: Space = charge-jump on a planet, jetpack in the air ──
+    if(GS.zone===-4){
+      if(_gOnSurface){ player._charging=true; player._chargeStart=performance.now(); player._jumpCharge=0; }
+      else { player._jetting=true; }
+      return;
+    }
     if(GS.zone===-3&&!window.KEYS_SWAP){ tryInteractWall(); return; }
     if(window.KEYS_SWAP){
       // Swapped: space = jump — works everywhere including puzzle lab
@@ -8266,6 +8272,17 @@ player.pvy=180;
 window.addEventListener('keyup',e=>{
   keys[e.code]=false;
   if(e.code==='Space'&&player&&GS.state==='playing'){
+    // ── GALAXY: release charge = launch (charge from hold duration); stop jet ──
+    if(GS.zone===-4){
+      if(player._charging){
+        const charge=Math.min(1,(performance.now()-(player._chargeStart||performance.now()))/800);
+        player._jumpCharge=charge; player._charging=false; player._chargeStart=0;
+        player._jumpTapped=true;
+        setTimeout(()=>{ if(player){ player._jumpTapped=false; player._jumpCharge=0; } },120);
+      }
+      player._jetting=false;
+      return;
+    }
     if(window.KEYS_SWAP){
       player._jetting=false; return;
     }
@@ -10068,64 +10085,49 @@ function buildGalaxy(){
   ];
 
   defs.forEach(d=>{
-    // Opaque inner sphere — makes planet look solid
+    // Dark inner sphere — opacity/solidity (kept; only ONE wireframe over it now)
     const innerSphere=new THREE.Mesh(
-      new THREE.SphereGeometry(d.r*0.97,24,16),
-      new THREE.MeshBasicMaterial({color:0x000010,side:THREE.BackSide,depthWrite:true})
+      new THREE.SphereGeometry(d.r*0.95,24,16),
+      new THREE.MeshBasicMaterial({color:0x000008,side:THREE.BackSide,depthWrite:true})
     );
     innerSphere.position.set(d.wx,d.wy,d.wz);
     scene.add(innerSphere); _galaxyObjects.push(innerSphere);
 
-    // Glow
+    // Faint glow halo
     const glow=new THREE.Mesh(
       new THREE.SphereGeometry(d.r*1.15,16,12),
       new THREE.MeshBasicMaterial({color:d.col,transparent:true,opacity:0.06,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.BackSide})
     );
     glow.position.set(d.wx,d.wy,d.wz); scene.add(glow); _galaxyObjects.push(glow);
 
-    // Lat/lon lines — each line has own material so we can animate color
-    const wireGroup=new THREE.Group();
-    wireGroup.position.set(d.wx,d.wy,d.wz);
-    const allLines=[];
-    const SEGS=16;
-    for(let lat=1;lat<SEGS;lat++){
-      const phi=Math.PI*lat/SEGS;
-      const y0=Math.cos(phi)*d.r, r0=Math.sin(phi)*d.r;
-      const pts=[];
-      for(let i=0;i<=48;i++) pts.push(new THREE.Vector3(r0*Math.cos(i/48*Math.PI*2),y0,r0*Math.sin(i/48*Math.PI*2)));
-      const mat=new THREE.LineBasicMaterial({color:d.col,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false});
-      const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),mat);
-      wireGroup.add(line);
-      allLines.push({line,phi,type:'lat',idx:lat});
-    }
-    for(let lon=0;lon<SEGS;lon++){
-      const theta=Math.PI*2*lon/SEGS;
-      const pts=[];
-      for(let i=0;i<=32;i++){
-        const phi=Math.PI*i/32;
-        pts.push(new THREE.Vector3(Math.sin(phi)*Math.cos(theta)*d.r,Math.cos(phi)*d.r,Math.sin(phi)*Math.sin(theta)*d.r));
+    // ── SINGLE deforming wireframe: lat/lon QUAD grid (no diagonals), vertex-coloured ──
+    const SLAT=22, SLON=30, nv=(SLAT+1)*SLON;
+    const baseDir=new Float32Array(nv*3), disp=new Float32Array(nv), dv=new Float32Array(nv);
+    const pos=new Float32Array(nv*3), col=new Float32Array(nv*3);
+    const ix=(la,lo)=>la*SLON+((lo%SLON+SLON)%SLON);
+    for(let la=0;la<=SLAT;la++){
+      const phi=Math.PI*la/SLAT, cy=Math.cos(phi), sr=Math.sin(phi);
+      for(let lo=0;lo<SLON;lo++){
+        const th=2*Math.PI*lo/SLON, k=ix(la,lo);
+        const dx=sr*Math.cos(th), dy=cy, dz=sr*Math.sin(th);
+        baseDir[k*3]=dx; baseDir[k*3+1]=dy; baseDir[k*3+2]=dz;
+        pos[k*3]=dx*d.r; pos[k*3+1]=dy*d.r; pos[k*3+2]=dz*d.r;
       }
-      const mat=new THREE.LineBasicMaterial({color:d.col,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false});
-      const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),mat);
-      wireGroup.add(line);
-      allLines.push({line,theta,type:'lon',idx:lon});
     }
-    scene.add(wireGroup); _galaxyObjects.push(wireGroup);
-    wireGroup.userData={allLines, baseCol:d.col, shocks:[]};
+    const edges=[];
+    for(let la=1;la<SLAT;la++) for(let lo=0;lo<SLON;lo++){ edges.push(ix(la,lo),ix(la,lo+1)); } // parallels
+    for(let la=0;la<SLAT;la++)  for(let lo=0;lo<SLON;lo++){ edges.push(ix(la,lo),ix(la+1,lo)); } // meridians
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+    geo.setIndex(edges);
+    const lines=new THREE.LineSegments(geo,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false}));
+    lines.position.set(d.wx,d.wy,d.wz); // NOT rotated → local frame == world frame for shocks
+    scene.add(lines); _galaxyObjects.push(lines);
 
-    // Deformable mesh — springs outward on impact, separate from colored lines
-    const defGeo=new THREE.SphereGeometry(d.r,20,14);
-    const defBase=new Float32Array(defGeo.attributes.position.array);
-    const defVy=new Float32Array(defGeo.attributes.position.count);
-    const defDisp=new Float32Array(defGeo.attributes.position.count);
-    defGeo.userData={base:defBase,vy:defVy,disp:defDisp};
-    const defMesh=new THREE.Mesh(defGeo,
-      new THREE.MeshBasicMaterial({color:0xffffff,wireframe:true,transparent:true,opacity:0,depthWrite:false})
-    );
-    defMesh.position.set(d.wx,d.wy,d.wz);
-    scene.add(defMesh); _galaxyObjects.push(defMesh);
-
-    _galaxyPlanets.push({...d, wire:wireGroup, deformMesh:wireGroup, defMesh});
+    const planet={...d, mesh:lines, geo, baseDir, disp, dv, pos, col, nv, shocks:[], baseColor:new THREE.Color(d.col)};
+    _planetColorInit(planet);
+    _galaxyPlanets.push(planet);
   });
 
   // Stars
@@ -10138,84 +10140,64 @@ function buildGalaxy(){
   setTimeout(()=>announce('GALAXY — JUMP TOWARD A PLANET TO ENTER ITS GRAVITY','#8844ff'),800);
 }
 
-// ── PLANET DEFORMATION — mirrors grid spring+shock physics but radial ──
-function planetShock(pl, hitNormal, strength){
-  // Color flash on lines
-  if(pl.wire){
-    const gd=pl.wire.userData;
-    if(gd.allLines) gd.allLines.forEach(entry=>{
-      let dot=0;
-      if(entry.type==='lat'){
-        dot=Math.abs(Math.sin(entry.phi)*Math.sqrt(hitNormal.x*hitNormal.x+hitNormal.z*hitNormal.z)+Math.cos(entry.phi)*hitNormal.y);
-      } else {
-        const tx=Math.cos(entry.theta), tz=Math.sin(entry.theta);
-        dot=Math.abs(tx*hitNormal.x+tz*hitNormal.z)*0.5+Math.abs(hitNormal.y)*0.5;
-      }
-      entry.flash=(entry.flash||0)+strength*dot*0.15;
-    });
-  }
-  // Vertex deformation on defMesh
-  if(pl.defMesh){
-    const gd=pl.defMesh.geometry.userData;
-    if(!window._defLog){ window._defLog=1; console.log('defMesh hit! strength='+strength+' has base='+!!gd.base); }
-    const n=gd.base.length/3;
-    for(let i=0;i<n;i++){
-      const vx=gd.base[i*3],vy=gd.base[i*3+1],vz=gd.base[i*3+2];
-      const vl=Math.sqrt(vx*vx+vy*vy+vz*vz)||1;
-      const dot=(vx/vl)*hitNormal.x+(vy/vl)*hitNormal.y+(vz/vl)*hitNormal.z;
-      const infl=Math.max(0,dot-0.2)/0.8;
-      gd.vy[i]+=strength*infl*0.4; // much stronger push
-    }
-    pl.defMesh.material.opacity=0.5;
-  }
+// ── PLANET DEFORMATION — local geodesic ripples + radial spring, coloured by height ──
+function _planetVertColor(col,k,disp,base){
+  const e=Math.max(-1,Math.min(1,disp*0.07));   // displacement → -1..1
+  const lift=Math.abs(e);
+  let r=base.r*(0.32+lift*0.5), g=base.g*(0.32+lift*0.5), b=base.b*(0.32+lift*0.5);
+  if(e>0){ r=Math.min(1,r+e*0.95); g=Math.min(1,g+e*0.35); }  // peaks → warm/bright (orange/magenta)
+  else   { b=Math.min(1,b+(-e)*0.65); g=Math.min(1,g+(-e)*0.12); } // valleys → cool (cyan/blue)
+  col[k*3]=r; col[k*3+1]=g; col[k*3+2]=b;
+}
+function _planetColorInit(pl){
+  for(let k=0;k<pl.nv;k++) _planetVertColor(pl.col,k,0,pl.baseColor);
+  if(pl.geo) pl.geo.attributes.color.needsUpdate=true;
+}
+
+function planetShock(pl, n, strength){
+  if(!pl||!pl.shocks) return;
+  const l=Math.hypot(n.x,n.y,n.z)||1;
+  // expanding geodesic ring from the hit point (local frame == world; wireframe isn't rotated)
+  pl.shocks.push({nx:n.x/l, ny:n.y/l, nz:n.z/l, ar:0, str:strength, life:1});
 }
 
 function updatePlanetDeform(pl,dt){
-  if(!pl.wire) return;
-  const gd=pl.wire.userData;
-  if(!gd.allLines) return;
+  if(!pl||!pl.baseDir) return;
+  const baseDir=pl.baseDir, disp=pl.disp, dv=pl.dv, pos=pl.pos, col=pl.col, nv=pl.nv, R=pl.r;
   const t=performance.now()*0.001;
-  const baseC=new THREE.Color(gd.baseCol);
 
-  gd.allLines.forEach((entry,li)=>{
-    if(entry.flash>0) entry.flash=Math.max(0,entry.flash-dt*1.5);
-    const flash=entry.flash||0;
-
-    // Vivid wave like the grid dot pattern
-    const wave=
-      Math.sin(li*0.8+t*1.1)*0.3+
-      Math.sin(li*0.5+t*0.7)*0.2+
-      Math.sin(li*1.3+t*0.9)*0.15+0.55; // shifted up so minimum is 0.3
-    const bright=Math.min(1, wave + flash*1.5);
-
-    // Grid-style coloring: dim base + bright on wave peak
-    // Blue planet: r=low, g=mid, b=high — like grid's cyan
-    entry.line.material.color.setRGB(
-      Math.min(1, baseC.r*bright + flash*0.8),
-      Math.min(1, baseC.g*bright*0.8 + flash*0.4 + bright*0.15),
-      Math.min(1, baseC.b*bright + flash*0.2 + bright*0.1)
-    );
-    entry.line.material.opacity=Math.min(0.9, 0.3+bright*0.6+flash*0.5);
-  });
-
-  // Spring physics on deformable mesh
-  if(pl.defMesh){
-    const geo=pl.defMesh.geometry;
-    const pos=geo.attributes.position;
-    const gd=geo.userData;
-    const n=gd.base.length/3;
-    let active=false;
-    for(let i=0;i<n;i++){
-      gd.vy[i]=(gd.vy[i]-gd.disp[i]*0.018)*0.88;
-      gd.disp[i]+=gd.vy[i];
-      if(Math.abs(gd.disp[i])>0.001||Math.abs(gd.vy[i])>0.001) active=true;
-      const vx=gd.base[i*3],vy=gd.base[i*3+1],vz=gd.base[i*3+2];
-      const vl=Math.sqrt(vx*vx+vy*vy+vz*vz)||1;
-      pos.setXYZ(i,vx+(vx/vl)*gd.disp[i],vy+(vy/vl)*gd.disp[i],vz+(vz/vl)*gd.disp[i]);
+  // ── shocks: geodesic ring expands outward; tight high-frequency ripple (peaks close together) ──
+  const BAND=0.30;       // angular width of the active ripple band (small = local)
+  const ANG_SPEED=2.4;   // ring spread speed (rad/s)
+  const FREQ=12;         // ripple spatial frequency (higher = peaks closer together)
+  for(let s=pl.shocks.length-1;s>=0;s--){
+    const sk=pl.shocks[s];
+    sk.ar+=ANG_SPEED*dt; sk.life-=dt*1.7;
+    for(let k=0;k<nv;k++){
+      const d=baseDir[k*3]*sk.nx+baseDir[k*3+1]*sk.ny+baseDir[k*3+2]*sk.nz;
+      const ang=Math.acos(d<-1?-1:d>1?1:d);
+      const da=Math.abs(ang-sk.ar);
+      if(da<BAND){
+        const f=((BAND-da)/BAND)*sk.str*sk.life;
+        const wave=Math.sin(ang*FREQ - sk.ar*6.0);   // oscillating ripple, peaks close together
+        dv[k]+=wave*f*0.05;
+      }
     }
-    pos.needsUpdate=true;
-    pl.defMesh.material.opacity=active?Math.min(0.6,pl.defMesh.material.opacity):Math.max(0,pl.defMesh.material.opacity-dt*0.8);
+    if(sk.life<=0||sk.ar>Math.PI) pl.shocks.splice(s,1);
   }
+
+  // ── per-vertex radial spring (relaxes back to rest) + colour ──
+  for(let k=0;k<nv;k++){
+    dv[k]=(dv[k]-disp[k]*0.05)*0.86;
+    disp[k]+=dv[k];
+    // subtle ambient shimmer so a resting planet still glows its colour
+    const amb=disp[k] + Math.sin(k*0.7+t*1.4)*0.6 + Math.sin(k*0.31+t*0.9)*0.4;
+    const rr=R+disp[k];
+    pos[k*3]=baseDir[k*3]*rr; pos[k*3+1]=baseDir[k*3+1]*rr; pos[k*3+2]=baseDir[k*3+2]*rr;
+    _planetVertColor(col,k,amb,pl.baseColor);
+  }
+  pl.geo.attributes.position.needsUpdate=true;
+  pl.geo.attributes.color.needsUpdate=true;
 }
 
 
@@ -10234,16 +10216,16 @@ let _gQ=new THREE.Quaternion();
 let _gN=new THREE.Vector3(0,1,0); // current gravity-up (surface normal)
 
 // ── TUNABLES ──
-const _G_GRAV       = 720;   // gravity accel toward planet centre
+const _G_GRAV       = 900;   // gravity accel toward planet centre
 const _G_PR         = 18;    // player "foot" offset above surface
-const _G_INFLU      = 3.0;   // a planet pulls you when dist < r * this
+const _G_INFLU      = 3.0;   // a planet pulls you when dist < r * this (escape past this)
 const _G_MOVE_ACCEL = 950;   // tangential running accel
 const _G_MAX_SPD    = 230;   // top running speed on a surface
 const _G_FRICTION   = 0.80;  // per-frame velocity retention when no input (grounded)
-const _G_JUMP_BASE  = 280;   // tap-jump radial impulse
-const _G_JUMP_RANGE = 460;   // extra radial impulse at full charge (hold)
-const _G_AIR_CAP    = 760;   // max speed in flight
-const _G_JET        = 900;   // jetpack accel (along up) — boost-fuel based, for hover after launch
+const _G_JUMP_BASE  = 240;   // tap-jump radial impulse (small hop, stays on planet)
+const _G_JUMP_RANGE = 720;   // extra impulse at full charge (enough to escape)
+const _G_AIR_CAP    = 920;   // max speed in flight
+const _G_JET        = 1100;  // jetpack accel — boost-fuel based, helps escape / hover
 const _G_GROUND_Y   = _G_PR; // y at/below which "in orbit of none" lands back on the flat grid
 
 // Returns the dominant planet at a world position, or null if none in range.
@@ -10263,9 +10245,8 @@ function _dominantPlanet(p){
 function updateGalaxy(dt){
   if(!_galaxyPlanets?.length||!player) return;
   const UP=new THREE.Vector3(0,1,0);
-  const _G_AIR_STEER=300;  // mid-air tangential steering accel
+  const _G_AIR_STEER=320;  // mid-air tangential steering accel
 
-  // Ambient spin + line shimmer + spring relax
   _galaxyPlanets.forEach((pl,i)=>{
     if(pl.wire) pl.wire.rotation.y+=dt*0.04*(i%2?1:-1);
     updatePlanetDeform(pl,dt);
@@ -10273,12 +10254,7 @@ function updateGalaxy(dt){
 
   if(!_gPos){ _gPos=new THREE.Vector3(player.wx,player.py,player.wz); _gVel=new THREE.Vector3(); }
 
-  // Nearest planet by SURFACE distance (always defined once in 3D — you can never fall into the void)
-  const nearest=()=>{ let best=null,bd=Infinity;
-    for(const pl of _galaxyPlanets){ const dx=_gPos.x-pl.wx,dy=_gPos.y-pl.wy,dz=_gPos.z-pl.wz;
-      const d=Math.sqrt(dx*dx+dy*dy+dz*dz)-pl.r; if(d<bd){bd=d;best=pl;} } return best; };
-
-  // ── ENTER 3D MODE: only when jumping up near a planet (capture-radius gate) ──
+  // ── ENTER 3D MODE: jumped up near a planet ──
   if(!_g3D){
     _gPos.set(player.wx,player.py,player.wz);
     _gVel.set(player.vx,player.pvy,player.vz);
@@ -10293,42 +10269,60 @@ function updateGalaxy(dt){
     }
   }
 
-  // ── DOMINANT = NEAREST (no void escape) ──
-  const dom=nearest(); _gPlanet=dom;
-  const center=new THREE.Vector3(dom.wx,dom.wy,dom.wz);
-  let dist=_gPos.distanceTo(center)||1;
-  const N=_gPos.clone().sub(center).divideScalar(dist);
-  const surfD=dom.r+_G_PR;
+  // ── DOMINANT PLANET WITHIN INFLUENCE (null = free space → fall to ground) ──
+  const dom=_dominantPlanet(_gPos);
+  _gPlanet=dom;
+  let N, center=null, surfD=0, dist=0;
+  if(dom){
+    center=new THREE.Vector3(dom.wx,dom.wy,dom.wz);
+    dist=_gPos.distanceTo(center)||1;
+    N=_gPos.clone().sub(center).divideScalar(dist);
+    surfD=dom.r+_G_PR;
+  } else {
+    N=UP.clone();           // free space: "up" is world up, gravity pulls straight down
+    _gOnSurface=false;
+  }
   _gN.copy(N);
 
-  // ── MOVEMENT INPUT → tangent direction (screen-relative) ──
-  const rawIn = IS_TOUCH ? rotInput(moveIn.x,moveIn.y) : keyMoveVec();
-  const inMag = Math.hypot(rawIn.x,rawIn.z);
-  let tangentMove=null;
-  if(inMag>0.05){
-    const wd=new THREE.Vector3(rawIn.x,0,rawIn.z);
-    wd.addScaledVector(N,-wd.dot(N));
-    if(wd.lengthSq()>1e-4) tangentMove=wd.normalize();
+  // ── MOVEMENT BASIS — camera-screen-relative, projected onto the tangent plane ──
+  // (fixes "pushing up just circles the equator": up = toward the top of the visible sphere)
+  let tangentMove=null, inMag=0;
+  {
+    let sx,sy;
+    if(IS_TOUCH){ sx=moveIn.x; sy=-moveIn.y; }
+    else { sx=0; sy=0;
+      if(keys['KeyD']||keys['ArrowRight'])sx+=1; if(keys['KeyA']||keys['ArrowLeft'])sx-=1;
+      if(keys['KeyW']||keys['ArrowUp'])sy+=1;   if(keys['KeyS']||keys['ArrowDown'])sy-=1; }
+    inMag=Math.hypot(sx,sy);
+    if(inMag>0.05){
+      const camFwd=CAM.focus.clone().sub(camera.position).normalize();
+      const camRight=new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));
+      let tF=camFwd.clone().addScaledVector(N,-camFwd.dot(N));
+      let tR=camRight.clone().addScaledVector(N,-camRight.dot(N));
+      if(tF.lengthSq()<1e-4) tF.crossVectors(N,tR);          // camera looking down the pole
+      tF.normalize(); tR.normalize();
+      tangentMove=tF.multiplyScalar(sy).addScaledVector(tR,sx);
+      if(tangentMove.lengthSq()>1e-4) tangentMove.normalize(); else tangentMove=null;
+    }
   }
 
-  if(_gOnSurface){
-    // ── ON SURFACE — walk, re-project to sphere every frame (anti-jitter), jump ──
+  if(dom && _gOnSurface){
+    // ── ON SURFACE — walk + re-project to sphere (anti-jitter) + charge jump ──
     if(tangentMove) _gVel.addScaledVector(tangentMove,_G_MOVE_ACCEL*Math.min(1,inMag)*dt);
-    _gVel.addScaledVector(N,-_gVel.dot(N));        // keep velocity purely tangential while grounded
+    _gVel.addScaledVector(N,-_gVel.dot(N));        // velocity stays purely tangential while grounded
     if(!tangentMove) _gVel.multiplyScalar(_G_FRICTION);
     if(_gVel.length()>_G_MAX_SPD) _gVel.setLength(_G_MAX_SPD);
     _gPos.addScaledVector(_gVel,dt);
-    const radialDir=_gPos.clone().sub(center).normalize();         // capture BEFORE overwriting _gPos
-    _gPos.copy(center).addScaledVector(radialDir,surfD);           // glue to sphere
+    const radialDir=_gPos.clone().sub(center).normalize();   // BEFORE overwriting _gPos
+    _gPos.copy(center).addScaledVector(radialDir,surfD);     // glue to sphere
     player._onPlatform=true;
     player._galSpeed=_gVel.length();
     player.boostFuel=Math.min(player.boostMax,player.boostFuel+40*dt);
 
-    // footstep ripples
     if(tangentMove){ player._galStepT=(player._galStepT||0)-dt;
       if(player._galStepT<=0){ planetShock(dom,N,3); player._galStepT=0.28; } }
 
-    // JUMP — preserve tangential momentum, add radial pop (charge = hold)
+    // JUMP — keep tangential momentum, add radial pop (charge from hold). Enough charge escapes.
     if(player._jumpTapped){
       const charge=player._jumpCharge||0;
       const launch=_G_JUMP_BASE+charge*_G_JUMP_RANGE;
@@ -10337,10 +10331,10 @@ function updateGalaxy(dt){
       _gOnSurface=false; player._onPlatform=false;
       player._jumpTapped=false; player._jumpCharge=0;
       planetShock(dom,N,8+charge*16);
-      Audio.blip(300+charge*220,0.45,'sine',0.14,560);
+      Audio.blip(280+charge*260,0.4+charge*0.3,'sine',0.14,520+charge*300);
     }
   } else {
-    // ── AIRBORNE — gravity pulls to nearest planet, optional steering + jetpack ──
+    // ── AIRBORNE / FREE-SPACE — gravity, steering, jetpack ──
     _gVel.addScaledVector(N,-_G_GRAV*dt);
     if(tangentMove) _gVel.addScaledVector(tangentMove,_G_AIR_STEER*Math.min(1,inMag)*dt);
     if(player._jetting && player.boostFuel>0){
@@ -10354,21 +10348,41 @@ function updateGalaxy(dt){
     _gPos.addScaledVector(_gVel,dt);
     player._galSpeed=0;
 
-    // LAND?
-    const nd=_gPos.distanceTo(center);
-    if(nd<=surfD){
-      const Nl=_gPos.clone().sub(center).normalize();
-      const impact=Math.max(0,-_gVel.dot(Nl));
-      _gPos.copy(center).addScaledVector(Nl,surfD);
-      _gVel.addScaledVector(Nl,-_gVel.dot(Nl)); // kill inward, keep tangential
-      _gOnSurface=true; player._onPlatform=true;
-      if(impact>60) planetShock(dom,Nl,Math.min(22,4+impact*0.045));
-      if(impact>140) addTrauma(0.08);
-      Audio.blip(120,0.12,'sine',0.16,60);
+    // LAND on a planet?
+    if(dom){
+      const nd=_gPos.distanceTo(center);
+      if(nd<=surfD){
+        const Nl=_gPos.clone().sub(center).normalize();
+        const impact=Math.max(0,-_gVel.dot(Nl));
+        _gPos.copy(center).addScaledVector(Nl,surfD);
+        _gVel.addScaledVector(Nl,-_gVel.dot(Nl)); // kill inward, keep tangential
+        _gOnSurface=true; player._onPlatform=true;
+        if(impact>50) planetShock(dom,Nl,Math.min(22,4+impact*0.045));
+        if(impact>140) addTrauma(0.08);
+        Audio.blip(120,0.12,'sine',0.16,60);
+      }
+    }
+
+    // ── FALL TO GROUND — left every planet's pull and dropped to the grid → hand back to normal physics ──
+    if(!dom && _gPos.y<=_G_GROUND_Y){
+      _g3D=false; _gPlanet=null; _gOnSurface=false;
+      player.wx=_gPos.x; player.wz=_gPos.z; player.py=0;
+      player.vx=_gVel.x*0.6; player.vz=_gVel.z*0.6; player.pvy=Math.min(0,_gVel.y);
+      player._inPlanetGravity=false; player._onPlatform=false; player._galSpeed=0;
+      _gUp.lerp(UP,0.3).normalize();
+      // ease camera back toward the normal follow rig
+      CAM.tfocus.set(player.wx,4,player.wz);
+      return;
     }
   }
 
-  // ── ORIENTATION — up = N, forward = movement (or kept). RIGHT-HANDED basis. ──
+  // Safety: never let a runaway launch leave the world (prevents off-map respawn)
+  const WB=900;
+  if(Math.abs(_gPos.x)>WB){ _gPos.x=Math.sign(_gPos.x)*WB; _gVel.x*=-0.3; }
+  if(Math.abs(_gPos.z)>WB){ _gPos.z=Math.sign(_gPos.z)*WB; _gVel.z*=-0.3; }
+  if(_gPos.y>700){ _gPos.y=700; if(_gVel.y>0)_gVel.y=0; }
+
+  // ── ORIENTATION — up = N, forward = movement (right-handed basis) ──
   let fwdTan;
   if(tangentMove) fwdTan=tangentMove.clone();
   else {
@@ -10378,15 +10392,14 @@ function updateGalaxy(dt){
     if(fwdTan.lengthSq()<1e-4) fwdTan.set(1,0,0);
     fwdTan.normalize();
   }
-  // model local +Z = forward, +Y = up → x = N × fwd gives a right-handed (det +1) basis
   const xAxis=new THREE.Vector3().crossVectors(N,fwdTan).normalize();
   const m=new THREE.Matrix4().makeBasis(xAxis,N,fwdTan);
   const targetQ=new THREE.Quaternion().setFromRotationMatrix(m).normalize();
-  _gQ.slerp(targetQ,_gOnSurface?0.25:0.12).normalize();
+  _gQ.slerp(targetQ,_gOnSurface?0.25:0.10).normalize();
   _gUp.lerp(N,0.15).normalize();
 
   // ── DIORAMA CAMERA ──
-  {
+  if(dom){
     const camCenter=center.clone().addScaledVector(N,dom.r*0.5);
     CAM.tfocus.copy(camCenter);
     CAM.dist  =lerp(CAM.dist,  dom.r*4.4, 0.05);
@@ -10397,9 +10410,13 @@ function updateGalaxy(dt){
       let dy=((desiredYaw-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
       CAM.tyaw+=dy*0.02;
     }
+  } else {
+    // free-falling: follow the player so you can see the descent to the ground
+    CAM.tfocus.set(_gPos.x,_gPos.y,_gPos.z);
+    CAM.dist=lerp(CAM.dist,300,0.05); CAM.height=lerp(CAM.height,240,0.05);
   }
 
-  // ── APPLY MODEL TRANSFORM (draw() early-returns in planet mode) ──
+  // ── APPLY MODEL TRANSFORM ──
   if(player.model){
     player.model.position.set(_gPos.x,_gPos.y,_gPos.z);
     player.model.quaternion.copy(_gQ);
@@ -10408,7 +10425,7 @@ function updateGalaxy(dt){
     }
   }
 
-  // ── BULLET ↔ PLANET collision (now also shocks the surface) ──
+  // ── BULLET ↔ PLANET collision ──
   if(GS.bullets){
     for(let i=GS.bullets.length-1;i>=0;i--){
       const b=GS.bullets[i]; if(!b||b.life<=0) continue;
@@ -10425,7 +10442,7 @@ function updateGalaxy(dt){
     }
   }
 
-  // ── WRITE BACK — velocity stays REAL so animation/aim are consistent ──
+  // ── WRITE BACK ──
   player.wx=_gPos.x; player.py=_gPos.y; player.wz=_gPos.z;
   player.vx=_gVel.x; player.vz=_gVel.z; player.pvy=_gVel.y;
   player._inPlanetGravity=true;
