@@ -6226,9 +6226,11 @@ class Player{
     const shipY=9+this.py+bob;
     this.model.position.set(this.wx,shipY,this.wz);
     if(this.model.userData.isRobot){
+      this.model.rotation.x=0;
       this.model.rotation.y=-this.aim+Math.PI/2;
       this.model.rotation.z=0;
     } else {
+      this.model.rotation.x=0;
       this.model.rotation.y=-this.aim+Math.PI/2;
       this.model.rotation.z=clamp(-this.pvy*0.0016,-0.35,0.35);
     }
@@ -10217,7 +10219,7 @@ let _gN=new THREE.Vector3(0,1,0); // current gravity-up (surface normal)
 
 // ── TUNABLES ──
 const _G_GRAV       = 900;   // gravity accel toward planet centre
-const _G_PR         = 18;    // player "foot" offset above surface
+const _G_PR         = 9;     // player foot offset above surface (matches model's 9-unit ground offset)
 const _G_INFLU      = 3.0;   // a planet pulls you when dist < r * this (escape past this)
 const _G_MOVE_ACCEL = 950;   // tangential running accel
 const _G_MAX_SPD    = 230;   // top running speed on a surface
@@ -10295,13 +10297,21 @@ function updateGalaxy(dt){
       if(keys['KeyW']||keys['ArrowUp'])sy+=1;   if(keys['KeyS']||keys['ArrowDown'])sy-=1; }
     inMag=Math.hypot(sx,sy);
     if(inMag>0.05){
-      const camFwd=CAM.focus.clone().sub(camera.position).normalize();
-      const camRight=new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));
-      let tF=camFwd.clone().addScaledVector(N,-camFwd.dot(N));
-      let tR=camRight.clone().addScaledVector(N,-camRight.dot(N));
-      if(tF.lengthSq()<1e-4) tF.crossVectors(N,tR);          // camera looking down the pole
-      tF.normalize(); tR.normalize();
-      tangentMove=tF.multiplyScalar(sy).addScaledVector(tR,sx);
+      // Planet-relative basis: up = toward the planet's north pole, right = around it (east).
+      // Stable everywhere (no near/far-face sign flip), matches "push up = toward the top".
+      const north=new THREE.Vector3(0,1,0);
+      let tNorth=north.clone().addScaledVector(N,-north.dot(N)); // surface direction toward north pole
+      let tEast;
+      if(tNorth.lengthSq()<1e-3){
+        // exactly at a pole — fall back to camera-right so control stays defined
+        const camRight=new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));
+        tEast=camRight.addScaledVector(N,-camRight.dot(N)).normalize();
+        tNorth=new THREE.Vector3().crossVectors(tEast,N).normalize();
+      } else {
+        tNorth.normalize();
+        tEast=new THREE.Vector3().crossVectors(N,tNorth).normalize();
+      }
+      tangentMove=tNorth.multiplyScalar(sy).addScaledVector(tEast,sx);
       if(tangentMove.lengthSq()>1e-4) tangentMove.normalize(); else tangentMove=null;
     }
   }
@@ -10369,8 +10379,9 @@ function updateGalaxy(dt){
       player.wx=_gPos.x; player.wz=_gPos.z; player.py=0;
       player.vx=_gVel.x*0.6; player.vz=_gVel.z*0.6; player.pvy=Math.min(0,_gVel.y);
       player._inPlanetGravity=false; player._onPlatform=false; player._galSpeed=0;
-      _gUp.lerp(UP,0.3).normalize();
-      // ease camera back toward the normal follow rig
+      _gUp.set(0,1,0); _gQ.identity();
+      // hard-reset the model upright so it doesn't keep the tilted galaxy orientation
+      if(player.model){ player.model.quaternion.identity(); player.model.rotation.set(0,-player.aim+Math.PI/2,0); }
       CAM.tfocus.set(player.wx,4,player.wz);
       return;
     }
@@ -10398,26 +10409,38 @@ function updateGalaxy(dt){
   _gQ.slerp(targetQ,_gOnSurface?0.25:0.10).normalize();
   _gUp.lerp(N,0.15).normalize();
 
-  // ── DIORAMA CAMERA ──
-  if(dom){
-    const camCenter=center.clone().addScaledVector(N,dom.r*0.5);
-    CAM.tfocus.copy(camCenter);
-    CAM.dist  =lerp(CAM.dist,  dom.r*4.4, 0.05);
-    CAM.height=lerp(CAM.height,dom.r*2.6, 0.05);
-    const flat=_gPos.clone().sub(center); flat.y=0;
-    if(flat.lengthSq()>1){
-      const desiredYaw=Math.atan2(flat.x,flat.z);
-      let dy=((desiredYaw-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-      CAM.tyaw+=dy*0.02;
+  // ── CAMERA — ease focus so launches stay in frame and re-center on the next planet ──
+  {
+    let ft, dTarget, hTarget, doYaw=false;
+    if(dom && _gOnSurface){
+      // grounded: classic diorama framing on the planet
+      ft=center.clone().addScaledVector(N,dom.r*0.5);
+      dTarget=dom.r*4.4; hTarget=dom.r*2.6; doYaw=true;
+    } else if(dom){
+      // airborne but still in a planet's pull: frame between planet and player so both stay visible
+      ft=center.clone().lerp(_gPos,0.55);
+      dTarget=dom.r*5.2; hTarget=dom.r*3.0;
+    } else {
+      // free space / falling: follow the player directly
+      ft=_gPos.clone();
+      dTarget=320; hTarget=250;
     }
-  } else {
-    // free-falling: follow the player so you can see the descent to the ground
-    CAM.tfocus.set(_gPos.x,_gPos.y,_gPos.z);
-    CAM.dist=lerp(CAM.dist,300,0.05); CAM.height=lerp(CAM.height,240,0.05);
+    CAM.tfocus.lerp(ft, 0.10);                 // ease focus (smooth planet→air→planet transitions)
+    CAM.dist=lerp(CAM.dist,dTarget,0.04);
+    CAM.height=lerp(CAM.height,hTarget,0.04);
+    if(doYaw){
+      const flat=_gPos.clone().sub(center); flat.y=0;
+      if(flat.lengthSq()>1){
+        const desiredYaw=Math.atan2(flat.x,flat.z);
+        let dy=((desiredYaw-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
+        CAM.tyaw+=dy*0.02;
+      }
+    }
   }
 
   // ── APPLY MODEL TRANSFORM ──
   if(player.model){
+    player.model.visible=true;             // draw() early-returns here, so resolve any stuck respawn-blink
     player.model.position.set(_gPos.x,_gPos.y,_gPos.z);
     player.model.quaternion.copy(_gQ);
     if(player.model.userData.turretGroup){
