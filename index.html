@@ -451,6 +451,10 @@ canvas{display:block}
         <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#4488ff" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#4488ff;animation-delay:-1.2s"><circle cx="12" cy="12" r="5"/><ellipse cx="12" cy="12" rx="10" ry="3.4" transform="rotate(-24 12 12)"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#4488ff">GALAXY</div></button>
       <button onclick="window._launchLevel(-5)" class="zone-btn" style="--c:#33ffcc;flex:1;min-width:90px">
         <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#33ffcc" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#33ffcc;animation-delay:-2.1s"><path d="M12 3.5a8.5 8.5 0 1 1-7.4 4.3"/><path d="M12 8a4 4 0 1 0 3.6 2.3"/><circle cx="12" cy="12" r="1"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#33ffcc">TRANSITION</div></button>
+      <button onclick="window._launchLevel(-6)" class="zone-btn" style="--c:#ffcc00;flex:1;min-width:90px">
+        <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#ffcc00" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#ffcc00;animation-delay:-1.7s"><rect x="3" y="11" width="4.5" height="10"/><rect x="9.5" y="4" width="5" height="17"/><rect x="16.5" y="13" width="4.5" height="8"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#ffcc00">GRID CITY</div></button>
+      <button onclick="window._launchLevel(-7)" class="zone-btn" style="--c:#ff66cc;flex:1;min-width:90px">
+        <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#ff66cc" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#ff66cc;animation-delay:-0.9s"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#ff66cc">HOME BASE</div></button>
     </div>
     <div style="font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:4px;color:#ffffff33;margin:8px 0 12px;text-align:center">── CAMPAIGN ZONES ──</div>
     <div id="ls-grid" style="width:100%;max-width:360px;padding:0 16px"></div>
@@ -1291,6 +1295,7 @@ class Grid3D{
     const glow=new THREE.Mesh(new THREE.RingGeometry(ARENA_R-18,ARENA_R,120),
       new THREE.MeshBasicMaterial({color:0xff2a6d,transparent:true,opacity:0.18,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
     glow.rotation.x=-Math.PI/2; glow.position.y=0; scene.add(glow);
+    this.disc=disc; this.glow=glow;
     this.shocks=[]; this.beat=0; this.hue=0;
   }
 
@@ -5130,6 +5135,7 @@ class Bullet{
 // ════════════════════════════════════════════════════════════
 //  MISSILE — heat-seeking, exhaust trail, big explosion
 // ════════════════════════════════════════════════════════════
+let _lastRocketFX=0;
 class Missile{
   constructor(wx,wz,aimX,aimZ,y0){
     this.wx=wx; this.wz=wz; this.y=y0||12;
@@ -5242,17 +5248,16 @@ class Missile{
   }
 
   _explode(){
-    const BLAST=90;
-    ps.burst(this.wx,this.wz,[1,0.5,0.1],20,BLAST*0.5);
-    ps.ring(this.wx,this.wz,[1,0.8,0.2],16,BLAST);
-    ps.ring(this.wx,this.wz,[1,0.3,0],10,BLAST*0.7);
+    const BLAST=90; let hitAny=false;
+    ps.burst(this.wx,this.wz,[1,0.5,0.1],10,BLAST*0.5);
+    ps.ring(this.wx,this.wz,[1,0.8,0.2],10,BLAST);
     grid.shock(this.wx,this.wz,8); grid.push(this.wx,this.wz,-6,120); grid.pulse(0.5);
-    addTrauma(0.08); flashScreen(0.25);
+    addTrauma(0.045);
     Audio.blip(80,0.5,'sawtooth',0.4,30); Audio.blip(440,0.2,'sine',0.2,60);
     // Damage enemies — award score and register kills
     for(const e of GS.enemies){
       const d=Math.hypot(e.wx-this.wx,e.wz-this.wz);
-      if(d<BLAST){
+      if(d<BLAST){ hitAny=true;
         const dmgAmt=Math.ceil(this.dmg*(1-(d/BLAST)*0.5));
         if(e.hit){
           const score=e.hit(dmgAmt,this.wx,this.wz);
@@ -5283,6 +5288,7 @@ class Missile{
       // Fake impact on the near face: slightly in front of dummy toward missile
       GS_trainingDummy.hit(18, tx+approachX/alen*15, tz+approachZ/alen*15);
     }
+    if(hitAny){ const _nm=performance.now(); if(_nm-_lastRocketFX>850){ _lastRocketFX=_nm; slowmo(0.5,6); flashScreen(0.22); } }
     spawnDebris(this.wx,this.wz,4,0.8);
     this.remove();
   }
@@ -6178,7 +6184,6 @@ class Player{
     else fire(a,'normal');
     ps.spark(this.wx+Math.cos(a)*14,this.wz+Math.sin(a)*14,[1,0.85,0]); }
   _fireRocket(od){
-    if(GS.missiles.length >= (od?16:10)) return;   // concurrent-rocket cap
     const a=this.aim;
     const spread=od?0.22:0.14;
     const count=od?3:1;
@@ -6357,6 +6362,8 @@ function getZoneDef(z){
   if(z===-3) return {name:'PUZZLE LAB',subtitle:'Block Workshop',color:0xaa44ff,glowCol:[0.67,0.27,1],waves:0,enemies:[],special:'none',desc:'Move blocks, jump platforms'};
   if(z===-4) return {name:'GALAXY',subtitle:'Planetoid Cluster',color:0x8844ff,glowCol:[0.53,0.27,1],waves:0,enemies:[],special:'none',desc:'Three worlds, one gravity'};
   if(z===-5) return {name:'TRANSITION',subtitle:'Construct Test',color:0x33ffcc,glowCol:[0.2,1,0.8],waves:0,enemies:[],special:'none',desc:'Walk through the gate'};
+  if(z===-6) return {name:'GRID CITY',subtitle:'Streaming Test',color:0xffcc00,glowCol:[1,0.8,0],waves:0,enemies:[],special:'none',desc:'Roam the 3x3 streaming world'};
+  if(z===-7) return {name:'HOME BASE',subtitle:'Hangar',color:0xff66cc,glowCol:[1,0.4,0.8],waves:0,enemies:[],special:'none',desc:'Your hangar and lab'};
   return ZONES[Math.min(z,ZONES.length-1)];
 }
 
@@ -6461,12 +6468,13 @@ class Powerup{
 // ════════════════════════════════════════════════════════════
 const ZONE_STRIDE=0; // all zones at world origin — grid stays centered // distance between zone centers
 
-function zoneCenter(z){ return {x:(z===-5?0:z*ZONE_STRIDE), z:0}; }
+function zoneCenter(z){ return {x:((z===-5||z===-6||z===-7)?0:z*ZONE_STRIDE), z:0}; }
 function toZoneLocal(wx,wz,z){ const c=zoneCenter(z); return {x:wx-c.x,z:wz-c.z}; }
 function fromZoneLocal(lx,lz,z){ const c=zoneCenter(z); return {x:lx+c.x,z:lz+c.z}; }
 
 // Bounce enemies inside their zone's circular arena
 function bounceCircle(e,margin,gain){
+  if(GS.zone===-6) return false;
   const zc=zoneCenter(e._zone||GS.zone);
   const lx=e.wx-zc.x, lz=e.wz-zc.z;
   const d=Math.hypot(lx,lz), edge=ARENA_R-(margin||8);
@@ -7038,12 +7046,14 @@ class BotPilot{
       this.vz=lerp(this.vz,mvZ*spd,0.07);
     }
 
-    // Arena clamp
+    // Arena clamp (skipped in free-roam GRID CITY -6)
     let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
-    const zc=zoneCenter(GS.zone);
-    const edge=ARENA_R-20;
-    const d2=Math.hypot(nx-zc.x,nz-zc.z);
-    if(d2>edge){ nx=zc.x+(nx-zc.x)/d2*edge; nz=zc.z+(nz-zc.z)/d2*edge; }
+    if(GS.zone!==-6&&GS.zone!==-7){
+      const zc=zoneCenter(GS.zone);
+      const edge=ARENA_R-20;
+      const d2=Math.hypot(nx-zc.x,nz-zc.z);
+      if(d2>edge){ nx=zc.x+(nx-zc.x)/d2*edge; nz=zc.z+(nz-zc.z)/d2*edge; }
+    }
     this.wx=nx; this.wz=nz;
 
     // ── AIM — lead player at higher difficulties ──
@@ -7385,7 +7395,7 @@ function startGame(levelIdx){
   for(const r of GS.deathRings)r.remove();GS.deathRings=[];
   if(GS_gate){GS_gate.remove();GS_gate=null;}
   if(_transGate){ scene.remove(_transGate); _transGate=null; } _transState=null;
-  _disposeBlockText(); if(_exitGuide){ scene.remove(_exitGuide); _exitGuide=null; } _disposePhysicalText(); _disposePowerupStations();
+  _disposeBlockText(); if(_exitGuide){ scene.remove(_exitGuide); _exitGuide=null; } _disposePhysicalText(); _disposePowerupStations(); _disposeArenaObstacles();
   if(_spawnBeams&&_spawnBeams.length){ _spawnBeams.forEach(b=>scene.remove(b.grp)); _spawnBeams=[]; }
   // tear down any leftover galaxy objects (planets/platforms/indicator) so they don't bleed into other zones
   if(window._galaxyObjects){ window._galaxyObjects.forEach(o=>scene.remove(o)); window._galaxyObjects=[]; }
@@ -7395,7 +7405,7 @@ function startGame(levelIdx){
   GS_plants.forEach(p=>p.remove()); GS_plants=[];
   GS_bots.forEach(b=>{ if(b.alive) b.die(); }); GS_bots=[];
   if(GS_trainingDummy){ GS_trainingDummy.remove(); GS_trainingDummy=null; }
-  GS_moveableWalls.forEach(w=>w.remove()); GS_moveableWalls=[]; GS_movingWall=null;
+  GS_moveableWalls.forEach(w=>w.remove()); GS_moveableWalls=[]; GS_movingWall=null; _disposePuzzleRoom1(); _disposeGridCity(); _disposeHomeBase();
   if(GS_victoryFX){GS_victoryFX.remove();GS_victoryFX=null;}
   GS_puzzleBlocks.forEach(b=>b.remove()); GS_puzzleBlocks=[];
   player.reset(true);
@@ -7407,6 +7417,7 @@ function startGame(levelIdx){
     _gPos=null; _gVel=null; _g3D=false; _gPlanet=null; _gOnSurface=false; _gOnPlatform=null;
     _gUp=new THREE.Vector3(0,1,0); _gN=new THREE.Vector3(0,1,0); _gQ=new THREE.Quaternion();
   }  else if(GS.zone===-5){ player.wx=0; player.wz=150; player.py=0; }
+  else if(GS.zone===-7){ player.wx=0; player.wz=170; }
   else { player.wx=0; player.wz=0; }
   grid.setZone(GS.zone);
   // Spawn alien plants scattered around the arena
@@ -7443,9 +7454,11 @@ function startGame(levelIdx){
   GS._puzzlePassed=false; GS._puzzleGate=null;
   if(GS.zone===-1){ buildTutorial(); }
   else if(GS.zone===-2){ buildTrainingRoom(); }
-  else if(GS.zone===-3){ buildPuzzleLab(); }
+  else if(GS.zone===-3){ buildPuzzleRoom1(); }
   else if(GS.zone===-4){ buildGalaxy(); }
   else if(GS.zone===-5){ buildTransition(); }
+  else if(GS.zone===-6){ buildGridCity(); }
+  else if(GS.zone===-7){ buildHomeBase(); }
   else if(GS.zone===0) buildZone1Puzzle();
   else spawnWave();
   setupSpecialLevel(GS.zone);
@@ -7550,6 +7563,7 @@ let _btGroup=null;      // dot-matrix block-letter announcement (build/hold/diss
 let _exitGuide=null;    // pulsing arrow over the player + dotted trail to the gate
 let _physText=null;     // end-of-wave CLEARED, built as solid blocks you can smash/shoot
 let _puStations=[];     // power-up stations (glowing pads) in the transition arena
+let _arenaObstacles=[]; // per-sector solid cover/barriers (block player + bullets)
 
 // ── BEAM-DOWN SPAWN FX (reusable) — a bright column drops from the sky, flashes, leaves the thing behind ──
 function spawnBeam(x,z,color,onLand,delay){
@@ -7658,11 +7672,10 @@ function makeExitGuide(color){
   const col=new THREE.Color(color), g=new THREE.Group();
   const am=()=>new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
   const arrow=new THREE.Group();
-  // clean single-outline arrow (no triangulation diagonals), lying flat, tip pointing -Z toward the gate
-  const aw=10, hl=9, sw=3.4, hf=11, hb=11, zh=-hf+hl;
-  const apts=[new THREE.Vector3(0,0,-hf),new THREE.Vector3(aw,0,zh),new THREE.Vector3(sw,0,zh),new THREE.Vector3(sw,0,hb),new THREE.Vector3(-sw,0,hb),new THREE.Vector3(-sw,0,zh),new THREE.Vector3(-aw,0,zh),new THREE.Vector3(0,0,-hf)];
-  const aline=new THREE.Line(new THREE.BufferGeometry().setFromPoints(apts),new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
-  arrow.add(aline);
+  // solid 3D arrow, tip pointing -Z toward the gate (opaque + depthWrite so no see-through seams)
+  const sm=()=>new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,depthWrite:true});
+  const cone=new THREE.Mesh(new THREE.ConeGeometry(6,13,16),sm()); cone.rotation.x=-Math.PI/2; cone.position.z=-6; arrow.add(cone);
+  const shaft=new THREE.Mesh(new THREE.BoxGeometry(3.2,3.2,12),sm()); shaft.position.z=3; arrow.add(shaft);
   g.add(arrow);
   const trail=[]; const z0=_T_SPAWN_Z-40, z1=_T_GATE_Z+34, N=16;
   for(let i=0;i<N;i++){
@@ -7681,11 +7694,12 @@ function updateExitGuide(dt){
     trail.forEach(d=>d.material.opacity=Math.max(0,d.material.opacity-dt*3));
     return;
   }
-  const headY=8+(player.py||0)+(_robotGltf?46:22);
-  arrow.position.set(player.wx, headY+Math.sin(now*3)*2.5, player.wz);
+  let gdx=-player.wx, gdz=_T_GATE_Z-player.wz; const gdl=Math.hypot(gdx,gdz)||1; gdx/=gdl; gdz/=gdl;
+  const off=58, lowY=16+(player.py||0)*0.35+Math.sin(now*3)*2.2;
+  arrow.position.set(player.wx+gdx*off, lowY, player.wz+gdz*off);
   arrow.rotation.y=Math.atan2(player.wx, player.wz-_T_GATE_Z);
   const pul=0.5+0.5*Math.sin(now*4);
-  arrow.children.forEach(m=>m.material.opacity=0.55+0.45*pul);
+  arrow.children.forEach(m=>m.material.opacity=0.7+0.25*pul);
   arrow.scale.setScalar(1+0.12*pul);
   trail.forEach((d,i)=>{ const v=0.5+0.5*Math.sin(i*0.6-now*4); d.material.opacity=0.12+0.5*v; d.scale.setScalar(0.7+0.5*v); });
 }
@@ -7825,6 +7839,69 @@ function updatePowerupStations(dt){
     ud.beam.material.opacity=ready?(0.06+0.05*pulse):0.02;
   }
 }
+const _OBS_LAYOUTS=[
+  [], // open arena
+  [{x:0,z:0,w:46,d:46,h:34}], // central block
+  [{x:-95,z:0,w:28,d:96,h:30},{x:95,z:0,w:28,d:96,h:30}], // flanking walls
+  [{x:0,z:-70,w:130,d:22,h:28},{x:0,z:72,w:130,d:22,h:28}], // front/back walls (flank the ends)
+  [{x:-72,z:-72,w:34,d:34,h:32},{x:72,z:-72,w:34,d:34,h:32},{x:-72,z:72,w:34,d:34,h:32},{x:72,z:72,w:34,d:34,h:32}], // quad pillars
+  [{x:0,z:0,w:26,d:150,h:30},{x:-92,z:0,w:30,d:30,h:30},{x:92,z:0,w:30,d:30,h:30}], // central spine + side pillars
+];
+function makeArenaObstacles(stage){
+  _disposeArenaObstacles();
+  const layout=_OBS_LAYOUTS[stage % _OBS_LAYOUTS.length]||[];
+  for(const b of layout){
+    const grp=new THREE.Group();
+    const fill=new THREE.Mesh(new THREE.BoxGeometry(b.w,b.h,b.d),
+      new THREE.MeshBasicMaterial({color:0x0a2e3a,transparent:true,opacity:0.72,depthWrite:true}));
+    const edges=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w,b.h,b.d)),
+      new THREE.LineBasicMaterial({color:0x33ffcc,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
+    grp.add(fill,edges);
+    const restY=b.h/2, sunkY=b.h/2-(b.h+12);
+    grp.position.set(b.x,sunkY,b.z); scene.add(grp);
+    _arenaObstacles.push({x:b.x,z:b.z,w:b.w,d:b.d,h:b.h,grp,restY,sunkY,t:0,cyc:5.5+Math.random()*3,phase:Math.random()*8,upFrac:0.5+Math.random()*0.12});
+  }
+}
+function _disposeArenaObstacles(){
+  for(const o of _arenaObstacles){ scene.remove(o.grp); o.grp.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
+  _arenaObstacles=[];
+}
+function updateArenaObstacles(dt){
+  if(!_arenaObstacles.length) return;
+  const now=performance.now()/1000;
+  for(const o of _arenaObstacles){
+    const ph=((now+o.phase)%o.cyc)/o.cyc;          // position in this barrier's cycle
+    const targetUp=(ph<o.upFrac)?1:0;              // up for part of the cycle, then sink
+    const rate=dt/0.5;                             // ~0.5s to rise or fall
+    if(o.t<targetUp) o.t=Math.min(targetUp,o.t+rate); else o.t=Math.max(targetUp,o.t-rate);
+    const e=o.t*o.t*(3-2*o.t);                     // smoothstep
+    o.grp.position.y=o.sunkY+(o.restY-o.sunkY)*e;
+    const fill=o.grp.children[0], em=o.grp.children[1];
+    if(fill) fill.material.opacity=0.72*e;
+    if(em) em.material.opacity=(0.7+0.25*Math.sin(now*2+o.x*0.02))*Math.max(0.12,e);
+  }
+}
+// push a circular entity (wx,wz,vx,vz,py) out of any risen obstacle box
+function resolveObstacles(e,r){
+  if(!_arenaObstacles.length) return;
+  const py=(e.py||0);
+  for(const o of _arenaObstacles){
+    if(o.t<0.5 || py>o.h-4) continue;
+    const hw=o.w*0.5+r, hd=o.d*0.5+r, dx=e.wx-o.x, dz=e.wz-o.z;
+    if(Math.abs(dx)<hw && Math.abs(dz)<hd){
+      const px=hw-Math.abs(dx), pz=hd-Math.abs(dz);
+      if(px<pz){ e.wx=o.x+(dx<0?-hw:hw); if(e.vx!==undefined)e.vx*=0.2; }
+      else     { e.wz=o.z+(dz<0?-hd:hd); if(e.vz!==undefined)e.vz*=0.2; }
+    }
+  }
+}
+function _bulletBlocked(b){
+  for(const o of _arenaObstacles){
+    if(o.t<0.5 || b.y>o.h-2) continue;
+    if(Math.abs(b.wx-o.x)<o.w*0.5+3 && Math.abs(b.wz-o.z)<o.d*0.5+3) return true;
+  }
+  return false;
+}
 function makeTransGate(color){
   const g=new THREE.Group(); const col=new THREE.Color(color);
   const mat=()=>new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
@@ -7861,7 +7938,7 @@ function buildTransition(){
   _transStage=1;
   GS.boss=null; document.getElementById('boss-bar').style.display='none';
   _transGate=makeTransGate(0x33ffcc);
-  _disposeBlockText(); _disposePhysicalText(); _disposePowerupStations(); if(_exitGuide){ scene.remove(_exitGuide); _exitGuide=null; } _exitGuide=makeExitGuide(0x33ffcc);
+  _disposeBlockText(); _disposePhysicalText(); _disposePowerupStations(); _disposeArenaObstacles(); if(_exitGuide){ scene.remove(_exitGuide); _exitGuide=null; } _exitGuide=makeExitGuide(0x33ffcc);
   _setGateState('hidden');
   _transState=_makeBuildState();
   announce('SECTOR 1 · CONSTRUCT','#33ffcc');
@@ -7925,7 +8002,7 @@ function _transRippleColors(F,mode){
 
 function updateTransition(dt){
   if(!_transState) return;
-  updateSpawnBeams(dt); updateBlockText(dt); updateExitGuide(dt); updatePhysicalText(dt); updatePowerupStations(dt);
+  updateSpawnBeams(dt); updateBlockText(dt); updateExitGuide(dt); updatePhysicalText(dt); updatePowerupStations(dt); updateArenaObstacles(dt);
   const now=performance.now()/1000, st=_transState, maxR=ARENA_R*1.18;
 
   if(st.mode==='build'){
@@ -7949,7 +8026,7 @@ function updateTransition(dt){
     grid.dots.material.opacity=0.9*rev;
     grid.perimeter.material.opacity=0.9*clamp((ARENA_R-F)/_T_BAND,0,1);
     if(allReleased && maxY<2.0){
-      st.mode='combat'; _setGateState('locked'); _transSpawnEnemies(); st.armed=false; makePowerupStations(_transStage);
+      st.mode='combat'; _setGateState('locked'); _transSpawnEnemies(); st.armed=false; makePowerupStations(_transStage); makeArenaObstacles(_transStage);
       grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9;
       announce('SECTOR '+_transStage+' · CLEAR THE AREA','#ff3355');
       showBlockText('ROUND '+_transStage, 0x33ffcc, {hold:1.0});
@@ -7971,7 +8048,7 @@ function updateTransition(dt){
     const W=_transGate.userData.W;
     if(player.wz<_T_GATE_Z+8 && Math.abs(player.wx)<W/2+12){
       st.mode='dissolve'; st.t=0; st.kicked=new Uint8Array(grid.n);
-      _setGateState('hidden'); flashScreen(0.5); addTrauma(0.06); grid.shock(0,0,4); if(_exitGuide) _exitGuide.userData.active=false; _disposePhysicalText(); _disposePowerupStations();
+      _setGateState('hidden'); flashScreen(0.5); addTrauma(0.06); grid.shock(0,0,4); if(_exitGuide) _exitGuide.userData.active=false; _disposePhysicalText(); _disposePowerupStations(); _disposeArenaObstacles();
       announce('TRANSITION · DECONSTRUCT','#ff5b8a');
     }
   } else if(st.mode==='dissolve'){
@@ -8515,6 +8592,7 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
     if(!e.alive&&!e.isBoss){ e.remove();GS.enemies.splice(ei,1); registerKill(e); }
   }
   for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi];
+    if(_arenaObstacles.length && b.life>0 && _bulletBlocked(b)){ if(ps.spark)ps.spark(b.wx,b.wz,[0.2,1,0.85]); b.life=0; continue; }
     for(let ei=GS.enemies.length-1;ei>=0;ei--){ const e=GS.enemies[ei]; if(b.hitSet.has(e))continue;
       const dx=b.wx-e.wx,dz=b.wz-e.wz,rr=e.size+5; if(dx*dx+dz*dz<rr*rr){
         const enemyY=9, bulletY=b.y, vertOk=Math.abs(bulletY-enemyY)<28;
@@ -9844,7 +9922,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===0) updatePuzzleLevel(dt);
       if(GS.zone===-1) updateTutorial(dt);
       if(GS.zone===-5) updateTransition(dt);
-      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall,od,aiming); player.draw(od);
+      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall,od,aiming); resolveObstacles(player,13); player.draw(od);
       if(player) player.updateShield(dt);
       if(player) player._lastFiring=firing||player._secFireActive||false;
       if(_versusActive) checkVersusRoundEnd();
@@ -10030,6 +10108,7 @@ function loop(ts){ requestAnimationFrame(loop);
       }
       // ── PUZZLE LAB WALLS ──
       if(GS.zone===-3){
+        updatePuzzleRoom1(dt);
         updateGrindRail(dt);
         // Balance bar hidden — no bail mechanic
         const bb=document.getElementById('grind-balance');
@@ -10271,6 +10350,8 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-4){
         updateGalaxy(dt);
       }
+      if(GS.zone===-6){ updateGridCity(dt); }
+      if(GS.zone===-7){ updateHomeBase(dt); }
 
       for(let i=GS_bots.length-1;i>=0;i--){
         const bot=GS_bots[i];
@@ -11211,6 +11292,377 @@ function buildPuzzleLab(){
 }
 
 // ── GRIND RAIL SYSTEM ──
+let _pzRoom=null;
+// ── DESIGNED PUZZLE ROOM #1 — fight + drag-block + timed switch + door + jewel ──
+function buildPuzzleRoom1(){
+  _disposePuzzleRoom1();
+  GS_moveableWalls=[]; GS_movingWall=null;
+  window._grindRail=null; window._grindSamples=[]; window._tower=null;
+  // sealed alcove around the jewel (immovable solid walls); the door is the only front entrance
+  const mkWall=(x,z,w,h,d)=>{ const v=new MoveableWall(x,z,w,h,d); v._immovable=true; GS_moveableWalls.push(v); return v; };
+  mkWall(-38,-135,16,80,120);  // left
+  mkWall( 38,-135,16,80,120);  // right
+  mkWall(  0,-190,120,80,16);  // back
+  // the draggable boulder
+  GS_moveableWalls.push(new MoveableWall(90,70,44,44,44));
+  // door across the front of the alcove (60 wide, starts closed)
+  const door=new LevelWall(0,-85,0,false);
+  // switch (pressure plate) far across the arena from the door
+  const sx=0, sz=120, sr=27;
+  const plate=new THREE.Mesh(new THREE.CylinderGeometry(20,22,6,24),
+    new THREE.MeshBasicMaterial({color:0x0088ff,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false}));
+  plate.position.set(sx,3,sz); scene.add(plate);
+  const ring=new THREE.Mesh(new THREE.RingGeometry(22,26,28),
+    new THREE.MeshBasicMaterial({color:0x00aaff,transparent:true,opacity:0.6,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+  ring.rotation.x=-Math.PI/2; ring.position.set(sx,1.2,sz); scene.add(ring);
+  // the jewel inside the alcove
+  const jx=0, jz=-140;
+  const jewel=new THREE.Mesh(new THREE.OctahedronGeometry(11,0),
+    new THREE.MeshBasicMaterial({color:0x33ffcc,transparent:true,opacity:0.92,blending:THREE.AdditiveBlending,depthWrite:false}));
+  jewel.position.set(jx,14,jz); scene.add(jewel);
+  const jewelGlow=new THREE.Mesh(new THREE.RingGeometry(13,17,24),
+    new THREE.MeshBasicMaterial({color:0x33ffcc,transparent:true,opacity:0.4,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+  jewelGlow.rotation.x=-Math.PI/2; jewelGlow.position.set(jx,1.2,jz); scene.add(jewelGlow);
+  // hazard enemies
+  [[120,-10],[-130,50],[70,160]].forEach((pp,i)=>{ const E=(i===2?Seeker:Diamond); const e=new E(pp[0],pp[1],1); if(e.addToScene)e.addToScene(); GS.enemies.push(e); });
+  _pzRoom={door,sx,sz,r:sr,jx,jz,jewel,jewelGlow,sw:{plate,ring},openTimer:0,T:1.3,t:0,held:false,solved:false,everPressed:false,slams:0};
+  setTimeout(()=>announce("SECURE THE JEWEL - IT IS BEHIND THE DOOR","#33ffcc"),700);
+  setTimeout(()=>announce("STEP ON THE SWITCH TO OPEN THE DOOR","#00aaff"),3000);
+}
+function _disposePuzzleRoom1(){
+  if(!_pzRoom) return; const R=_pzRoom;
+  if(R.door&&R.door.remove) R.door.remove();
+  scene.remove(R.sw.plate); scene.remove(R.sw.ring);
+  if(R.jewel)scene.remove(R.jewel); if(R.jewelGlow)scene.remove(R.jewelGlow);
+  _pzRoom=null;
+}
+function updatePuzzleRoom1(dt){
+  if(!_pzRoom) return; const R=_pzRoom; R.t+=dt;
+  R.door.update(dt);
+  let blockOn=false;
+  for(const w of GS_moveableWalls){ if(w._immovable) continue; if(Math.hypot(w.wx-R.sx,w.wz-R.sz)<R.r){ blockOn=true; break; } }
+  const playerOn=Math.hypot(player.wx-R.sx,player.wz-R.sz)<R.r && (player.py||0)<22;
+  if(blockOn){ R.openTimer=999; if(!R.held){ R.held=true; announce("SWITCH HELD - DOOR LOCKED OPEN","#00ff88"); } }
+  else { R.held=false; if(playerOn){ if(!R.everPressed){ R.everPressed=true; announce("DOOR OPEN - RUN FOR IT!","#ffff00"); } R.openTimer=R.T; } else { R.openTimer-=dt; } }
+  const shouldOpen=R.openTimer>0;
+  if(shouldOpen && !R.door.open){ R.door.open=true; R.door._targetY=-50; Audio.blip(220,0.4,'sawtooth',0.3,110); ps.ring(R.door.wx,R.door.wz,[0.2,1,0.5],14,80); }
+  if(!shouldOpen && R.door.open){ R.door.open=false; R.door._targetY=20; Audio.blip(120,0.45,'square',0.3,60); addTrauma(0.05);
+    R.slams++; announce(R.slams<=2?"DOOR SLAMS SHUT - TOO FAR TO REACH":"DOOR SLAMS SHUT","#ff4400"); }
+  const col=blockOn?0x00ff88:(R.door.open?0xffff00:0x0088ff);
+  R.sw.plate.material.color.setHex(col); R.sw.ring.material.color.setHex(col);
+  R.sw.ring.material.opacity=0.4+0.3*Math.sin(R.t*4); R.sw.ring.scale.setScalar(1+0.08*Math.sin(R.t*3));
+  if(!R.solved){
+    R.jewel.rotation.y+=dt*1.5; R.jewel.position.y=14+Math.sin(R.t*2)*3;
+    R.jewelGlow.material.opacity=0.3+0.2*Math.sin(R.t*3);
+    if(Math.hypot(player.wx-R.jx,player.wz-R.jz)<26){
+      R.solved=true;
+      announce("JEWEL SECURED - PUZZLE SOLVED","#33ffcc");
+      ps.burst(R.jx,R.jz,[0.2,1,0.85],50,180); ps.ring(R.jx,R.jz,[0.2,1,0.85],30,150);
+      addTrauma(0.14); flashScreen(0.5); Audio.blip(1320,0.5,'sine',0.3,2640);
+      scene.remove(R.jewel); scene.remove(R.jewelGlow); R.jewel=null; R.jewelGlow=null;
+      setTimeout(()=>{ if(GS.zone===-3) zoneClear(); },1500);
+    }
+  }
+}
+// ── GRID CITY — streaming NxN world: solid towers, standable platforms, grid-lattice towers ──
+let _gridCity=null;
+const _GC_CELL=520, _GC_N=5, _GC_H=2;  // 5x5 grid, indices -2..2
+function _gcHash(cx,cz){ const v=Math.sin(cx*127.1+cz*311.7)*43758.5453; return v-Math.floor(v); }
+function _gcHash2(cx,cz){ const v=Math.sin(cx*269.5+cz*183.3+11.7)*52310.21; return v-Math.floor(v); }
+const _GC_BIOMES=[
+  {name:"DOWNTOWN",  hue:0.58, skip:0.34, w:[0.20,0.70,0.10], hMul:1.25, enemies:[["Diamond",2]]},
+  {name:"PARK",      hue:0.33, skip:0.66, w:[0.85,0.10,0.05], hMul:0.7,  enemies:[]},
+  {name:"GRID RUINS",hue:0.78, skip:0.46, w:[0.15,0.15,0.70], hMul:1.0,  enemies:[["Seeker",1],["Pinwheel",1]]},
+  {name:"OUTPOST",   hue:0.02, skip:0.50, w:[0.40,0.40,0.20], hMul:1.0,  enemies:[["Seeker",2],["Diamond",1]]},
+  {name:"SPIRES",    hue:0.50, skip:0.55, w:[0.10,0.85,0.05], hMul:1.6,  enemies:[["Bouncer",1]]},
+  {name:"PLAZA",     hue:0.13, skip:0.82, w:[0.55,0.35,0.10], hMul:0.6,  enemies:[]},
+];
+const _GC_ENEMY={Diamond,Seeker,Bouncer,Pinwheel};
+function _gcBiome(cx,cz){ return _GC_BIOMES[Math.floor(_gcHash2(cx,cz)*_GC_BIOMES.length)%_GC_BIOMES.length]; }
+function _gcCellColor(cx,cz){ const b=_gcBiome(cx,cz); return new THREE.Color().setHSL((b.hue+(_gcHash(cx,cz)-0.5)*0.06+1)%1,0.8,0.56); }
+function _gcName(cx,cz){ return _gcBiome(cx,cz).name+" ["+cx+","+cz+"]"; }
+function _gcCellAt(cx,cz){ return _gridCity? _gridCity.cells.find(c=>c.cx===cx&&c.cz===cz):null; }
+function _gcEase(t){ const s=1.70158; return 1+(s+1)*Math.pow(t-1,3)+s*Math.pow(t-1,2); }
+function _gcMakeBuilding(kind,bx,bz,w,h,cc,grp){
+  const standable=(kind==='plat'); let mesh,edge=null;
+  if(kind==='grid'){
+    const segs=Math.max(3,Math.round(h/40)), geo=new THREE.BoxGeometry(w,h,w,2,segs,2);
+    mesh=new THREE.LineSegments(new THREE.WireframeGeometry(geo),
+      new THREE.LineBasicMaterial({color:cc,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+    geo.dispose(); mesh.position.set(bx,0,bz); mesh.scale.y=0.001; grp.add(mesh);
+  } else {
+    const geo=new THREE.BoxGeometry(w,h,w);
+    mesh=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:cc,transparent:true,opacity:0,depthWrite:false}));
+    edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({color:cc,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+    mesh.add(edge); mesh.position.set(bx,-h/2,bz); grp.add(mesh);
+  }
+  const b={kind,mesh,edge,bx,bz,w,h,restY:h/2,standable,delay:Math.random()*0.4,obs:null};
+  if(!standable){ b.obs={x:bx,z:bz,w:w,d:w,h:h,t:0}; _arenaObstacles.push(b.obs); }
+  return b;
+}
+function _gcBuildCell(cx,cz){
+  const b=_gcBiome(cx,cz), cc=_gcCellColor(cx,cz), ox=cx*_GC_CELL, oz=cz*_GC_CELL;
+  const grp=new THREE.Group(); scene.add(grp);
+  const floor=new THREE.Mesh(new THREE.PlaneGeometry(_GC_CELL-6,_GC_CELL-6),
+    new THREE.MeshBasicMaterial({color:cc,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  floor.rotation.x=-Math.PI/2; floor.position.set(ox,0.4,oz); grp.add(floor);
+  const gh=new THREE.GridHelper(_GC_CELL-6,14,cc.getHex(),cc.getHex());
+  gh.position.set(ox,0.6,oz); gh.material.transparent=true; gh.material.opacity=0; gh.material.blending=THREE.AdditiveBlending; gh.material.depthWrite=false; grp.add(gh);
+  const buildings=[], N=5, span=_GC_CELL-110, step=span/(N-1), start=-span/2;
+  const wPlat=b.w[0], wTower=b.w[0]+b.w[1];
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){
+    const lx=start+i*step, lz=start+j*step;
+    if(Math.hypot(lx,lz)<_GC_CELL*0.15) continue;       // central plaza
+    if(Math.random()<b.skip) continue;                      // sparse
+    const bx=ox+lx, bz=oz+lz;
+    if(player&&Math.hypot(player.wx-bx,player.wz-bz)<90) continue;  // never on player
+    const roll=Math.random(); let kind,h,w;
+    if(roll<wPlat){ kind='plat'; const low=Math.random()<0.6; h=low?(28+Math.random()*22):(60+Math.random()*35); w=80+Math.random()*50; }
+    else if(roll<wTower){ kind='tower'; h=(130+Math.random()*Math.random()*170)*b.hMul; w=42+Math.random()*28; }
+    else { kind='grid'; h=(120+Math.random()*120)*b.hMul; w=60+Math.random()*30; }
+    buildings.push(_gcMakeBuilding(kind,bx,bz,w,h,cc,grp));
+  }
+  const enemies=[];
+  for(const en of b.enemies){ const Cls=_GC_ENEMY[en[0]]; if(!Cls) continue;
+    for(let k=0;k<en[1];k++){
+      const ang=Math.random()*Math.PI*2, rr=_GC_CELL*(0.2+Math.random()*0.28);
+      const ex=ox+Math.cos(ang)*rr, ez=oz+Math.sin(ang)*rr;
+      if(player&&Math.hypot(player.wx-ex,player.wz-ez)<150) continue;
+      try{ const e=new Cls(ex,ez,2); if(e.addToScene)e.addToScene(); GS.enemies.push(e); enemies.push(e); }catch(err){}
+    }
+  }
+  return {cx,cz,cc,grp,floor,gh,buildings,enemies,phase:'constructing',t:0};
+}
+function _gcDisposeCell(cell){
+  if(!cell) return;
+  if(cell.enemies){ for(const e of cell.enemies){ const k=GS.enemies.indexOf(e); if(k>=0){ GS.enemies.splice(k,1); if(e.remove)e.remove(); } } cell.enemies.length=0; }
+  for(const b of cell.buildings){ if(b.obs){ const k=_arenaObstacles.indexOf(b.obs); if(k>=0)_arenaObstacles.splice(k,1); b.obs=null; } }
+  scene.remove(cell.grp);
+  cell.grp.traverse(o=>{ if(o.geometry&&o.geometry.dispose)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); });
+}
+function buildGridCity(){
+  _disposeGridCity();
+  if(grid){ grid.dots.material.opacity=0; grid.perimeter.material.opacity=0; if(grid.disc)grid.disc.material.opacity=0; if(grid.glow)grid.glow.material.opacity=0; }
+  _gridCity={cells:[],curKey:''};
+  setTimeout(()=>announce("GRID CITY - ENDLESS STREAMING WORLD - ROAM FREELY","#ffcc00"),700);
+  setTimeout(()=>announce("EACH SECTOR = A BIOME WITH ITS OWN BUILDINGS AND ENEMIES","#ffcc0099"),3200);
+}
+function _disposeGridCity(){
+  if(!_gridCity) return; _gridCity.cells.forEach(_gcDisposeCell); _gridCity=null;
+  if(grid){ grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9; if(grid.disc)grid.disc.material.opacity=0.35; if(grid.glow)grid.glow.material.opacity=0.18; }
+}
+function updateGridCity(dt){
+  if(!_gridCity||!player) return;
+  const GC=_gridCity, C=_GC_CELL;
+  const pcx=Math.round(player.wx/C), pcz=Math.round(player.wz/C);
+  const key=pcx+','+pcz;
+  if(key!==GC.curKey){ GC.curKey=key; announce("ENTERING "+_gcName(pcx,pcz),"#"+_gcCellColor(pcx,pcz).getHexString()); }
+  // infinite streaming — generate cells around the player in every direction, forget distant ones
+  for(let dz=-2;dz<=2;dz++)for(let dx=-2;dx<=2;dx++){
+    const cx=pcx+dx, cz=pcz+dz, dist=Math.hypot(player.wx-cx*C,player.wz-cz*C);
+    if(dist<C*1.6){ const cell=_gcCellAt(cx,cz); if(!cell){ GC.cells.push(_gcBuildCell(cx,cz)); } else if(cell.phase==='deconstructing'){ cell.phase='constructing'; cell.t=0; } }
+  }
+  for(const cell of GC.cells){ const d=Math.hypot(player.wx-cell.cx*C,player.wz-cell.cz*C); if(d>C*2.1 && cell.phase!=='deconstructing'){ cell.phase='deconstructing'; cell.t=0; } }
+  // stand on low platforms
+  let onTop=false;
+  for(const cell of GC.cells){ if(cell.phase!=='constructing') continue;
+    for(const b of cell.buildings){ if(!b.standable) continue;
+      if(Math.abs(player.wx-b.bx)<b.w/2 && Math.abs(player.wz-b.bz)<b.w/2){
+        const top=b.h;
+        if(top<=55){ if(player.py<=top+6){ if(player.py<top){ player.py=top; if(player.pvy<0)player.pvy=0; } onTop=true; } }
+        else if(player.pvy<=0 && player.py<=top+22 && player.py>=top-10){ player.py=top; player.pvy=0; onTop=true; }
+      }
+    }
+  }
+  player._onPlatform=onTop;
+  // animate construct / deconstruct
+  for(let i=GC.cells.length-1;i>=0;i--){
+    const cell=GC.cells[i]; cell.t+=dt; const up=cell.phase==='constructing';
+    cell.floor.material.opacity=lerp(cell.floor.material.opacity, up?0.20:0, 0.08);
+    cell.gh.material.opacity=lerp(cell.gh.material.opacity, up?0.45:0, 0.08);
+    let allDown=true;
+    for(const b of cell.buildings){
+      if(up){
+        const tt=clamp((cell.t-b.delay)/0.5,0,1), e=_gcEase(tt);
+        if(b.kind==='grid'){ b.mesh.scale.y=Math.max(0.001,e); b.mesh.position.y=e*b.h/2; b.mesh.material.opacity=0.85*tt; }
+        else { b.mesh.position.y=lerp(-b.h/2,b.restY,e); b.mesh.material.opacity=(b.standable?0.22:0.16)*tt; b.edge.material.opacity=0.95*Math.min(1,tt*1.3); }
+        if(b.obs) b.obs.t=tt;
+      } else {
+        const tt=clamp(cell.t/0.45,0,1);
+        if(b.kind==='grid'){ b.mesh.scale.y=Math.max(0.001,1-tt); b.mesh.position.y=(1-tt)*b.h/2; b.mesh.material.opacity=0.85*(1-tt); }
+        else { b.mesh.position.y=lerp(b.restY,-b.h/2,tt); b.mesh.material.opacity=(b.standable?0.22:0.16)*(1-tt); b.edge.material.opacity=0.95*(1-tt); }
+        if(b.obs) b.obs.t=1-tt;
+        if(tt<1) allDown=false;
+      }
+    }
+    if(!up && (allDown||cell.t>0.6)){ _gcDisposeCell(cell); GC.cells.splice(i,1); }
+  }
+}
+// ════════════════════════════════════════════════════════════
+//  HOME BASE — hexagonal hangar / robotics lab / neutral hub
+// ════════════════════════════════════════════════════════════
+let _homeBase=null, _hbPortals=[], _hbPlants=[], _hbAnim=null;
+function buildHomeBase(){
+  _disposeHomeBase();
+  if(grid){ grid.dots.material.opacity=0; grid.perimeter.material.opacity=0; if(grid.disc)grid.disc.material.opacity=0; if(grid.glow)grid.glow.material.opacity=0; }
+  const G=new THREE.Group(); scene.add(G); _homeBase=G; _hbPortals=[]; _hbPlants=[];
+  const R=360, WALL_AP=R*Math.cos(Math.PI/6), TAU2=Math.PI*2;
+  // — helpers —
+  const box=(par,x,y,z,w,h,d,col,fill,eop)=>{ const c=new THREE.Color(col),g2=new THREE.BoxGeometry(w,h,d);
+    const m=new THREE.Mesh(g2,new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:fill==null?0.16:fill,depthWrite:false})); m.position.set(x,y,z);
+    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g2),new THREE.LineBasicMaterial({color:c,transparent:true,opacity:eop==null?0.85:eop,blending:THREE.AdditiveBlending,depthWrite:false}))); par.add(m); return m; };
+  const cyl=(par,x,y,z,rt,rb,h,col,fill,seg)=>{ const c=new THREE.Color(col),g2=new THREE.CylinderGeometry(rt,rb,h,seg||16);
+    const m=new THREE.Mesh(g2,new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:fill==null?0.2:fill,depthWrite:false})); m.position.set(x,y,z);
+    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g2),new THREE.LineBasicMaterial({color:c,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false}))); par.add(m); return m; };
+  const glowSphere=(par,x,y,z,r,col,op)=>{ const m=new THREE.Mesh(new THREE.SphereGeometry(r,10,10),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:op==null?0.9:op,blending:THREE.AdditiveBlending,depthWrite:false})); m.position.set(x,y,z); par.add(m); return m; };
+  const label=(par,text,x,y,z,col,w,faceAng)=>{ const cv=document.createElement('canvas'); cv.width=256; cv.height=64; const ct=cv.getContext('2d');
+    ct.fillStyle=col; ct.font='bold 38px sans-serif'; ct.textAlign='center'; ct.textBaseline='middle'; ct.fillText(text,128,34);
+    const tex=new THREE.CanvasTexture(cv); tex.anisotropy=4; const ww=w||70;
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(ww,ww*0.25),new THREE.MeshBasicMaterial({map:tex,transparent:true,opacity:0.96,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending}));
+    m.position.set(x,y,z); if(faceAng!=null)m.rotation.y=faceAng; par.add(m); return m; };
+  const miniRobot=(par,x,z,col,scl)=>{ const g3=new THREE.Group(); g3.position.set(x,0,z); g3.scale.setScalar(scl||1); par.add(g3); const c=new THREE.Color(col);
+    const mk=(w,h,d,bx,by,bz)=>{ const g2=new THREE.BoxGeometry(w,h,d); const m=new THREE.Mesh(g2,new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:0.24,depthWrite:false})); m.position.set(bx,by,bz);
+      m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g2),new THREE.LineBasicMaterial({color:c,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}))); g3.add(m); };
+    mk(13,16,8, 0,20,0); mk(8,8,8, 0,31,0); mk(3.5,14,3.5,-9,19,0); mk(3.5,14,3.5,9,19,0); mk(5,14,5,-3.5,7,0); mk(5,14,5,3.5,7,0);
+    glowSphere(g3,-2,31,4.2,1.1,0x66ffff); glowSphere(g3,2,31,4.2,1.1,0x66ffff); return g3; };
+
+  // ── FLOOR (hex) + concentric rings ──
+  const floorMat=new THREE.MeshBasicMaterial({color:0x0a0e1f,transparent:true,opacity:0.92,side:THREE.DoubleSide,depthWrite:false});
+  const floor=new THREE.Mesh(new THREE.CircleGeometry(R,6),floorMat); floor.rotation.x=-Math.PI/2; floor.position.y=0; G.add(floor);
+  for(let k=1;k<=5;k++){ const rr=R*k/5; const pts=[]; for(let i=0;i<=6;i++){ const a=i/6*TAU2+Math.PI/6; pts.push(new THREE.Vector3(Math.cos(a)*rr,0.4,Math.sin(a)*rr)); }
+    G.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0xff66cc,transparent:true,opacity:0.10+0.04*k,blending:THREE.AdditiveBlending,depthWrite:false}))); }
+  // spokes
+  for(let i=0;i<6;i++){ const a=i/6*TAU2+Math.PI/6; G.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0.4,0),new THREE.Vector3(Math.cos(a)*R,0.4,Math.sin(a)*R)]),new THREE.LineBasicMaterial({color:0x335577,transparent:true,opacity:0.3,blending:THREE.AdditiveBlending,depthWrite:false}))); }
+  // central emblem
+  const emblem=new THREE.Mesh(new THREE.RingGeometry(28,34,6),new THREE.MeshBasicMaterial({color:0xff66cc,transparent:true,opacity:0.5,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); emblem.rotation.x=-Math.PI/2; emblem.position.y=0.6; G.add(emblem);
+
+  // ── DOME (wireframe hemisphere) ──
+  const domeGeo=new THREE.SphereGeometry(R*1.02,28,14,0,TAU2,0,Math.PI/2);
+  G.add(new THREE.LineSegments(new THREE.WireframeGeometry(domeGeo),new THREE.LineBasicMaterial({color:0x2a4a6a,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false})));
+  const domeSkin=new THREE.Mesh(domeGeo,new THREE.MeshBasicMaterial({color:0x0a1428,transparent:true,opacity:0.25,side:THREE.BackSide,depthWrite:false})); G.add(domeSkin);
+
+  // ── WALLS + DOORS (6 sides) ──
+  const doors=[
+    {name:'LEVEL 1', col:0x00ffc8, target:0},
+    {name:'BATTLE',  col:0x33ffcc, target:-5},
+    {name:'PUZZLE',  col:0xaa44ff, target:-3},
+    {name:'GALAXY',  col:0x4488ff, target:-4},
+    {name:'GRID CITY',col:0xffcc00,target:-6},
+    {name:'TRAINING',col:0xff8800, target:-2},
+  ];
+  for(let i=0;i<6;i++){
+    const a=i/6*TAU2, wx=Math.cos(a)*WALL_AP, wz=Math.sin(a)*WALL_AP, ry=a+Math.PI/2;
+    const wall=box(G,wx,46,wz, R*0.98,92,10, 0x16335a,0.5,0.5); wall.rotation.y=ry;
+    box(G,wx,94,wz, R*0.98,5,12, doors[i].col,0.6,0.9).rotation.y=ry; // top trim
+    // doorway opening (just inside the wall)
+    const dr=300, dx=Math.cos(a)*dr, dz=Math.sin(a)*dr, d=doors[i];
+    const dg=new THREE.Group(); dg.position.set(dx,0,dz); dg.rotation.y=ry; G.add(dg);
+    box(dg,-26,34,0, 8,68,10, d.col,0.3,0.9); box(dg,26,34,0, 8,68,10, d.col,0.3,0.9); // jambs
+    box(dg,0,66,0, 60,8,10, d.col,0.4,0.9);                                              // lintel
+    const portal=new THREE.Mesh(new THREE.PlaneGeometry(44,60),new THREE.MeshBasicMaterial({color:d.col,transparent:true,opacity:0.18,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+    portal.position.set(0,32,0); dg.add(portal);
+    label(dg,d.name,0,80,0,'#'+new THREE.Color(d.col).getHexString(),90,0);
+    _hbPortals.push({x:dx,z:dz,name:d.name,target:d.target,portal,launched:false});
+  }
+
+  // ── UFO (hovering, off to one side) ──
+  const ufo=new THREE.Group(); ufo.position.set(-150,96,-150); G.add(ufo);
+  const ufoCol=0x66ddff;
+  ufo.add(new THREE.Mesh(new THREE.ConeGeometry(46,15,28),new THREE.MeshBasicMaterial({color:0x0a2a3a,transparent:true,opacity:0.6,depthWrite:false}))).position.y=6;
+  const ub=new THREE.Mesh(new THREE.ConeGeometry(54,22,28),new THREE.MeshBasicMaterial({color:0x0a2233,transparent:true,opacity:0.6,depthWrite:false})); ub.rotation.x=Math.PI; ub.position.y=-5; ufo.add(ub);
+  const rim=new THREE.Mesh(new THREE.TorusGeometry(52,3.2,8,44),new THREE.MeshBasicMaterial({color:ufoCol,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false})); rim.rotation.x=Math.PI/2; ufo.add(rim);
+  const domeC=new THREE.SphereGeometry(23,18,10,0,TAU2,0,Math.PI/2);
+  const ud=new THREE.Mesh(domeC,new THREE.MeshBasicMaterial({color:0x88eeff,transparent:true,opacity:0.22,depthWrite:false})); ud.position.y=13; ufo.add(ud);
+  ufo.add(new THREE.LineSegments(new THREE.WireframeGeometry(domeC),new THREE.LineBasicMaterial({color:ufoCol,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false}))).position.y=13;
+  const ufoLights=[]; for(let i=0;i<12;i++){ const a=i/12*TAU2; ufoLights.push(glowSphere(ufo,Math.cos(a)*42,-11,Math.sin(a)*42,2.6,0xffe066)); }
+  const beam=new THREE.Mesh(new THREE.ConeGeometry(36,96,28,1,true),new THREE.MeshBasicMaterial({color:ufoCol,transparent:true,opacity:0.07,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); beam.rotation.x=Math.PI; beam.position.y=-58; ufo.add(beam);
+  const pad=new THREE.Mesh(new THREE.RingGeometry(30,40,32),new THREE.MeshBasicMaterial({color:ufoCol,transparent:true,opacity:0.25,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); pad.rotation.x=-Math.PI/2; pad.position.set(-150,0.7,-150); G.add(pad);
+  label(G,'HANGAR BAY',-150,150,-150,'#66ddff',110,Math.PI*0.25);
+
+  // ── ROBOTICS LAB (quadrant +x,-z) ──
+  const LX=175,LZ=-150;
+  box(G,LX,18,LZ, 90,8,46, 0x224466,0.4,0.7);   // bench top
+  box(G,LX-38,9,LZ,6,18,40,0x224466,0.3); box(G,LX+38,9,LZ,6,18,40,0x224466,0.3); // legs
+  // tool arm
+  const arm=cyl(G,LX+30,40,LZ,2,2,46,0x66ffff,0.4,10); arm.rotation.z=Math.PI*0.12;
+  glowSphere(G,LX+38,60,LZ,3,0xff4488);
+  // monitors
+  const mon=box(G,LX,46,LZ-20,40,26,3,0x0a3355,0.45,0.6); mon.add(new THREE.Mesh(new THREE.PlaneGeometry(34,20),new THREE.MeshBasicMaterial({color:0x33ddff,transparent:true,opacity:0.3,blending:THREE.AdditiveBlending,depthWrite:false}))).position.z=2;
+  // robot under construction on a stand
+  cyl(G,LX-10,6,LZ+30,16,18,12,0x335577,0.4,18);
+  miniRobot(G,LX-10,LZ+30,0xff66aa,1.0);
+  // hologram projector + spinning robot
+  const holoBase=cyl(G,LX+60,5,LZ+40,14,16,10,0x224466,0.5,18);
+  const holoCyl=new THREE.Mesh(new THREE.CylinderGeometry(20,20,70,24,1,true),new THREE.MeshBasicMaterial({color:0x33ddff,transparent:true,opacity:0.07,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); holoCyl.position.set(LX+60,45,LZ+40); G.add(holoCyl);
+  const holo=miniRobot(G,LX+60,LZ+40,0x33ffff,1.15); holo.position.y=18;
+  label(G,'ROBOTICS LAB',LX+5,96,LZ,'#33ddff',120,Math.PI);
+  // cabinets
+  box(G,LX+70,24,LZ-30,30,48,24,0x183a55,0.4); box(G,LX-70,24,LZ-20,30,48,24,0x183a55,0.4);
+
+  // ── ARMORY (robot display cases) (quadrant +x,+z) ──
+  const AX=180,AZ=130;
+  for(let i=0;i<3;i++){ const cx=AX-60+i*60, cz=AZ;
+    cyl(G,cx,6,cz,18,20,12,0x2a2a4a,0.5,20);                                 // pedestal
+    const tube=new THREE.Mesh(new THREE.CylinderGeometry(17,17,64,20,1,true),new THREE.MeshBasicMaterial({color:0x88aaff,transparent:true,opacity:0.10,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); tube.position.set(cx,44,cz); G.add(tube);
+    miniRobot(G,cx,cz,[0xff5566,0x55ff88,0xffcc33][i],0.95).position.y=12;
+    glowSphere(G,cx,78,cz,2.4,0xff66cc);
+  }
+  label(G,'ARMORY',AX,98,AZ,'#ff66cc',90,Math.PI);
+
+  // ── QUARTERS (bed) (quadrant -x,+z) ──
+  const QX=-185,QZ=140;
+  box(G,QX,9,QZ,70,14,40,0x3a2a55,0.4);          // mattress
+  box(G,QX-30,22,QZ,8,30,40,0x3a2a55,0.4);        // headboard
+  box(G,QX-18,17,QZ,22,8,30,0x8888cc,0.5);        // pillow
+  cyl(G,QX+40,18,QZ-22,3,4,30,0x223,0.5,10); glowSphere(G,QX+40,36,QZ-22,5,0xffcc66,0.8); // lamp
+  label(G,'QUARTERS',QX,70,QZ,'#aa88ff',90,Math.PI);
+
+  // ── STUDY (table + chairs + shelf) (quadrant -x,-z) ──
+  const SX=-185,SZ=-40;
+  box(G,SX,17,SZ,52,6,52,0x2a3a4a,0.4);          // table top
+  [[-20,-20],[20,-20],[-20,20],[20,20]].forEach(o=>box(G,SX+o[0],8,SZ+o[1],5,16,5,0x2a3a4a,0.4)); // legs
+  // two chairs
+  [[-44,0],[44,0]].forEach(o=>{ box(G,SX+o[0],11,SZ,18,5,18,0x33506a,0.4); box(G,SX+o[0]+(o[0]<0?-7:7),22,SZ,4,22,18,0x33506a,0.4); });
+  // bookshelf
+  box(G,SX,30,SZ-46,60,60,16,0x1a2a3a,0.45);
+  for(let r=0;r<3;r++) box(G,SX,14+r*20,SZ-46,54,3,14,0x66aaff,0.5,0.7);
+  label(G,'STUDY',SX,80,SZ,'#66aaff',80,Math.PI*0.5);
+
+  // ── GARDEN (alien plants) ──
+  [[60,205],[110,180],[20,210]].forEach(pp=>{ try{ const pl=new AlienPlant(pp[0],pp[1],{maxDepth:2}); GS_plants.push(pl); _hbPlants.push(pl); }catch(e){} });
+  [[60,205],[110,180],[20,210]].forEach(pp=>{ const ring=new THREE.Mesh(new THREE.RingGeometry(16,20,18),new THREE.MeshBasicMaterial({color:0x33ff88,transparent:true,opacity:0.35,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.set(pp[0],0.6,pp[1]); G.add(ring); });
+  label(G,'BIO LAB',70,40,200,'#33ff88',80,Math.PI);
+
+  _hbAnim={ufo,ufoLights,beam,holo,holoCyl,emblem,t:0};
+  setTimeout(()=>announce("HOME BASE - WALK TO A DOOR TO LAUNCH A MISSION","#ff66cc"),700);
+  setTimeout(()=>announce("EXPLORE THE HANGAR - LAB - ARMORY - QUARTERS","#ff66cc99"),3400);
+}
+function _disposeHomeBase(){
+  if(_hbPlants&&_hbPlants.length){ for(const pl of _hbPlants){ const k=GS_plants.indexOf(pl); if(k>=0)GS_plants.splice(k,1); if(pl.remove)pl.remove(); } _hbPlants=[]; }
+  _hbPortals=[]; _hbAnim=null;
+  if(_homeBase){ scene.remove(_homeBase); _homeBase.traverse(o=>{ if(o.geometry&&o.geometry.dispose)o.geometry.dispose(); if(o.material){ if(o.material.map&&o.material.map.dispose)o.material.map.dispose(); if(o.material.dispose)o.material.dispose(); } }); _homeBase=null;
+    if(grid){ grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9; if(grid.disc)grid.disc.material.opacity=0.35; if(grid.glow)grid.glow.material.opacity=0.18; } }
+}
+function updateHomeBase(dt){
+  if(!_homeBase||!player) return; const A=_hbAnim; if(A){ A.t+=dt;
+    if(A.ufo){ A.ufo.position.y=96+Math.sin(A.t*0.8)*5; A.ufo.rotation.y+=dt*0.18; }
+    for(let i=0;i<(A.ufoLights?A.ufoLights.length:0);i++){ A.ufoLights[i].material.opacity=0.5+0.5*Math.sin(A.t*3+i*0.5); }
+    if(A.beam) A.beam.material.opacity=0.05+0.04*Math.sin(A.t*1.5);
+    if(A.holo){ A.holo.rotation.y+=dt*0.9; A.holo.position.y=18+Math.sin(A.t*1.3)*2; }
+    if(A.emblem){ A.emblem.rotation.z+=dt*0.3; }
+  }
+  // keep inside the hangar
+  const R=308, d=Math.hypot(player.wx,player.wz); if(d>R){ player.wx=player.wx/d*R; player.wz=player.wz/d*R; if(player.vx)player.vx*=0.4; if(player.vz)player.vz*=0.4; }
+  // walk into a door to launch
+  for(const pr of _hbPortals){ if(pr.launched) continue;
+    if(pr.portal) pr.portal.material.opacity=0.14+0.08*Math.sin((A?A.t:0)*4);
+    if(Math.hypot(player.wx-pr.x,player.wz-pr.z)<26){
+      pr.launched=true; announce("ENTERING "+pr.name,"#ff66cc"); try{ slowmo(0.4,8); }catch(e){} try{ flashScreen(0.4); }catch(e){}
+      const tgt=pr.target; setTimeout(()=>{ if(GS.zone===-7) startGame(tgt); },700);
+    }
+  }
+}
 function updateGrindRail(dt){
   if(!player||!window._grindRail) return;
   const rail=window._grindRail;
