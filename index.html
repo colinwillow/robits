@@ -6178,6 +6178,7 @@ class Player{
     else fire(a,'normal');
     ps.spark(this.wx+Math.cos(a)*14,this.wz+Math.sin(a)*14,[1,0.85,0]); }
   _fireRocket(od){
+    if(GS.missiles.length >= (od?16:10)) return;   // concurrent-rocket cap
     const a=this.aim;
     const spread=od?0.22:0.14;
     const count=od?3:1;
@@ -7384,7 +7385,7 @@ function startGame(levelIdx){
   for(const r of GS.deathRings)r.remove();GS.deathRings=[];
   if(GS_gate){GS_gate.remove();GS_gate=null;}
   if(_transGate){ scene.remove(_transGate); _transGate=null; } _transState=null;
-  _disposeBlockText(); if(_exitGuide){ scene.remove(_exitGuide); _exitGuide=null; } _disposePhysicalText();
+  _disposeBlockText(); if(_exitGuide){ scene.remove(_exitGuide); _exitGuide=null; } _disposePhysicalText(); _disposePowerupStations();
   if(_spawnBeams&&_spawnBeams.length){ _spawnBeams.forEach(b=>scene.remove(b.grp)); _spawnBeams=[]; }
   // tear down any leftover galaxy objects (planets/platforms/indicator) so they don't bleed into other zones
   if(window._galaxyObjects){ window._galaxyObjects.forEach(o=>scene.remove(o)); window._galaxyObjects=[]; }
@@ -7548,6 +7549,7 @@ let _T_OFFDECAY=0.90;   // how fast the horizontal offset eases back to centre
 let _btGroup=null;      // dot-matrix block-letter announcement (build/hold/dissolve)
 let _exitGuide=null;    // pulsing arrow over the player + dotted trail to the gate
 let _physText=null;     // end-of-wave CLEARED, built as solid blocks you can smash/shoot
+let _puStations=[];     // power-up stations (glowing pads) in the transition arena
 
 // ── BEAM-DOWN SPAWN FX (reusable) — a bright column drops from the sky, flashes, leaves the thing behind ──
 function spawnBeam(x,z,color,onLand,delay){
@@ -7771,6 +7773,58 @@ function updatePhysicalText(dt){
     if(_physText && _physText.children.every(c=>c.material.opacity<=0.02)) _disposePhysicalText();
   }
 }
+const _PU_KINDS=['weapon','missile','shield','speed','magnet'];
+const _PU_COLS={weapon:0x00ffc8,missile:0xff6600,shield:0x4488ff,speed:0xffe600,magnet:0xff44ff};
+function _makeStationPad(x,z,color){
+  const col=new THREE.Color(color), g=new THREE.Group();
+  const am=(o)=>new THREE.MeshBasicMaterial({color:col.clone(),transparent:true,opacity:o,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(18,1.2,8,40),am(0.9)); ring.rotation.x=-Math.PI/2; ring.position.y=1.2; g.add(ring);
+  const ring2=new THREE.Mesh(new THREE.TorusGeometry(12,0.8,8,32),am(0.7)); ring2.rotation.x=-Math.PI/2; ring2.position.y=1.4; g.add(ring2);
+  const disc=new THREE.Mesh(new THREE.CircleGeometry(17,40),am(0.12)); disc.rotation.x=-Math.PI/2; disc.position.y=0.8; g.add(disc);
+  const beam=new THREE.Mesh(new THREE.CylinderGeometry(14,14,80,24,1,true),am(0.06)); beam.position.y=40; g.add(beam);
+  g.position.set(x,0,z); g.userData={ring,ring2,disc,beam}; scene.add(g);
+  return g;
+}
+function _spawnStationPowerup(st){
+  const kind=_PU_KINDS[Math.floor(Math.random()*_PU_KINDS.length)];
+  const c=_PU_COLS[kind]||0x00ffc8;
+  st.pad.children.forEach(m=>{ if(m.material) m.material.color.set(c); });
+  const pu=new Powerup(st.x, st.z, kind); GS_powerups.push(pu); st.pu=pu;
+  ps.ring(st.x,st.z,[0.3,1,0.8],18,80);
+}
+function makePowerupStations(stage){
+  _disposePowerupStations();
+  const S=ARENA_R*0.5, z=20;
+  const spots = stage===1 ? [[S,z]] : [[-S,z],[S,z]];
+  for(const sp of spots){
+    const st={x:sp[0],z:sp[1],pu:null,cd:0,pad:null};
+    st.pad=_makeStationPad(sp[0],sp[1],0x00ffc8);
+    _spawnStationPowerup(st);
+    _puStations.push(st);
+  }
+}
+function _disposePowerupStations(){
+  for(const st of _puStations){
+    if(st.pad){ scene.remove(st.pad); st.pad.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
+    if(st.pu && !st.pu.collected){ const i=GS_powerups.indexOf(st.pu); if(i>=0){ st.pu.remove(); GS_powerups.splice(i,1); } }
+  }
+  _puStations=[];
+}
+function updatePowerupStations(dt){
+  if(!_puStations.length) return;
+  const now=performance.now()/1000;
+  for(const st of _puStations){
+    if(st.pu && st.pu.collected){ st.pu=null; st.cd=18; ps.ring(st.x,st.z,[0.3,1,0.8],20,90); }
+    if(!st.pu){ st.cd-=dt; if(st.cd<=0) _spawnStationPowerup(st); }
+    const ud=st.pad.userData, ready=!!st.pu, pulse=0.5+0.5*Math.sin(now*3+st.x*0.01);
+    ud.ring.rotation.z+=dt*0.8; ud.ring2.rotation.z-=dt*1.2;
+    const baseO=ready?1:0.28;
+    ud.ring.material.opacity=baseO*(0.7+0.3*pulse);
+    ud.ring2.material.opacity=baseO*(0.6+0.4*pulse);
+    ud.disc.material.opacity=ready?(0.10+0.08*pulse):0.05;
+    ud.beam.material.opacity=ready?(0.06+0.05*pulse):0.02;
+  }
+}
 function makeTransGate(color){
   const g=new THREE.Group(); const col=new THREE.Color(color);
   const mat=()=>new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
@@ -7807,7 +7861,7 @@ function buildTransition(){
   _transStage=1;
   GS.boss=null; document.getElementById('boss-bar').style.display='none';
   _transGate=makeTransGate(0x33ffcc);
-  _disposeBlockText(); _disposePhysicalText(); if(_exitGuide){ scene.remove(_exitGuide); _exitGuide=null; } _exitGuide=makeExitGuide(0x33ffcc);
+  _disposeBlockText(); _disposePhysicalText(); _disposePowerupStations(); if(_exitGuide){ scene.remove(_exitGuide); _exitGuide=null; } _exitGuide=makeExitGuide(0x33ffcc);
   _setGateState('hidden');
   _transState=_makeBuildState();
   announce('SECTOR 1 · CONSTRUCT','#33ffcc');
@@ -7871,7 +7925,7 @@ function _transRippleColors(F,mode){
 
 function updateTransition(dt){
   if(!_transState) return;
-  updateSpawnBeams(dt); updateBlockText(dt); updateExitGuide(dt); updatePhysicalText(dt);
+  updateSpawnBeams(dt); updateBlockText(dt); updateExitGuide(dt); updatePhysicalText(dt); updatePowerupStations(dt);
   const now=performance.now()/1000, st=_transState, maxR=ARENA_R*1.18;
 
   if(st.mode==='build'){
@@ -7895,7 +7949,7 @@ function updateTransition(dt){
     grid.dots.material.opacity=0.9*rev;
     grid.perimeter.material.opacity=0.9*clamp((ARENA_R-F)/_T_BAND,0,1);
     if(allReleased && maxY<2.0){
-      st.mode='combat'; _setGateState('locked'); _transSpawnEnemies(); st.armed=false;
+      st.mode='combat'; _setGateState('locked'); _transSpawnEnemies(); st.armed=false; makePowerupStations(_transStage);
       grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9;
       announce('SECTOR '+_transStage+' · CLEAR THE AREA','#ff3355');
       showBlockText('ROUND '+_transStage, 0x33ffcc, {hold:1.0});
@@ -7917,7 +7971,7 @@ function updateTransition(dt){
     const W=_transGate.userData.W;
     if(player.wz<_T_GATE_Z+8 && Math.abs(player.wx)<W/2+12){
       st.mode='dissolve'; st.t=0; st.kicked=new Uint8Array(grid.n);
-      _setGateState('hidden'); flashScreen(0.5); addTrauma(0.06); grid.shock(0,0,4); if(_exitGuide) _exitGuide.userData.active=false; _disposePhysicalText();
+      _setGateState('hidden'); flashScreen(0.5); addTrauma(0.06); grid.shock(0,0,4); if(_exitGuide) _exitGuide.userData.active=false; _disposePhysicalText(); _disposePowerupStations();
       announce('TRANSITION · DECONSTRUCT','#ff5b8a');
     }
   } else if(st.mode==='dissolve'){
@@ -8187,6 +8241,7 @@ function streakPayoff(streak){
 //  POWERUP ECONOMY — designed drops from specific kills
 // ════════════════════════════════════════════════════════════
 function rewardKill(e){
+  return; // power-ups now come from map stations, not kills — enemies drop only gems
   // Tanks always drop weapon/missile
   if(e instanceof Tank&&Math.random()<0.8){
     GS_powerups.push(new Powerup(e.wx+rand(-20,20),e.wz+rand(-20,20),Math.random()<0.5?'missile':'weapon'));
