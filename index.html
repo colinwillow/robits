@@ -333,7 +333,7 @@ canvas{display:block}
   </div>
 
   <!-- ══ TITLE SCREEN ══ -->
-  <div id="screen-title" style="display:none;position:fixed;inset:0;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:9vh;gap:30px;background:radial-gradient(ellipse at 50% 40%,#080818 0%,#030308 100%)">
+  <div id="screen-title" style="display:none;position:fixed;inset:0;flex-direction:column;align-items:center;justify-content:center;gap:30px;background:radial-gradient(ellipse at 50% 40%,#080818 0%,#030308 100%)">
     <!-- Animated grid background -->
     <canvas id="title-grid-canvas" style="position:absolute;inset:0;width:100%;height:100%;opacity:0.65;pointer-events:none"></canvas>
     <!-- Glow orb under robot -->
@@ -7529,6 +7529,7 @@ function ascendGalaxyStage(){
 let _transGate=null;
 let _transState=null;                       // { mode:'build'|'combat'|'active'|'dissolve', ... }
 let _spawnBeams=[];
+let _transStage=1;      // escalates each cleared sector
 const _T_GATE_Z=-190, _T_BUILD_H=140, _T_OFF=16, _T_BAND=70;   // _T_BAND = softness of the fade ripple
 const _T_SPAWN_Z=150;                              // player start, near side
 let _T_WAVE=1.4;        // construction wavefront sweep time
@@ -7537,7 +7538,7 @@ let _T_D=0.86;          // transition-only damping (lower = softer landing, high
 let _T_OFFDECAY=0.90;   // how fast the horizontal offset eases back to centre
 
 // ── BEAM-DOWN SPAWN FX (reusable) — a bright column drops from the sky, flashes, leaves the thing behind ──
-function spawnBeam(x,z,color,onLand){
+function spawnBeam(x,z,color,onLand,delay){
   const grp=new THREE.Group(); const col=new THREE.Color(color); const h=340;
   const beam=new THREE.Mesh(new THREE.CylinderGeometry(11,11,h,18,1,true),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
   beam.position.y=h/2; grp.add(beam);
@@ -7546,11 +7547,11 @@ function spawnBeam(x,z,color,onLand){
   const disc=new THREE.Mesh(new THREE.CircleGeometry(20,28),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
   disc.rotation.x=-Math.PI/2; disc.position.y=0.6; grp.add(disc);
   grp.position.set(x,0,z); scene.add(grp);
-  _spawnBeams.push({grp,beam,core,disc,col,t:0,dur:0.7,onLand,landed:false});
+  _spawnBeams.push({grp,beam,core,disc,col,t:-(delay||0),dur:0.7,onLand,landed:false});
 }
 function updateSpawnBeams(dt){
   for(let i=_spawnBeams.length-1;i>=0;i--){
-    const b=_spawnBeams[i]; b.t+=dt; const k=clamp(b.t/b.dur,0,1);
+    const b=_spawnBeams[i]; b.t+=dt; if(b.t<0) continue; const k=clamp(b.t/b.dur,0,1);
     const a=k<0.45?(k/0.45):(1-(k-0.45)/0.55);
     b.beam.material.opacity=a*0.6; b.core.material.opacity=a*0.95; b.disc.material.opacity=a*0.7;
     b.disc.scale.setScalar(0.4+k*1.8);
@@ -7593,10 +7594,12 @@ function _setGateState(state){     // 'hidden' | 'locked' | 'open'
 function buildTransition(){
   if(_transGate){ scene.remove(_transGate); _transGate=null; }
   _spawnBeams.forEach(b=>scene.remove(b.grp)); _spawnBeams=[];
+  _transStage=1;
+  GS.boss=null; document.getElementById('boss-bar').style.display='none';
   _transGate=makeTransGate(0x33ffcc);
   _setGateState('hidden');
   _transState=_makeBuildState();
-  announce('TRANSITION · CONSTRUCT','#33ffcc');
+  announce('SECTOR 1 · CONSTRUCT','#33ffcc');
 }
 function _makeBuildState(){
   const n=grid.n;
@@ -7606,10 +7609,36 @@ function _makeBuildState(){
   }
   return st;
 }
+function _transSpawnBoss(count){
+  for(let b=0;b<count;b++){
+    const boss=new Boss(_transStage);
+    boss.wx=(count>1?(b===0?-80:80):0); boss.wz=-ARENA_R*0.32;   // far side, toward the gate
+    const bx=boss.wx, bz=boss.wz, isFirst=(b===0);
+    spawnBeam(bx,bz,0xff3366,()=>{ boss.addToScene(); GS.enemies.push(boss); if(isFirst) GS.boss=boss; }, b*0.25);
+  }
+  document.getElementById('boss-bar').style.display='block';
+  document.getElementById('boss-name').textContent=(count>1?'DUAL ':'')+'SECTOR BOSS';
+  announce(count>1?'DUAL BOSS INCOMING':'BOSS INCOMING','#ff3366'); addTrauma(0.16); flashScreen(0.6);
+}
 function _transSpawnEnemies(){
-  const spots=[[-95,-30],[95,-30],[0,-95]];
-  const makers=[ (x,z)=>new Diamond(x,z,1), (x,z)=>new Bouncer(x,z,1), (x,z)=>new Diamond(x,z,1) ];
-  spots.forEach(([x,z],i)=>{ spawnBeam(x,z,0x66ddff,()=>{ const e=makers[i](x,z); e.addToScene(); GS.enemies.push(e); }); });
+  const stage=_transStage;
+  const bossCount=(stage%10===0)?2:(stage%5===0)?1:0;
+  if(bossCount>0){ _transSpawnBoss(bossCount); return; }
+  // normal wave — grows in count, type variety, and difficulty (wave param) each stage
+  const pool=[Diamond];
+  if(stage>=2) pool.push(Bouncer);
+  if(stage>=3) pool.push(Pinwheel);
+  if(stage>=4) pool.push(Seeker);
+  const count=Math.min(2+stage,9);
+  const wave=1+Math.floor((stage-1)/2);
+  const colOf=Cls=>Cls===Seeker?0xff4455:Cls===Pinwheel?0xaa66ff:Cls===Bouncer?0x44aaff:0x66ddff;
+  for(let k=0;k<count;k++){
+    const ang=(k/count)*TAU+rand(0.5);
+    const r=ARENA_R*(0.35+Math.random()*0.4);
+    const x=Math.cos(ang)*r, z=Math.sin(ang)*r-20;
+    const Cls=pool[Math.floor(Math.random()*pool.length)];
+    spawnBeam(x,z,colOf(Cls),()=>{ const e=new Cls(x,z,wave); e.addToScene(); GS.enemies.push(e); }, k*0.12);
+  }
 }
 // Per-edge opacity ripple: multiply the grid's freshly-baked vertex colours so the floor fades in/out
 // as a wavefront F (sweeping the rim → centre). Runs AFTER grid.update()'s _rebuild each frame.
@@ -7657,7 +7686,7 @@ function updateTransition(dt){
     if(allReleased && maxY<2.0){
       st.mode='combat'; _setGateState('locked'); _transSpawnEnemies();
       grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9;
-      announce('CLEAR THE SECTOR','#ff3355');
+      announce('SECTOR '+_transStage+' · CLEAR THE AREA','#ff3355');
     }
   } else if(st.mode==='combat'){
     if(_transGate){ const b=_transGate.userData.barrier; b.material.opacity=0.55+0.2*Math.sin(now*5); b.rotation.z=Math.sin(now*0.6)*0.04; }
@@ -7691,10 +7720,11 @@ function updateTransition(dt){
     grid.perimeter.material.opacity=0.9*clamp(1-(ARENA_R-F)/_T_BAND,0,1);
     if(st.t>=_T_WAVE){
       grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9;
+      _transStage++;
       _transState=_makeBuildState();
       player.wx=0; player.wz=_T_SPAWN_Z; player.py=0; player.vx=0; player.vz=0;
       CAM.tyaw=0; CAM.yaw=0; CAM.tfocus.set(player.wx,4,player.wz); CAM.focus.copy(CAM.tfocus);   // keep camera behind, facing the gate
-      announce('TRANSITION · CONSTRUCT','#33ffcc');
+      announce('SECTOR '+_transStage+' · CONSTRUCT','#33ffcc');
     }
   }
 }
@@ -8253,8 +8283,8 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
             e.remove(); GS.enemies.splice(ei,1); GS.multT=GS.multMax;if(GS.mult<25)GS.mult++; registerKill(e);
             if(e.isBoss){GS.boss=null;document.getElementById('boss-bar').style.display='none';player.bombs=Math.min(5,player.bombs+1);GS.lives=Math.min(9,GS.lives+1);updateUI();Audio.bigDie();
               for(let ri=0;ri<3;ri++) setTimeout(()=>{if(GS.state==='playing')spawnDebris(e.wx,e.wz);},ri*200);
-              // Boss was the final wave — trigger zone clear after a beat
-              setTimeout(()=>{ if(GS.state==='playing')zoneClear(); },1200);
+              // Boss was the final wave — trigger zone clear after a beat (not in the transition lab; it manages itself)
+              setTimeout(()=>{ if(GS.state==='playing'&&GS.zone!==-5)zoneClear(); },1200);
             }
             else if(e.score>=200){if(bigSfx<2){Audio.bigDie();bigSfx++;}if(!didHit){hitStop(3);didHit=true;}
               spawnDebris(e.wx,e.wz);
