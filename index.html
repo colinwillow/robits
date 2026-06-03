@@ -247,7 +247,7 @@ canvas{display:block}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BO</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BS</div>
 </div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
 
@@ -5296,11 +5296,11 @@ class DropBomb{
 
     // Physics — gravity
     const GRAV=320;
-    this.vy-=GRAV*dt;
+    if(!this._orbitLock) this.vy-=GRAV*dt;
     this.wx+=this.vx*dt; this.wz+=this.vz*dt; this.y+=this.vy*dt;
 
     // Bounce off ground
-    if(this.y<=9){
+    if(!this._orbitLock && this.y<=9){
       this.y=9;
       if(Math.abs(this.vy)>40){
         this.vy=Math.abs(this.vy)*0.45;
@@ -5316,7 +5316,7 @@ class DropBomb{
     }
 
     // Bounce/rest on top of moveable walls — account for bomb radius (7 units)
-    if(typeof GS_moveableWalls!=='undefined'){
+    if(!this._orbitLock && typeof GS_moveableWalls!=='undefined'){
       for(const w of GS_moveableWalls){
         const hw=w.w/2, hd=w.d/2;
         const BOMB_R=7;
@@ -11708,16 +11708,34 @@ function updatePlasmaCore(dt){
     planetShock(core,{x:nx,y:ny,z:nz},8+rand(6));
     const qx=C.x+nx*core.r, qy=C.y+ny*core.r, qz=C.z+nz*core.r, ec=[[0.4,0.8,1],[0.7,0.4,1],[1,0.5,0.7]][Math.floor(rand(3))], nn=IS_MOBILE?7:12;
     for(let i=0;i<nn;i++){ const s2=50+rand(90); ps._spawn(qx,qy,qz, nx*s2+rand(-16,16),ny*s2+rand(-16,16),nz*s2+rand(-16,16), ec[0],ec[1],ec[2], 0.018+rand(0.02)); } }
-  // ── DIRECT gravity (restored) — bullets curve in and STRIKE the core ──
-  const GR=46000;
-  for(let i=GS.bullets.length-1;i>=0;i--){ const b=GS.bullets[i]; if(!b._g3) continue;
-    let dx=C.x-b.wx, dy=C.y-(b.y||0), dz=C.z-b.wz; const d2=dx*dx+dy*dy+dz*dz, d=Math.sqrt(d2)||1, a=GR/Math.max(d2,3600)*dt;
-    b.vx+=dx/d*a; b.vy=(b.vy||0)+dy/d*a; b.vz+=dz/d*a;
-    if(d<core.r+6){ planetShock(core,{x:-dx/d,y:-dy/d,z:-dz/d},7); ps.burst(b.wx,b.wz,[0.4,0.8,1],8,70,b.y||C.y); b.life=0; if(b.remove)b.remove(); GS.bullets.splice(i,1); } }
-  for(let i=GS.missiles.length-1;i>=0;i--){ const m=GS.missiles[i]; if(m._gvy===undefined)m._gvy=0;
-    let dx=C.x-m.wx, dy=C.y-(m.y||0), dz=C.z-m.wz; const d2=dx*dx+dy*dy+dz*dz, d=Math.sqrt(d2)||1, a=GR*2.0/Math.max(d2,3600);
-    m.vx+=dx/d*a*dt*60; m.vz+=dz/d*a*dt*60; m._gvy+=dy/d*a*dt*60; m.y=(m.y||0)+m._gvy*dt;
-    if(d<core.r+10){ planetShock(core,{x:-dx/d,y:-dy/d,z:-dz/d},16); if(m._explode)m._explode(); if(m.remove)m.remove(); GS.missiles.splice(i,1); } }
+  // ── ORBIT CAPTURE — inside a close influence sphere, velocity eases onto a tangential orbit at a fixed
+  //    radius just outside the visual orb, so every shot rides the surface like a rail (can't touch it). ──
+  const R_ORB=core.r*1.6;             // orbit radius — outside all the glow/arms (knob: thickness)
+  const R_INFLU=R_ORB+core.r*1.1;     // capture range — fairly close before it grabs (knob: range)
+  const EASE=6.0;                     // how hard velocity snaps onto the orbit (knob: stickiness)
+  const orbit=(px,py,pz,vx,vy,vz)=>{
+    let dx=px-C.x, dy=py-C.y, dz=pz-C.z; const d=Math.hypot(dx,dy,dz)||1;
+    if(d>R_INFLU) return null;
+    const nx=dx/d, ny=dy/d, nz=dz/d;                                   // radial (outward)
+    const sp=Math.max(Math.hypot(vx,vy,vz),240);                       // preserve speed (floor so it keeps moving)
+    const vr=vx*nx+vy*ny+vz*nz;
+    let tx=vx-vr*nx, ty=vy-vr*ny, tz=vz-vr*nz; let tl=Math.hypot(tx,ty,tz);
+    if(tl<0.001){ tx=-nz; ty=0; tz=nx; tl=Math.hypot(tx,ty,tz)||1; }   // aimed dead-centre -> pick a tangent
+    tx/=tl; ty/=tl; tz/=tl;
+    const vrDes=(R_ORB-d)*4.0;                                         // ease radius onto the orbit shell (never enters)
+    const gx=tx*sp+nx*vrDes, gy=ty*sp+ny*vrDes, gz=tz*sp+nz*vrDes;
+    const k=Math.min(1,EASE*dt);
+    if(d<core.r+20 && Math.random()<0.12) planetShock(core,{x:-nx,y:-ny,z:-nz},3);
+    return {vx:vx+(gx-vx)*k, vy:vy+(gy-vy)*k, vz:vz+(gz-vz)*k};
+  };
+  for(let i=0;i<GS.bullets.length;i++){ const b=GS.bullets[i]; if(!b._g3) continue;
+    const r=orbit(b.wx,b.y||0,b.wz,b.vx,b.vy||0,b.vz); if(r){ b.vx=r.vx; b.vy=r.vy; b.vz=r.vz; } }
+  for(let i=0;i<GS.missiles.length;i++){ const m=GS.missiles[i]; if(m._gvy===undefined)m._gvy=0;
+    const r=orbit(m.wx,m.y||0,m.wz,m.vx,m._gvy,m.vz); if(r){ m.vx=r.vx; m._gvy=r.vy; m.vz=r.vz; }
+    m.y=(m.y||0)+(m._gvy||0)*dt; }
+  for(let i=0;i<GS.dropBombs.length;i++){ const b=GS.dropBombs[i]; if(b.y===undefined) continue;
+    const r=orbit(b.wx,b.y,b.wz,b.vx,b.vy||0,b.vz);
+    if(r){ b._orbitLock=true; b.vx=r.vx; b.vz=r.vz; if(b.vy!==undefined)b.vy=r.vy; } else { b._orbitLock=false; } }
 }
 
 function buildGalaxy(){
@@ -11903,7 +11921,7 @@ let _galCamOrbit=0;             // EXPERIMENTAL: right-stick peek offset around 
 const _G_GRAV       = 900;   // gravity accel toward planet centre
 const _G_PR         = 9;     // player foot offset above surface (matches model's 9-unit ground offset)
 const _G_INFLU      = 4.5;   // a planet pulls you when dist < r * this — wide enough that neighbouring wells overlap (no dead gap)
-const _G_PLASMA_INFLU = 2.5; // plasma orb: mid escape radius — you can arc in orbit, a running jump still flings you off
+const _G_PLASMA_INFLU = 2.0; // plasma orb: between sticky(2.5) and loose(1.5) — orbit a bit, leave fairly easily
 const _G_MOVE_ACCEL = 950;   // tangential running accel
 const _G_MAX_SPD    = 230;   // top running speed on a surface
 const _G_FRICTION   = 0.80;  // per-frame velocity retention when no input (grounded)
