@@ -249,7 +249,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DO</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DP</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
 </div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
@@ -6709,12 +6709,12 @@ class Player{
         spawnX=hp.x; spawnZ=hp.z; y0=hp.y;
       }
       GS.missiles.push(new Missile(spawnX,spawnZ,Math.cos(ang),Math.sin(ang),y0));
+      if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:y0,a:ang,rocket:true}});   // per-hand spawn so remote matches L/R
       ps.ring(spawnX,spawnZ,[1,0.5,0.1],4,40);
       // Muzzle flash
       for(let j=0;j<4;j++) ps._spawn(spawnX+rand(-2,2),y0,spawnZ+rand(-2,2),Math.cos(ang)*rand(40,80),rand(5,20),Math.sin(ang)*rand(40,80),1,0.5,0.1,0.04+rand(0.02));
     });
     this._rocketSide=1-this._rocketSide;
-    if(MP.active) mpSend('event',{event:'shot',data:{x:this.wx,z:this.wz,y:9+this.py,a:this.aim,rocket:true,od:!!od}});
     Audio.blip(220,0.14,'sawtooth',0.18,80);
     this._lastFiring=true;
   }
@@ -10542,9 +10542,9 @@ function loop(ts){ requestAnimationFrame(loop);
       for(const rp of Object.values(window._MP?.players||{})){
         if(!rp.mesh||!rp.state) continue;
         // Lerp mesh toward reported position
-        rp.mesh.position.x=lerp(rp.mesh.position.x, rp.state.x, 0.2);
-        rp.mesh.position.y=lerp(rp.mesh.position.y, rp.state.y, 0.2);
-        rp.mesh.position.z=lerp(rp.mesh.position.z, rp.state.z, 0.2);
+        rp.mesh.position.x=lerp(rp.mesh.position.x, rp.state.x, 0.3);
+        rp.mesh.position.y=lerp(rp.mesh.position.y, rp.state.y, 0.35);
+        rp.mesh.position.z=lerp(rp.mesh.position.z, rp.state.z, 0.3);
         if(rp._clone) rp._clone.rotation.y=-rp.state.aim+Math.PI/2;
         // Tick their animation mixer
         if(rp.mixer) rp.mixer.update(dt);
@@ -14688,8 +14688,7 @@ function mpHandleRemoteEvent(msg){
       if(GS.state==='playing'){
         const a=d.a||0;
         if(d.rocket){
-          const offs=d.od?[-0.22,0,0.22]:[0];
-          offs.forEach(o=>{ try{ const m=new Missile(d.x,d.z,Math.cos(a+o),Math.sin(a+o),d.y); m._remote=true; GS.missiles.push(m); }catch(_){ } });
+          try{ const m=new Missile(d.x,d.z,Math.cos(a),Math.sin(a),d.y); m._remote=true; GS.missiles.push(m); }catch(_){ }
         } else {
           const bspd=520, lvl=d.lvl||1;
           const mk=(ang,kind)=>{ const b=new Bullet(d.x,d.z,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,d.y); b._remote=true; GS.bullets.push(b); };
@@ -14762,7 +14761,7 @@ function mpTick(){
       }
     }
   }
-  if(_mpTick%6!==0) return;
+  if(_mpTick%4!==0) return;
   mpSend('state', {
     x:player.wx, z:player.wz, y:player.py,
     aim:player.aim, hp:GS.hp,
