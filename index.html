@@ -249,8 +249,8 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DM</div>
-  <button id="lightmode-btn" onclick="window._toggleLightMode()" style="position:fixed;top:10px;left:10px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DN</div>
+  <button id="lightmode-btn" onclick="window._toggleLightMode()" style="position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
 </div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
 
@@ -10546,13 +10546,17 @@ function loop(ts){ requestAnimationFrame(loop);
         if(rp._clone) rp._clone.rotation.y=-rp.state.aim+Math.PI/2;
         // Tick their animation mixer
         if(rp.mixer) rp.mixer.update(dt);
+        if(rp.state.jet&&rp.mesh){ const px=rp.mesh.position.x,py2=rp.mesh.position.y,pz=rp.mesh.position.z; for(let k=0;k<2;k++) ps._spawn(px+rand(-3,3),py2+5,pz+rand(-3,3),rand(-25,25),rand(-70,-25),rand(-25,25),0.4,0.85,1,0.05+rand(0.03)); }
         // Animation: prefer the owner's actual clip (jump/flip/etc.); fall back to move/idle
         if(rp._clips){
           const dx=rp.state.x-(rp._prevX||rp.state.x);
           const dz=rp.state.z-(rp._prevZ||rp.state.z);
           const moving=Math.hypot(dx,dz)>0.5;
-          let want=(rp.state.clip||'').replace('.bomb','').replace('.shoot','');
-          if(!want||!rp._clips[want]) want=moving?'run_forward':'idle';
+          let base=(rp.state.clip||'').replace('.bomb','').replace('.shoot','');
+          if(!base||!rp._clips[base]) base=moving?'run_forward':'idle';
+          let want=base;
+          if(rp.state.firing&&rp._clips[base+'.shoot']) want=base+'.shoot';
+          else if(rp.state.bombArmed&&rp._clips[base+'.bomb']) want=base+'.bomb';
           if(want!==rp._clips._current&&rp._clips[want]){
             Object.values(rp._clips).forEach(a=>{ if(typeof a.fadeOut==='function') a.fadeOut(0.15); });
             rp._clips[want].reset().setEffectiveWeight(1).fadeIn(0.15).play();
@@ -14763,6 +14767,7 @@ function mpTick(){
     shieldActive:player.shieldActive,
     bombArmed:player.bombArmed,
     firing:player._lastFiring||false,
+    jet:player._jetting||false,
     weapon:GS.weapon||'bullets',
     dead:!player.alive,
     clip:player.model?.userData?.currentClip||'idle',
