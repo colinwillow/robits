@@ -249,7 +249,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DP</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DS</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
 </div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
@@ -1846,6 +1846,7 @@ loadDoorGLB(); // preload
 function _makeInteractiveDoor(target=130, glowHex=0x66ccff){
   const wrap=_makeDoorModel(target,glowHex);
   if(!wrap) return null;
+  if(window._doorWireframe!==false){ wrap.traverse(o=>{ if(o.isMesh||o.isSkinnedMesh){ const mm=Array.isArray(o.material)?o.material:[o.material]; mm.forEach(mt=>{ if(mt&&'wireframe' in mt) mt.wireframe=true; }); } }); }   // stylized; window._doorWireframe=false to revert
   const root=wrap.children[0];
   const door={wrap, root, mixer:null, openA:null, closeA:null, single:null, isOpen:null};
   const clips=(_doorGltf&&_doorGltf.animations)||[];
@@ -1853,33 +1854,33 @@ function _makeInteractiveDoor(target=130, glowHex=0x66ccff){
     const mx=new THREE.AnimationMixer(root); door.mixer=mx;
     const find=(kw)=>clips.find(c=>c.name&&c.name.toLowerCase().includes(kw));
     const oc=find('open'), cc=find('clos');
-    if(oc){ const a=mx.clipAction(oc); a.play(); a.enabled=true; a.paused=true; a.setEffectiveWeight(0); door.openA=a; }   // pose frozen, weight-blended
-    if(cc){ const a=mx.clipAction(cc); a.play(); a.enabled=true; a.paused=true; a.setEffectiveWeight(1); door.closeA=a; }
-    if(!oc && clips[0]){ const a=mx.clipAction(clips[0]); door.single=a; } // fallback: single clip scrubbed fwd/rev by time
+    if(oc){ const a=mx.clipAction(oc); a.play(); a.setEffectiveWeight(0); door.openA=a; }   // both poses run; blended by weight
+    if(cc){ const a=mx.clipAction(cc); a.play(); a.setEffectiveWeight(1); door.closeA=a; }
+    if(!oc && clips[0]){ const a=mx.clipAction(clips[0]); door.single=a; } // fallback: single clip scrubbed by time
   }
-  door.noClips=!(door.openA||door.closeA||door.single); door.curOpen=0; door.openDrop=150;
+  door.noClips=!(door.openA||door.closeA||door.single); door.curOpen=0; door._target=0; door.openDrop=150;
   _doorSet(door,false,true);   // start closed
+  if(door.mixer) door.mixer.update(0);
   return door;
 }
 function _doorSet(door,open,instant){
   if(!door) return;
-  if(door.isOpen===open && !instant) return;
-  door.isOpen=open;
-  if(door.openA && door.closeA){            // two static poses -> cross-fade weights = smooth swing
-    const to=open?door.openA:door.closeA, from=open?door.closeA:door.openA;
-    to.enabled=true; to.paused=true; to.play();
-    from.enabled=true; from.paused=true; from.play();
-    if(instant){ to.setEffectiveWeight(1); from.setEffectiveWeight(0); if(door.mixer) door.mixer.update(0); }
-    else { from.crossFadeTo(to, 0.5, false); }   // mixer.update(dt) drives the 0.5s blend
-  } else {                                   // single clip: scrub time forward(open)/reverse(close)
-    const a=door.openA||door.single; if(!a) return;
-    a.enabled=true; a.play(); a.timeScale=open?1:-1;
-    const d=a.getClip().duration;
-    if(instant){ a.paused=true; a.time=open?d:0; } else { a.paused=false; if(open && a.time>=d) a.time=0; if(!open && a.time<=0) a.time=d; }
-    if(door.mixer) door.mixer.update(0);
-  }
+  door.isOpen=open; door._target=open?1:0;
+  if(door.curOpen==null) door.curOpen=door._target;
+  if(instant){ door.curOpen=door._target; _doorApply(door); if(door.mixer) door.mixer.update(0); }
 }
-
+function _doorApply(door){
+  const t=clamp(door.curOpen||0,0,1);
+  if(door.openA && door.closeA){ door.openA.setEffectiveWeight(t); door.closeA.setEffectiveWeight(1-t); }
+  else { const a=door.openA||door.single; if(a){ a.paused=true; a.enabled=true; a.time=t*a.getClip().duration; } }
+}
+function _doorUpdate(door,dt){
+  if(!door || door.noClips) return;
+  const tgt=door._target!=null?door._target:(door.isOpen?1:0);
+  if(door.curOpen==null) door.curOpen=tgt;
+  door.curOpen += (tgt-door.curOpen)*Math.min(1,dt*4);
+  _doorApply(door);
+}
 
 
 function _applyDroneToEnemy(enemy, target=22){
@@ -6023,6 +6024,7 @@ class Player{
     const spawnY=this._bombHandPos?this._bombHandPos.y:launchY;
     const b=new DropBomb(spawnX, spawnZ, spawnY, vx, vz, fuse, launchVY);
     GS.dropBombs.push(b);
+    if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:spawnY,vx:vx,vz:vz,fuse:fuse,vy:launchVY,bomb:true}});
     this._disarmBomb();
     Audio.blip(300,0.12,'sine',0.2,160);
     announce(isDrop?'BOMB DROPPED':'BOMB THROWN','#ff8800');
@@ -6309,7 +6311,7 @@ class Player{
         if(al>0.15) this.aim=Math.atan2(avz,avx);
         this.fireT++;
         const isRockets=this.primaryWeapon==='rockets';
-        const fireRate=od?4:isRockets?24:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
+        const fireRate=od?4:isRockets?14:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
         if(firing&&al>0.15&&this.fireT>=fireRate){
           this.fireT=0;
           if(isRockets) this._fireRocket(od);
@@ -6428,7 +6430,7 @@ class Player{
 
     this.fireT++;
     const isRockets=this.primaryWeapon==='rockets';
-    const fireRate=od?4:isRockets?24:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
+    const fireRate=od?4:isRockets?14:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
     if(firing&&al>0.15&&this.fireT>=fireRate){
       this.fireT=0;
       if(isRockets) this._fireRocket(od);
@@ -6671,11 +6673,7 @@ class Player{
       return flat.normalize();
     };
     const fire=(ang,kind)=>{
-      if(isPlasma){
-        const C=window._pcCenter; let dx=C.x-spawnX, dy=C.y-y0, dz=C.z-spawnZ; const dl=Math.hypot(dx,dy,dz)||1; dx/=dl;dy/=dl;dz/=dl;
-        dx=dx*0.7+Math.cos(ang)*0.45; dz=dz*0.7+Math.sin(ang)*0.45; dy=dy*0.7+0.3; const mm=Math.hypot(dx,dy,dz)||1;
-        GS.bullets.push(new Bullet(spawnX,spawnZ,dx/mm*bspd,dz/mm*bspd,kind,y0,dy/mm*bspd,true));
-      } else if(isGalaxy){
+      if(isGalaxy){
         const d3=dir3FromAngle(ang)||new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
         GS.bullets.push(new Bullet(spawnX,spawnZ,d3.x*bspd,d3.z*bspd,kind,y0,d3.y*bspd,true));
       } else {
@@ -10014,6 +10012,7 @@ function _updatePerfHud(){
     el.style.cssText='position:fixed;right:6px;top:60px;z-index:95;font:10px/1.3 monospace;color:#7ddcff;background:rgba(0,0,0,0.62);padding:4px 7px;border-radius:5px;pointer-events:none;white-space:pre;text-align:right';
     document.body.appendChild(el); }
   if(typeof GS==='undefined' || (GS.state!=='playing'&&GS.state!=='zoneTransition')){ el.style.display='none'; return; }
+  if(!window._perfHudOn){ el.style.display='none'; return; }
   el.style.display='block';
   const ri=renderer.info;
   // compute fastest-growing geometry type since last HUD update
@@ -11940,7 +11939,7 @@ function _disposeRopeZone(){
 function buildRopeZone(){
   _disposeRopeZone();
   GS_objects.forEach(o=>o.remove&&o.remove()); GS_objects.length=0;
-  const pA=new Platform(-185,0,70,150,230), pB=new Platform(185,0,70,150,230);
+  const pA=new Platform(-185,0,62,150,230), pB=new Platform(185,0,62,150,230); // surface = block top (70)
   GS_objects.push(pA); GS_objects.push(pB);
   const grp=new THREE.Group(); scene.add(grp); _ropeZGroup=grp;
   for(const sx of [-185,185]){ const bg=new THREE.BoxGeometry(150,70,230); const bm=new THREE.Mesh(bg,new THREE.MeshBasicMaterial({color:0x0c1a2e})); bm.position.set(sx,35,0); grp.add(bm); const be=new THREE.LineSegments(new THREE.EdgesGeometry(bg),new THREE.LineBasicMaterial({color:0x33e0ff,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false})); be.position.set(sx,35,0); grp.add(be); }
@@ -11967,7 +11966,8 @@ function updateRopeZone(dt){
   for(let i=1;i<N;i++){ const n=nd[i]; const vx=(n.x-n.px)*0.99,vy=(n.y-n.py)*0.99,vz=(n.z-n.pz)*0.99; n.px=n.x;n.py=n.y;n.pz=n.z; n.x+=vx; n.y+=vy-G*dt*dt; n.z+=vz; }
   if(RZ.grabbed){ const g=nd[RZ.grab]; const gvx=g.x-g.px,gvz=g.z-g.pz,gsp=Math.hypot(gvx,gvz);
     const cy=Math.cos(CAM.yaw),sy=Math.sin(CAM.yaw); const swx=moveIn.x*cy+moveIn.y*sy, swz=-moveIn.x*sy+moveIn.y*cy;
-    if(gsp>0.6){ const agree=clamp((swx*gvx+swz*gvz)/gsp,-1,1)*RZ.pump; g.x+=(gvx/gsp)*agree; g.z+=(gvz/gsp)*agree; } else { g.x+=swx*0.3; g.z+=swz*0.3; } }
+    if(gsp>0.6){ const agree=clamp((swx*gvx+swz*gvz)/gsp,-1,1)*RZ.pump; g.x+=(gvx/gsp)*agree; g.z+=(gvz/gsp)*agree; }
+    g.x+=swx*0.4; g.z+=swz*0.4; }   // free steer -> swing in any horizontal direction
   for(let it=0;it<8;it++){ nd[0].x=A.x;nd[0].y=A.y;nd[0].z=A.z;
     for(let i=0;i<N-1;i++){ const a=nd[i],b=nd[i+1]; const dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z,dl=Math.hypot(dx,dy,dz)||1e-3,diff=(dl-rest)/dl;
       if(i===0){ b.x-=dx*diff;b.y-=dy*diff;b.z-=dz*diff; } else { const mx=dx*0.5*diff,my=dy*0.5*diff,mz=dz*0.5*diff; a.x+=mx;a.y+=my;a.z+=mz; b.x-=mx;b.y-=my;b.z-=mz; } } }
@@ -11976,6 +11976,9 @@ function updateRopeZone(dt){
     const g=nd[RZ.grab]; player.wx=g.x; player.wz=g.z; player.py=Math.max(0,g.y-14); player.pvy=0; player.vx=0; player.vz=0; player._onPlatform=false;
     if(jumpEdge){ RZ.grabbed=false; player._ropeJumpReq=false; RZ.lvx=(g.x-g.px)/dt*0.9; RZ.lvz=(g.z-g.pz)/dt*0.9; player.pvy=(g.y-g.py)/dt*0.9+270; RZ.launch=0.55; player.vx=0; player.vz=0; if(Audio.blip)Audio.blip(520,0.1,'square',0.14); }
   } else {
+    let onBlock=false; for(const pl of RZ.platforms){ if(pl.checkStanding(player)) onBlock=true; }   // stand on end blocks
+    player._onPlatform=onBlock;
+    if(onBlock && (jumpEdge||player._jumpTapped)){ player.pvy=300; player._onPlatform=false; player._jumpTapped=false; RZ.jp=true; if(Audio.blip)Audio.blip(460,0.09,'square',0.13); }   // jump off block
     if(RZ.launch>0){ RZ.launch-=dt; player.wx+=RZ.lvx*dt; player.wz+=RZ.lvz*dt; RZ.lvx*=0.99; RZ.lvz*=0.99; }
     if(Math.abs(player.wx)<150){ const pcx=player.wx,pcy=player.py+14,pcz=player.wz;
       for(let i=3;i<N;i++){ const n=nd[i]; if(Math.hypot(n.x-pcx,n.y-pcy,n.z-pcz)<44){ RZ.grabbed=true; RZ.grab=i; RZ.launch=0; n.x=pcx;n.y=pcy;n.z=pcz; n.px=pcx-(player.vx||0)*dt; n.py=pcy-(player.pvy||0)*dt; n.pz=pcz-(player.vz||0)*dt; if(Audio.blip)Audio.blip(400,0.08,'sine',0.12); break; } } }
@@ -12362,10 +12365,12 @@ function updatePlasmaCore(dt){
   const core=window._pcCore, C=window._pcCenter; if(!core||!C) return;
   const t=performance.now()*0.001;
   // interactive door: advance animation + open when the player is near
-  if(window._pcDoor){ const dr=window._pcDoor; if(dr.mixer) dr.mixer.update(dt);
+  if(window._pcDoor){ const dr=window._pcDoor;
     const pp=(player&&player.model)?player.model.position:(player?{x:player.wx,z:player.wz}:null);
-    if(pp){ const dd=Math.hypot(pp.x-dr.wrap.position.x, pp.z-dr.wrap.position.z); const op=dd<120; _doorSet(dr, op, false);
-      if(dr.noClips){ dr.curOpen+=((op?1:0)-dr.curOpen)*Math.min(1,dt*4); dr.wrap.position.y=-dr.openDrop*dr.curOpen; } } }
+    let op=dr.isOpen;
+    if(pp){ const dd=Math.hypot(pp.x-dr.wrap.position.x, pp.z-dr.wrap.position.z); op=dd<120; _doorSet(dr, op, false); }
+    if(dr.noClips){ dr.curOpen=(dr.curOpen||0)+((op?1:0)-(dr.curOpen||0))*Math.min(1,dt*4); dr.wrap.position.y=-dr.openDrop*dr.curOpen; }
+    else { _doorUpdate(dr, dt); if(dr.mixer) dr.mixer.update(dt); } }
   if(_ufo) updateUFO(dt);
   if(_jet) updateJet(dt);
   if(window._jet && !_fly){ const jp=window._jet.grp.position, pm=(player&&player.model)?player.model.position:null;
@@ -14687,7 +14692,9 @@ function mpHandleRemoteEvent(msg){
     case 'shot':
       if(GS.state==='playing'){
         const a=d.a||0;
-        if(d.rocket){
+        if(d.bomb){
+          try{ const b=new DropBomb(d.x,d.z,d.y,d.vx||0,d.vz||0,d.fuse||1.2,d.vy||-30); b._remote=true; GS.dropBombs.push(b); }catch(_){ }
+        } else if(d.rocket){
           try{ const m=new Missile(d.x,d.z,Math.cos(a),Math.sin(a),d.y); m._remote=true; GS.missiles.push(m); }catch(_){ }
         } else {
           const bspd=520, lvl=d.lvl||1;
@@ -15398,6 +15405,7 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
   toggle.addEventListener('click',()=>{
     visible=!visible;
     panel.style.display=visible?'block':'none';
+    window._perfHudOn=visible;
   });
   const MAX=60;
   const lines=[];
