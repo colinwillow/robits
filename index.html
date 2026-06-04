@@ -249,7 +249,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DS</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DV</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
 </div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
@@ -1833,6 +1833,7 @@ function _makeDoorModel(target=120, glowHex=0x66ccff){
         else { let e=mt.color?mt.color.clone():glow.clone(); if(e.r+e.g+e.b<0.06) e=glow.clone(); mt.emissive=e; mt.emissiveIntensity=1.2; }
         if('toneMapped' in mt) mt.toneMapped=false;
       }
+      mt.transparent=true; mt.opacity=0.8;   // semi-transparent, still glowing
       mt.needsUpdate=true;
     });
   } });
@@ -1842,11 +1843,44 @@ function _makeDoorModel(target=120, glowHex=0x66ccff){
 }
 loadDoorGLB(); // preload
 
+// ── ORANGE ALIEN GLB (animated prop) ──
+const ORANGE_ALIEN_GLB='orange_alien.glb';
+let _alienGltf=null, _alienLoadPromise=null;
+function loadAlienGLB(){
+  if(_alienLoadPromise) return _alienLoadPromise;
+  _alienLoadPromise=new Promise((resolve)=>{
+    const loader=new GLTFLoader();
+    loader.load(ORANGE_ALIEN_GLB, gltf=>{ _alienGltf=gltf; console.log('Orange alien loaded. Animations:', gltf.animations.map(a=>a.name)); resolve(gltf); },
+      undefined, ()=>resolve(null));   // silent fail — GLB only loads on the live site
+  });
+  return _alienLoadPromise;
+}
+function _makeAlien(target=48){
+  if(!_alienGltf) return null;
+  let m; try{ m=SkeletonUtils.clone(_alienGltf.scene); }catch(e){ m=_alienGltf.scene.clone(true); }
+  const box=new THREE.Box3().setFromObject(m); const sz=new THREE.Vector3(); box.getSize(sz);
+  const maxd=Math.max(sz.x,sz.y,sz.z)||1; const sc=target/maxd; m.scale.setScalar(sc);
+  const ctr=new THREE.Vector3(); box.getCenter(ctr); m.position.set(-ctr.x*sc, -box.min.y*sc, -ctr.z*sc);   // base on ground
+  const glow=new THREE.Color(0xff7a1a);
+  m.traverse(c=>{ if(c.isMesh||c.isSkinnedMesh){ c.frustumCulled=false;
+    const mats=Array.isArray(c.material)?c.material:[c.material];
+    mats.forEach(mt=>{ if(!mt) return;
+      if('emissive' in mt){ if(mt.map){ mt.emissiveMap=mt.map; mt.emissive=new THREE.Color(0xffffff); mt.emissiveIntensity=0.85; }
+        else { let e=mt.color?mt.color.clone():glow.clone(); if(e.r+e.g+e.b<0.06) e=glow.clone(); mt.emissive=e; mt.emissiveIntensity=1.05; }
+        if('toneMapped' in mt) mt.toneMapped=false; }
+      mt.needsUpdate=true; }); } });
+  const wrap=new THREE.Group(); wrap.add(m);
+  let mixer=null; const clips=(_alienGltf.animations)||[];
+  if(clips.length){ mixer=new THREE.AnimationMixer(m); clips.forEach(c=>mixer.clipAction(c).play()); }   // play its animation
+  return {wrap, mixer};
+}
+loadAlienGLB(); // preload
+
 // ── INTERACTIVE DOOR — proximity open/close, driven by the GLB's "open"/"closed" clips ──
 function _makeInteractiveDoor(target=130, glowHex=0x66ccff){
   const wrap=_makeDoorModel(target,glowHex);
   if(!wrap) return null;
-  if(window._doorWireframe!==false){ wrap.traverse(o=>{ if(o.isMesh||o.isSkinnedMesh){ const mm=Array.isArray(o.material)?o.material:[o.material]; mm.forEach(mt=>{ if(mt&&'wireframe' in mt) mt.wireframe=true; }); } }); }   // stylized; window._doorWireframe=false to revert
+  if(window._doorWireframe===true){ wrap.traverse(o=>{ if(o.isMesh||o.isSkinnedMesh){ const mm=Array.isArray(o.material)?o.material:[o.material]; mm.forEach(mt=>{ if(mt&&'wireframe' in mt) mt.wireframe=true; }); } }); }   // shaded by default; window._doorWireframe=true for tris-wireframe
   const root=wrap.children[0];
   const door={wrap, root, mixer:null, openA:null, closeA:null, single:null, isOpen:null};
   const clips=(_doorGltf&&_doorGltf.animations)||[];
@@ -11323,6 +11357,7 @@ window._pcRings=[]; window._pcClusters=null; window._pcArms=[]; window._pcCurves
 function _disposePlasmaCore(){
   if(window._pcObjs){ window._pcObjs.forEach(o=>{ scene.remove(o); if(o.traverse)o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
   if(window._pcDoor){ if(window._pcDoor.mixer) window._pcDoor.mixer.stopAllAction(); if(window._pcDoor.wrap) scene.remove(window._pcDoor.wrap); window._pcDoor=null; }
+  if(window._pcAlien){ if(window._pcAlien.mixer) window._pcAlien.mixer.stopAllAction(); if(window._pcAlien.wrap) scene.remove(window._pcAlien.wrap); window._pcAlien=null; }
   _disposeUFO();
   _disposeJet();
   _disposeCar();
@@ -11348,6 +11383,8 @@ function buildUFO(){
   const grp=new THREE.Group(); grp.position.set(0,96,-330); scene.add(grp);
   const u={grp,t:0,baseY:96,rimLights:null,rings:[],echo:null,shellMat:null,hullMat:null,orbit:null,beamPts:null,core:null,spin:null};
   const spin=new THREE.Group(); grp.add(spin); u.spin=spin;
+  // solid saucer body — opaque shaded lens (UFO reads solid like the jet)
+  { const bgeo=new THREE.SphereGeometry(R*0.98,24,12); const body=new THREE.Mesh(bgeo,new THREE.MeshBasicMaterial({color:0x0b1a30,transparent:true,opacity:0.9})); body.scale.y=FLAT; spin.add(body); }
 
   // hull — flattened lat/lon wireframe lens
   const SLAT=9, SLON=24; const hv=[];
@@ -11594,7 +11631,7 @@ function buildCar(){
 function updateCar(dt){
   const c=_car; if(!c) return; c.t+=dt; const t=c.t;
   c.grp.position.y=Math.sin(t*2)*0.6;                         // idle suspension
-  for(const w of c.wheels) w.rotation.z+=dt*0.7;              // slow hub spin
+  // wheels stay static in the showroom
   if(c.underMat){ c.underMat.opacity=0.1+0.06*Math.sin(t*2); c.underMat.color.setHSL(0.5+0.1*Math.sin(t*0.6),0.9,0.55); }
   if(c.shellMat) c.shellMat.opacity=0.04+0.03*Math.sin(t*1.3);
   for(const m of c.glowMats) m.opacity=0.5+0.4*Math.abs(Math.sin(t*5));
@@ -11652,7 +11689,8 @@ function buildBuggy(){
     const HX=TRACK-11;
     const piv=new THREE.Group(); piv.position.set(sx*11,RW,wz); piv.scale.x=sx; grp.add(piv);
     const wg=new THREE.Group(); wg.position.set(HX,0,0); wg._s=sx; piv.add(wg);
-    const tire=new THREE.Mesh(tireGeo,new THREE.MeshBasicMaterial({color:0xffab33,wireframe:true,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false})); tire.rotation.z=Math.PI/2; wg.add(tire);
+    const tire=new THREE.Mesh(tireGeo,new THREE.MeshBasicMaterial({color:0x171109})); tire.rotation.z=Math.PI/2; wg.add(tire);   // opaque
+    const tireE=new THREE.LineSegments(new THREE.EdgesGeometry(tireGeo),edgeMat(0xffab33,0.85)); tireE.rotation.z=Math.PI/2; wg.add(tireE);   // quad edges (no tri diagonals)
     const tread=new THREE.LineSegments(new THREE.EdgesGeometry(treadGeo),edgeMat(0x6b6448,0.5)); tread.rotation.z=Math.PI/2; wg.add(tread);
     const hub=new THREE.Group(); hub.position.set(6.5,0,0); hub.rotation.y=Math.PI/2; wg.add(hub);
     hub.add(new THREE.Mesh(new THREE.TorusGeometry(RW*0.5,1.8,6,18), new THREE.MeshBasicMaterial({color:EDGE,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false})));
@@ -11685,7 +11723,7 @@ function updateBuggy(dt){
   let avg=0;
   for(const c of b.corners){ const z=Math.sin(t*1.7+c.phase)*0.06; c.piv.rotation.z=z; avg+=Math.sin(t*1.7+c.phase); }
   if(b.body){ b.body.position.y=(avg/b.corners.length)*2.4; b.body.rotation.z=Math.sin(t*1.1)*0.01; b.body.rotation.x=Math.sin(t*0.9+1)*0.008; }
-  for(const w of b.wheels) w.rotation.x+=dt*0.5*(w._s||1);
+  // wheels stay static in the showroom
   if(b.underMat){ b.underMat.opacity=0.1+0.06*Math.sin(t*1.8); b.underMat.color.setHSL(0.28+0.05*Math.sin(t*0.5),0.9,0.5); }
   for(const m of b.glowMats) m.opacity=0.8+0.15*Math.sin(t*3);
   for(const m of b.lightMats) m.opacity=0.7+0.3*Math.abs(Math.sin(t*2+0.5));
@@ -11955,7 +11993,7 @@ function buildRopeZone(){
   const nodes=[]; for(let i=0;i<N;i++){ const y=A.y-rest*i; nodes.push({x:0,y,z:0,px:0,py:y,pz:0}); }
   const lp=new Float32Array(N*3), lg=new THREE.BufferGeometry(); lg.setAttribute('position',new THREE.BufferAttribute(lp,3));
   const line=new THREE.Line(lg,new THREE.LineBasicMaterial({color:0xffe066,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false})); line.frustumCulled=false; grp.add(line);
-  _ropeZ={ nodes, rest, anchor:A, line, lavaMat, platforms:[pA,pB], grabbed:false, grab:0, pump:0.5, launch:0, lvx:0, lvz:0, jp:false, t:0 };
+  _ropeZ={ nodes, rest, anchor:A, line, lavaMat, platforms:[pA,pB], grabbed:false, grab:0, pump:0.5, launch:0, lvx:0, lvz:0, jp:false, t:0, regrabCD:0, climbT:0 };
   if(player){ player.wx=-185; player.wz=0; player.py=70; player.pvy=0; player.vx=0; player.vz=0; player._onPlatform=true; }
   CAM.tyaw=0; CAM.yaw=0; CAM.tfocus.set(-185,40,0); CAM.focus.copy(CAM.tfocus);
   setTimeout(()=>{ try{ announce("ROPE SWING — JUMP OFF THE BLOCK, GRAB THE ROPE, PUMP, JUMP AT THE PEAK","#ffe066"); }catch(e){} },400);
@@ -11971,16 +12009,18 @@ function updateRopeZone(dt){
   for(let it=0;it<8;it++){ nd[0].x=A.x;nd[0].y=A.y;nd[0].z=A.z;
     for(let i=0;i<N-1;i++){ const a=nd[i],b=nd[i+1]; const dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z,dl=Math.hypot(dx,dy,dz)||1e-3,diff=(dl-rest)/dl;
       if(i===0){ b.x-=dx*diff;b.y-=dy*diff;b.z-=dz*diff; } else { const mx=dx*0.5*diff,my=dy*0.5*diff,mz=dz*0.5*diff; a.x+=mx;a.y+=my;a.z+=mz; b.x-=mx;b.y-=my;b.z-=mz; } } }
-  const jpRaw=(player._ropeJumpReq||keys['Space']||keys['KeyJ']); let jumpEdge=false; if(jpRaw&&!RZ.jp)jumpEdge=true; RZ.jp=jpRaw;
+  const jpRaw=(player._ropeJumpReq||player._jumpTapped||keys['Space']||keys['KeyJ']); let jumpEdge=false; if(jpRaw&&!RZ.jp)jumpEdge=true; RZ.jp=jpRaw;
+  if(RZ.regrabCD>0) RZ.regrabCD-=dt;
   if(RZ.grabbed){
+    if(Math.abs(shootIn.y)>0.5){ RZ.climbT=(RZ.climbT||0)-dt; if(RZ.climbT<=0){ RZ.climbT=0.09; RZ.grab=clamp(RZ.grab+(shootIn.y<0?-1:1),2,N-1); } } else RZ.climbT=0;   // right stick Y = climb up/down rope
     const g=nd[RZ.grab]; player.wx=g.x; player.wz=g.z; player.py=Math.max(0,g.y-14); player.pvy=0; player.vx=0; player.vz=0; player._onPlatform=false;
-    if(jumpEdge){ RZ.grabbed=false; player._ropeJumpReq=false; RZ.lvx=(g.x-g.px)/dt*0.9; RZ.lvz=(g.z-g.pz)/dt*0.9; player.pvy=(g.y-g.py)/dt*0.9+270; RZ.launch=0.55; player.vx=0; player.vz=0; if(Audio.blip)Audio.blip(520,0.1,'square',0.14); }
+    if(jumpEdge){ RZ.grabbed=false; player._ropeJumpReq=false; player._jumpTapped=false; RZ.regrabCD=0.6; RZ.lvx=(g.x-g.px)/dt*0.9; RZ.lvz=(g.z-g.pz)/dt*0.9; player.pvy=(g.y-g.py)/dt*0.9+240; RZ.launch=0.55; player.vx=0; player.vz=0; if(Audio.blip)Audio.blip(520,0.1,'square',0.14); }
   } else {
     let onBlock=false; for(const pl of RZ.platforms){ if(pl.checkStanding(player)) onBlock=true; }   // stand on end blocks
     player._onPlatform=onBlock;
-    if(onBlock && (jumpEdge||player._jumpTapped)){ player.pvy=300; player._onPlatform=false; player._jumpTapped=false; RZ.jp=true; if(Audio.blip)Audio.blip(460,0.09,'square',0.13); }   // jump off block
+    if(onBlock && (jumpEdge||player._jumpTapped)){ player.pvy=JUMP_BASE; player._onPlatform=false; player._jumpTapped=false; RZ.jp=true; if(Audio.blip)Audio.blip(460,0.09,'square',0.13); }   // jump off block (normal strength)
     if(RZ.launch>0){ RZ.launch-=dt; player.wx+=RZ.lvx*dt; player.wz+=RZ.lvz*dt; RZ.lvx*=0.99; RZ.lvz*=0.99; }
-    if(Math.abs(player.wx)<150){ const pcx=player.wx,pcy=player.py+14,pcz=player.wz;
+    if(RZ.regrabCD<=0 && Math.abs(player.wx)<150){ const pcx=player.wx,pcy=player.py+14,pcz=player.wz;
       for(let i=3;i<N;i++){ const n=nd[i]; if(Math.hypot(n.x-pcx,n.y-pcy,n.z-pcz)<44){ RZ.grabbed=true; RZ.grab=i; RZ.launch=0; n.x=pcx;n.y=pcy;n.z=pcz; n.px=pcx-(player.vx||0)*dt; n.py=pcy-(player.pvy||0)*dt; n.pz=pcz-(player.vz||0)*dt; if(Audio.blip)Audio.blip(400,0.08,'sine',0.12); break; } } }
     if(Math.abs(player.wx)<110 && player.py<=2 && RZ.launch<=0){ player.wx=-185; player.wz=0; player.py=70; player.pvy=0; player.vx=0; player.vz=0; if(Audio.blip)Audio.blip(80,0.3,'sawtooth',0.2,40); }
   }
@@ -12281,10 +12321,19 @@ function buildPlasmaCore(){
   _planetColorInit(core); window._pcCore=core;
   // off-to-the-side interactive door — opens as you walk up to it
   { const _mkDoor=()=>{ const dr=_makeInteractiveDoor(130,0x66ccff); if(!dr) return false;
-      dr.wrap.position.set(240,0,-240); dr.wrap.rotation.y=Math.atan2(C.x-240, C.z+240); // face the orb
+      dr.wrap.position.set(240,(window._doorYOffset!=null?window._doorYOffset:-50),-240); dr.wrap.rotation.y=Math.atan2(C.x-240, C.z+240); // face the orb (Y nudge: window._doorYOffset)
       scene.add(dr.wrap); window._pcDoor=dr; return true; };
     window._pcDoor=null;
     if(!_mkDoor()) loadDoorGLB().then(g=>{ if(g && GS.zone===-12 && !window._pcDoor) _mkDoor(); });
+  }
+  // orange alien — standing at a random spot around the orb
+  { const _mkAlien=()=>{ const al=_makeAlien(46); if(!al) return false;
+      const aa=Math.random()*Math.PI*2, ar=190+Math.random()*120;
+      al.wrap.position.set(Math.cos(aa)*ar, 0, Math.sin(aa)*ar);
+      al.wrap.rotation.y=Math.atan2(C.x-al.wrap.position.x, C.z-al.wrap.position.z);   // face the orb
+      scene.add(al.wrap); window._pcAlien=al; return true; };
+    window._pcAlien=null;
+    if(!_mkAlien()) loadAlienGLB().then(g=>{ if(g && GS.zone===-12 && !window._pcAlien) _mkAlien(); });
   }
   buildUFO();   // interdimensional saucer hovering off to the side
   buildJet();   // sci-fi fighter parked on another side
@@ -12365,6 +12414,7 @@ function updatePlasmaCore(dt){
   const core=window._pcCore, C=window._pcCenter; if(!core||!C) return;
   const t=performance.now()*0.001;
   // interactive door: advance animation + open when the player is near
+  if(window._pcAlien && window._pcAlien.mixer) window._pcAlien.mixer.update(dt);
   if(window._pcDoor){ const dr=window._pcDoor;
     const pp=(player&&player.model)?player.model.position:(player?{x:player.wx,z:player.wz}:null);
     let op=dr.isOpen;
@@ -12999,6 +13049,8 @@ function updateGalaxy(dt){
       for(const pl of _galaxyPlanets){
         const dx=b.wx-pl.wx, dy=by-pl.wy, dz=b.wz-pl.wz;
         const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        const SOI=pl.r*2.6;
+        if(d<SOI && d>pl.r){ const inv=1/(d||1), f=1400*(1-d/SOI)*dt; b.vx-=dx*inv*f; b.vz-=dz*inv*f; if(b.vy!==undefined) b.vy-=dy*inv*f; }   // captured only within the sphere of influence
         if(d<pl.r+4){
           const inv=1/(d||1);
           planetShock(pl,{x:dx*inv,y:dy*inv,z:dz*inv},6);
@@ -13668,7 +13720,7 @@ function buildAssetRoom(){
   const items=[];
   const ENE=[['Diamond',Diamond],['Bouncer',Bouncer],['Pinwheel',Pinwheel],['Seeker',Seeker],['Drifter',Drifter],['Crawler',Crawler],['Shielder',Shielder],['Turret',Turret],['Ghost',Ghost],['HoverBomber',HoverBomber],['Tank',Tank],['BomberDrone',BomberDrone]];
   for(const [name,Cls] of ENE) items.push({kind:'enemy',name,Cls});
-  items.push({kind:'skate'},{kind:'plant'},{kind:'door'},
+  items.push({kind:'skate'},{kind:'plant'},{kind:'door'},{kind:'alien'},
     {kind:'powerup',pk:'weapon'},{kind:'powerup',pk:'shield'},{kind:'powerup',pk:'speed'},{kind:'powerup',pk:'magnet'},
     {kind:'portal'},{kind:'climb'},{kind:'block'});
   const N=items.length, stations=[], props=[];
@@ -13683,6 +13735,10 @@ function buildAssetRoom(){
     else if(it.kind==='door'){
       const place=()=>{ const dm=_makeDoorModel(120,0x66ccff); if(dm){ dm.position.set(x,6,z); group.add(dm); (_assetRoom?_assetRoom.props:props).push({kind:'spinSlow',obj:dm}); } return !!dm; };
       if(!place()) loadDoorGLB().then(g=>{ if(g && _assetRoom && _assetRoom.group===group) place(); });
+    }
+    else if(it.kind==='alien'){
+      const place=()=>{ const al=_makeAlien(56); if(al){ al.wrap.position.set(x,6,z); group.add(al.wrap); (_assetRoom?_assetRoom.props:props).push({kind:'alienMix',obj:al.wrap,mixer:al.mixer}); } return !!al; };
+      if(!place()) loadAlienGLB().then(g=>{ if(g && _assetRoom && _assetRoom.group===group) place(); });
     }
     else if(it.kind==='plant'){ const pl=_fractMakePlant(0,0,0.7); pl.position.set(x,6,z); pl.scale.setScalar(0.85); group.add(pl); }
     else if(it.kind==='powerup'){ const pu=new Powerup(x,z,it.pk); group.add(pu.mesh); pu.mesh.position.set(x,8,z); props.push({kind:'powerup',obj:pu.mesh,y:8}); }
@@ -13725,6 +13781,7 @@ function updateAssetRoom(dt){
     else if(pr.kind==='spinZ'){ pr.obj.rotation.z+=dt*1.2; }
     else if(pr.kind==='powerup'){ pr.obj.rotation.y+=dt*1.0; pr.obj.position.y=pr.y+Math.sin(t*2)*3; }
     else if(pr.kind==='spinSlow'){ pr.obj.rotation.y+=dt*0.4; }
+    else if(pr.kind==='alienMix'){ if(pr.mixer) pr.mixer.update(dt); pr.obj.rotation.y+=dt*0.5; }
   }
 }
 function _disposeAssetRoom(){
