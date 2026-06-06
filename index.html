@@ -251,6 +251,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-EV</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
+  <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
 
@@ -866,7 +867,7 @@ const ARENA_R=Math.min(HALF_W,HALF_D)-10;
 const app=document.getElementById('app');
 const renderer=new THREE.WebGLRenderer({antialias:!IS_MOBILE,powerPreference:'high-performance'});
 renderer.setSize(window.innerWidth,window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio,IS_MOBILE?1.5:2));
+renderer.setPixelRatio((function(){ const winPx=window.innerWidth*window.innerHeight, budget=IS_MOBILE?2.2e6:3.3e6; let p=Math.min(window.devicePixelRatio||1, IS_MOBILE?1.5:1.75); p=Math.min(p, Math.sqrt(budget/Math.max(1,winPx))); return Math.max(0.7,p); })());   // cap total rendered pixels -> keeps 60fps on large displays
 renderer.setClearColor(0x02040c,1);
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.1;
@@ -917,6 +918,7 @@ const CAM={ yaw:0, tyaw:0, pitch:0, tpitch:0, dist:230, height:200, trauma:0,
 function addTrauma(t){ CAM.trauma=clamp(CAM.trauma+t,0,1); }
 function punchZoom(z){ CAM.tzoom=z; }
 function updateCamera(dt){
+  if(player&&player._inPlanetGravity&&GS.zone===-15) return;   // lab orbit cam owns the camera while on the planet
   CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
   CAM.focus.lerp(CAM.tfocus,0.18);
@@ -5933,9 +5935,9 @@ class Bullet{
 // ════════════════════════════════════════════════════════════
 let _lastRocketFX=0;
 class Missile{
-  constructor(wx,wz,aimX,aimZ,y0){
+  constructor(wx,wz,aimX,aimZ,y0,aimY){
     this.wx=wx; this.wz=wz; this.y=y0||12;
-    this.vx=aimX*180; this.vz=aimZ*180; // start slow, accelerates
+    this.vx=aimX*180; this.vz=aimZ*180; this.vy=(aimY||0)*180; // start slow, accelerates
     this.speed=180; this.maxSpeed=400;
     this.life=1; this.t=0; this.target=null; this.dmg=4;
     this.turnRate=3.5; // radians/sec homing turn rate
@@ -6008,7 +6010,8 @@ class Missile{
     this.wx+=this.vx*dt; this.wz+=this.vz*dt;
     // Vertical homing — climb/descend toward the locked target (or settle near ground),
     // so rockets fired from the air actually arc to where the enemy is.
-    if(GS.zone!==-12 && this.target){ const tgtY=this.target.mesh?this.target.mesh.position.y:10; this.y+=(tgtY-this.y)*Math.min(1,dt*3.2); }   // only home vertically onto a locked target; otherwise fly level
+    if(GS.zone!==-12 && this.target){ const tgtY=this.target.mesh?this.target.mesh.position.y:10; this.y+=(tgtY-this.y)*Math.min(1,dt*3.2); }   // home vertically onto a locked target
+    else if(this.vy){ this.y=Math.max(4,this.y+this.vy*dt); this.vy*=0.985; }                                       // otherwise carry the launch pitch toward the crosshair
 
     // Exhaust trail
     this._trail.push({x:this.wx,z:this.wz,y:this.y});
@@ -6027,7 +6030,7 @@ class Missile{
     // Since geometry is baked along Z, lookAt points +Z toward target
     const spd=Math.hypot(this.vx,this.vz)||1;
     this.group.position.set(this.wx, this.y, this.wz);
-    this.group.lookAt(this.wx+this.vx/spd*100, this.y, this.wz+this.vz/spd*100);
+    this.group.lookAt(this.wx+this.vx/spd*100, this.y+this.vy/spd*100, this.wz+this.vz/spd*100);
     if(grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,1.4);   // rocket trail wake
     if(GRID_SHEETS.length) gridSheetWake(this.wx,this.y,this.wz,1.1);
 
@@ -6620,6 +6623,24 @@ class Player{
     if(this._aimer){ scene.remove(this._aimer); this._aimer=null; }
     if(this._aimerLines){ scene.remove(this._aimerLines); this._aimerLines=null; }
   }
+  // 3D ground crosshair that lives where the mouse points on the world (replaces the on-screen cursor)
+  _groundCursorAt(x,y,z,nrm){
+    if(!this._gcur){
+      const g=new THREE.Group();
+      const ring=new THREE.Mesh(new THREE.RingGeometry(7,9,28), new THREE.MeshBasicMaterial({color:0x00ffc8,transparent:true,opacity:0.85,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+      ring.rotation.x=-Math.PI/2; g.add(ring);
+      const dot=new THREE.Mesh(new THREE.CircleGeometry(1.6,14), new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+      dot.rotation.x=-Math.PI/2; g.add(dot);
+      const lpts=[new THREE.Vector3(-15,0,0),new THREE.Vector3(-9,0,0),new THREE.Vector3(9,0,0),new THREE.Vector3(15,0,0),new THREE.Vector3(0,0,-15),new THREE.Vector3(0,0,-9),new THREE.Vector3(0,0,9),new THREE.Vector3(0,0,15)];
+      g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lpts), new THREE.LineBasicMaterial({color:0x00ffc8,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})));
+      scene.add(g); this._gcur=g;
+    }
+    this._gcur.visible=true;
+    const _up=(nrm&&nrm.lengthSq&&nrm.lengthSq()>0.0001)?nrm.clone().normalize():new THREE.Vector3(0,1,0);
+    this._gcur.position.set(x+_up.x*1.5,(y||0)+_up.y*1.5,z+_up.z*1.5);
+    this._gcur.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),_up);
+    this._gcur.scale.setScalar(1+0.12*Math.sin(performance.now()*0.006));
+  }
   // ── SHIELD ──
   _removeShieldMesh(){
     if(this._shieldMesh3D){ scene.remove(this._shieldMesh3D); this._shieldMesh3D=null; }
@@ -6875,7 +6896,7 @@ class Player{
       if(al>0.15){
         const desired=-this.aim-Math.PI/2;
         let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-        if(Math.abs(diff)>0.25) CAM.tyaw+=diff*0.028;
+        if(Math.abs(diff)>0.55) CAM.tyaw+=diff*0.028;   // wider window: turn the character a fair bit before the camera follows
       }
     }
 
@@ -7062,6 +7083,22 @@ class Player{
       }
     }
 
+    // GRID LAB raised platforms + center cube (grid-material slabs)
+    if(typeof _glPlatSheets!=='undefined' && _glPlatSheets.length){
+      for(const sh of _glPlatSheets){ if(!sh._platTop) continue;
+        _gsV.set(this.wx,this.py,this.wz); sh.group.worldToLocal(_gsV);
+        if(Math.abs(_gsV.x)<sh.hw && Math.abs(_gsV.z)<sh.hd){
+          const pTop=sh._platY;
+          if(pTop<=this.py+2) groundY=Math.max(groundY,pTop);
+          if(Math.abs(this.py-pTop)<3) onSurface=true;
+        }
+      }
+    }
+    if(typeof _glMeta!=='undefined' && _glMeta && _glMeta.kind==='cube' && (typeof _glMorphT==='undefined'||_glMorphT<0.5)){
+      const _h=_glMeta.h, _top=_glMeta.cy+_h;
+      if(Math.abs(this.wx)<_h+2 && Math.abs(this.wz)<_h+2 && _top<=this.py+2){ groundY=Math.max(groundY,_top); if(Math.abs(this.py-_top)<3) onSurface=true; }
+    }
+
     // World floor
     if(this.py<3) onSurface=true;
 
@@ -7129,7 +7166,11 @@ class Player{
       return flat.normalize();
     };
     const fire=(ang,kind)=>{
-      if(isGalaxy){
+      if(this._aim3DActive && this._aim3D && !isGalaxy){          // desktop: fire toward the 3D crosshair (up / down / level)
+        const off=ang-a, ca=Math.cos(off), sa=Math.sin(off), d=this._aim3D;
+        const dx=d.x*ca-d.z*sa, dz=d.x*sa+d.z*ca;
+        GS.bullets.push(new Bullet(spawnX,spawnZ,dx*bspd,dz*bspd,kind,y0,d.y*bspd,true));
+      } else if(isGalaxy){
         const d3=dir3FromAngle(ang)||new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
         GS.bullets.push(new Bullet(spawnX,spawnZ,d3.x*bspd,d3.z*bspd,kind,y0,d3.y*bspd,true));
       } else {
@@ -7151,22 +7192,25 @@ class Player{
     // Alternate hands like _shoot does
     if(!this._rocketSide) this._rocketSide=0;
     const bones=this.model?.userData?.bones;
+    const use3D=this._aim3DActive&&this._aim3D;                       // desktop: launch toward the 3D crosshair
     offsets.forEach((off,i)=>{
       const ang=a+off;
+      let dirX=Math.cos(ang), dirZ=Math.sin(ang), dirY=0;
+      if(use3D){ const ca=Math.cos(off), sa=Math.sin(off), d=this._aim3D; dirX=d.x*ca-d.z*sa; dirZ=d.x*sa+d.z*ca; dirY=d.y; }
       // Get hand bone world position — alternate R/L hand each burst
       const side=(this._rocketSide+i)%2;
       const handBone=side===0?'mixamorig_RightHand':'mixamorig_LeftHand';
-      let spawnX=this.wx+Math.cos(ang)*14, spawnZ=this.wz+Math.sin(ang)*14, y0=9+this.py;
+      let spawnX=this.wx+dirX*14, spawnZ=this.wz+dirZ*14, y0=9+this.py;
       if(bones&&bones[handBone]){
         const hp=new THREE.Vector3();
         bones[handBone].getWorldPosition(hp);
         spawnX=hp.x; spawnZ=hp.z; y0=hp.y;
       }
-      GS.missiles.push(new Missile(spawnX,spawnZ,Math.cos(ang),Math.sin(ang),y0));
-      if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:y0,a:ang,rocket:true}});   // per-hand spawn so remote matches L/R
+      GS.missiles.push(new Missile(spawnX,spawnZ,dirX,dirZ,y0,dirY));
+      if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:y0,a:ang,rocket:true,vy:dirY}});   // per-hand spawn so remote matches L/R
       ps.ring(spawnX,spawnZ,[1,0.5,0.1],4,40);
       // Muzzle flash
-      for(let j=0;j<4;j++) ps._spawn(spawnX+rand(-2,2),y0,spawnZ+rand(-2,2),Math.cos(ang)*rand(40,80),rand(5,20),Math.sin(ang)*rand(40,80),1,0.5,0.1,0.04+rand(0.02));
+      for(let j=0;j<4;j++) ps._spawn(spawnX+rand(-2,2),y0,spawnZ+rand(-2,2),dirX*rand(40,80),rand(5,20),dirZ*rand(40,80),1,0.5,0.1,0.04+rand(0.02));
     });
     this._rocketSide=1-this._rocketSide;
     Audio.blip(220,0.14,'sawtooth',0.18,80);
@@ -7185,6 +7229,10 @@ class Player{
         if(ud.rim) ud.rim.material.emissive?.setHex(od?0xffe600:0x00ffc8);
         return;
       }
+      if(GS.zone===-15){   // lab planet: updateLabGravity owns position, surface-aligned orientation & camera
+        if(ud.rim) ud.rim.material.emissive?.setHex(od?0xffe600:0x00ffc8);
+        return;
+      }
     }
     const targetFocY = (GS.zone===-10) ? (10+this.py*0.85) : (4+this.py*0.55);
     this._camFocY=lerp(this._camFocY, targetFocY, (GS.zone===-10)?0.14:0.05);
@@ -7200,7 +7248,7 @@ class Player{
     CAM.tfocus.set(this.wx,this._camFocY,this.wz);
 
     // Model position and rotation
-    const bob=(this.py>1)?0:Math.sin(performance.now()*0.003)*1.5;
+    const bob=(this.model.userData.isRobot||this.py>1)?0:Math.sin(performance.now()*0.003)*1.5;   // procedural ship bobs; GLB robot does not
     const shipY=9+this.py+bob;
     this.model.position.set(this.wx,shipY,this.wz);
     if(this.model.userData.isRobot){
@@ -10466,6 +10514,7 @@ window.addEventListener('keydown',e=>{
       else { player._jetting=true; }
       return;
     }
+    if(player._inPlanetGravity){ player._jumpTapped=true; setTimeout(()=>{if(player)player._jumpTapped=false;},90); return; }   // lab planet: Space = jump / jump off
     if(GS.zone===-3&&!window.KEYS_SWAP){ tryInteractWall(); return; }
     if(window.KEYS_SWAP){
       // Swapped: space = jump — works everywhere including puzzle lab
@@ -10624,6 +10673,7 @@ function _camRestoreTick(){
 }
 
 window.addEventListener('mousemove',e=>{ if(IS_TOUCH)return;
+  if(Math.abs(e.clientX-(mouse._lastMX||e.clientX))+Math.abs(e.clientY-(mouse._lastMY||e.clientY))>2) window._lastInput='mouse';
   mouse.has=true; mouse.px=e.clientX; mouse.py=e.clientY;
   if(CAM.aimMode){
     const dx=e.clientX-(mouse._lastMX||e.clientX);
@@ -10635,7 +10685,7 @@ window.addEventListener('mousemove',e=>{ if(IS_TOUCH)return;
 });
 window.addEventListener('mousedown',e=>{ if(IS_TOUCH)return;
   if(e.button===0){
-    mouse.has=true;
+    mouse.has=true; window._lastInput='mouse';
     // Left-click always shoots — bomb stays armed
     mouse.down=true;
   }
@@ -10704,6 +10754,132 @@ function keyMoveVec(){ let kx=0,ky=0;
 function rotInput(ix,iy){ const c=Math.cos(CAM.yaw),s=Math.sin(CAM.yaw);
   const fwdX=-s,fwdZ=-c,rightX=c,rightZ=-s;
   return {x:rightX*ix+fwdX*(-iy), z:rightZ*ix+fwdZ*(-iy)}; }
+
+// ── GAMEPAD (Xbox / standard) ────────────────────────────────
+// Polls each frame and feeds the same input channels the twin-stick layout uses:
+// left stick -> movement, right stick -> aim, RT fire, LT jet, A jump, B dash, X bomb, Y cycle, RB missiles.
+const _padPrev=[]; window._padActive=false; window._padFire=false; window._lastInput='mouse';
+function _padJump(){ if(!player||GS.state!=='playing')return;
+  if(GS.zone===-4||GS.zone===-12){ if(_gOnSurface){player._charging=true;player._chargeStart=performance.now();player._jumpCharge=0;} return; }
+  if(player._inPlanetGravity||player._grinding||player._wallClimb||player._hang){ player._jumpTapped=true; setTimeout(()=>{if(player)player._jumpTapped=false;},90); return; }
+  if(player.py<=8||player._onPlatform){ player.pvy=180; player._onPlatform=false; Audio.blip(440,0.4,'sine',0.12,520); ps.burst(player.wx,player.wz,[0.4,0.8,1],6,50); } }
+function _padDash(){ if(!player||GS.state!=='playing')return; const mv=rotInput(moveIn.x,moveIn.y);
+  if(Math.hypot(mv.x,mv.z)>0.1){ player._dashDir=[mv.x,mv.z]; player._dashRamp=10; player._dashPeak=MOVE.topSpeed*3.4; ps.ring(player.wx,player.wz,[0,0.85,1],10,80); grid.push(player.wx,player.wz,-2,50); Audio.blip(440,0.08,'sine',0.15,880); } }
+function _padBomb(){ if(!player||GS.state!=='playing')return;
+  if(!player.bombArmed){ if(player.bombs>0){ player._armBomb(); player._aimerX=player.wx+Math.cos(player.aim)*120; player._aimerZ=player.wz+Math.sin(player.aim)*120; } else if(typeof announce==='function')announce('NO BOMBS','#ff4400'); }
+  else { player._throwBomb(0,0); } }
+window._padDiagOn = true;   // on-screen gamepad diagnostic — press P to hide
+function _padDiag(msg){
+  if(!window._padDiagOn){ const ex=document.getElementById('pad-dbg'); if(ex)ex.remove(); return; }
+  let d=document.getElementById('pad-dbg');
+  if(!d){ d=document.createElement('div'); d.id='pad-dbg'; d.style.cssText='position:fixed;left:6px;bottom:6px;z-index:99999;font:11px/1.45 monospace;color:#ffd27d;background:rgba(0,0,0,0.78);padding:6px 10px;border-radius:6px;pointer-events:none;white-space:pre;max-width:66vw'; document.body.appendChild(d); }
+  const inFrame=(window.self!==window.top);
+  d.textContent='GAMEPAD DIAG (P hides)\nsecure '+(window.isSecureContext?'Y':'N')+'   iframe '+(inFrame?'YES \u2014 this blocks the pad':'no')+'\n'+msg;
+}
+window.addEventListener('gamepadconnected', e=>{ window._padBlocked=false; window._padWarned=false; if(typeof announce==='function') announce('GAMEPAD CONNECTED: '+(((e.gamepad&&e.gamepad.id)||'').slice(0,24)),'#00ffc8'); });
+window.addEventListener('gamepaddisconnected', e=>{ if(typeof announce==='function') announce('GAMEPAD DISCONNECTED','#ff8800'); });
+window.addEventListener('keydown', e=>{ if(e.code==='KeyP'){ window._padDiagOn=!window._padDiagOn; } });
+function pollGamepad(){
+  if(!navigator.getGamepads){ _padDiag('navigator.getGamepads is unavailable in this browser'); return; }
+  let pads; try{ pads=navigator.getGamepads(); window._padBlocked=false; }catch(e){ window._padBlocked=true; _padDiag('BLOCKED by permissions policy'+((window.self!==window.top)?'  \u2014 page is inside an IFRAME (VS Code preview / embedded view)':'')); if(!window._padWarned){ window._padWarned=true; if(typeof announce==="function")announce("GAMEPAD BLOCKED \u2014 open in a real browser tab, not the VS Code preview","#ff8800"); } return; }
+  let gp=null;
+  for(const p of pads){ if(p&&p.connected){ gp=p; break; } }
+  if(!gp){ _padDiag('no controller detected \u2014 PRESS A BUTTON on the pad (click the game window first so it has focus)'); if(window._padActive){ moveIn.x=moveIn.y=0; shootIn.x=shootIn.y=0; window._padActive=false; window._padFire=false; } return; }
+  window._padActive=true;
+  const dz=v=>Math.abs(v)<0.18?0:v;
+  moveIn.x=dz(gp.axes[0]||0); moveIn.y=dz(gp.axes[1]||0);     // left stick -> movement
+  shootIn.x=dz(gp.axes[2]||0); shootIn.y=dz(gp.axes[3]||0);   // right stick -> aim
+  const val=i=>gp.buttons[i]?gp.buttons[i].value:0, pr=i=>gp.buttons[i]&&gp.buttons[i].pressed;
+  window._padFire = val(7)>0.3;                               // RT = fire
+  if(player){
+    const _air = player._inPlanetGravity ? (player._glGrounded===false) : (player.py>4 && !player._onPlatform);
+    const _wantJet = (val(6)>0.3) || (pr(0) && _air);   // LT, or hold A while airborne (tap A = jump, keep holding = jetpack)
+    if(_wantJet && player.boostFuel>0){ player._jetting=true; player._padJetHold=true; }
+    else if(player._padJetHold){ player._jetting=false; player._padJetHold=false; }
+  }
+  if(Math.hypot(moveIn.x,moveIn.y)>0.15 || Math.hypot(shootIn.x,shootIn.y)>0.15 || window._padFire || val(6)>0.3 || pr(0)||pr(1)||pr(2)||pr(3)||pr(4)||pr(5)) window._lastInput='pad';   // pad takes over from the mouse
+  const edge=i=>{ const now=pr(i), was=_padPrev[i]; _padPrev[i]=now; return now&&!was; };
+  const A=edge(0),B=edge(1),X=edge(2),Y=edge(3),LB=edge(4),RB=edge(5); for(let i=6;i<(gp.buttons.length||16);i++)_padPrev[i]=pr(i);
+  if(GS.state==='playing'&&player){
+    if(A) _padJump();
+    if(B) _padDash();
+    if(X) _padBomb();
+    if(Y||LB){ player.cycleWeapon&&player.cycleWeapon(); if(typeof announce==='function')announce('WEAPON: '+(player.secWeapon||'').toUpperCase(),'#00ffc8'); }
+    if(RB&&player.fireBomb===undefined){} if(RB&&typeof Missile!=='undefined'){ const a=player.aim; GS.missiles&&GS.missiles.push(new Missile(player.wx+Math.cos(a)*18,player.wz+Math.sin(a)*18,Math.cos(a),Math.sin(a),9+player.py)); Audio.blip(520,0.1,'sawtooth',0.12,300); }
+  }
+  { let bp=''; for(let i=0;i<gp.buttons.length;i++) if(gp.buttons[i]&&gp.buttons[i].pressed) bp+=i+' ';
+    _padDiag('OK  '+((gp.id||'pad').slice(0,30))+'\nLS '+moveIn.x.toFixed(2)+','+moveIn.y.toFixed(2)+'   RS '+shootIn.x.toFixed(2)+','+shootIn.y.toFixed(2)+'\nbuttons: '+(bp||'(none)')); }
+}
+
+// ── GAMEPAD MENU NAVIGATION ───────────────────────────────────
+// Active whenever we're NOT in gameplay and a pad is connected: highlight a button,
+// steer with the left stick / d-pad, A = select, B = back.
+let _menuFocusEl=null; const _navPrev={}; let _menuSig='';
+function _menuPickDefault(vis){
+  const prio=[/deploy/i,/survival/i,/start/i,/\bplay\b/i,/begin/i,/continue/i];
+  for(const re of prio){ const m=vis.find(b=>re.test((b.textContent||'').trim())); if(m) return m; }
+  let best=vis[0], ba=-1; for(const b of vis){ const r=b.getBoundingClientRect(); const a=r.width*r.height; if(a>ba){ ba=a; best=b; } }  // else biggest button (skips tiny mute/music icons)
+  return best;
+}
+function _bestInDir(cur,list,dir){
+  const cr=cur.getBoundingClientRect(), cx=cr.left+cr.width/2, cy=cr.top+cr.height/2;
+  let best=null, bestScore=Infinity;
+  for(const b of list){ if(b===cur) continue; const r=b.getBoundingClientRect(); const dx=(r.left+r.width/2)-cx, dy=(r.top+r.height/2)-cy;
+    let along=0, perp=0;
+    if(dir==='right'){ along=dx; perp=Math.abs(dy); }
+    else if(dir==='left'){ along=-dx; perp=Math.abs(dy); }
+    else if(dir==='down'){ along=dy; perp=Math.abs(dx); }
+    else if(dir==='up'){ along=-dy; perp=Math.abs(dx); }
+    if(along<6) continue;                       // candidate must actually lie in that direction
+    const score=along + perp*2.2;               // nearest + most aligned wins
+    if(score<bestScore){ bestScore=score; best=b; }
+  }
+  return best;
+}
+(function(){ const st=document.createElement('style');
+  st.textContent='.pad-focus{ outline:3px solid #00ffc8 !important; outline-offset:3px; box-shadow:0 0 24px #00ffc8cc !important; border-radius:8px; }';
+  document.head.appendChild(st);
+})();
+function _navEdge(dir,gp){
+  const ax0=gp.axes[0]||0, ax1=gp.axes[1]||0;
+  const d=i=>gp.buttons[i]&&gp.buttons[i].pressed;
+  let on=false;
+  if(dir==='up')    on = ax1<-0.55 || d(12);
+  if(dir==='down')  on = ax1> 0.55 || d(13);
+  if(dir==='left')  on = ax0<-0.55 || d(14);
+  if(dir==='right') on = ax0> 0.55 || d(15);
+  const was=_navPrev[dir]; _navPrev[dir]=on; return on&&!was;
+}
+function _padPressEdge(i,gp){ const on=!!(gp.buttons[i]&&gp.buttons[i].pressed); const k='b'+i; const was=_navPrev[k]; _navPrev[k]=on; return on&&!was; }
+function _padMenuNav(gp){
+  const all=[...document.querySelectorAll('button, .mode-btn, .zone-btn')];
+  const vis=all.filter(b=>{ const r=b.getBoundingClientRect(); const cs=getComputedStyle(b);
+    return r.width>4&&r.height>4&&cs.display!=='none'&&cs.visibility!=='hidden'&&cs.pointerEvents!=='none'&&b.offsetParent!==null&&r.bottom>0&&r.top<innerHeight&&r.right>0&&r.left<innerWidth; });
+  if(!vis.length){ if(_menuFocusEl){ _menuFocusEl.classList.remove('pad-focus'); _menuFocusEl=null; } _menuSig=''; return; }
+  const sig=vis.map(b=>(b.textContent||'').trim()).join('|')+'#'+vis.length;
+  if(sig!==_menuSig || !_menuFocusEl || !vis.includes(_menuFocusEl)){ _menuSig=sig; _menuFocusEl=_menuPickDefault(vis); }   // new screen -> sensible default focus
+  let nx=null;
+  if(_navEdge('up',gp))    nx=_bestInDir(_menuFocusEl,vis,'up')||nx;
+  if(_navEdge('down',gp))  nx=_bestInDir(_menuFocusEl,vis,'down')||nx;
+  if(_navEdge('left',gp))  nx=_bestInDir(_menuFocusEl,vis,'left')||nx;
+  if(_navEdge('right',gp)) nx=_bestInDir(_menuFocusEl,vis,'right')||nx;
+  if(nx) _menuFocusEl=nx;
+  for(const b of all) if(b!==_menuFocusEl) b.classList.remove('pad-focus');
+  _menuFocusEl.classList.add('pad-focus');
+  try{ _menuFocusEl.scrollIntoView({block:'nearest',inline:'nearest'}); }catch(e){}
+  if(_padPressEdge(0,gp)){ _menuFocusEl.click(); if(typeof Audio!=='undefined')Audio.blip(660,0.12,'sine',0.18,990); }   // A = select
+  if(_padPressEdge(1,gp)){ const back=vis.find(b=>/\bback\b/i.test(b.textContent||'')); if(back) back.click(); }      // B = back
+}
+function _menuNavLoop(){
+  requestAnimationFrame(_menuNavLoop);
+  if(typeof GS!=='undefined' && GS.state==='playing'){ if(_menuFocusEl){ _menuFocusEl.classList.remove('pad-focus'); _menuFocusEl=null; } return; }
+  if(!navigator.getGamepads) return;
+  let pads; try{ pads=navigator.getGamepads(); }catch(e){ return; }
+  let gp=null; for(const p of pads){ if(p&&p.connected){ gp=p; break; } }
+  if(!gp){ if(_menuFocusEl){ _menuFocusEl.classList.remove('pad-focus'); _menuFocusEl=null; } return; }
+  _padMenuNav(gp);
+}
+_menuNavLoop();
 
 class Joystick{
   constructor(elem,knob){this.elem=elem;this.knob=knob;this.out=null;this.id=null;this.cx=0;this.cy=0;this.R=46;this.DEAD=9;
@@ -10966,6 +11142,11 @@ jR.onTap=()=>{
     setTimeout(()=>{ if(player) player._jumpTapped=false; },80);
     return;
   }
+  if(player._inPlanetGravity){   // lab planet: tap = jump (and jump off)
+    player._jumpTapped=true;
+    setTimeout(()=>{ if(player) player._jumpTapped=false; },90);
+    return;
+  }
   if(player.bombArmed){
     // Check if this was a flick (fast swipe) — if so throw in flick direction
     const hist=jR._swipeHist||[];
@@ -11153,8 +11334,9 @@ function _updatePerfHud(){
 }
 function loop(ts){ requestAnimationFrame(loop);
   try{
-    { const _lb=document.getElementById('lightmode-btn'), _ov=document.getElementById('overlay');
-      if(_lb) _lb.style.display=(_ov && _ov.style.display!=='none')?'none':'block'; }
+    { const _lb=document.getElementById('lightmode-btn'), _gb=document.getElementById('gfx-btn'), _ov=document.getElementById('overlay');
+      const _show=(_ov && _ov.style.display!=='none')?'none':'block';
+      if(_lb) _lb.style.display=_show; if(_gb) _gb.style.display=_show; }
     let rawDt=Math.min((ts-lastT)/1000,0.033);lastT=ts;frame++;
     updateTime(); const dt=rawDt*TIME.scale;
     _perfFps=_perfFps*0.9+(rawDt>0?1/rawDt:60)*0.1; if(frame%20===0) _updatePerfHud();
@@ -11242,7 +11424,7 @@ function loop(ts){ requestAnimationFrame(loop);
           }
         }
         const onGround=player.py<=4||player._onPlatform;
-        const airborne=!onGround&&player.py>8;
+        const airborne=!onGround&&player.py>8&&!player._inPlanetGravity;   // on the planet: grounded, walks via _galSpeed
 
         // ── DIVE ROLL — triggered by left stick flick dash ──
         if(player._diveRollDir&&ud.clips){
@@ -11516,6 +11698,7 @@ function loop(ts){ requestAnimationFrame(loop);
 
     if(GS.state==='playing'||GS.state==='zoneTransition'||GS.state==='countdown'){
       const frozen=GS.state==='countdown';
+      if(typeof pollGamepad==="function") pollGamepad();
       const km=frozen||player._grinding?{x:0,z:0}:keyMoveVec(), tm=frozen||player._grinding?{x:0,z:0}:rotInput(moveIn.x,moveIn.y);
       const mvx=clamp(km.x+tm.x,-1,1),mvz=clamp(km.z+tm.z,-1,1);
       let avx=0,avz=0,firing=frozen?false:false,aiming=false;
@@ -11569,11 +11752,30 @@ function loop(ts){ requestAnimationFrame(loop);
       if(IS_TOUCH&&CAM.aimMode&&player){
         avx=-Math.sin(CAM.yaw); avz=-Math.cos(CAM.yaw); aiming=true; firing=false;
       }
-      if(!IS_TOUCH&&mouse.has&&!player._rollAimLock){
+      if(!IS_TOUCH&&mouse.has&&!player._rollAimLock&&window._lastInput!=='pad'){
         const a=screenToPlaneDir(mouse.px,mouse.py,player.wx,player.wz);
         avx=a.x; avz=a.z;
         firing=mouse.down&&!flickActive;
         aiming=true;
+        // 3D ground crosshair where the mouse hits the world — replaces the on-screen cursor
+        if(!CAM.aimMode && !grenadeActive){
+          _ndc.x=(mouse.px/window.innerWidth)*2-1; _ndc.y=-(mouse.py/window.innerHeight)*2+1;
+          _ray.setFromCamera(_ndc,camera);
+          let _hp=null,_hn=null;
+          if(typeof GRID_SHEETS!=='undefined' && GRID_SHEETS.length){
+            const _objs=[]; for(const sh of GRID_SHEETS){ if(sh.group) _objs.push(sh.group); }
+            const _hits=_ray.intersectObjects(_objs,true);
+            for(const h of _hits){ if(h.object && h.object.type==='Mesh'){ _hp=h.point; if(h.face) _hn=h.face.normal.clone().transformDirection(h.object.matrixWorld); break; } }
+          }
+          if(!_hp){ const _gh=new THREE.Vector3(); if(_ray.ray.intersectPlane(_plane,_gh)){ _hp=_gh; _hn=new THREE.Vector3(0,1,0); } }
+          player._aim3DActive=false;
+          if(_hp){ player._groundCursorAt(_hp.x,_hp.y,_hp.z,_hn);
+            const _mz=9+player.py+6, _dx=_hp.x-player.wx, _dy=_hp.y-_mz, _dz=_hp.z-player.wz, _dl=Math.hypot(_dx,_dy,_dz)||1;
+            if(!player._aim3D) player._aim3D=new THREE.Vector3();
+            player._aim3D.set(_dx/_dl,_dy/_dl,_dz/_dl); player._aim3DActive=true;
+          }
+          if(typeof renderer!=='undefined'&&renderer.domElement) renderer.domElement.style.cursor='none';
+        } else if(player._gcur){ player._gcur.visible=false; }
         // When bomb armed on desktop and NOT in aim mode: ground crosshair follows mouse
         if(grenadeActive&&!CAM.aimMode){
           // Project mouse to a world position on the ground plane
@@ -11588,6 +11790,14 @@ function loop(ts){ requestAnimationFrame(loop);
         }
       }
 
+      if(!IS_TOUCH && window._lastInput==='pad'){ player._aim3DActive=false; if(player._gcur)player._gcur.visible=false; if(typeof renderer!=='undefined'&&renderer.domElement)renderer.domElement.style.cursor=''; }
+      if(window._padActive && !CAM.aimMode){
+        const sm=Math.hypot(shootIn.x,shootIn.y);
+        if(sm>0.25){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; aiming=true; }
+        else if(window._padFire){ avx=Math.cos(player.aim); avz=Math.sin(player.aim); aiming=true; }   // RT with no stick: fire where he's pointed
+        if(!grenadeActive && window._padFire && !flickActive) firing=true;
+        if(player&&player._gcur) player._gcur.visible=false;   // stick aiming: hide the mouse ground cursor
+      }
       // Camera auto-center handled in player.update (Option B)
       // Drive music intensity from zone + multiplier
       Audio.setMult(GS.mult);
@@ -12178,6 +12388,8 @@ function loop(ts){ requestAnimationFrame(loop);
     if(window.LIGHT_MODE){
       _lightModeFrame();
       renderer.render(scene,camera);
+    } else if(window._gfxPerf){
+      renderer.render(scene,camera);   // performance mode: skip bloom (the heaviest pass) for a locked 60
     } else if(composer){
       composer.bloomStrength=IS_MOBILE?lerp(composer.bloomStrength,(GS.odActive>0?1.4:0.8)+(grid.beat*0.4),0.08):lerp(composer.bloomStrength,(GS.odActive>0?1.8:1.1)+(grid.beat*0.6),0.08);
       composer.chromaStrength=lerp(composer.chromaStrength,CAM.trauma*0.006+(GS.odActive>0?0.003:0),0.12);
@@ -14965,6 +15177,7 @@ class GridSheet{
     this.hw=(this.nx-1)*this.cell/2; this.hd=(this.nz-1)*this.cell/2;
     this.ru=new Float32Array(this.n); this.rv=new Float32Array(this.n);
     this.u=new Float32Array(this.n); this.v=new Float32Array(this.n); this.y=new Float32Array(this.n);
+    this.ry=new Float32Array(this.n);   // rest normal-displacement target (0 = flat; nonzero morphs the surface)
     this.vu=new Float32Array(this.n); this.vv=new Float32Array(this.n); this.vy=new Float32Array(this.n);
     let k=0;
     for(let r=0;r<this.nz;r++) for(let c=0;c<this.nx;c++){ const ru=-this.hw+c*this.cell, rv=-this.hd+r*this.cell; this.ru[k]=ru; this.rv[k]=rv; this.u[k]=ru; this.v[k]=rv; k++; }
@@ -14998,7 +15211,7 @@ class GridSheet{
       this.group.add(this.fill);
     }
     scene.add(this.group);
-    this.shocks=[]; this.beat=0; GRID_SHEETS.push(this); this._rebuild();
+    this.shocks=[]; this.beat=0; this._dBias=o.dBias||0; GRID_SHEETS.push(this); this._rebuild();
   }
   _col(d){ const t=Math.min(d/28,1)+this.beat*0.5, tt=Math.min(t,1);
     const P=_GS_PAL[this._pal]||_GS_PAL.orange;                       // base -> peak ramp by distortion
@@ -15027,8 +15240,8 @@ class GridSheet{
         for(let i=0;i<this.n;i++){ const dx=this.ru[i]-pu, dz=this.rv[i]-pv, d2=dx*dx+dz*dz;
           if(d2<radius*radius&&d2>0.01){ const d=Math.sqrt(d2), fo=(1-d/radius)*(1-d/radius); this.vu[i]+=(dx/d)*fo*(0.15+tt*0.2); this.vv[i]+=(dz/d)*fo*(0.15+tt*0.2); this.vy[i]=0; } } } }
     for(let r=0;r<this.nz;r++) for(let c=0;c<this.nx;c++){ const i=r*this.nx+c, fixed=(r===0||r===this.nz-1||c===0||c===this.nx-1);
-      if(fixed){ this.u[i]=this.ru[i]; this.v[i]=this.rv[i]; this.y[i]=0; this.vu[i]=0; this.vv[i]=0; this.vy[i]=0; continue; }
-      this.vu[i]=(this.vu[i]+(this.ru[i]-this.u[i])*0.012)*0.92; this.vv[i]=(this.vv[i]+(this.rv[i]-this.v[i])*0.012)*0.92; this.vy[i]=(this.vy[i]+(0-this.y[i])*0.014)*0.91;
+      if(fixed){ this.u[i]=this.ru[i]; this.v[i]=this.rv[i]; this.y[i]=this.ry[i]; this.vu[i]=0; this.vv[i]=0; this.vy[i]=0; continue; }
+      this.vu[i]=(this.vu[i]+(this.ru[i]-this.u[i])*0.012)*0.92; this.vv[i]=(this.vv[i]+(this.rv[i]-this.v[i])*0.012)*0.92; this.vy[i]=(this.vy[i]+(this.ry[i]-this.y[i])*0.014)*0.91;
       this.u[i]+=this.vu[i]; this.v[i]+=this.vv[i]; this.y[i]+=this.vy[i]; }
     this.beat*=0.96; this._rebuild();
   }
@@ -15040,7 +15253,7 @@ class GridSheet{
     const pos=this.posAttr.array, col=this.colAttr.array, gp=this.glowPosAttr.array, gc=this.glowColAttr.array, SD=this.SUBDIV; let vi=0;
     for(let ei=0;ei<this._edges.length;ei++){ const e=this._edges[ei], row=e.row, r=e.r, c=e.c;
       const i0=r*this.nx+c, i1=row?(r*this.nx+c+1):((r+1)*this.nx+c);
-      const d0=Math.hypot(this.u[i0]-this.ru[i0],this.v[i0]-this.rv[i0],this.y[i0]*1.5), d1=Math.hypot(this.u[i1]-this.ru[i1],this.v[i1]-this.rv[i1],this.y[i1]*1.5), d=(d0+d1)*0.5;
+      const d0=Math.hypot(this.u[i0]-this.ru[i0],this.v[i0]-this.rv[i0],this.y[i0]*1.5), d1=Math.hypot(this.u[i1]-this.ru[i1],this.v[i1]-this.rv[i1],this.y[i1]*1.5), d=(d0+d1)*0.5 + this._dBias;
       const cl=this._col(d), rf=cl[0]/255, gf=cl[1]/255, bf=cl[2]/255, a=cl[3], glowA=d>8?Math.min(d/16,1):0;
       let pu=this.u[i0], pv=this.v[i0], py=this.y[i0];
       for(let sdi=0;sdi<SD;sdi++){ const t=(sdi+1)/SD; let cu,cv,cy;
@@ -15072,6 +15285,14 @@ class GridSheet{
 //  construct/deconstruct wave actually propagates per-vertex instead of dropping solid.
 // ════════════════════════════════════════════════════════════
 let _glSheets=[], _glKind=0, _glMeta=null;
+let _glMorphBtn=null;   // physical walk-over pad that toggles sphere<->cube
+let _glLastTN=new THREE.Vector3(0,0,1);   // last good tangent "north" (parallel transport across poles)
+let _occV=new THREE.Vector3(), _occW=new THREE.Vector3();   // camera-occlusion ghosting scratch
+let _glCamLook=new THREE.Vector3();   // smoothed orbit-camera look target
+let _glCamFrom=new THREE.Vector3(); let _glCamBlend=1;   // eased entry blend
+let _glMorphT=0, _glMorphTo=0;   // 0 = cube, 1 = sphere (center shape morph)
+const _GL_FLOAT_Y=130;            // sphere floats well above the floor; you must jump (or jet) up to it
+let _glGravOn=false; let _glGVel=new THREE.Vector3(); let _glLastN=new THREE.Vector3(0,1,0);   // localized planet gravity on the lab sphere
 let _glRoot=null, _glWarp=false, _glWarpS=1, _glWarpV=0, _glWarpT=0;
 const _GL_KINDS=['platform','wall','cube'];
 function _glClearSheets(){ for(const s of _glSheets) s.dispose(); _glSheets=[]; if(_glRoot){ scene.remove(_glRoot); _glRoot=null; } _glWarp=false; }
@@ -15115,17 +15336,21 @@ function _glBuildPlatforms(){
     const segs=[ [[-SM/2,zTop],[SM/2,zTop]], [[-SM/2,zTop],[-LB/2,zBase]], [[SM/2,zTop],[LB/2,zBase]] ];
     for(let si=0;si<segs.length;si++){ const sg=segs[si];
       const W1=toW(sg[0][0],sg[0][1]), W2=toW(sg[1][0],sg[1][1]);
-      const dx=W2[0]-W1[0], dz=W2[1]-W1[1], width=Math.hypot(dx,dz)||1;
-      const tan=new THREE.Vector3(dx/width,0,dz/width);
+      const sx=W2[0]-W1[0], sz=W2[1]-W1[1];
+      const tan=new THREE.Vector3(sx,0,sz).normalize();
       const perp=new THREE.Vector3().crossVectors(tan,new THREE.Vector3(0,1,0)).normalize();
-      const cx=(W1[0]+W2[0])/2, cz=(W1[1]+W2[1])/2;
+      // overlap neighbours at the bends so the solid fill closes the corner gaps (weld)
+      const OV=24, ext1=OV, ext2=(si===0)?OV:0;
+      const E1=[W1[0]-tan.x*ext1, W1[1]-tan.z*ext1], E2=[W2[0]+tan.x*ext2, W2[1]+tan.z*ext2];
+      const width=Math.hypot(E2[0]-E1[0],E2[1]-E1[1])||1;
+      const cx=(E1[0]+E2[0])/2, cz=(E1[1]+E2[1])/2, yOff=si*0.45;   // stagger avoids coplanar z-fight in overlaps
       const cols=Math.max(4,Math.round(width/cell)+1), rows=Math.max(3,Math.round(BAND/cell)+1);
       const qTop=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(tan,new THREE.Vector3(0,1,0),perp));
-      const top=new GridSheet({cols,rows,cell, position:new THREE.Vector3(cx,Y,cz), quaternion:qTop, palette:'orange'});
+      const top=new GridSheet({cols,rows,cell, position:new THREE.Vector3(cx,Y-yOff,cz), quaternion:qTop, palette:'orange'});
       top._platTop=true; top._platY=Y; _glPlatSheets.push(top);                                  // walkable top
       const qBot=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(tan,new THREE.Vector3(0,-1,0),perp.clone().negate()));
-      _glPlatSheets.push(new GridSheet({cols,rows,cell, position:new THREE.Vector3(cx,Y-THICK,cz), quaternion:qBot, palette:'orange'}));  // underside
-      const pE=BAND/2;
+      _glPlatSheets.push(new GridSheet({cols,rows,cell, position:new THREE.Vector3(cx,Y-THICK-yOff,cz), quaternion:qBot, palette:'orange'}));  // underside
+      const pE=BAND/2;   // side walls follow the true (unextended) outline
       const o1=[W1[0]+perp.x*pE, W1[1]+perp.z*pE], o2=[W2[0]+perp.x*pE, W2[1]+perp.z*pE];
       const n1=[W1[0]-perp.x*pE, W1[1]-perp.z*pE], n2=[W2[0]-perp.x*pE, W2[1]-perp.z*pE];
       sideWall(o1[0],o1[1], o2[0],o2[1]);                 // outer edge wall
@@ -15133,9 +15358,25 @@ function _glBuildPlatforms(){
       if(si>0) sideWall(o2[0],o2[1], n2[0],n2[1]);        // end cap at each wing tip
     }
   }
+  for(const sh of _glPlatSheets){ sh._dBias=20; }   // keep platforms as bright/glowing as the sphere
+}
+function _glPrepCubeMorph(){
+  // spherify the cube: each node maps to its normalized position on a sphere of radius R (same verts)
+  const R=72, P=new THREE.Vector3(), T=new THREE.Vector3();
+  for(const s of _glSheets){
+    s._cU=new Float32Array(s.ru); s._cV=new Float32Array(s.rv);                 // cube rest (snapshot)
+    s._sU=new Float32Array(s.n); s._sV=new Float32Array(s.n); s._sY=new Float32Array(s.n);
+    const gp=s.group.position, gq=s.group.quaternion, iq=gq.clone().invert();
+    for(let i=0;i<s.n;i++){
+      P.set(s.ru[i],0,s.rv[i]).applyQuaternion(gq).add(gp);                     // node in shape-centre space
+      const len=P.length()||1; T.copy(P).multiplyScalar(R/len).sub(gp).applyQuaternion(iq);  // sphere target -> face local
+      s._sU[i]=T.x; s._sY[i]=T.y; s._sV[i]=T.z;
+    }
+    s._morphable=true;
+  }
 }
 function _glBuildShapes(){
-  _glClearSheets();
+  _glClearSheets(); _glMorphT=0; _glMorphTo=0;
   const kind=_GL_KINDS[((_glKind%_GL_KINDS.length)+_GL_KINDS.length)%_GL_KINDS.length];
   const V=(x,y,z)=>new THREE.Vector3(x,y,z);
   const Q=(nx,ny,nz)=>new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), new THREE.Vector3(nx,ny,nz));
@@ -15146,7 +15387,7 @@ function _glBuildShapes(){
     _glSheets.push(new GridSheet({cols:16,rows:12,cell:14, position:V(0,80,0), quaternion:Q(0,0,1)}));
     _glMeta={kind, hw:105, hh:77, cy:80};
   } else if(kind==='cube'){
-    const S=96, h=S/2, cy=h, cell=S/11;   // grounded (bottom=0); top=96, well under the ~140 jump apex
+    const S=144, h=S/2, cy=h, cell=S/11;   // grounded (bottom=0)
     const faces=[[0,1,0, 0,h,0],[0,-1,0, 0,-h,0],[1,0,0, h,0,0],[-1,0,0, -h,0,0],[0,0,1, 0,0,h],[0,0,-1, 0,0,-h]];
     for(const f of faces) _glSheets.push(new GridSheet({cols:12,rows:12,cell, position:V(f[3],cy+f[4],f[5]), quaternion:Q(f[0],f[1],f[2]), palette:'orange'}));
     _glMeta={kind, cy, h};
@@ -15167,13 +15408,188 @@ function _glBuildShapes(){
   const C=V(0,cyc,0);
   _glRoot=new THREE.Group(); _glRoot.position.copy(C); scene.add(_glRoot);
   for(const s of _glSheets){ scene.remove(s.group); s.group.position.sub(C); _glRoot.add(s.group); }
+  if(kind==='cube') _glPrepCubeMorph();
   _glStartWarp();
   if(typeof announce==='function') announce('GRID LAB · '+kind.toUpperCase()+' — warping in','#ff9a3c');
 }
+function _glBuildMorphButton(){
+  if(_glMorphBtn){ for(const m of [_glMorphBtn.mesh,_glMorphBtn.ring,_glMorphBtn.glow]) if(m)scene.remove(m); _glMorphBtn=null; }
+  const wx=0, wz=140;
+  const mesh=new THREE.Mesh(new THREE.CylinderGeometry(20,24,7,10),
+    new THREE.MeshBasicMaterial({color:0xff3ce0,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false}));
+  mesh.position.set(wx,3.5,wz); scene.add(mesh);
+  const ring=new THREE.Mesh(new THREE.RingGeometry(24,30,24),
+    new THREE.MeshBasicMaterial({color:0xff3ce0,transparent:true,opacity:0.6,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+  ring.rotation.x=-Math.PI/2; ring.position.set(wx,1.2,wz); scene.add(ring);
+  const glow=new THREE.Mesh(new THREE.CylinderGeometry(5,5,48,8),
+    new THREE.MeshBasicMaterial({color:0xff3ce0,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false}));
+  glow.position.set(wx,24,wz); scene.add(glow);
+  _glMorphBtn={wx,wz,mesh,ring,glow,t:0,armed:true};
+}
+function _glGhostOccluders(){
+  if(!player || typeof camera==='undefined') return;
+  const occL=[];
+  for(const s of _glSheets) occL.push(s);
+  for(const s of _glPlatSheets) occL.push(s);
+  for(const s of _glWallSheets) occL.push(s);
+  const camP=camera.position;
+  _occV.set(player.wx, player.py + (player._inPlanetGravity?6:16), player.wz);   // aim at the player's chest
+  const seg=_occV.clone().sub(camP); const segLen=seg.length()||1; seg.multiplyScalar(1/segLen);
+  for(const s of occL){
+    if(s._occR===undefined){ let r=60; if(s.fill&&s.fill.geometry){ s.fill.geometry.computeBoundingSphere(); r=(s.fill.geometry.boundingSphere?.radius||60); } s._occR=r+14; }
+    s.group.getWorldPosition(_occW);
+    _occW.sub(camP); const t=_occW.dot(seg);                                      // distance along the camera->player ray
+    let occ=false;
+    if(t>14 && t<segLen-22){ const perp=_occW.addScaledVector(seg,-t).length(); if(perp < s._occR) occ=true; }   // center near the ray, in front of the player
+    s._ghost=(s._ghost||0)+((occ?1:0)-(s._ghost||0))*0.18;                        // smooth fade
+    const g=s._ghost;
+    if(s.fill){ if(!s.fill.material.transparent) s.fill.material.transparent=true; s.fill.material.opacity=1-g*0.94; s.fill.material.depthWrite=(g<0.5); }
+    if(s.lines)     s.lines.material.opacity     = 1   - g*0.82;
+    if(s.glowLines) s.glowLines.material.opacity = 0.7*(1 - g*0.82);
+  }
+}
+function _glUpdateMorphButton(dt){
+  const b=_glMorphBtn; if(!b||!player) return;
+  b.t+=dt;
+  const toSphere=_glMorphTo<0.5;                              // a press from "cube" makes a sphere
+  const col=toSphere?0xff3ce0:0x33ddff;                       // magenta = will make a sphere, cyan = will make a cube
+  b.mesh.material.color.setHex(col); b.ring.material.color.setHex(col); b.glow.material.color.setHex(col);
+  b.ring.material.opacity=0.35+0.3*Math.sin(b.t*4); b.ring.scale.setScalar(1+0.12*Math.sin(b.t*3));
+  b.glow.material.opacity=0.10+0.10*Math.sin(b.t*5);
+  const d=Math.hypot(player.wx-b.wx, player.wz-b.wz);
+  if(b.armed && !_glGravOn && player.py<30 && d<22){           // stepped on it (on the ground, not on the planet)
+    b.armed=false;
+    _glMorphTo = toSphere?1:0;                                 // toggle
+    ps.ring(b.wx,b.wz, toSphere?[1,0.24,0.88]:[0.2,0.87,1], 18, 90);
+    gridSheetsBlast(b.wx,4,b.wz,8,80);
+    if(typeof Audio!=='undefined') Audio.blip(660,0.3,'sine',0.28,1320);
+    if(typeof announce==='function') announce(toSphere?'MORPH \u2192 SPHERE':'MORPH \u2192 CUBE', toSphere?'#ff3ce0':'#33ddff');
+  }
+  if(!b.armed && d>34) b.armed=true;                            // re-arm once you step off
+}
 function buildGridLab(){
-  _glClearSheets(); GS.survival=false; GS.boss=null; _glKind=0; _glBuildShapes(); _glBuildWall(); _glBuildPlatforms();
+  _glClearSheets(); GS.survival=false; GS.boss=null; _glKind=2; _glBuildShapes(); _glBuildWall(); _glBuildPlatforms(); _glBuildMorphButton();
   const b=document.getElementById('gl-build'); if(b){ b.style.display='block'; b.textContent='WARP \u27f3'; }
-  const sb=document.getElementById('gl-shape'); if(sb)sb.style.display='block';
+  const sb=document.getElementById('gl-shape'); if(sb)sb.style.display='none';   // replaced by the physical walk-over pad
+}
+function _glExitGrav(P,V){
+  _glGravOn=false; if(player){ player._inPlanetGravity=false; player._onPlatform=false; player._galSpeed=0; }
+  if(P&&player){ player.wx=P.x; player.wz=P.z; player.py=Math.max(0,P.y); player.vx=(V?V.x:0)*0.6; player.vz=(V?V.z:0)*0.6; player.pvy=V?Math.min(0,V.y):0; }
+  _gN.set(0,1,0); player._aim3DActive=false;
+  if(player){ CAM.tfocus.set(player.wx,4,player.wz); CAM.focus.copy(CAM.tfocus); }   // snap focus back to the player so the flat cam resumes clean (no stuck 90deg)
+  if(player&&player.model){ player.model.quaternion.identity(); player.model.rotation.set(0,-player.aim+Math.PI/2,0); }
+}
+// Self-contained Mario-Galaxy-style gravity well around the lab sphere. Owns the player only while captured.
+function updateLabGravity(dt){
+  if(!player) return;
+  // ── BIG on-screen diagnostic (top-centre) so we can see exactly what's happening ──
+  if(frame%4===0){ let d=document.getElementById('grav-dbg');
+    if(!d){ d=document.createElement('div'); d.id='grav-dbg'; d.style.cssText='position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:99999;font:bold 18px/1.5 monospace;color:#ff5b7b;background:rgba(0,0,0,0.8);padding:10px 18px;border-radius:10px;pointer-events:none;text-align:center;white-space:pre'; document.body.appendChild(d); }
+    const _sr=!!(_glMeta&&_glMeta.kind==='cube'&&_glRoot&&_glMorphT>0.6);
+    const _cy=_glRoot?_glRoot.position.y:-999, _dd=_glRoot?Math.hypot(player.wx,player.py-_cy,player.wz):-1;
+    d.textContent='GRAV '+(_glGravOn?'ON':'OFF')+'   ready '+(_sr?'Y':'N')+'\nmorphT '+(_glMorphT||0).toFixed(2)+'   centerY '+_cy.toFixed(0)+'\ndist '+_dd.toFixed(0)+'   py '+player.py.toFixed(0);
+  }
+  if(!player.alive) return;
+  const sphereReady = _glMeta && _glMeta.kind==='cube' && _glRoot && _glMorphT>0.6;
+  if(!sphereReady){ if(_glGravOn) _glExitGrav(); return; }
+  const C=_gsV2.set(_glRoot.position.x,_glRoot.position.y,_glRoot.position.z);
+  const R=72, PR=9, surfD=R+PR;
+  const P=new THREE.Vector3(player.wx,player.py,player.wz);
+  let dist=P.distanceTo(C)||1;
+  // ── ENTER: jumped into the well, OR somehow ended up inside the shell ──
+  if(!_glGravOn){
+    if(dist < surfD+40 && player.py > 18){   // only grab on once you have jumped / jetted up to it (not by walking past)
+      _glGravOn=true; player._inPlanetGravity=true; _glCamLook.copy(CAM.focus); _glCamFrom.copy(camera.position); _glCamBlend=0;   // seed the eased camera handoff
+      // SNAP onto the surface immediately along a safe normal — never let the player reach the dead centre
+      let Nl=P.clone().sub(C);
+      if(Nl.lengthSq()<9){ Nl.set(player.vx, Math.max(0.1,player.pvy), player.vz); }   // near centre -> use travel dir (favours up)
+      if(Nl.lengthSq()<1e-5) Nl.set(0,1,0);
+      Nl.normalize(); _glLastN.copy(Nl);
+      P.copy(C).addScaledVector(Nl,surfD);
+      player.wx=P.x; player.py=P.y; player.wz=P.z;
+      _glGVel.set(0,0,0); dist=surfD;
+      gridSheetsBlast(P.x,P.y,P.z,7,60);
+      for(const m of [player._shadowMesh,player._lineIndicator,player._arrowIndicator]) if(m&&m.material) m.material.opacity=0;
+    } else { return; }
+  }
+  // safe gravity-up; never degenerate at the dead centre
+  let _toC=P.clone().sub(C), _d2=_toC.lengthSq(), N;
+  if(_d2>0.25){ N=_toC.multiplyScalar(1/Math.sqrt(_d2)); _glLastN.copy(N); } else { N=_glLastN.clone(); }
+  if(P.distanceTo(C) < surfD*0.85){ P.copy(C).addScaledVector(N,surfD); _glGVel.addScaledVector(N,-_glGVel.dot(N)); }  // deep inside -> eject to surface (kills the stuck-at-centre trap)
+  const grounded = P.distanceTo(C) <= surfD+1.5; player._glGrounded=grounded;
+  // (movement is planet-relative now -> orbit cam must NOT drive CAM.yaw, or the flat cam inherits a 90deg-rotated yaw on exit)
+  // ── input -> tangent (planet-relative: forward = toward the pole, right = east) ──
+  let rx=moveIn.x, ry=moveIn.y;
+  if(!IS_TOUCH){ if(keys['KeyD']||keys['ArrowRight'])rx+=1; if(keys['KeyA']||keys['ArrowLeft'])rx-=1;
+    if(keys['KeyW']||keys['ArrowUp'])ry-=1; if(keys['KeyS']||keys['ArrowDown'])ry+=1; }
+  rx=Math.max(-1,Math.min(1,rx)); ry=Math.max(-1,Math.min(1,ry));
+  const inMag=Math.hypot(rx,ry); let tan=null;
+  if(inMag>0.05){
+    // camera-relative on the surface: forward = camera's view projected onto the ground -> you run straight over the poles
+    const camFwd=new THREE.Vector3(); camera.getWorldDirection(camFwd);
+    const camRight=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);
+    let pf=camFwd.addScaledVector(N,-camFwd.dot(N));
+    if(pf.lengthSq()<1e-5){ pf.copy(_glLastTN); pf.addScaledVector(N,-pf.dot(N)); }   // camera staring down the normal -> carry last heading
+    pf.normalize();
+    let pr=camRight.addScaledVector(N,-camRight.dot(N));
+    if(pr.lengthSq()<1e-5) pr.crossVectors(pf,N);
+    pr.normalize();
+    tan=pf.clone().multiplyScalar(-ry).addScaledVector(pr, rx);             // W/up = into the screen, D/right = screen-right
+    if(tan.lengthSq()>1e-4){ tan.normalize(); _glLastTN.copy(pf); } else tan=null;
+  }
+  const ACC=950, MAXS=210, GRAV=900, FR=0.80;
+  if(grounded){
+    if(tan) _glGVel.addScaledVector(tan, ACC*Math.min(1,inMag)*dt);
+    _glGVel.addScaledVector(N,-_glGVel.dot(N));               // keep purely tangential
+    if(!tan) _glGVel.multiplyScalar(FR);
+    if(_glGVel.length()>MAXS) _glGVel.setLength(MAXS);
+    P.addScaledVector(_glGVel,dt);
+    { const _rd=P.clone().sub(C); if(_rd.lengthSq()>0.25){ P.copy(C).addScaledVector(_rd.normalize(),surfD); } else { P.copy(C).addScaledVector(N,surfD); } }   // glue to surface (centre-safe)
+    player._galSpeed=_glGVel.length();
+    player.boostFuel=Math.min(player.boostMax,player.boostFuel+40*dt);
+    if(tan){ player._glStepT=(player._glStepT||0)-dt; if(player._glStepT<=0){ gridSheetsBlast(P.x,P.y,P.z,3,40); player._glStepT=0.3; } }
+    if(player._jumpTapped){ const ch=player._jumpCharge||0; _glGVel.addScaledVector(N,470+ch*340); P.addScaledVector(N,5);
+      player._jumpTapped=false; player._jumpCharge=0; gridSheetsBlast(P.x,P.y,P.z,8,60);
+      if(typeof Audio!=='undefined') Audio.blip(300,0.4,'sine',0.14,500); }
+    if(player._jetting && player.boostFuel>0){ _glGVel.addScaledVector(N,1200*dt); player.boostFuel=Math.max(0,player.boostFuel-38*dt); P.addScaledVector(N,3); }   // hold jet -> lift off the surface
+  } else {
+    _glGVel.addScaledVector(N,-GRAV*dt);
+    if(tan) _glGVel.addScaledVector(tan, 320*Math.min(1,inMag)*dt);
+    if(player._jetting && player.boostFuel>0){ _glGVel.addScaledVector(N,1500*dt); player.boostFuel=Math.max(0,player.boostFuel-38*dt); }
+    if(_glGVel.length()>920) _glGVel.setLength(920);
+    P.addScaledVector(_glGVel,dt);
+    player._galSpeed=0;
+    if(P.distanceTo(C) < surfD*0.6){                          // safety: punched deep inside -> shove back out
+      let Nl=P.clone().sub(C); if(Nl.lengthSq()<1e-4) Nl.copy(N); Nl.normalize();
+      P.copy(C).addScaledVector(Nl,surfD); _glGVel.addScaledVector(Nl,-_glGVel.dot(Nl));
+    }
+    if(P.distanceTo(C)<=surfD){                               // landed
+      const Nl=P.clone().sub(C).normalize(), impact=Math.max(0,-_glGVel.dot(Nl));
+      P.copy(C).addScaledVector(Nl,surfD); _glGVel.addScaledVector(Nl,-_glGVel.dot(Nl));
+      if(impact>50){ gridSheetsBlast(P.x,P.y,P.z,Math.min(20,4+impact*0.05),70); if(impact>140&&typeof addTrauma==='function')addTrauma(0.07); }
+    }
+  }
+  // ── EXIT: escaped the well ──
+  if(P.distanceTo(C) > R*2.4){ _glExitGrav(P,_glGVel); return; }
+  player.wx=P.x; player.py=P.y; player.wz=P.z;
+  _gN.copy(P.clone().sub(C).normalize());
+  // orientation: up = N, forward = travel (or aim)
+  let fwd = tan? tan.clone() : new THREE.Vector3(Math.cos(player.aim),0,Math.sin(player.aim));
+  fwd.addScaledVector(_gN,-fwd.dot(_gN)); if(fwd.lengthSq()<1e-4) fwd.set(1,0,0); fwd.normalize();
+  const xA=new THREE.Vector3().crossVectors(_gN,fwd).normalize();
+  const tq=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,_gN,fwd));
+  if(player.model){ player.model.visible=true; player.model.position.set(P.x,P.y,P.z); player.model.quaternion.slerp(tq, grounded?0.25:0.12); }
+  // ── PLANET ORBIT CAMERA — sits outside the sphere on the player's side, frames the whole planet (you're never hidden behind it) ──
+  { let side=P.clone().sub(C); side.y*=0.35; if(side.lengthSq()<1) side.set(Math.sin(CAM.yaw),0,Math.cos(CAM.yaw)); side.normalize();
+    const eye=C.clone().addScaledVector(side,R*3.6); eye.y+=R*2.0;
+    if(typeof camera!=='undefined'){
+      const ltx=C.x+(P.x-C.x)*0.22, lty=C.y+R*0.15+(P.y-C.y)*0.22, ltz=C.z+(P.z-C.z)*0.22;
+      _glCamLook.x+=(ltx-_glCamLook.x)*0.12; _glCamLook.y+=(lty-_glCamLook.y)*0.12; _glCamLook.z+=(ltz-_glCamLook.z)*0.12;
+      if(_glCamBlend<1){ _glCamBlend=Math.min(1,_glCamBlend+dt/0.55); const e=_glCamBlend<0.5?2*_glCamBlend*_glCamBlend:1-Math.pow(-2*_glCamBlend+2,2)/2; camera.position.lerpVectors(_glCamFrom,eye,e); }
+      else camera.position.lerp(eye,0.16);
+      camera.lookAt(_glCamLook.x,_glCamLook.y,_glCamLook.z);
+    }
+    CAM.focus.set(C.x,C.y,C.z); CAM.tfocus.set(C.x,C.y,C.z); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }
 }
 function updateGridLab(dt){
   // ── always-on debug overlay (fps / spiders / particles / draws) ──
@@ -15181,7 +15597,8 @@ function updateGridLab(dt){
     if(!h){ h=document.createElement('div'); h.id='lab-hud'; h.style.cssText='position:fixed;right:6px;top:96px;z-index:99998;font:11px/1.45 monospace;color:#7dffce;background:rgba(0,0,0,0.6);padding:5px 9px;border-radius:6px;pointer-events:none;white-space:pre;text-align:right'; document.body.appendChild(h); }
     try{ let pc=0; if(typeof ps!=='undefined'&&ps&&ps.life){ const N=ps.n||0; for(let i=0;i<N;i++) if(ps.life[i]>0) pc++; }
       const ri=renderer.info;
-      h.textContent='fps '+(_perfFps||0).toFixed(0)+'\nspiders '+GS.enemies.length+'\nparticles '+pc+'\nobjects '+scene.children.length+'\ndraws '+ri.render.calls+'\ntris '+(ri.render.triangles/1000).toFixed(1)+'k';
+      let _gd=''; try{ if(_glRoot&&_glMeta&&_glMeta.kind==='cube'&&player){ const _cy=_glRoot.position.y, _dd=Math.hypot(player.wx,player.py-_cy,player.wz); _gd='\n— sphere —\nmorphT '+(_glMorphT||0).toFixed(2)+'\ncenterY '+_cy.toFixed(0)+'\ngravOn '+(_glGravOn?1:0)+'\ndist '+_dd.toFixed(0)+'\npy '+player.py.toFixed(0); } }catch(e){}
+      h.textContent='fps '+(_perfFps||0).toFixed(0)+'\nspiders '+GS.enemies.length+'\nparticles '+pc+'\nobjects '+scene.children.length+'\ndraws '+ri.render.calls+'\ntris '+(ri.render.triangles/1000).toFixed(1)+'k'+_gd;
     }catch(e){}
   }
   // ── persistent perimeter wall ──
@@ -15194,16 +15611,31 @@ function updateGridLab(dt){
   }
   // ── cover platforms ──
   for(const s of _glPlatSheets) s.update(dt);
-  if(_glPlatSheets.length && player){
+  if(_glPlatSheets.length && player && !_glGravOn){
     for(const sh of _glPlatSheets){ if(!sh._platTop) continue;       // land on the raised flat top
       _gsV.set(player.wx, player.py, player.wz); sh.group.worldToLocal(_gsV);
       if(Math.abs(_gsV.x)<sh.hw && Math.abs(_gsV.z)<sh.hd && player.pvy<=0 && _gsV.y<=10 && _gsV.y>-30){
+        const impV=player.pvy;
         player.py=sh._platY; player.pvy=0; player._onPlatform=true;
+        if(impV<-30){ const p=Math.min(1.8,Math.max(0.3,-impV/100))*9; gridSheetsBlast(player.wx,sh._platY,player.wz,p,150); } // landing shockwave
       }
     }
   }
+  _glUpdateMorphButton(dt);
   // ── center shape ──
   if(_glRoot) _glRoot.updateMatrixWorld(true);
+  if(_glSheets.length && _glSheets[0]._morphable){
+    if(_glMorphT!==_glMorphTo){                                                  // morph cube <-> sphere live
+      _glMorphT += (_glMorphTo>_glMorphT?1:-1)*dt*1.25; _glMorphT=Math.max(0,Math.min(1,_glMorphT));
+      if(Math.abs(_glMorphT-_glMorphTo)<0.02) _glMorphT=_glMorphTo;
+      const e=_glMorphT<0.5?2*_glMorphT*_glMorphT:1-Math.pow(-2*_glMorphT+2,2)/2;  // easeInOut
+      for(const s of _glSheets){ if(!s._morphable)continue;
+        for(let i=0;i<s.n;i++){ s.ru[i]=s._cU[i]+(s._sU[i]-s._cU[i])*e; s.rv[i]=s._cV[i]+(s._sV[i]-s._cV[i])*e; s.ry[i]=s._sY[i]*e; }
+        s.beat=Math.min(1,s.beat+0.02); }
+    }
+    const ef=_glMorphT<0.5?2*_glMorphT*_glMorphT:1-Math.pow(-2*_glMorphT+2,2)/2;
+    if(_glRoot && _glMeta) _glRoot.position.y = _glMeta.cy + (_GL_FLOAT_Y-_glMeta.cy)*ef;   // float height always reflects the morph state
+  }
   for(const s of _glSheets) s.update(dt);
   // ── Dimensional warp-in: spring-overshoot scale from a point + node wiggle that grows with size ──
   if(_glWarp && _glRoot){
@@ -15214,13 +15646,23 @@ function updateGridLab(dt){
     if(wk>0.02){ for(const s of _glSheets){ for(let n=0;n<s.n;n++){ s.vy[n]+=Math.sin(n*2.3+_glWarpT*9)*wk; } s.beat=Math.min(1,s.beat+0.03); } }
     if(Math.abs(_glWarpV)<0.002 && Math.abs(1-_glWarpS)<0.008){ _glRoot.scale.setScalar(1); _glWarp=false; for(const s of _glSheets) s.shock(0,0,3); if(typeof addTrauma==='function')addTrauma(0.03); }
   }
+  if(_glMeta&&_glMeta.kind==='cube'&&_glRoot&&_glMorphT>0.6&&GS.bullets){   // bullets curve around the sphere (tactical wrap)
+    const Cx=_glRoot.position.x,Cy=_glRoot.position.y,Cz=_glRoot.position.z,R=72,SOI=R*2.8;
+    for(const b of GS.bullets){ if(!b||b.life<=0||b.wx===undefined)continue; const by=(b.y!==undefined?b.y:9);
+      const dx=b.wx-Cx,dy=by-Cy,dz=b.wz-Cz,d=Math.hypot(dx,dy,dz);
+      if(d<SOI && d>R*0.5){ const inv=1/(d||1), f=1700*(1-d/SOI)*dt; b.vx-=dx*inv*f; b.vz-=dz*inv*f; if(b.vy!==undefined) b.vy-=dy*inv*f; }
+    }
+  }
+  updateLabGravity(dt);
+  _glGhostOccluders();
   // ── Colliders (disabled mid-warp while the shape is still materialising) ──
   if(_glWarp || !player || !_glMeta) return;
+  if(_glGravOn) return;                 // planet gravity owns the player; skip flat colliders
   const M=_glMeta;
   if(M.kind==='platform'){
     if(Math.abs(player.wx)<M.hw && Math.abs(player.wz)<M.hd && player.pvy<=0 && player.py<=M.H+8 && player.py>M.H-44){ const imp=Math.abs(player.pvy); player.py=M.H; player.pvy=0; player._onPlatform=true;
       if(imp>40){ const str=clamp(imp/110,0.1,1.6); gridSheetsBlast(player.wx,M.H,player.wz,str*8,60); if(str>0.4&&typeof addTrauma==='function')addTrauma(str*0.06); } }
-  } else if(M.kind==='cube'){
+  } else if(M.kind==='cube' && _glMorphT<0.12){
     const h=M.h, cy=M.cy, top=cy+h, bottom=cy-h;
     const inXZ=Math.abs(player.wx)<h+2 && Math.abs(player.wz)<h+2;
     if(inXZ && player.pvy<=0 && player.py<=top+10 && player.py>top-12){
@@ -15238,10 +15680,15 @@ function updateGridLab(dt){
     if(GS.enemies){ for(const e of GS.enemies){ const er=Math.hypot(e.wx,e.wz); if(er>lim){ const n=er||1; e.wx=e.wx/n*lim; e.wz=e.wz/n*lim; if(e.syncMesh)e.syncMesh(); } } }
   }
 }
-function _disposeGridLab(hideBtns){ if(hideBtns===undefined)hideBtns=true; _glClearSheets(); _glClearWall(); _glClearPlatforms(); _glMeta=null; { const _h=document.getElementById('lab-hud'); if(_h)_h.remove(); }
+function _disposeGridLab(hideBtns){ if(hideBtns===undefined)hideBtns=true; _glGravOn=false; if(player)player._inPlanetGravity=false; _glClearSheets(); _glClearWall(); _glClearPlatforms(); _glMeta=null; if(_glMorphBtn){ for(const m of [_glMorphBtn.mesh,_glMorphBtn.ring,_glMorphBtn.glow]) if(m)scene.remove(m); _glMorphBtn=null; } { const _h=document.getElementById('lab-hud'); if(_h)_h.remove(); const _gd=document.getElementById('grav-dbg'); if(_gd)_gd.remove(); }
   if(hideBtns){ const b=document.getElementById('gl-build'); if(b)b.style.display='none'; const sb=document.getElementById('gl-shape'); if(sb)sb.style.display='none'; } }
 window._gridLabBuild=function(){ _glStartWarp(); };                       // WARP: replay the dimension pop-in
-window._gridLabShape=function(){ _glKind++; _glBuildShapes(); };
+window._gridLabShape=function(){
+  const len=_GL_KINDS.length, cur=_GL_KINDS[((_glKind%len)+len)%len];
+  if(cur==='cube'){ _glMorphTo=_glMorphTo===1?0:1;                               // morph instead of rebuild
+    if(typeof announce==='function') announce(_glMorphTo? 'GRID LAB · CUBE → SPHERE':'GRID LAB · SPHERE → CUBE','#ff9a3c'); return; }
+  _glKind++; _glBuildShapes();
+};
 
 function updateAssetRoom(dt){
   if(!_assetRoom||!player) return;
@@ -16591,6 +17038,12 @@ function _lightModeRestore(){
     }
   });
 }
+window._gfxPerf=false;
+window._toggleGfx=function(){
+  window._gfxPerf=!window._gfxPerf;
+  const b=document.getElementById('gfx-btn'); if(b) b.textContent=window._gfxPerf?'GFX: FAST':'GFX: HIGH';
+  if(typeof announce==='function') announce(window._gfxPerf?'GRAPHICS: FAST (no bloom)':'GRAPHICS: HIGH','#00ffc8');
+};
 window._toggleLightMode=function(){
   window.LIGHT_MODE=!window.LIGHT_MODE;
   document.body.classList.toggle('lightmode', window.LIGHT_MODE);
