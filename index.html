@@ -12258,17 +12258,38 @@ function loop(ts){ requestAnimationFrame(loop);
       // Update remote players each frame
       for(const rp of Object.values(window._MP?.players||{})){
         if(!rp.mesh||!rp.state) continue;
-        // Lerp mesh toward reported position
-        rp.mesh.position.x=lerp(rp.mesh.position.x, rp.state.x, 0.3);
-        rp.mesh.position.y=lerp(rp.mesh.position.y, rp.state.y, 0.35);
-        rp.mesh.position.z=lerp(rp.mesh.position.z, rp.state.z, 0.3);
-        if(typeof grid!=='undefined' && grid.push){   // remote pilot ripples the spacetime grid too (running wake + landing thud)
+        // Lerp toward reported position — but SNAP on a big jump (teleporter / respawn) so they don't smear across the map
+        if(Math.hypot(rp.state.x-rp.mesh.position.x, rp.state.z-rp.mesh.position.z)>80){
+          rp.mesh.position.set(rp.state.x, rp.state.y, rp.state.z);
+          if(typeof ps!=='undefined') ps.ring(rp.state.x, rp.state.z, [1,0.2,1], 26, 130);
+        } else {
+          rp.mesh.position.x=lerp(rp.mesh.position.x, rp.state.x, 0.3);
+          rp.mesh.position.y=lerp(rp.mesh.position.y, rp.state.y, 0.35);
+          rp.mesh.position.z=lerp(rp.mesh.position.z, rp.state.z, 0.3);
+        }
+        if(typeof grid!=='undefined' && grid.push){   // remote pilot ripples the world too (ground wake, landing thud, building-panel wake)
           const rx=rp.mesh.position.x, rz=rp.mesh.position.z, ry=(rp.state.y||0);
-          if(Math.hypot(rx-(rp._gpx||rx), rz-(rp._gpz||rz))>0.4 && ry<18) grid.push(rx,rz,-0.3,38);
-          if((rp._gpy||0)>22 && ry<=12){ grid.push(rx,rz,3,120); if(grid.shock)grid.shock(rx,rz,1.5); }
+          const _moved=Math.hypot(rx-(rp._gpx||rx), rz-(rp._gpz||rz));
+          if(_moved>0.4 && ry<18) grid.push(rx,rz,-0.3,38);                                  // ground running wake
+          if((rp._gpy||0)>22 && ry<=12){ grid.push(rx,rz,3,120); if(grid.shock)grid.shock(rx,rz,1.5); }   // landing thud
+          if(typeof gridSheetsBlast==='function' && (ry>22 || rp.state.gn)){                 // rooftop / wall-crawl: ripple the building panels
+            rp._sheetT=(rp._sheetT||0)-dt;
+            if(rp._sheetT<=0 && (_moved>0.4 || rp.state.gn)){ try{ gridSheetsBlast(rx,ry,rz,2,32); }catch(_){} rp._sheetT=0.3; }
+          }
           rp._gpx=rx; rp._gpz=rz; rp._gpy=ry;
         }
-        if(rp._clone) rp._clone.rotation.y=-rp.state.aim+Math.PI/2;
+        if(rp._clone){
+          if(rp.state.gn){   // wall-crawling: build the same surface basis the owner uses (right=N×fwd, up=N, fwd)
+            const _N=new THREE.Vector3(rp.state.gn[0],rp.state.gn[1],rp.state.gn[2]); if(_N.lengthSq()<0.1)_N.set(0,1,0); _N.normalize();
+            let _fwd=new THREE.Vector3(Math.cos(rp.state.aim),0,Math.sin(rp.state.aim)); _fwd.addScaledVector(_N,-_fwd.dot(_N)); if(_fwd.lengthSq()<1e-4)_fwd.set(1,0,0); _fwd.normalize();
+            const _r=new THREE.Vector3().crossVectors(_N,_fwd).normalize();
+            const _q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(_r,_N,_fwd));
+            rp._clone.quaternion.slerp(_q,0.3);
+          } else {
+            const _q=new THREE.Quaternion().setFromEuler(new THREE.Euler(0,-rp.state.aim+Math.PI/2,0));
+            rp._clone.quaternion.slerp(_q,0.35);
+          }
+        }
         // Tick their animation mixer
         if(rp.mixer) rp.mixer.update(dt);
         if(rp.state.jet&&rp.mesh){ const px=rp.mesh.position.x,py2=rp.mesh.position.y,pz=rp.mesh.position.z; for(let k=0;k<2;k++) ps._spawn(px+rand(-3,3),py2+5,pz+rand(-3,3),rand(-25,25),rand(-70,-25),rand(-25,25),0.4,0.85,1,0.05+rand(0.03)); }
@@ -12309,6 +12330,14 @@ function loop(ts){ requestAnimationFrame(loop);
           const _hx=e.wx,_hz=e.wz;
           try{ e.update(player,dt); }catch(_){}
           e.wx=_hx; e.wz=_hz; if(e.mesh){ e.mesh.position.x=_hx; e.mesh.position.z=_hz; }
+          if(e._netTY!==undefined){ e._gy=(e._gy===undefined)?e._netTY:(e._gy+(e._netTY-e._gy)*Math.min(1,dt*9)); if(e.mesh) e.mesh.position.y=e._gy; }
+          if(e._netN && e._orient && e._upV && e._fwdV){   // surface normal -> tilt the spider onto the wall (forward from interp movement)
+            e._upV.set(e._netN[0],e._netN[1],e._netN[2]);
+            const _fx=_hx-(e._gox||_hx), _fz=_hz-(e._goz||_hz);
+            if(Math.abs(_fx)+Math.abs(_fz)>0.01) e._fwdV.set(_fx,0,_fz);
+            try{ e._orient(e._upV,e._fwdV,dt); }catch(_){}
+            e._gox=_hx; e._goz=_hz;
+          }
           continue;
         }
         e.update(player,dt);
@@ -16675,7 +16704,7 @@ function _cityAddProps(){
   // ── glowing power-up spawn points on a few rooftops ──
   const kinds=['weapon','shield','speed']; let pi=0;
   for(const b of _cityBoxes){ if(pi>=3) break; if(b===tall) continue;
-    try{ _cityProps.powerups.push(new Powerup(b.x,b.z,kinds[pi%kinds.length], b.top+12)); pi++; }catch(e){} }
+    try{ const _pu=new Powerup(b.x,b.z,kinds[pi%kinds.length], b.top+12); _pu._mpIdx=_cityProps.powerups.length; _cityProps.powerups.push(_pu); pi++; }catch(e){} }
   // ── teleporter: ground pad in front of the tower <-> rooftop pad on top of it ──
   try{
     const gz=tall.z - tall.hd - 80;
@@ -16816,7 +16845,7 @@ function updateCityTest(dt){
     player._roofBox = onRoof? roofBox : null;
   }
   if(_cityProps && player){
-    for(const pu of _cityProps.powerups){ if(pu.collected){ if(pu.mesh)pu.mesh.visible=false; continue; } pu.update(player,dt); }
+    for(const pu of _cityProps.powerups){ if(pu.collected){ if(pu.mesh)pu.mesh.visible=false; continue; } pu.update(player,dt); if(pu.collected && typeof MP!=='undefined' && MP.active){ try{ mpSend('event',{event:'powerup_taken',data:{idx:pu._mpIdx}}); }catch(e){} } }
     for(const ar of _cityProps.arches){ if(ar.update) ar.update(dt,player); }
   }
   if(typeof _glGhostOccluders==='function') _glGhostOccluders();   // buildings between camera & robot fade out
@@ -16945,7 +16974,7 @@ function updateCityGravity(dt){
       let prrD=crD.addScaledVector(N,-crD.dot(N)); if(prrD.lengthSq()<1e-5){ prrD.crossVectors(N,_glLastTN); } prrD.normalize();
       let pfD=new THREE.Vector3().crossVectors(N,prrD); pfD.normalize();
       const ddD=pfD.multiplyScalar(-rdy).addScaledVector(prrD,rdx);
-      if(ddD.lengthSq()>1e-4){ ddD.normalize(); _glGVel.addScaledVector(ddD,300); player._glDashT=0.26; _glLastTN.copy(pfD); gridSheetsBlast(P.x,P.y,P.z,5,60); if(typeof Audio!=='undefined')Audio.blip(440,0.08,'sine',0.15,880); }
+      if(ddD.lengthSq()>1e-4){ ddD.normalize(); _glGVel.addScaledVector(ddD,300); player._glDashT=0.26; _glLastTN.copy(pfD); gridSheetsBlast(P.x,P.y,P.z,5,60); player._wallFxDash=[P.x,P.y,P.z]; if(typeof Audio!=='undefined')Audio.blip(440,0.08,'sine',0.15,880); }
       player._wallDashRaw=null;
     }
     if(player._glDashT>0) player._glDashT-=dt;
@@ -16963,7 +16992,7 @@ function updateCityGravity(dt){
     if(tanDir){ player._glStepT=(player._glStepT||0)-dt; if(player._glStepT<=0){ gridSheetsBlast(P.x,P.y,P.z,2,32); player._glStepT=0.3; } }
     if(player._jumpTapped){ player._jumpTapped=false;   // orbit hop: pop off along the normal; the field arcs you back. Jetpack is the only release.
       _glGVel.addScaledVector(N,275); P.addScaledVector(N,4);
-      gridSheetsBlast(P.x,P.y,P.z,4,46); if(typeof Audio!=='undefined')Audio.blip(300,0.4,'sine',0.14,500);
+      gridSheetsBlast(P.x,P.y,P.z,4,46); player._wallFxHop=[P.x,P.y,P.z]; if(typeof Audio!=='undefined')Audio.blip(300,0.4,'sine',0.14,500);
     }
     player._jetting=false;
   } else {
@@ -17351,7 +17380,7 @@ function _mpSyncEnemies(list){
   for(let i=0;i<list.length;i++){
     const ed=list[i]; let e=GS.enemies[i];
     if(!e){ try{ const Cls=_MP_ETYPES[ed.t]||Diamond; e=new Cls(ed.wx,ed.wz,1); if(e.addToScene)e.addToScene(); e.wx=ed.wx; e.wz=ed.wz; GS.enemies[i]=e; }catch(_){ continue; } }  // create missing
-    e._netTX=ed.wx; e._netTZ=ed.wz; if(ed.hp!=null)e.hp=ed.hp;   // interp target (smoothed in the loop) — do NOT snap, or local AI fights it -> jitter
+    e._netTX=ed.wx; e._netTZ=ed.wz; if(ed.y!=null)e._netTY=ed.y; e._netN=ed.n||null; if(ed.hp!=null)e.hp=ed.hp;   // interp target (smoothed in the loop) — do NOT snap, or local AI fights it -> jitter
     if(ed.alive===false&&e.alive!==false){ e.alive=false; if(e.remove)e.remove(); GS.enemies.splice(i,1); i--; }
   }
 }
@@ -17598,6 +17627,18 @@ function mpHandleRemoteEvent(msg){
     case 'player_hit':
       if(d.target===MP.myId) mpTakeDamage(d.dmg||1, msg.id);
       break;
+    case 'powerup_taken':
+      if(_cityProps && _cityProps.powerups){ const _pu=_cityProps.powerups.find(x=>x&&x._mpIdx===d.idx); if(_pu && !_pu.collected){ _pu.collected=true; if(_pu.mesh)_pu.mesh.visible=false; if(typeof ps!=='undefined')ps.ring(_pu.wx,_pu.wz,[0,1,0.78],24,120); } }
+      break;
+    case 'fx':
+      if(GS.state==='playing'){
+        const fx=d, fxX=fx.x||0, fxZ=fx.z||0, fxY=fx.y||0;
+        if(fx.k==='jump'){ if(typeof grid!=='undefined'&&grid.push)grid.push(fxX,fxZ,-1.4,62); if(typeof ps!=='undefined')ps.burst(fxX,fxZ,[0.4,0.8,1],6,55); }
+        else if(fx.k==='dash'){ if(typeof ps!=='undefined')ps.ring(fxX,fxZ,[0,0.85,1],10,80); if(typeof grid!=='undefined'&&grid.push)grid.push(fxX,fxZ,-2,50); if(typeof gridSheetsBlast==='function'&&fxY>20){ try{ gridSheetsBlast(fxX,fxY,fxZ,3,40); }catch(_){} } }
+        else if(fx.k==='walljump'){ if(typeof gridSheetsBlast==='function'){ try{ gridSheetsBlast(fxX,fxY,fxZ,4,46); }catch(_){} } }
+        else if(fx.k==='walldash'){ if(typeof gridSheetsBlast==='function'){ try{ gridSheetsBlast(fxX,fxY,fxZ,5,60); }catch(_){} } }
+      }
+      break;
     case 'city_req':
       if(MP.isHost) _cityBroadcastLayout();
       break;
@@ -17667,6 +17708,14 @@ let _mpTick=0;
 function mpTick(){
   if(!MP.active||!MP.connected||!player||GS.state!=='playing') return;
   _mpTick++;
+  // one-shot FX broadcasts (jump takeoff, dash) so remotes see the burst, not just the landing
+  if(player.alive){
+    if((player.pvy||0)>120 && (player._mpPrevPvy||0)<=120 && (player.py||0)<32) mpSend('event',{event:'fx',data:{k:'jump',x:player.wx,y:player.py,z:player.wz}});
+    if((player._dashRamp||0)>0 && (player._mpPrevDash||0)<=0) mpSend('event',{event:'fx',data:{k:'dash',x:player.wx,y:player.py,z:player.wz}});
+    if(player._wallFxHop){ mpSend('event',{event:'fx',data:{k:'walljump',x:player._wallFxHop[0],y:player._wallFxHop[1],z:player._wallFxHop[2]}}); player._wallFxHop=null; }
+    if(player._wallFxDash){ mpSend('event',{event:'fx',data:{k:'walldash',x:player._wallFxDash[0],y:player._wallFxDash[1],z:player._wallFxDash[2]}}); player._wallFxDash=null; }
+    player._mpPrevPvy=player.pvy||0; player._mpPrevDash=player._dashRamp||0;
+  }
   if(MP.versus && player && player.alive){
     for(let i=GS.bullets.length-1;i>=0;i--){ const b=GS.bullets[i]; if(!b||b._remote||b.life<=0) continue;
       for(const id in MP.players){ const rp=MP.players[id]; if(!rp||!rp.mesh) continue;
@@ -17686,11 +17735,12 @@ function mpTick(){
     weapon:GS.weapon||'bullets',
     dead:!player.alive,
     clip:player.model?.userData?.currentClip||'idle',
+    gn: player._inPlanetGravity ? [Math.round(_gN.x*100)/100, Math.round(_gN.y*100)/100, Math.round(_gN.z*100)/100] : null,   // surface normal while wall-crawling -> remote can orient us on the wall
   });
   // Host broadcasts enemy positions every 12 frames
   if(MP.isHost&&_mpTick%12===0&&GS.enemies.length){
     const enemyData=GS.enemies.slice(0,40).map(e=>({
-      t:e.constructor&&e.constructor.name, wx:Math.round(e.wx), wz:Math.round(e.wz), hp:e.hp, alive:e.alive
+      t:e.constructor&&e.constructor.name, wx:Math.round(e.wx), wz:Math.round(e.wz), y:(e.mesh?Math.round(e.mesh.position.y):0), n:(e._upV?[Math.round(e._upV.x*100)/100,Math.round(e._upV.y*100)/100,Math.round(e._upV.z*100)/100]:null), hp:e.hp, alive:e.alive
     }));
     mpSend('enemies',{enemies:enemyData});
   }
