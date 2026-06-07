@@ -6572,6 +6572,7 @@ class Player{
     const spawnZ=this._bombHandPos?this._bombHandPos.z:this.wz+(isDrop?0:dirZ*14);
     const spawnY=this._bombHandPos?this._bombHandPos.y:launchY;
     const b=new DropBomb(spawnX, spawnZ, spawnY, vx, vz, fuse, launchVY);
+    if(GS.zone===-16 && this._onPlatform) b._noOrbit=true;   // rooftop bombs ignore building gravity
     GS.dropBombs.push(b);
     if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:spawnY,vx:vx,vz:vz,fuse:fuse,vy:launchVY,bomb:true}});
     this._disarmBomb();
@@ -7337,6 +7338,7 @@ class Player{
       if(flat.lengthSq()<1e-4) return null;
       return flat.normalize();
     };
+    const _roofFire=(GS.zone===-16 && this._onPlatform && !this._inPlanetGravity);
     const fire=(ang,kind)=>{
       if(this._aim3DActive && this._aim3D && !isGalaxy){          // desktop: fire toward the 3D crosshair (up / down / level)
         const off=ang-a, ca=Math.cos(off), sa=Math.sin(off), d=this._aim3D;
@@ -7348,6 +7350,7 @@ class Player{
       } else {
         GS.bullets.push(new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0));
       }
+      if(_roofFire) GS.bullets[GS.bullets.length-1]._noOrbit=true;   // rooftop shots ignore building gravity
     };
     if(od){ fire(a,'laser');fire(a+0.16,'laser');fire(a-0.16,'laser'); if(Math.random()<0.4)fire(a+rand(-0.5,0.5),'homing'); }
     else if(lvl>=5){ fire(a,'normal'); fire(a+0.1,'normal'); } // lvl5 = faster bullets, missiles only via flick
@@ -7379,6 +7382,7 @@ class Player{
         spawnX=hp.x; spawnZ=hp.z; y0=hp.y;
       }
       GS.missiles.push(new Missile(spawnX,spawnZ,dirX,dirZ,y0,dirY));
+      if(GS.zone===-16 && this._onPlatform && !this._inPlanetGravity) GS.missiles[GS.missiles.length-1]._noOrbit=true;   // rooftop rockets ignore building gravity
       if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:y0,a:ang,rocket:true,vy:dirY}});   // per-hand spawn so remote matches L/R
       ps.ring(spawnX,spawnZ,[1,0.5,0.1],4,40);
       // Muzzle flash
@@ -10950,6 +10954,7 @@ function _padJump(){ if(!player||GS.state!=='playing')return;
   if(player._grinding||player._wallClimb||player._hang){ player._jumpTapped=true; setTimeout(()=>{if(player)player._jumpTapped=false;},90); return; }
   if(player.py<=8||player._onPlatform){ player.pvy=180; player._onPlatform=false; Audio.blip(440,0.4,'sine',0.12,520); ps.burst(player.wx,player.wz,[0.4,0.8,1],6,50); } }
 function _padDash(){ if(!player||GS.state!=='playing')return; const mv=rotInput(moveIn.x,moveIn.y);
+  if(player._inPlanetGravity){ player._wallDashRaw=[moveIn.x,moveIn.y]; }
   if(Math.hypot(mv.x,mv.z)>0.1){ player._dashDir=[mv.x,mv.z]; player._dashRamp=10; player._dashPeak=MOVE.topSpeed*3.4; ps.ring(player.wx,player.wz,[0,0.85,1],10,80); grid.push(player.wx,player.wz,-2,50); Audio.blip(440,0.08,'sine',0.15,880); } }
 function _padBomb(){ if(!player||GS.state!=='playing')return;
   if(!player.bombArmed){ if(player.bombs>0){ player._armBomb(); player._aimerX=player.wx+Math.cos(player.aim)*120; player._aimerZ=player.wz+Math.sin(player.aim)*120; } else if(typeof announce==='function')announce('NO BOMBS','#ff4400'); }
@@ -11133,6 +11138,7 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
             const wx=svx*cy+svy*sy, wz=-svx*sy+svy*cy;
             const len=Math.hypot(wx,wz)||1;
             const dx=wx/len, dz=wz/len;
+            if(player._inPlanetGravity){ const _fl=Math.hypot(svx,svy)||1; player._wallDashRaw=[svx/_fl, svy/_fl]; }   // wall-crawl: hand the raw flick to the surface dash
 
             // Check if right stick also just flicked (dual-flick = dash-launch)
             const rFlickAge=performance.now()-(window._lastRFlickTime||0);
@@ -15942,7 +15948,7 @@ function _glChaseCam(P, N, fwd, dt){
 function _glExitGrav(P,V){
   _glGravOn=false; if(player){ player._inPlanetGravity=false; player._onPlatform=false; player._galSpeed=0; }
   if(P&&player){ player.wx=P.x; player.wz=P.z; player.py=Math.max(0,P.y); player.vx=(V?V.x:0)*0.6; player.vz=(V?V.z:0)*0.6; player.pvy=V?V.y:0; }
-  _gN.set(0,1,0); player._aim3DActive=false; if(typeof camera!=='undefined'){ camera.up.set(0,1,0); _glExitFrom.copy(camera.position); _glExitLookFrom.copy(_glCamLook); _glExitBlend=0; }
+  _gN.set(0,1,0); if(player) player._wallDashRaw=null; player._aim3DActive=false; if(typeof camera!=='undefined'){ camera.up.set(0,1,0); _glExitFrom.copy(camera.position); _glExitLookFrom.copy(_glCamLook); _glExitBlend=0; }
   if(player){ player._camFocY=4+Math.max(0,player.py)*0.55+Math.max(0,player.py-50)*0.45; CAM.tfocus.set(player.wx,player._camFocY,player.wz); }   // track the player's height on exit and let focus EASE in (no snap)
   if(player){ player._glOrientBlend=0.5; }   // ease the model from planet-aligned back to upright in the flat update (no snap)
 }
@@ -16733,9 +16739,10 @@ function updateCityTest(dt){
   for(const b of _cityBoxes){ for(const s of b.sheets) s.update(dt); }
   // rooftop surface flag (skipped while wall-crawling — gravity owns the player then)
   if(player && !player._inPlanetGravity){
-    let onRoof=false;
-    for(const b of _cityBoxes){ if(Math.abs(player.wx-b.x)<b.hw && Math.abs(player.wz-b.z)<b.hd && Math.abs(player.py-b.top)<5){ onRoof=true; break; } }
+    let onRoof=false, roofBox=null;
+    for(const b of _cityBoxes){ if(Math.abs(player.wx-b.x)<b.hw && Math.abs(player.wz-b.z)<b.hd && Math.abs(player.py-b.top)<5){ onRoof=true; roofBox=b; break; } }
     if(onRoof) player._onPlatform=true; else if(player.py>1) player._onPlatform=false;
+    player._roofBox = onRoof? roofBox : null;
   }
   if(typeof _glGhostOccluders==='function') _glGhostOccluders();   // buildings between camera & robot fade out
   if(dt>0) _cityFpsEMA = _cityFpsEMA*0.92 + (1/dt)*0.08;
@@ -16758,7 +16765,7 @@ function _cityProjOrbit(b, R, SOI, dt){
   // force field. No accumulating pull (that punched shots through the wall) and no speed bleed (that stalled bullets).
   // Within SOI it steers gently toward the wall (rounded ground->wall transition); on the wall the into-wall part of
   // its motion becomes UP-the-wall and the sideways part is kept. Returns true while in a building's field.
-  if(!_cityBoxes.length) return false;
+  if(!_cityBoxes.length || b._noOrbit) return false;   // _noOrbit: fired from a rooftop -> never caught by a building's pull
   const by=(b.y!==undefined?b.y:9);
   let bb=null,bD=1e9;
   for(const box of _cityBoxes){ const ex=Math.max(Math.abs(b.wx-box.x)-box.hw,0), ez=Math.max(Math.abs(b.wz-box.z)-box.hd,0), ey=Math.max(by-box.top,0); const hd=Math.hypot(ex,ey,ez); if(hd<bD){bD=hd;bb=box;} }
@@ -16807,7 +16814,7 @@ function updateCityGravity(dt){
     const ar=V3(Math.abs(r.x)/E0.x, Math.abs(r.y)/E0.y, Math.abs(r.z)/E0.z);
     if(ar.y>=ar.x && ar.y>=ar.z) return;   // roof -> normal landing; crawl side walls only
     const grabN=(ar.x>=ar.z)?V3(Math.sign(r.x)||1,0,0):V3(0,0,Math.sign(r.z)||1);
-    if(player.py>=14){ if(nb.d2>40*40) return; }
+    if(player.py>=14){ if(nb.d2>40*40 || (player.pvy||0)>40) return; }   // rising = jumping off the top -> let the launch carry (no suck-onto-side); only grab when arcing/falling toward a wall
     else { if(nb.d2>24*24 || -(player.vx*grabN.x+player.vz*grabN.z) < 35) return; }
     _cgBox=b0; _glGravOn=true; player._inPlanetGravity=true;
     _glCamLook.copy(CAM.focus);
@@ -16838,8 +16845,11 @@ function updateCityGravity(dt){
   let f=field(P);
   let N=f.nrm.clone();
   const grounded = f.dist <= PR+2; player._glGrounded=grounded;
-  if(grounded && N.y>0.55){   // crest onto the TOP face: hand off to normal rooftop camera/physics sooner (less edge resistance) -> one consistent roof view
-    _glExitGrav(V3(P.x, b.top+2, P.z), _glGVel); _cgBox=null; _cgNoGrab=0.35; player._onPlatform=true; return;
+  if(grounded && N.y>0.5){   // crest onto the TOP face -> hand off to the normal rooftop physics
+    const ex=Math.max(b.x-b.hw+PR, Math.min(b.x+b.hw-PR, P.x)), ez=Math.max(b.z-b.hd+PR, Math.min(b.z+b.hd-PR, P.z));  // land INSIDE the roof edge, not ~9u past it (was falling back off -> re-grabbing the wall)
+    const exitV=new THREE.Vector3(_glGVel.x, Math.min(_glGVel.y,0), _glGVel.z);   // keep the horizontal run, drop the upward kick (no "shoot straight up")
+    { const dgx=P.x-b.x, dgz=P.z-b.z; if(dgx*dgx+dgz*dgz>1){ const yy=Math.atan2(dgx,dgz); CAM.yaw=yy; CAM.tyaw=yy; } }   // orient the rooftop camera to the side you climbed from -> "up" keeps carrying you onto the roof (no 180 flip walking you back off)
+    _glExitGrav(V3(ex, b.top+2, ez), exitV); _cgBox=null; _cgNoGrab=0.35; player._onPlatform=true; return;
   }
   // input -> camera-relative tangent on the surface plane
   let rx=moveIn.x, ry=moveIn.y;
@@ -16854,12 +16864,25 @@ function updateCityGravity(dt){
   }
   const ACC=950, MAXS=210, GRAVc=720;
   if(grounded){
+    if(player._wallDashRaw){   // DASH on the wall: burst along the flicked direction, mapped into the surface frame
+      const rdx=player._wallDashRaw[0], rdy=player._wallDashRaw[1];
+      const crD=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);
+      let prrD=crD.addScaledVector(N,-crD.dot(N)); if(prrD.lengthSq()<1e-5){ prrD.crossVectors(N,_glLastTN); } prrD.normalize();
+      let pfD=new THREE.Vector3().crossVectors(N,prrD); pfD.normalize();
+      const ddD=pfD.multiplyScalar(-rdy).addScaledVector(prrD,rdx);
+      if(ddD.lengthSq()>1e-4){ ddD.normalize(); _glGVel.addScaledVector(ddD,300); player._glDashT=0.26; _glLastTN.copy(pfD); gridSheetsBlast(P.x,P.y,P.z,5,60); if(typeof Audio!=='undefined')Audio.blip(440,0.08,'sine',0.15,880); }
+      player._wallDashRaw=null;
+    }
+    if(player._glDashT>0) player._glDashT-=dt;
     if(tanDir) _glGVel.addScaledVector(tanDir, ACC*Math.min(1,inMag)*dt);
     _glGVel.addScaledVector(N,-_glGVel.dot(N));        // keep velocity tangent to the surface
-    if(!tanDir) _glGVel.multiplyScalar(0.80);
-    if(_glGVel.length()>MAXS) _glGVel.setLength(MAXS);
+    if(!tanDir && !(player._glDashT>0)) _glGVel.multiplyScalar(0.80);
+    const _cap=(player._glDashT>0)?440:MAXS; if(_glGVel.length()>_cap) _glGVel.setLength(_cap);
+    const _Nprev=N.clone();
     P.addScaledVector(_glGVel,dt);                     // move freely along the tangent...
     f=field(P); N=f.nrm.clone(); P.copy(C).add(f.qr).addScaledVector(N,PR);   // ...then ride the surface (rounds edges/corners continuously)
+    if(_glGVel.lengthSq()>1){ const _qN=new THREE.Quaternion().setFromUnitVectors(_Nprev,N); _glGVel.applyQuaternion(_qN); }   // rotate velocity with the surface -> momentum carries OVER the edge (no stall, no launch)
+    _glGVel.addScaledVector(N,-_glGVel.dot(N));
     player._galSpeed=_glGVel.length();
     player._jetCool=Math.max(0,(player._jetCool||0)-dt); if(player._jetCool<=0) player.boostFuel=Math.min(player.boostMax,player.boostFuel+26*dt);
     if(tanDir){ player._glStepT=(player._glStepT||0)-dt; if(player._glStepT<=0){ gridSheetsBlast(P.x,P.y,P.z,2,32); player._glStepT=0.3; } }
