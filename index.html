@@ -495,6 +495,9 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
     </div>
     <div style="font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:4px;color:#ffffff33;margin:8px 0 12px;text-align:center">── CAMPAIGN ZONES ──</div>
     <div id="ls-grid" style="width:100%;max-width:360px;padding:0 16px"></div>
+    <div style="font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:4px;color:#ffffff33;margin:16px 0 8px;text-align:center">── SANDBOX ──</div>
+    <button onclick="window._cityMode='random';startGameAtLevel(-16)" style="width:100%;max-width:360px;margin:0 auto;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#33ddff;background:rgba(51,221,255,0.06);border:1.5px solid #33ddff55;border-radius:8px;cursor:pointer">CITY TEST — procedural block experiment</button>
+    <button onclick="window._cityMode='grid';startGameAtLevel(-16)" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#39ffc9;background:rgba(57,255,201,0.06);border:1.5px solid #39ffc955;border-radius:8px;cursor:pointer">CITY MAP — street-grid layout (perf test)</button>
     <button onclick="window._showScreen('character')" style="margin-top:20px;font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:4px;color:#ffffff33;background:none;border:none;cursor:pointer"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:7px"><path d="M15 5 8 12l7 7"/></svg>BACK</button>
   </div>
 
@@ -918,7 +921,7 @@ const CAM={ yaw:0, tyaw:0, pitch:0, tpitch:0, dist:230, height:200, trauma:0,
 function addTrauma(t){ CAM.trauma=clamp(CAM.trauma+t,0,1); }
 function punchZoom(z){ CAM.tzoom=z; }
 function updateCamera(dt){
-  if(player&&player._inPlanetGravity&&GS.zone===-15) return;   // lab orbit cam owns the camera while on the planet
+  if(player&&player._inPlanetGravity&&(GS.zone===-15||GS.zone===-16)) return;   // lab/city gravity cam owns the camera
   CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
   CAM.focus.lerp(CAM.tfocus,0.18);
@@ -966,7 +969,7 @@ function updateCamera(dt){
   const shY=(Math.sin(t*2.1)+Math.sin(t*4.7))*0.5*sh*14;
   const aheadX=CAM.tfocus.x-Math.sin(CAM.yaw)*lookAheadDist;
   const aheadZ=CAM.tfocus.z-Math.cos(CAM.yaw)*lookAheadDist; const aheadY=CAM.tfocus.y+8;
-  if(_glExitBlend<1 && GS.zone===-15){
+  if(_glExitBlend<1 && (GS.zone===-15||GS.zone===-16)){
     _glExitBlend=Math.min(1,_glExitBlend+dt/0.95); const ee=_glExitBlend<0.5?2*_glExitBlend*_glExitBlend:1-Math.pow(-2*_glExitBlend+2,2)/2;
     camera.position.lerpVectors(_glExitFrom,new THREE.Vector3(cx+shX,cy+shY,cz),ee);
     camera.lookAt(_glExitLookFrom.x+(aheadX-_glExitLookFrom.x)*ee, _glExitLookFrom.y+(aheadY-_glExitLookFrom.y)*ee, _glExitLookFrom.z+(aheadZ-_glExitLookFrom.z)*ee);   // ease the LOOK too (was snapping -> teleport feel)
@@ -2872,7 +2875,7 @@ class Crawler extends Enemy{
       const sh=this._gs;
       if(!sh || GRID_SHEETS.indexOf(sh)<0){ this._cstate='ground'; this._gs=null; }
       else {
-        this._climbing=true; this._climbT+=dt;
+        this._climbing=true; this._climbT+=dt; this._climbTotal=(this._climbTotal||0)+dt;
         _gsV.set(p.wx,p.py,p.wz); sh.group.worldToLocal(_gsV);
         const tu=clamp(_gsV.x,-sh.hw,sh.hw), tv=clamp(_gsV.z,-sh.hd,sh.hd), step=this.spd*dt;
         this._gcu+=clamp(tu-this._gcu,-step,step);
@@ -2895,30 +2898,58 @@ class Crawler extends Enemy{
           if(nb && nb.dist<22){ _sheetWorldNormal(nb.sheet,_gsN); if(_gsN.y>-0.4){ this._gs=nb.sheet; this._gcu=nb.cu; this._gcv=nb.cv; this._climbT=0; nbOk=true; } }  // never crawl onto an underside
           if(!nbOk && this._upV.y<0.5 && this._gcv<=-sh.hd+4 && this._climbT>0.4){ this._cstate='ground'; this._gs=null; this._attachCD=1.0; }  // bottom edge of a wall/side -> step down to the floor
         }
-        if(Math.hypot(p.wx-this.wx,p.wz-this.wz)>560 || this._climbT>10){ this._cstate='ground'; this._gs=null; this._attachCD=0.7; }
+        if(Math.hypot(p.wx-this.wx,p.wz-this.wz)>560){ this._cstate='ground'; this._gs=null; this._attachCD=0.8; }   // only give up the climb if you run far away horizontally (stuck-detector handles dead ends)
         _updateSpider(this._spider, dt, Math.max(0.35, Math.min(1, moved/(step+1e-3))));
         this.mesh.scale.setScalar(this.spawn<1?(0.2+this.spawn*0.8):1);
         this._render(dt);
         return;
       }
     }
-    // GROUND — boids: seek the player + separation + cohesion + alignment
+    // GROUND — flock + organic AI. City: only hunt within an aggro radius; otherwise wander / idle / flock with real
+    // stop-turn-go pauses. Shipped zones keep the original relentless boid-seek.
     this._climbing=false;
     const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1;
-    let mvx=dx/d, mvz=dz/d;                       // seek
+    const CITY=(GS.zone===-16), AGGRO=CITY?460:1e9, aware=Math.hypot(dx,dz,p.py-9)<AGGRO;   // 3D: your height counts -> get high enough and they lose you
     let sx=0,sz=0, cx=0,cz=0, ax=0,az=0, nn=0;
     for(const o of GS.enemies){ if(o===this||!o._isCrawler||o._climbing) continue;
       const ox=o.wx-this.wx, oz=o.wz-this.wz, q2=ox*ox+oz*oz;
       if(q2<3600){ const q=Math.sqrt(q2)||1; nn++; cx+=o.wx; cz+=o.wz; ax+=o._vx2||0; az+=o._vz2||0;
-        if(q2<676){ const f=(1-q/26); sx-=(ox/q)*f; sz-=(oz/q)*f; } } }
-    if(nn>0){ cx=cx/nn-this.wx; cz=cz/nn-this.wz; const cl=Math.hypot(cx,cz)||1; mvx+=(cx/cl)*0.16; mvz+=(cz/cl)*0.16;
-      const al=Math.hypot(ax,az)||1; mvx+=(ax/al)*0.14; mvz+=(az/al)*0.14; }
-    mvx+=sx*2.0; mvz+=sz*2.0;                     // separation dominates -> no overlap
-    const ml=Math.hypot(mvx,mvz)||1; this._vx2=(mvx/ml)*this.spd; this._vz2=(mvz/ml)*this.spd;
+        if(q2<900){ const f=(1-q/30); sx-=(ox/q)*f; sz-=(oz/q)*f; } } }   // 30u separation -> fewer corner pile-ups
+    let mvx=0, mvz=0, _spd=this.spd;
+    if(CITY){
+      if(this._hdg===undefined) this._hdg=Math.random()*TAU;
+      this._moodT=(this._moodT||0)-dt;
+      if(this._moodT<=0){ const rr=Math.random();
+        if(aware){
+          if(rr<0.58){ this._mood=0; this._moodT=0.6+Math.random()*1.7; }                                                            // hunt
+          else if(rr<0.80){ this._mood=1; this._moodT=0.4+Math.random()*0.8; this._hdg=Math.atan2(dz,dx)+(Math.random()*2-1)*1.5; }   // veer off
+          else { this._mood=2; this._moodT=0.3+Math.random()*0.9; }                                                                  // freeze
+        } else {
+          if(rr<0.4){ this._mood=3; this._moodT=1.0+Math.random()*2.2; this._hdg=Math.random()*TAU; }                                 // wander
+          else if(rr<0.78){ this._mood=2; this._moodT=0.6+Math.random()*1.8; }                                                       // idle / pause
+          else { this._mood=3; this._moodT=0.6+Math.random()*1.3; this._hdg+=(Math.random()*2-1)*2.2; }                              // turn, then go
+        }
+      }
+      if(this._mood===0){ mvx=dx/d; mvz=dz/d; }
+      else if(this._mood===1){ mvx=Math.cos(this._hdg); mvz=Math.sin(this._hdg); }
+      else if(this._mood===3){ mvx=Math.cos(this._hdg); mvz=Math.sin(this._hdg); _spd*=0.5; }
+      else { mvx=sx; mvz=sz; _spd=this.spd*0.22; }                                              // freeze: hold position, only drift apart
+      if(this._mood!==2){ mvx+=sx*2.6; mvz+=sz*2.6;
+        if(!aware && nn>0){ cx=cx/nn-this.wx; cz=cz/nn-this.wz; const cl=Math.hypot(cx,cz)||1; mvx+=(cx/cl)*0.12; mvz+=(cz/cl)*0.12;
+          const al=Math.hypot(ax,az)||1; mvx+=(ax/al)*0.10; mvz+=(az/al)*0.10; } }                // gentle swarm only when idle
+    } else {
+      mvx=dx/d; mvz=dz/d;
+      if(nn>0){ cx=cx/nn-this.wx; cz=cz/nn-this.wz; const cl=Math.hypot(cx,cz)||1; mvx+=(cx/cl)*0.16; mvz+=(cz/cl)*0.16;
+        const al=Math.hypot(ax,az)||1; mvx+=(ax/al)*0.14; mvz+=(az/al)*0.14; }
+      mvx+=sx*2.0; mvz+=sz*2.0;
+    }
+    const ml=Math.hypot(mvx,mvz);
+    if(ml>0.01){ this._vx2=(mvx/ml)*_spd; this._vz2=(mvz/ml)*_spd; } else { this._vx2*=0.7; this._vz2*=0.7; }
     this.wx+=this._vx2*dt; this.wz+=this._vz2*dt;
-    if(this._attachCD<=0){
+    if(CITY) for(const box of _cityBoxes){ if(Math.abs(this.wx-box.x)<box.hw && Math.abs(this.wz-box.z)<box.hd){ const dxr=this.wx-box.x, dzr=this.wz-box.z; if(box.hw-Math.abs(dxr) < box.hd-Math.abs(dzr)) this.wx=box.x+(dxr>=0?1:-1)*(box.hw+2); else this.wz=box.z+(dzr>=0?1:-1)*(box.hd+2); break; } }   // never walk THROUGH a building on the ground
+    if(this._attachCD<=0 && (!CITY || (p.py>30 && aware))){
       const near=_nearestSheetSurface(this.wx,9,this.wz,28,null);
-      if(near && near.dist<24){ _sheetWorldNormal(near.sheet,_gsN); if(Math.abs(_gsN.y)<0.6){ this._gs=near.sheet; this._gcu=near.cu; this._gcv=near.cv; this._cstate='climb'; this._climbT=0; this._stuckT=0; } }
+      if(near && near.dist<24){ _sheetWorldNormal(near.sheet,_gsN); if(Math.abs(_gsN.y)<0.6){ this._gs=near.sheet; this._gcu=near.cu; this._gcv=near.cv; this._cstate='climb'; this._climbT=0; this._climbTotal=0; this._stuckT=0; } }
     }
     this._climbY += (9-this._climbY)*Math.min(1,dt*6);
     this._upV.set(0,1,0); this._fwdV.set(this._vx2,0,this._vz2);
@@ -5730,6 +5761,7 @@ class DropBomb{
     const GRAV=320;
     if(!this._orbitLock) this.vy-=GRAV*dt;
     this.wx+=this.vx*dt; this.wz+=this.vz*dt; this.y+=this.vy*dt;
+    this._orbitLock = (GS.zone===-16) ? _cityProjOrbit(this, 12, 170, dt) : (this._orbitLock||false);   // city: captured into a building's orbit (suspends fall/bounce)
 
     // Bounce off ground
     if(!this._orbitLock && this.y<=9){
@@ -5924,12 +5956,14 @@ class Bullet{
     if(this.kind==='homing'){ let best=null,bd=1e9; for(const e of enemies){const dx=e.wx-this.wx,dz=e.wz-this.wz,d=dx*dx+dz*dz;if(d<bd){bd=d;best=e;}}
       if(best){const dx=best.wx-this.wx,dz=best.wz-this.wz,d=Math.hypot(dx,dz)||1;this.vx+=(dx/d)*1000*dt;this.vz+=(dz/d)*1000*dt;const s=Math.hypot(this.vx,this.vz),mx=480;if(s>mx){this.vx=this.vx/s*mx;this.vz=this.vz/s*mx;}} }
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this.life-=this.decay*dt*60;
-    if(this._g3){ this.y+=this.vy*dt; } // straight-line 3D flight (galaxy) — no floor gravity
+    const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 14, 140, dt) : false;   // building field owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the ground->wall corner
+    if(this._g3){ this.y+=this.vy*dt; }                                        // straight-line 3D flight (galaxy)
+    else if(_cf){ this.y+=this.vy*dt; }                                        // riding/approaching a building -> climb freely, no ground pull
     else if(this.y>9){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){this.y=9;this.vy=0;} }
     this.mesh.position.set(this.wx,this.y,this.wz);
     if(!this._g3 && grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,0.7);
     if(GRID_SHEETS.length){ const _h=gridSheetHit(this.wx,this.y,this.wz,this.wx-this.vx*dt,this.y-(this._g3?this.vy*dt:0),this.wz-this.vz*dt);
-      if(_h){ _h.sheet.impactLocal(_h.lu,_h.lv,this.kind==='laser'?2.6:1.6); if(_glSheets.indexOf(_h.sheet)<0){ if(typeof ps!=='undefined') ps.burst(this.wx,this.wz,this.kind==='laser'?[0.4,1,1]:[1,0.7,0.2],6,40,this.y); this.life=0; } }   // lab shape = deform & curve past; everything else still dies on impact
+      if(_h){ _h.sheet.impactLocal(_h.lu,_h.lv,this.kind==='laser'?2.6:1.6); if(_glSheets.indexOf(_h.sheet)<0 && !_h.sheet._cityWall){ if(typeof ps!=='undefined') ps.burst(this.wx,this.wz,this.kind==='laser'?[0.4,1,1]:[1,0.7,0.2],6,40,this.y); this.life=0; } }   // lab shape = deform & curve past; everything else still dies on impact
       else gridSheetWake(this.wx,this.y,this.wz,0.7); }
     if(this._g3){ if(Math.abs(this.wx)>1600||Math.abs(this.wz)>1600||this.y<-300||this.y>1400)this.life=0; }
     else if(GS.zone!==-6&&GS.zone!==-7&&GS.zone!==-9&&(this.wx<-HALF_W-30||this.wx>HALF_W+30||this.wz<-HALF_D-30||this.wz>HALF_D+30))this.life=0; }
@@ -5995,29 +6029,28 @@ class Missile{
     // Accelerate
     this.speed=Math.min(this.maxSpeed, this.speed+dt*320);
 
-    // Home in on target
+    // Home in on target — FULL 3D. A rocket fired from a rooftop flies on its launch trajectory and arcs toward
+    // wherever the enemy ACTUALLY is (incl. a spider partway up a wall) instead of dumping its altitude to the floor.
     this._findTarget(enemies);
+    let dirx=this.vx, diry=this.vy, dirz=this.vz;
+    const cs=Math.hypot(this.vx,this.vy,this.vz)||1; dirx/=cs; diry/=cs; dirz/=cs;
     if(this.target){
-      const dx=this.target.wx-this.wx, dz=this.target.wz-this.wz;
-      const d=Math.hypot(dx,dz)||1;
-      const tx=dx/d, tz=dz/d;
-      const cs=Math.hypot(this.vx,this.vz)||1;
-      const cx=this.vx/cs, cz=this.vz/cs;
-      // Smooth turn toward target
+      const ty=this.target.mesh?this.target.mesh.position.y:(this.target.py!==undefined?this.target.py:10);
+      const dx=this.target.wx-this.wx, dy=ty-this.y, dz=this.target.wz-this.wz, d=Math.hypot(dx,dy,dz)||1;
       const turn=this.turnRate*dt;
-      this.vx=lerp(cx,tx,turn)*this.speed;
-      this.vz=lerp(cz,tz,turn)*this.speed;
-      // Normalize to keep speed
-      const ns=Math.hypot(this.vx,this.vz)||1;
-      this.vx=this.vx/ns*this.speed;
-      this.vz=this.vz/ns*this.speed;
+      dirx=lerp(dirx,dx/d,turn); diry=lerp(diry,dy/d,turn); dirz=lerp(dirz,dz/d,turn);
     }
-
-    this.wx+=this.vx*dt; this.wz+=this.vz*dt;
-    // Vertical homing — climb/descend toward the locked target (or settle near ground),
-    // so rockets fired from the air actually arc to where the enemy is.
-    if(GS.zone!==-12 && this.target){ const tgtY=this.target.mesh?this.target.mesh.position.y:10; this.y+=(tgtY-this.y)*Math.min(1,dt*3.2); }   // home vertically onto a locked target
-    else if(this.vy){ if(GS.zone===-15){ this.y+=this.vy*dt; } else { this.y=Math.max(4,this.y+this.vy*dt); this.vy*=0.985; } }   // lab: full 3D arc (no vy decay / floor clamp) so gravity can slingshot the rocket; elsewhere carry the launch pitch
+    const ns=Math.hypot(dirx,diry,dirz)||1;
+    this.vx=dirx/ns*this.speed; this.vy=diry/ns*this.speed; this.vz=dirz/ns*this.speed;
+    this.wx+=this.vx*dt; this.y+=this.vy*dt; this.wz+=this.vz*dt;
+    const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 26, 170, dt) : false;   // CITY: orbit walls (reach wall-crawling spiders); owns vertical motion at the ground->wall corner
+    if(!_cf && GS.zone!==-15 && this.y<2){ this.y=2; this.vy=Math.max(0,this.vy); }   // floor clamp only when NOT riding a building
+    { const ot=!!_cf;   // riding a building -> render the rocket ON TOP so the opaque wall fill can't swallow it (the additive body was getting depth-occluded; the trail line peeks past the edge -> "trail right, rocket gone")
+      if(this.body) this.body.material.depthTest=!ot;
+      if(this.nose) this.nose.material.depthTest=!ot;
+      if(this.glow) this.glow.material.depthTest=!ot;
+      this.group.renderOrder = ot?12:0; }
+    if(_cf){ this._cityDentT=(this._cityDentT||0)-dt; if(this._cityDentT<=0){ gridSheetsBlast(this.wx,this.y,this.wz,3,38); this._cityDentT=0.04; } }   // carve a dent-trail into the wall as the rocket rides it (bullets already dent via their sheet-hit; rockets ride too far out to touch one)
 
     // Exhaust trail
     this._trail.push({x:this.wx,z:this.wz,y:this.y});
@@ -6034,7 +6067,7 @@ class Missile{
 
     // Orient missile: point nose toward travel direction using lookAt
     // Since geometry is baked along Z, lookAt points +Z toward target
-    const spd=Math.hypot(this.vx,this.vz)||1;
+    const spd=Math.hypot(this.vx,this.vy,this.vz)||1;
     this.group.position.set(this.wx, this.y, this.wz);
     this.group.lookAt(this.wx+this.vx/spd*100, this.y+this.vy/spd*100, this.wz+this.vz/spd*100);
     if(grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,1.4);   // rocket trail wake
@@ -6912,7 +6945,7 @@ class Player{
       if(al>0.15){
         const desired=-this.aim-Math.PI/2;
         let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-        if(Math.abs(diff)>0.55) CAM.tyaw+=diff*0.028;   // wider window: turn the character a fair bit before the camera follows
+        if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4);   // stay centered behind the right-stick aim: tiny window, smooth steady ease
       }
     }
 
@@ -6980,13 +7013,19 @@ class Player{
     // Track peak height while airborne for landing impact scaling
     if(this.py>0) this._peakPy=Math.max(this._peakPy||0, this.py);
     const wasAirborne=this._wasAirborne||false;
+    let eFloor=0;
+    if(GS.zone===-16 && _cityBoxes.length && !this._inPlanetGravity){
+      const _cap=Math.max(10, Math.abs(this.pvy||0)*dt+6);
+      for(const b of _cityBoxes){ const dx=this.wx-b.x, dz=this.wz-b.z;
+        if(Math.abs(dx)<b.hw && Math.abs(dz)<b.hd && this.py<=b.top+2 && this.py>=b.top-_cap && b.top>eFloor) eFloor=b.top; }
+    }
     const _arSolid = !window._arenaVoid || (typeof _arenaSolidAt!=='function') || _arenaSolidAt(this.wx,this.wz);
-    if(window._arenaVoid && !_arSolid && this.py<=0){
+    if(window._arenaVoid && !_arSolid && this.py<=0 && eFloor<=0){
       // over the void — keep falling, ring out once we drop far enough
       this._wasAirborne=true;
       if(this.py<-150 && typeof _arenaRingOutPlayer==='function') _arenaRingOutPlayer();
-    } else if(this.py<=0){
-      this.py=0;
+    } else if(this.py<=eFloor){
+      this.py=eFloor;
       if(this.pvy<0){
         if(wasAirborne){
           const impact=Math.abs(this.pvy);
@@ -6994,19 +7033,23 @@ class Player{
           if(impact>30||peakH>40){
             // Scale shockwave by how high we fell from
             const str=clamp((impact/120)*(0.5+peakH/200), 0.08, 1.5);
-            // Outward XZ shockwave — rings spread away from landing point
-            grid.shock(this.wx, this.wz, str*8);
-            // Also push nodes outward directly for immediate snap
-            const rad=40+str*80;
-            for(let i=0;i<grid.n;i++){
-              const ddx=grid.rx[i]-this.wx, ddz=grid.rz[i]-this.wz;
-              const d2=ddx*ddx+ddz*ddz;
-              if(d2<rad*rad&&d2>0.01){
-                const d=Math.sqrt(d2);
-                const f=(1-d/rad)*str*3;
-                grid.vx[i]+=(ddx/d)*f; // outward XZ
-                grid.vz[i]+=(ddz/d)*f;
-                grid.vy[i]-=f*0.4;    // slight downward dent at epicenter
+            if(eFloor>0){
+              // landed on a building ROOF — shock the building's grid sheets, leave the ground plane alone
+              if(typeof gridSheetsBlast==='function') gridSheetsBlast(this.wx, eFloor, this.wz, str*4.5, Math.min(56, 38+str*20));
+            } else {
+              // Outward XZ shockwave on the ground — rings spread away from landing point
+              grid.shock(this.wx, this.wz, str*8);
+              const rad=40+str*80;
+              for(let i=0;i<grid.n;i++){
+                const ddx=grid.rx[i]-this.wx, ddz=grid.rz[i]-this.wz;
+                const d2=ddx*ddx+ddz*ddz;
+                if(d2<rad*rad&&d2>0.01){
+                  const d=Math.sqrt(d2);
+                  const f=(1-d/rad)*str*3;
+                  grid.vx[i]+=(ddx/d)*f;
+                  grid.vz[i]+=(ddz/d)*f;
+                  grid.vy[i]-=f*0.4;
+                }
               }
             }
             if(str>0.4) addTrauma(str*0.06);
@@ -7113,6 +7156,20 @@ class Player{
     if(typeof _glMeta!=='undefined' && _glMeta && _glMeta.kind==='cube' && (typeof _glMorphT==='undefined'||_glMorphT<0.5)){
       const _h=_glMeta.h, _top=_glMeta.cy+_h;
       if(Math.abs(this.wx)<_h+2 && Math.abs(this.wz)<_h+2 && _top<=this.py+2){ groundY=Math.max(groundY,_top); if(Math.abs(this.py-_top)<3) onSurface=true; }
+    }
+
+    // CITY TEST — box buildings: rooftop landing has PRIORITY (descent capture), walls only block below the roof
+    if(GS.zone===-16 && _cityBoxes.length && !this._inPlanetGravity){
+      const cap=Math.min(34, Math.max(8, Math.abs(this.pvy||0)*dt + 6));   // capture window scales with fall speed so fast drops still land
+      for(const b of _cityBoxes){
+        const dx=this.wx-b.x, dz=this.wz-b.z, overFoot=(Math.abs(dx)<b.hw && Math.abs(dz)<b.hd);
+        if(overFoot && this.py >= b.top-cap){            // on/above roof (incl. landing descent) -> LAND, never push sideways
+          groundY=Math.max(groundY,b.top); if(Math.abs(this.py-b.top)<4) onSurface=true;
+        } else if(this.py < b.top-cap){                  // clearly below the roof -> wall blocks horizontally
+          const px=b.hw+9-Math.abs(dx), pz=b.hd+9-Math.abs(dz);
+          if(px>0 && pz>0){ if(px<pz) this.wx=b.x+Math.sign(dx||1)*(b.hw+9); else this.wz=b.z+Math.sign(dz||1)*(b.hd+9); }
+        }
+      }
     }
 
     // World floor
@@ -7246,6 +7303,10 @@ class Player{
         return;
       }
       if(GS.zone===-15){   // lab planet: updateLabGravity owns position, surface-aligned orientation & camera
+        if(ud.rim) ud.rim.material.emissive?.setHex(od?0xffe600:0x00ffc8);
+        return;
+      }
+      if(GS.zone===-16){   // city wall-crawl: updateCityGravity owns position/orientation/camera
         if(ud.rim) ud.rim.material.emissive?.setHex(od?0xffe600:0x00ffc8);
         return;
       }
@@ -7404,6 +7465,7 @@ function getZoneDef(z){
   if(z===-14) return {name:'ROPE SWING',subtitle:'Lava Pit Crossing',color:0xffe066,glowCol:[1,0.88,0.4],waves:0,enemies:[],special:'none',desc:'Run, jump, grab the rope, pump and swing across'};
   if(z===-15) return {name:'GRID LAB',subtitle:'Construct Sandbox',color:0x33ddff,glowCol:[0.2,0.85,1],waves:0,enemies:[],special:'none',desc:'Build assets out of the grid plane'};
   if(z===-11) return {name:'ASSET ROOM',subtitle:'Showcase & Test Gallery',color:0x88ff66,glowCol:[0.53,1,0.4],waves:0,enemies:[],special:'none',desc:'One of every asset — shoot, test, iterate'};
+  if(z===-16) return {name:'CITY TEST',subtitle:'Procedural Block Sandbox',color:0x33ddff,glowCol:[0.2,0.85,1],waves:0,enemies:[],special:'none',desc:'A city block with the full stack — drive, fly, shoot'};
   return ZONES[Math.min(z,ZONES.length-1)];
 }
 
@@ -8439,6 +8501,7 @@ function startGame(levelIdx){
   _disposeBlockText(); if(_exitGuide){ scene.remove(_exitGuide); _exitGuide=null; } _disposePhysicalText(); _disposePowerupStations(); _disposeArenaObstacles(); _disposeArena();
   if(_spawnBeams&&_spawnBeams.length){ _spawnBeams.forEach(b=>scene.remove(b.grp)); _spawnBeams=[]; }
   if(typeof _disposeGridLab==='function') _disposeGridLab();
+  if(typeof _disposeCityTest==='function') _disposeCityTest();
   // tear down any leftover galaxy objects (planets/platforms/indicator) so they don't bleed into other zones
   if(window._galaxyObjects){ window._galaxyObjects.forEach(o=>scene.remove(o)); window._galaxyObjects=[]; }
   window._galaxyPlanets=[]; window._arenaPlatforms=[]; window._dropIndicator=null;
@@ -8470,6 +8533,7 @@ function startGame(levelIdx){
   else if(GS.zone===-11){ player.wx=0; player.wz=0; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
   else if(GS.zone===-12){ player.wx=0; player.wz=170; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
   else if(GS.zone===-15){ player.wx=0; player.wz=130; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
+  else if(GS.zone===-16){ player.wx=0; player.wz=160; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
   else { player.wx=0; player.wz=0; }
   grid.setZone(GS.zone);
   // Spawn alien plants scattered around the arena
@@ -8522,6 +8586,7 @@ function startGame(levelIdx){
   else if(GS.zone===-13){ buildRLArena(); }
   else if(GS.zone===-14){ buildRopeZone(); }
   else if(GS.zone===-15){ buildGridLab(); }
+  else if(GS.zone===-16){ buildCityTest(); }
   else if(GS.zone===0){ if(GS.survival) spawnWave(); else buildZone1Puzzle(); }
   else spawnWave();
   setupSpecialLevel(GS.zone);
@@ -11906,6 +11971,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===0) updatePuzzleLevel(dt);
       if(GS.zone===-1) updateTutorial(dt);
       if(GS.zone===-5) updateTransition(dt);
+      if(GS.zone===-16) updateCityTest(dt);
       player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); player.draw(od);
       { // ── DROP-THROUGH: HOLD the left stick down (a flick = dash) while on a platform ──
         const downHeld=(moveIn.y>0.55)||((keys['KeyS']||keys['ArrowDown'])&&!(keys['KeyW']||keys['ArrowUp']));
@@ -12382,6 +12448,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-13){ updateRLArena(dt); }
       if(GS.zone===-14){ updateRopeZone(dt); }
       if(GS.zone===-15){ updateGridLab(dt); }
+      if(GS.zone===-16){ updateCityGravity(dt); }
 
       for(let i=GS_bots.length-1;i>=0;i--){
         const bot=GS_bots[i];
@@ -15198,6 +15265,7 @@ const _GS_PAL={
   green: [[70,230,90],[180,240,80],[255,180,70],[255,90,140]],
   purple:[[150,70,255],[200,110,255],[255,90,210],[255,150,235]],
   blue:  [[0,40,160],[0,180,240],[150,120,255],[230,160,255]],
+  neon:  [[60,255,205],[150,255,200],[200,255,140],[235,255,180]],   // turquoise -> light green (city buildings)
 };
 class GridSheet{
   constructor(opts){
@@ -15240,7 +15308,7 @@ class GridSheet{
       this.group.add(this.fill);
     }
     scene.add(this.group);
-    this.shocks=[]; this.beat=0; this._dBias=o.dBias||0; GRID_SHEETS.push(this); this._rebuild();
+    this.shocks=[]; this.beat=0; this._dBias=o.dBias||0; this._bright=o.bright||1; GRID_SHEETS.push(this); this._rebuild();
   }
   _col(d){ const t=Math.min(d/28,1)+this.beat*0.5, tt=Math.min(t,1);
     const P=_GS_PAL[this._pal]||_GS_PAL.orange;                       // base -> peak ramp by distortion
@@ -15283,7 +15351,7 @@ class GridSheet{
     for(let ei=0;ei<this._edges.length;ei++){ const e=this._edges[ei], row=e.row, r=e.r, c=e.c;
       const i0=r*this.nx+c, i1=row?(r*this.nx+c+1):((r+1)*this.nx+c);
       const d0=Math.hypot(this.u[i0]-this.ru[i0],this.v[i0]-this.rv[i0],this.y[i0]*1.5), d1=Math.hypot(this.u[i1]-this.ru[i1],this.v[i1]-this.rv[i1],this.y[i1]*1.5), d=(d0+d1)*0.5 + this._dBias;
-      const cl=this._col(d), rf=cl[0]/255, gf=cl[1]/255, bf=cl[2]/255, a=cl[3], glowA=d>8?Math.min(d/16,1):0;
+      const cl=this._col(d), B=this._bright||1, rf=cl[0]/255*B, gf=cl[1]/255*B, bf=cl[2]/255*B, a=cl[3], glowA=d>8?Math.min(d/16,1):0;
       let pu=this.u[i0], pv=this.v[i0], py=this.y[i0];
       for(let sdi=0;sdi<SD;sdi++){ const t=(sdi+1)/SD; let cu,cv,cy;
         if(row){ cu=this._cr(this._au(r,c-1),this._au(r,c),this._au(r,c+1),this._au(r,c+2),t); cv=this._cr(this._av(r,c-1),this._av(r,c),this._av(r,c+1),this._av(r,c+2),t); cy=this._cr(this._ay(r,c-1),this._ay(r,c),this._ay(r,c+1),this._ay(r,c+2),t); }
@@ -15467,27 +15535,50 @@ function _glBuildMorphButton(){
   glow.position.set(wx,24,wz); scene.add(glow);
   _glMorphBtn={wx,wz,mesh,ring,glow,t:0,armed:true};
 }
+function _segHitsBox(p0,p1, cx,cy,cz, ex,ey,ez){
+  let tmin=0, tmax=1;
+  const ax=[[p0.x,p1.x,cx,ex],[p0.y,p1.y,cy,ey],[p0.z,p1.z,cz,ez]];
+  for(const a of ax){ const o=a[0]-a[2], d=a[1]-a[0], e=a[3];
+    if(Math.abs(d)<1e-6){ if(o<-e||o>e) return false; }
+    else { let t1=(-e-o)/d, t2=(e-o)/d; if(t1>t2){ const tt=t1;t1=t2;t2=tt; } if(t1>tmin)tmin=t1; if(t2<tmax)tmax=t2; if(tmin>tmax) return false; } }
+  return true;
+}
 function _glGhostOccluders(){
   if(!player || typeof camera==='undefined') return;
+  const camP=camera.position;
+  _occV.set(player.wx, player.py + (player._inPlanetGravity?6:16), player.wz);   // aim at the player's chest
+  const seg=_occV.clone().sub(camP); const segLen=seg.length()||1; seg.multiplyScalar(1/segLen);
   const occL=[];
   for(const s of _glSheets) occL.push(s);
   for(const s of _glPlatSheets) occL.push(s);
   for(const s of _glWallSheets) occL.push(s);
-  const camP=camera.position;
-  _occV.set(player.wx, player.py + (player._inPlanetGravity?6:16), player.wz);   // aim at the player's chest
-  const seg=_occV.clone().sub(camP); const segLen=seg.length()||1; seg.multiplyScalar(1/segLen);
   for(const s of occL){
     if(s._occR===undefined){ let r=60; if(s.fill&&s.fill.geometry){ s.fill.geometry.computeBoundingSphere(); r=(s.fill.geometry.boundingSphere?.radius||60); } s._occR=r+14; }
     s.group.getWorldPosition(_occW);
-    _occW.sub(camP); const t=_occW.dot(seg);                                      // distance along the camera->player ray
+    _occW.sub(camP); const t=_occW.dot(seg);
     let occ=false;
-    if(t>14 && t<segLen-22){ const perp=_occW.addScaledVector(seg,-t).length(); if(perp < s._occR) occ=true; }   // center near the ray, in front of the player
-    if(_glCubeSeeThru && _glSheets.includes(s)) occ=true;   // on the bottom -> force the whole cube see-through
-    s._ghost=(s._ghost||0)+((occ?1:0)-(s._ghost||0))*0.18;                        // smooth fade
+    if(t>14 && t<segLen-22){ const perp=_occW.addScaledVector(seg,-t).length(); if(perp < s._occR) occ=true; }
+    if(_glCubeSeeThru && _glSheets.includes(s)) occ=true;
+    s._ghost=(s._ghost||0)+((occ?1:0)-(s._ghost||0))*0.18;
     const g=s._ghost;
     if(s.fill){ if(!s.fill.material.transparent) s.fill.material.transparent=true; s.fill.material.opacity=1-g*0.94; s.fill.material.depthWrite=(g<0.5); }
     if(s.lines)     s.lines.material.opacity     = 1   - g*0.82;
     if(s.glowLines) s.glowLines.material.opacity = 0.7*(1 - g*0.82);
+  }
+  // CITY: per-building BOX test. Fade the WHOLE building only when the camera->player line passes through its box
+  // (or the camera is inside it) -> tall towers stop blacking out the screen and stop vanishing when merely nearby.
+  // Never fade the building you're crawling on.
+  if(typeof _cityBoxes!=='undefined' && _cityBoxes.length){
+    for(const b of _cityBoxes){
+      const occ=(player._inPlanetGravity && b===_cgBox) ? false : _segHitsBox(camP,_occV, b.x,b.top/2,b.z, b.hw+12,b.top/2+12,b.hd+12);
+      for(const s of b.sheets){
+        s._ghost=(s._ghost||0)+((occ?1:0)-(s._ghost||0))*0.2;
+        const g=s._ghost;
+        if(s.fill){ if(!s.fill.material.transparent) s.fill.material.transparent=true; s.fill.material.opacity=1-g*0.96; s.fill.material.depthWrite=(g<0.5); }
+        if(s.lines)     s.lines.material.opacity     = 1   - g*0.82;
+        if(s.glowLines) s.glowLines.material.opacity = 0.7*(1 - g*0.82);
+      }
+    }
   }
 }
 function _glUpdateMorphButton(dt){
@@ -16290,6 +16381,255 @@ function tryInteractWall(){
     }
     if(best){ best.grab(); GS_movingWall=best; }
   }catch(e){ console.warn('Wall interact error:',e); GS_movingWall=null; }
+}
+let _cityBoxes=[];
+function _cityFace(px,py,pz, lx,ny,lz, wSpan,hSpan, cell, pal){
+  const cols=Math.max(3,Math.round(wSpan/cell)+1), rows=Math.max(3,Math.round(hSpan/cell)+1);
+  const q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(lx,ny,lz));
+  return new GridSheet({cols,rows,cell, subdiv:2, position:new THREE.Vector3(px,py,pz), quaternion:q, palette:pal, bright:1.7});
+}
+// Build one axis-aligned grid-shell building (5 GridSheets: 4 walls + roof) and register it. Shared by every
+// city layout so a hand-made block, a procedural street grid, or (later) OSM footprints all pour in the same way.
+function _cityAddBuilding(bx,bz,hw,hd,h,pal){
+  const cell=16, V=(x,y,z)=>new THREE.Vector3(x,y,z);
+  hw=Math.max(cell, Math.round(hw*2/cell)*cell)/2; hd=Math.max(cell, Math.round(hd*2/cell)*cell)/2; h=Math.max(cell, Math.round(h/cell)*cell);   // snap face spans to whole cells -> wall/roof sheets fill exactly, corners meet (no overhang/overlap)
+  const cy=h/2, sheets=[];
+  sheets.push(_cityFace(bx,    h,  bz,    V(1,0,0),  V(0,1,0),  V(0,0,1), hw*2, hd*2, cell, pal)); // roof
+  sheets.push(_cityFace(bx+hw, cy, bz,    V(0,0,1),  V(1,0,0),  V(0,1,0), hd*2, h,    cell, pal)); // +X wall
+  sheets.push(_cityFace(bx-hw, cy, bz,    V(0,0,-1), V(-1,0,0), V(0,1,0), hd*2, h,    cell, pal)); // -X wall
+  sheets.push(_cityFace(bx,    cy, bz+hd, V(-1,0,0), V(0,0,1),  V(0,1,0), hw*2, h,    cell, pal)); // +Z wall
+  sheets.push(_cityFace(bx,    cy, bz-hd, V(1,0,0),  V(0,0,-1), V(0,1,0), hw*2, h,    cell, pal)); // -Z wall
+  for(const s of sheets) s._cityWall=true;
+  _cityBoxes.push({x:bx,z:bz,hw,hd,top:h,sheets});
+}
+let _cityFpsEMA=60, _cityFpsT=0;
+function _cityRemoveTestUI(){ if(typeof document==='undefined') return; const e=document.getElementById('city-test-ui'); if(e) e.remove(); }
+function _cityMakeTestUI(){
+  if(typeof document==='undefined') return; _cityRemoveTestUI();
+  const wrap=document.createElement('div'); wrap.id='city-test-ui';
+  wrap.style.cssText='position:fixed;top:56px;left:8px;z-index:99999;font-family:monospace;display:flex;flex-direction:column;gap:6px;align-items:flex-start';
+  const stat=document.createElement('div'); stat.id='city-test-stat';
+  stat.style.cssText='font-size:12px;color:#39ffc9;background:rgba(0,0,0,0.55);padding:5px 8px;border-radius:6px;white-space:nowrap;pointer-events:none';
+  stat.textContent='FPS --';
+  const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px';
+  const mk=(label,fn)=>{ const b=document.createElement('button'); b.textContent=label;
+    b.style.cssText='font-family:monospace;font-size:14px;color:#39ffc9;background:rgba(57,255,201,0.14);border:1px solid #39ffc977;border-radius:8px;padding:9px 13px;cursor:pointer;touch-action:manipulation';
+    const stop=e=>e.stopPropagation(); b.addEventListener('pointerdown',stop); b.addEventListener('touchstart',stop,{passive:true}); b.addEventListener('mousedown',stop);
+    b.addEventListener('click',e=>{ e.stopPropagation(); fn(); }); return b; };
+  row.appendChild(mk('+1',()=>window._cityAddRandom(1)));
+  row.appendChild(mk('+10',()=>window._cityAddRandom(10)));
+  row.appendChild(mk('reset',()=>window._cityRebuild()));
+  wrap.appendChild(stat); wrap.appendChild(row); document.body.appendChild(wrap);
+}
+window._cityAddRandom=function(n){
+  for(let k=0;k<(n||1);k++){
+    const cell=30, wc=3+Math.floor(Math.random()*3), dc=3+Math.floor(Math.random()*3), hc=8+Math.floor(Math.random()*16);
+    const hw=wc*cell/2, hd=dc*cell/2, h=hc*cell, spread=260+_cityBoxes.length*48;
+    let bx=0,bz=0,ok=false;
+    for(let t=0;t<40 && !ok;t++){ bx=(Math.random()*2-1)*spread; bz=(Math.random()*2-1)*spread; ok=true;
+      if(Math.hypot(bx,bz-160)<150){ ok=false; continue; }
+      for(const qb of _cityBoxes){ if(Math.abs(bx-qb.x)<hw+qb.hw+150 && Math.abs(bz-qb.z)<hd+qb.hd+150){ ok=false; break; } } }
+    if(ok) _cityAddBuilding(bx,bz,hw,hd,h,'neon');
+  }
+};
+window._cityRebuild=function(){ if(typeof buildCityTest==='function') buildCityTest(); };
+function buildCityTest(){
+  _disposeCityTest();
+  _glGravOn=false; _cgBox=null; if(player) player._inPlanetGravity=false;
+  const cell=30, pal='neon', mode=(typeof window!=='undefined' && window._cityMode)||'random';
+  if(mode==='grid'){
+    // MAP-STYLE LAYOUT: a street grid of varied buildings. Footprint-array driven, so OSM/hand-authored data can
+    // feed the same path later. Denser than the sandbox on purpose — this is the performance / asset-port test.
+    const G=IS_MOBILE?3:4, pitch=360, half=(G-1)*pitch/2;
+    for(let gx=0;gx<G;gx++) for(let gz=0;gz<G;gz++){
+      const cx=gx*pitch-half + (Math.random()*16-8), cz=gz*pitch-half + (Math.random()*16-8);
+      if(Math.hypot(cx, cz-160)<150) continue;          // keep the spawn tile clear
+      if(Math.random()<0.12) continue;                 // the odd plaza / empty lot
+      const wc=3+Math.floor(Math.random()*3), dc=3+Math.floor(Math.random()*3), hc=8+Math.floor(Math.random()*16);   // 8-24 storeys -> towering
+      _cityAddBuilding(cx,cz, wc*cell/2, dc*cell/2, hc*cell, pal);
+    }
+  } else {
+    const N=IS_MOBILE?4:6, placed=[];
+    for(let i=0;i<N;i++){
+      const wc=3+Math.floor(Math.random()*4), dc=3+Math.floor(Math.random()*4), hc=8+Math.floor(Math.random()*15);
+      const hw=wc*cell/2, hd=dc*cell/2, h=hc*cell;
+      let bx=0,bz=0,ok=false;
+      for(let t=0;t<16 && !ok;t++){
+        const a=Math.random()*TAU, r=110+Math.random()*300; bx=Math.cos(a)*r; bz=Math.sin(a)*r; ok=true;
+        for(const qb of placed){ if(Math.abs(bx-qb.x)<hw+qb.hw+150 && Math.abs(bz-qb.z)<hd+qb.hd+150){ ok=false; break; } }
+      }
+      if(!ok) continue;
+      _cityAddBuilding(bx,bz,hw,hd,h,pal); placed.push({x:bx,z:bz,hw,hd});
+    }
+  }
+  if(typeof _cityMakeTestUI==='function') _cityMakeTestUI();
+}
+function _disposeCityTest(){
+  if(typeof _cityRemoveTestUI==='function') _cityRemoveTestUI();
+  for(const b of _cityBoxes){ if(b.sheets) for(const s of b.sheets) s.dispose(); }
+  _cityBoxes=[];
+}
+function updateCityTest(dt){
+  for(const b of _cityBoxes){ for(const s of b.sheets) s.update(dt); }
+  // rooftop surface flag (skipped while wall-crawling — gravity owns the player then)
+  if(player && !player._inPlanetGravity){
+    let onRoof=false;
+    for(const b of _cityBoxes){ if(Math.abs(player.wx-b.x)<b.hw && Math.abs(player.wz-b.z)<b.hd && Math.abs(player.py-b.top)<5){ onRoof=true; break; } }
+    if(onRoof) player._onPlatform=true; else if(player.py>1) player._onPlatform=false;
+  }
+  if(typeof _glGhostOccluders==='function') _glGhostOccluders();   // buildings between camera & robot fade out
+  if(dt>0) _cityFpsEMA = _cityFpsEMA*0.92 + (1/dt)*0.08;
+  _cityFpsT += dt;
+  if(_cityFpsT>0.25){ _cityFpsT=0; const el=(typeof document!=='undefined')&&document.getElementById('city-test-stat');
+    if(el){ const nb=_cityBoxes.length; el.textContent='FPS '+Math.round(_cityFpsEMA)+'  ·  '+nb+' bldg  ·  '+(nb*5)+' sheets'; } }
+}
+// ── WALL-CRAWL — generalised Grid-Lab cube magnetism on rectangular buildings ──
+let _cgBox=null, _cgNoGrab=0;
+function _cityNearestBox(P){
+  let best=null, bd=1e18;
+  for(const b of _cityBoxes){
+    const dx=Math.max(Math.abs(P.x-b.x)-b.hw,0), dy=Math.max(Math.abs(P.y-b.top/2)-b.top/2,0), dz=Math.max(Math.abs(P.z-b.z)-b.hd,0);
+    const d=dx*dx+dy*dy+dz*dz; if(d<bd){ bd=d; best=b; }
+  }
+  return {box:best, d2:bd};
+}
+function _cityProjOrbit(b, R, SOI, dt){
+  // Ride a projectile on the OUTSIDE of the nearest building at a steady speed -- like the player's wall-crawl, not a
+  // force field. No accumulating pull (that punched shots through the wall) and no speed bleed (that stalled bullets).
+  // Within SOI it steers gently toward the wall (rounded ground->wall transition); on the wall the into-wall part of
+  // its motion becomes UP-the-wall and the sideways part is kept. Returns true while in a building's field.
+  if(!_cityBoxes.length) return false;
+  const by=(b.y!==undefined?b.y:9);
+  let bb=null,bD=1e9;
+  for(const box of _cityBoxes){ const ex=Math.max(Math.abs(b.wx-box.x)-box.hw,0), ez=Math.max(Math.abs(b.wz-box.z)-box.hd,0), ey=Math.max(by-box.top,0); const hd=Math.hypot(ex,ey,ez); if(hd<bD){bD=hd;bb=box;} }
+  if(!bb || bD>SOI) return false;
+  const Cx=bb.x,Cy=bb.top/2,Cz=bb.z,Ex=bb.hw,Ey=bb.top/2,Ez=bb.hd;
+  const rlx=b.wx-Cx, rly=by-Cy, rlz=b.wz-Cz;
+  let qx=Math.max(-Ex,Math.min(Ex,rlx)), qy=Math.max(-Ey,Math.min(Ey,rly)), qz=Math.max(-Ez,Math.min(Ez,rlz));
+  let ox=rlx-qx, oy=rly-qy, oz=rlz-qz, dd=Math.hypot(ox,oy,oz), nx,ny,nz;
+  if(dd>1e-4){ nx=ox/dd; ny=oy/dd; nz=oz/dd; }
+  else {   // tunnelled inside -> eject along the shallowest axis (never sit below the surface)
+    const px=Ex-Math.abs(rlx), py=Ey-Math.abs(rly), pz=Ez-Math.abs(rlz);
+    if(px<=py&&px<=pz){ nx=Math.sign(rlx)||1; ny=0; nz=0; qx=nx*Ex; }
+    else if(py<=pz){ nx=0; ny=Math.sign(rly)||1; nz=0; qy=ny*Ey; }
+    else { nx=0; ny=0; nz=Math.sign(rlz)||1; qz=nz*Ez; }
+    dd=0;
+  }
+  if(b.vy===undefined) b.vy=0;
+  const CAP=300, sp=Math.min(Math.hypot(b.vx,b.vy,b.vz)||1, CAP);     // steady speed -> same on the wall as on the ground
+  if(b.speed!==undefined) b.speed=Math.min(b.speed, CAP);            // missiles: stop the homing re-accelerating it up the wall
+  if(dd<=R+2){                                                        // RIDE the shell: pinned R outside, redirect into-wall -> up-the-wall
+    b.wx=Cx+qx+nx*R; b.wz=Cz+qz+nz*R; if(b.y!==undefined) b.y=Cy+qy+ny*R;
+    const dn=b.vx*nx+b.vy*ny+b.vz*nz, vIn=Math.max(0,-dn);
+    b.vx-=nx*dn; b.vy-=ny*dn; b.vz-=nz*dn;                            // strip the normal component (keep sideways + existing climb)
+    if(vIn>0.001){ let ux=-ny*nx, uy=1-ny*ny, uz=-ny*nz; const ul=Math.hypot(ux,uy,uz);
+      if(ul>0.05){ b.vx+=(ux/ul)*vIn; b.vy+=(uy/ul)*vIn; b.vz+=(uz/ul)*vIn; } }   // into-wall -> up-the-wall (continues the trajectory)
+  } else {                                                            // APPROACH: steer toward the shell point so the transition rounds
+    const tgx=Cx+qx+nx*R, tgy=Cy+qy+ny*R, tgz=Cz+qz+nz*R;
+    const tox=tgx-b.wx, toy=tgy-b.y, toz=tgz-b.wz, tl=Math.hypot(tox,toy,toz)||1;
+    const k=Math.min(1, dt*3.2*(1-bD/SOI));
+    b.vx+=(tox/tl*sp-b.vx)*k; b.vy+=(toy/tl*sp-b.vy)*k; b.vz+=(toz/tl*sp-b.vz)*k;
+  }
+  const ns=Math.hypot(b.vx,b.vy,b.vz)||1; b.vx=b.vx/ns*sp; b.vy=b.vy/ns*sp; b.vz=b.vz/ns*sp;   // hold the steady speed: no bleed-to-stop, no speed-up
+  return true;
+}
+function updateCityGravity(dt){
+  if(!player||!player.alive||!_cityBoxes.length) return;
+  const PR=9, V3=(x,y,z)=>new THREE.Vector3(x,y,z);
+  if(_cgNoGrab>0) _cgNoGrab-=dt;
+  const P=new THREE.Vector3(player.wx,player.py,player.wz);
+  // ENTER: walk into a wall from the ground, or arc near a side face in the air
+  if(!_glGravOn){
+    if(player._jetting || player._onPlatform || _cgNoGrab>0) return;
+    const nb=_cityNearestBox(P), b0=nb.box; if(!b0) return;
+    const C0=V3(b0.x,b0.top/2,b0.z), E0=V3(b0.hw,b0.top/2,b0.hd), r=P.clone().sub(C0);
+    const ar=V3(Math.abs(r.x)/E0.x, Math.abs(r.y)/E0.y, Math.abs(r.z)/E0.z);
+    if(ar.y>=ar.x && ar.y>=ar.z) return;   // roof -> normal landing; crawl side walls only
+    const grabN=(ar.x>=ar.z)?V3(Math.sign(r.x)||1,0,0):V3(0,0,Math.sign(r.z)||1);
+    if(player.py>=14){ if(nb.d2>40*40) return; }
+    else { if(nb.d2>24*24 || -(player.vx*grabN.x+player.vz*grabN.z) < 35) return; }
+    _cgBox=b0; _glGravOn=true; player._inPlanetGravity=true;
+    _glCamLook.copy(CAM.focus);
+    { const _f=new THREE.Vector3(); camera.getWorldDirection(_f); _glCamLookFrom.copy(camera.position).addScaledVector(_f, camera.position.distanceTo(CAM.focus)||120); }
+    _glCamFrom.copy(camera.position); _glCamBlend=0;
+    { const _ea=Math.atan2(P.z-C0.z,P.x-C0.x); _glEdge.set(Math.cos(_ea),0,Math.sin(_ea)).normalize(); }
+    { const _cd=P.clone().sub(C0); if(_cd.lengthSq()>1) _glCamDir.copy(_cd).normalize(); }
+    camera.getWorldDirection(_glCamFwd); _glCamUp.copy(camera.up);
+    _glCubeN.copy(grabN);
+    _glGVel.set(player.vx||0, player.pvy||0, player.vz||0);
+    gridSheetsBlast(P.x,P.y,P.z,6,55);
+    for(const m of [player._shadowMesh,player._lineIndicator,player._arrowIndicator]) if(m&&m.material) m.material.opacity=0;
+  }
+  let b=_cgBox; if(!b){ _glExitGrav(P,_glGVel); return; }
+  if(player._jetting){ _glExitGrav(P,null); _cgBox=null; return; }
+  let C=V3(b.x,b.top/2,b.z), E=V3(b.hw,b.top/2,b.hd);
+  // CONTINUOUS rounded-box surface field: nearest surface point (rel to C) + outward normal at any point. Faces,
+  // edges and corners are ONE smooth surface -> no per-face state to go stale, no snap-back when you arc around.
+  const field=(pt)=>{
+    const rl=pt.clone().sub(C);
+    const qr=V3(Math.max(-E.x,Math.min(E.x,rl.x)), Math.max(-E.y,Math.min(E.y,rl.y)), Math.max(-E.z,Math.min(E.z,rl.z)));
+    const ov=rl.clone().sub(qr); const dist=ov.length(); let nrm;
+    if(dist>1e-4) nrm=ov.multiplyScalar(1/dist);
+    else { const px=E.x-Math.abs(rl.x), py=E.y-Math.abs(rl.y), pz=E.z-Math.abs(rl.z);
+      nrm=(px<=py&&px<=pz)?V3(Math.sign(rl.x)||1,0,0):(py<=pz)?V3(0,Math.sign(rl.y)||1,0):V3(0,0,Math.sign(rl.z)||1); }
+    return {qr, dist, nrm};
+  };
+  let f=field(P);
+  let N=f.nrm.clone();
+  const grounded = f.dist <= PR+2; player._glGrounded=grounded;
+  // input -> camera-relative tangent on the surface plane
+  let rx=moveIn.x, ry=moveIn.y;
+  if(!IS_TOUCH){ if(keys['KeyD']||keys['ArrowRight'])rx+=1; if(keys['KeyA']||keys['ArrowLeft'])rx-=1; if(keys['KeyW']||keys['ArrowUp'])ry-=1; if(keys['KeyS']||keys['ArrowDown'])ry+=1; }
+  rx=Math.max(-1,Math.min(1,rx)); ry=Math.max(-1,Math.min(1,ry));
+  const inMag=Math.hypot(rx,ry); let tanDir=null;
+  if(inMag>0.05){
+    const cr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);
+    let prr=cr.addScaledVector(N,-cr.dot(N)); if(prr.lengthSq()<1e-5){ prr.crossVectors(N,_glLastTN); } prr.normalize();
+    let pf=new THREE.Vector3().crossVectors(N,prr); if(pf.lengthSq()<1e-5){ pf.copy(_glLastTN); pf.addScaledVector(N,-pf.dot(N)); } pf.normalize();
+    tanDir=pf.clone().multiplyScalar(-ry).addScaledVector(prr,rx); if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); _glLastTN.copy(pf); } else tanDir=null;
+  }
+  const ACC=950, MAXS=210, GRAVc=720;
+  if(grounded){
+    if(tanDir) _glGVel.addScaledVector(tanDir, ACC*Math.min(1,inMag)*dt);
+    _glGVel.addScaledVector(N,-_glGVel.dot(N));        // keep velocity tangent to the surface
+    if(!tanDir) _glGVel.multiplyScalar(0.80);
+    if(_glGVel.length()>MAXS) _glGVel.setLength(MAXS);
+    P.addScaledVector(_glGVel,dt);                     // move freely along the tangent...
+    f=field(P); N=f.nrm.clone(); P.copy(C).add(f.qr).addScaledVector(N,PR);   // ...then ride the surface (rounds edges/corners continuously)
+    player._galSpeed=_glGVel.length();
+    player._jetCool=Math.max(0,(player._jetCool||0)-dt); if(player._jetCool<=0) player.boostFuel=Math.min(player.boostMax,player.boostFuel+26*dt);
+    if(tanDir){ player._glStepT=(player._glStepT||0)-dt; if(player._glStepT<=0){ gridSheetsBlast(P.x,P.y,P.z,2,32); player._glStepT=0.3; } }
+    if(player._jumpTapped){ player._jumpTapped=false;   // orbit hop: pop off along the normal; the field arcs you back. Jetpack is the only release.
+      _glGVel.addScaledVector(N,275); P.addScaledVector(N,4);
+      gridSheetsBlast(P.x,P.y,P.z,4,46); if(typeof Audio!=='undefined')Audio.blip(300,0.4,'sine',0.14,500);
+    }
+    player._jetting=false;
+  } else {
+    // AIRBORNE: gravity toward the nearest surface point (-N). Land when we touch back down and are no longer flying out.
+    _glGVel.addScaledVector(N,-GRAVc*dt);
+    if(tanDir) _glGVel.addScaledVector(tanDir,300*Math.min(1,inMag)*dt);
+    if(_glGVel.length()>920) _glGVel.setLength(920);
+    P.addScaledVector(_glGVel,dt); player._galSpeed=0;
+    f=field(P);
+    if(f.dist<=PR && _glGVel.dot(f.nrm)<5){ N=f.nrm.clone(); P.copy(C).add(f.qr).addScaledVector(N,PR); _glGVel.addScaledVector(N,-_glGVel.dot(N)); }
+  }
+  if(N.y<-0.2){ _glExitGrav(P,_glGVel); _cgBox=null; return; }                       // rounded past the bottom edge onto the underside -> drop to the ground
+  if(P.y<4 && _glGVel.y<-8){ _glExitGrav(P,_glGVel); _cgBox=null; return; }           // arcing/creeping DOWN to the street -> drop off (base stays grabbable while climbing)
+  for(const ob of _cityBoxes){ if(ob===b) continue;                                  // crawled into another building -> hand the orbit to it (don't phase through)
+    if(Math.abs(P.x-ob.x)<ob.hw-1 && Math.abs(P.z-ob.z)<ob.hd-1 && P.y<ob.top){
+      C=V3(ob.x,ob.top/2,ob.z); E=V3(ob.hw,ob.top/2,ob.hd); _cgBox=b=ob;
+      f=field(P); N=f.nrm.clone(); P.copy(C).add(f.qr).addScaledVector(N,PR); _glGVel.addScaledVector(N,-_glGVel.dot(N)); break;
+    }
+  }
+  if(P.clone().sub(C).length() > (Math.max(E.x,E.y,E.z)*8 + 600)){ _glExitGrav(P,_glGVel); _cgBox=null; return; }   // far safety only
+  _glCubeN.copy(N);
+  player.wx=P.x; player.py=P.y; player.wz=P.z; _gN.copy(N);
+  let fwd = tanDir? tanDir.clone() : (_glLastTN.lengthSq()>1e-4?_glLastTN.clone():new THREE.Vector3(1,0,0));
+  fwd.addScaledVector(N,-fwd.dot(N)); if(fwd.lengthSq()<1e-4) fwd.set(1,0,0); fwd.normalize();
+  const xA=new THREE.Vector3().crossVectors(N,fwd).normalize();
+  const tq=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,N,fwd));
+  if(player.model){ player.model.visible=true; if(player.model.position.distanceToSquared(P)>900) player.model.position.copy(P); else player.model.position.lerp(P,0.6); player.model.quaternion.slerp(tq, grounded?0.4:0.18); }
+  _glFaceCam(C, N, Math.max(E.x,E.y,E.z), P, dt);
 }
 function buildLevelSelect(){
   const lsGrid=document.getElementById('ls-grid'); if(!lsGrid)return;
