@@ -11593,64 +11593,64 @@ function _updateStarfield(dt){
 }
 // ════════════════════════════ SKY MUSIC VISUALIZER (dome) ════════════════════════════
 let _vizFFT=null, _vizSrcEl=null;
-function _vizLevel(){   // low-mid music energy 0..1, or null if no analyser available yet
+function _vizLevel(){   // music energy 0..1 (bass-weighted), or null if no analyser; exposes debug globals
   try{
-    if(typeof Audio==='undefined'||!Audio.ctx) return null;
+    if(typeof Audio==='undefined'||!Audio.ctx){ window._vizDbgSrc='noctx'; return null; }
     if(!_vizFFT){
-      const an=Audio.ctx.createAnalyser(); an.fftSize=128; an.smoothingTimeConstant=0.78;
-      if(Audio.musicGain){ try{ Audio.musicGain.connect(an); }catch(e){} }   // procedural-music bus
-      _vizFFT={an, data:new Uint8Array(an.frequencyBinCount)};
+      const an=Audio.ctx.createAnalyser(); an.fftSize=256; an.smoothingTimeConstant=0.55;
+      if(Audio.musicGain){ try{ Audio.musicGain.connect(an); }catch(e){} }
+      _vizFFT={an, data:new Uint8Array(an.frequencyBinCount), conn:false};
     }
-    if(typeof MusicPlayer!=='undefined' && MusicPlayer.audio && MusicPlayer.audio!==_vizSrcEl){   // tap the mp3 once
-      try{ const src=Audio.ctx.createMediaElementSource(MusicPlayer.audio); src.connect(_vizFFT.an); src.connect(Audio.master||Audio.ctx.destination); }catch(e){}
-      _vizSrcEl=MusicPlayer.audio;
-    }
+    if(!_vizFFT.conn && typeof MusicPlayer!=='undefined' && MusicPlayer._gain){ try{ MusicPlayer._gain.connect(_vizFFT.an); _vizFFT.conn=true; }catch(e){} }   // tap the decoded-music bus (reliable, unlike MediaElementSource on iOS)
     _vizFFT.an.getByteFrequencyData(_vizFFT.data);
-    const d=_vizFFT.data, hi=Math.min(d.length,28); let sum=0,n=0;
-    for(let i=2;i<hi;i++){ sum+=d[i]; n++; }
-    return n? (sum/n)/255 : 0;
-  }catch(e){ return null; }
+    const d=_vizFFT.data;
+    let bass=0; for(let i=1;i<8;i++) bass+=d[i]; bass/=7;          // kick / low end -> the beat
+    let mid=0;  for(let i=8;i<48;i++) mid+=d[i]; mid/=40;
+    const lvl=Math.max(bass, mid*0.85)/255;
+    window._vizDbgLevel=lvl; window._vizDbgSrc=_vizFFT.conn?'mp3':'bus';
+    return lvl;
+  }catch(e){ window._vizDbgSrc='err'; return null; }
 }
-let _skyViz=null; const _SV_ARMS=16, _SV_SEG=16;
+let _skyViz=null; const _SV_ARMS=16, _SV_SEG=22;
 function _initSkyViz(){
   const N=_SV_ARMS*_SV_SEG, verts=new Float32Array(N*8*3), cols=new Float32Array(N*8*3);
   const g=new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(verts,3));
   g.setAttribute('color', new THREE.BufferAttribute(cols,3));
-  const m=new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false, fog:false});
+  const m=new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false, fog:false});
   const mesh=new THREE.LineSegments(g,m); mesh.renderOrder=-8; mesh.frustumCulled=false;
   const grp=new THREE.Group(); grp.add(mesh); scene.add(grp);
   _skyViz={ grp, mesh, g, verts, cols, rad:new Float32Array(_SV_SEG), rot:0, t:0 };
 }
 function _updateSkyViz(dt){
   if(typeof camera==='undefined'||typeof scene==='undefined') return;
-  const show=(typeof GS!=='undefined') && GS.state==='playing' && GS.zone===-16;   // sandbox sky for now
+  const show=(typeof GS!=='undefined') && GS.state==='playing' && GS.zone===-16;
   if(!_skyViz){ if(!show) return; try{ _initSkyViz(); }catch(e){ return; } }
   const S=_skyViz; S.grp.visible=show; if(!show) return;
-  S.t+=dt; S.rot+=dt*0.06;
+  S.t+=dt; S.rot+=dt*0.05;
   let lvl=_vizLevel(), target;
-  if(lvl===null || lvl<0.02) target=0.34+0.26*Math.sin(S.t*1.7)+0.12*Math.sin(S.t*3.3);   // no music -> breathe
-  else target=Math.min(1.4, lvl*1.7);
-  S.rad[0]+=(target-S.rad[0])*Math.min(1,dt*15);                          // centre snaps to the beat
-  for(let i=1;i<_SV_SEG;i++) S.rad[i]+=(S.rad[i-1]-S.rad[i])*Math.min(1,dt*9);   // wave eases OUTWARD along each arm (the elegant lag)
-  const Cx=camera.position.x, Cz=camera.position.z, CY=400, R=1600, TH0=0.14, THm=1.36;
+  if(lvl===null || lvl<0.015) target=0.4+0.3*Math.sin(S.t*1.8)+0.14*Math.sin(S.t*3.7);   // no music -> breathe
+  else target=Math.min(1.7, lvl*2.6);
+  S.rad[0]+=(target-S.rad[0])*Math.min(1,dt*22);                           // centre snaps to the beat
+  for(let i=1;i<_SV_SEG;i++) S.rad[i]+=(S.rad[i-1]-S.rad[i])*Math.min(1,dt*11);   // wave eases OUTWARD along each arm
+  const Cx=camera.position.x, Cz=camera.position.z, CY=120, R=1350, TH0=0.05, THm=2.25;   // low umbrella: canopy edge on the horizon, tails drape DOWN past it all the way around -> full-background ring
   const verts=S.verts, cols=S.cols; let p=0, c=0;
   for(let a=0;a<_SV_ARMS;a++){
     const phi=(a/_SV_ARMS)*Math.PI*2 + S.rot, cp=Math.cos(phi), sp=Math.sin(phi), blue=(a%2===0);
     for(let i=0;i<_SV_SEG;i++){
       const th=TH0+(i/(_SV_SEG-1))*(THm-TH0), ct=Math.cos(th), st=Math.sin(th), rv=S.rad[i];
-      const dx=st*cp, dy=ct, dz=st*sp;                      // dome direction
-      const etx=ct*cp, ety=-st, etz=ct*sp;                  // tangent along meridian
-      const efx=-sp, efz=cp;                                // tangent along azimuth
-      const rr=R+rv*150, px=Cx+dx*rr, py=CY+dy*rr, pz=Cz+dz*rr, sQ=22+rv*80;
+      const dx=st*cp, dy=ct, dz=st*sp;
+      const etx=ct*cp, ety=-st, etz=ct*sp;
+      const efx=-sp, efz=cp;
+      const rr=R+rv*280, px=Cx+dx*rr, py=CY+dy*rr, pz=Cz+dz*rr, sQ=72+rv*250;
       const Tx=px+etx*sQ,Ty=py+ety*sQ,Tz=pz+etz*sQ, Rx=px+efx*sQ,Ry=py,Rz=pz+efz*sQ;
       const Bx=px-etx*sQ,By=py-ety*sQ,Bz=pz-etz*sQ, Lx=px-efx*sQ,Ly=py,Lz=pz-efz*sQ;
       verts[p++]=Tx;verts[p++]=Ty;verts[p++]=Tz; verts[p++]=Rx;verts[p++]=Ry;verts[p++]=Rz;
       verts[p++]=Rx;verts[p++]=Ry;verts[p++]=Rz; verts[p++]=Bx;verts[p++]=By;verts[p++]=Bz;
       verts[p++]=Bx;verts[p++]=By;verts[p++]=Bz; verts[p++]=Lx;verts[p++]=Ly;verts[p++]=Lz;
       verts[p++]=Lx;verts[p++]=Ly;verts[p++]=Lz; verts[p++]=Tx;verts[p++]=Ty;verts[p++]=Tz;
-      const b=0.35+Math.min(1,rv)*0.65; let cr,cg,cb;
-      if(blue){ cr=0.15*b; cg=(0.45+rv*0.4)*b; cb=1.0*b; } else { cr=(0.55+rv*0.4)*b; cg=0.12*b; cb=1.0*b; }
+      const bb=0.4+Math.min(1,rv)*0.6; let cr,cg,cb;
+      if(blue){ cr=0.15*bb; cg=(0.5+rv*0.4)*bb; cb=1.0*bb; } else { cr=(0.6+rv*0.4)*bb; cg=0.12*bb; cb=1.0*bb; }
       for(let k=0;k<8;k++){ cols[c++]=cr; cols[c++]=cg; cols[c++]=cb; }
     }
   }
@@ -16736,7 +16736,7 @@ function updateCityTest(dt){
   if(dt>0) _cityFpsEMA = _cityFpsEMA*0.92 + (1/dt)*0.08;
   _cityFpsT += dt;
   if(_cityFpsT>0.25){ _cityFpsT=0; const el=(typeof document!=='undefined')&&document.getElementById('city-test-stat');
-    if(el){ const nb=_cityBoxes.length; el.textContent='FPS '+Math.round(_cityFpsEMA)+'  ·  '+nb+' bldg  ·  '+(nb*5)+' sheets'; } }
+    if(el){ const nb=_cityBoxes.length; el.textContent='FPS '+Math.round(_cityFpsEMA)+'  ·  '+nb+' bldg  ·  viz '+((window._vizDbgLevel||0).toFixed(2))+' ['+(window._vizDbgSrc||'-')+']'; } }
 }
 // ── WALL-CRAWL — generalised Grid-Lab cube magnetism on rectangular buildings ──
 let _cgBox=null, _cgNoGrab=0;
@@ -17624,17 +17624,36 @@ window.CTRL_MODE=window.CTRL_MODE||'standard';
 
 // ── MUSIC PLAYER ──
 const MusicPlayer={
-  audio:null, muted:false,
+  audio:null, muted:false, _buf:null, _src:null, _gain:null, _offset:0, _startT:0, _playing:false,
   load(url){
-    if(!this.audio){ this.audio=new window.Audio(); this.audio.loop=true; }   // reuse one element -> the visualizer's analyser tap survives track changes
-    this.audio.src=url;
-    this.audio.volume=this.muted?0:0.5;
-    this.audio.play().catch(()=>{});
+    if(typeof Audio!=='undefined' && Audio.ctx && window.fetch){
+      fetch(url).then(r=>r.arrayBuffer()).then(ab=>Audio.ctx.decodeAudioData(ab))
+        .then(buf=>{ this._buf=buf; this._offset=0; this._playBuf(0); })
+        .catch(()=>{ this._loadEl(url); });   // CORS / decode failure -> plain element (no analysis, but music still plays)
+    } else this._loadEl(url);
   },
-  play(){ if(this.audio&&!this.muted) this.audio.play().catch(()=>{}); },
-  pause(){ if(this.audio) this.audio.pause(); },
+  _gainNode(){ if(!this._gain && Audio.ctx){ this._gain=Audio.ctx.createGain(); this._gain.gain.value=this.muted?0:0.5; this._gain.connect(Audio.master||Audio.ctx.destination); } return this._gain; },
+  _playBuf(offset){
+    if(!this._buf) return;
+    try{ if(Audio.ctx.state==='suspended') Audio.ctx.resume(); }catch(e){}
+    const g=this._gainNode();
+    try{ if(this._src){ this._src.onended=null; this._src.stop(); this._src.disconnect(); } }catch(e){}
+    const src=Audio.ctx.createBufferSource(); src.buffer=this._buf; src.loop=true; src.connect(g);
+    try{ src.start(0, offset||0); }catch(e){ src.start(0); }
+    this._src=src; this._startT=Audio.ctx.currentTime-(offset||0); this._playing=true;
+  },
+  _loadEl(url){ if(!this.audio){ this.audio=new window.Audio(); this.audio.loop=true; } this.audio.src=url; this.audio.volume=this.muted?0:0.5; this.audio.play().catch(()=>{}); },
+  play(){
+    if(this._buf){ if(!this._playing) this._playBuf(this._offset||0); }
+    else if(this.audio && !this.muted) this.audio.play().catch(()=>{});
+  },
+  pause(){
+    if(this._src){ try{ this._offset=(Audio.ctx.currentTime-this._startT); if(this._buf&&this._buf.duration) this._offset%=this._buf.duration; this._src.onended=null; this._src.stop(); }catch(e){} this._src=null; this._playing=false; }
+    if(this.audio) this.audio.pause();
+  },
   setMuted(m){
     this.muted=m;
+    if(this._gain) this._gain.gain.value=m?0:0.5;
     if(this.audio) this.audio.volume=m?0:0.5;
     const btn=document.getElementById('btn-mute-music');
     if(btn){btn.style.borderColor=m?'#ff444488':'#ffffff33';btn.style.color=m?'#ff4444aa':'#ffffffaa';const _l=document.getElementById('mm-lbl');if(_l)_l.textContent=m?'MUTED':'MUSIC';}
@@ -17656,7 +17675,7 @@ window.toggleMuteSfx=function(){
 // Auto-resume when page visible or user touches screen
 function _resumeAll(){
   Audio.resume();
-  if(MusicPlayer.audio&&!MusicPlayer.muted) MusicPlayer.audio.play().catch(()=>{});
+  if(!MusicPlayer.muted) MusicPlayer.play();
 }
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') _resumeAll(); });
 window.addEventListener('touchstart',_resumeAll,{passive:true});
