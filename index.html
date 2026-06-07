@@ -2287,14 +2287,15 @@ function _makeSpider(glowHex=0x00ff88){
 }
 function _updateSpider(sp, dt, moveAmt){
   sp.t+=dt; moveAmt=Math.max(0,Math.min(1,moveAmt));
-  sp.gait += dt*(0.6 + moveAmt*2.4);                       // gait keeps pace with movement
-  const swingAmp=0.18+0.32*moveAmt, liftAmp=0.25+0.55*moveAmt;
+  const mv=moveAmt<0.04?0:moveAmt;                          // standing still -> no leg motion at all (just breathing)
+  sp.gait += dt*(0.5+mv*2.5)*(mv>0?1:0);                    // gait advances ONLY while moving -> legs freeze in place when idle
+  const swingAmp=mv*0.5, liftAmp=mv*0.85;                   // no idle swing/lift floor
   for(const lg of sp.legs){
     const ang=((sp.gait+lg.offset)%1)*TAU;
     lg.root.rotation.y = lg.az + Math.cos(ang)*swingAmp;    // fore/aft sweep
     lg.fem.rotation.x = -(lg.baseFemUp + Math.max(0,Math.sin(ang))*liftAmp);  // lift foot on return stroke
   }
-  sp.group.position.y = Math.sin(sp.gait*TAU)*(0.3+moveAmt*0.9) + Math.sin(sp.t*1.6)*0.25;  // body bob + idle breathing
+  sp.group.position.y = Math.sin(sp.gait*TAU)*(mv*0.9) + Math.sin(sp.t*1.6)*0.25;  // gait bob only while walking; idle breathing always
 }
 
 class Diamond extends Enemy{
@@ -2849,6 +2850,7 @@ class Crawler extends Enemy{
     this.mesh=new THREE.Group();
     this._spider=_makeSpider(0x88ff44); this.mesh.add(this._spider.group);
     this._cstate='ground'; this._gs=null; this._gcu=0; this._gcv=0; this._climbY=9; this._climbT=0; this._attachCD=0;
+    this._cgBox=null; this._cy=9;   // city: bound building + climb-height for the continuous box-surface crawl
     this._isCrawler=true; this._vx2=0; this._vz2=0; this._stuckT=0;
     this._tq=new THREE.Quaternion(); this._mat=new THREE.Matrix4();
     this._upV=new THREE.Vector3(0,1,0); this._fwdV=new THREE.Vector3(0,0,1); this._rightV=new THREE.Vector3(1,0,0); this._face=new THREE.Vector3(0,0,1);
@@ -2872,6 +2874,41 @@ class Crawler extends Enemy{
   }
   update(p,dt){ this.baseUpdate(); this.t+=dt; const OFF=9; if(this._attachCD>0)this._attachCD-=dt;
     if(this._cstate==='climb'){
+      if(GS.zone===-16 && this._cgBox){   // CONTINUOUS box-surface crawl: ride the whole building as one rounded shape -> no seam/corner/ground sticking
+        const b=this._cgBox;
+        if(typeof _cityBoxes==='undefined' || _cityBoxes.indexOf(b)<0){ this._cstate='ground'; this._cgBox=null; }
+        else {
+          this._climbing=true; this._climbT+=dt;
+          const aware=Math.hypot(p.wx-this.wx,p.wz-this.wz,p.py-this._cy)<460;   // lose interest once the player jets away -> hang out instead of chasing
+          this._moodT=(this._moodT||0)-dt;
+          if(this._moodT<=0){ if(aware){ this._mood=0; this._moodT=0.6; } else if(Math.random()<0.55){ this._mood=2; this._moodT=0.9+Math.random()*2.0; } else { this._mood=0; this._moodT=0.7+Math.random()*1.4; this._whead=Math.random()*TAU; } }
+          const idleWalk = !aware && this._mood!==2;   // casual: walk a random heading, then wait, then turn, then walk again
+          const OFF2=11, Cx=b.x,Cy=b.top/2,Cz=b.z,Ex=b.hw,Ey=b.top/2,Ez=b.hd, step=(aware?this.spd:(idleWalk?this.spd*0.4:0))*dt;
+          let px=this.wx, py=this._cy, pz=this.wz;
+          let rx=px-Cx,ry=py-Cy,rz=pz-Cz;
+          let qx=Math.max(-Ex,Math.min(Ex,rx)),qy=Math.max(-Ey,Math.min(Ey,ry)),qz=Math.max(-Ez,Math.min(Ez,rz));
+          let ox=rx-qx,oy=ry-qy,oz=rz-qz,dd=Math.hypot(ox,oy,oz),nx,ny,nz;
+          if(dd>1e-4){nx=ox/dd;ny=oy/dd;nz=oz/dd;} else { const pa=Ex-Math.abs(rx),pb=Ey-Math.abs(ry),pc=Ez-Math.abs(rz); if(pa<=pb&&pa<=pc){nx=Math.sign(rx)||1;ny=0;nz=0;} else if(pb<=pc){nx=0;ny=Math.sign(ry)||1;nz=0;} else {nx=0;ny=0;nz=Math.sign(rz)||1;} }
+          let dxx=0,dyy=0,dzz=0;
+          if(aware){ let tx=p.wx-px, ty=p.py-py, tz=p.wz-pz; const tnn=tx*nx+ty*ny+tz*nz; tx-=nx*tnn; ty-=ny*tnn; tz-=nz*tnn; const tl=Math.hypot(tx,ty,tz); if(tl>1e-3){dxx=tx/tl;dyy=ty/tl;dzz=tz/tl;} }   // head toward the player along the surface
+          else if(idleWalk){ let hx=Math.cos(this._whead||0),hy=0,hz=Math.sin(this._whead||0); const hn=hx*nx+hy*ny+hz*nz; hx-=nx*hn; hy-=ny*hn; hz-=nz*hn; const hl=Math.hypot(hx,hy,hz); if(hl>1e-3){dxx=hx/hl;dyy=hy/hl;dzz=hz/hl;} }   // idle: amble along a random surface heading
+          let sx=0,sy=0,sz=0; for(const o of GS.enemies){ if(o===this||!o._isCrawler||o._cgBox!==b) continue; const ex=px-o.wx,ey=py-(o._cy||9),ez=pz-o.wz,q2=ex*ex+ey*ey+ez*ez; if(q2<900&&q2>1){ const q=Math.sqrt(q2),w=(1-q/30)/q; sx+=ex*w; sy+=ey*w; sz+=ez*w; } }
+          const snn=sx*nx+sy*ny+sz*nz; sx-=nx*snn; sy-=ny*snn; sz-=nz*snn;   // keep separation tangential
+          px+=dxx*step+sx*step*1.3; py+=dyy*step+sy*step*1.3; pz+=dzz*step+sz*step*1.3;
+          rx=px-Cx;ry=py-Cy;rz=pz-Cz; qx=Math.max(-Ex,Math.min(Ex,rx));qy=Math.max(-Ey,Math.min(Ey,ry));qz=Math.max(-Ez,Math.min(Ez,rz));
+          ox=rx-qx;oy=ry-qy;oz=rz-qz;dd=Math.hypot(ox,oy,oz);
+          if(dd>1e-4){nx=ox/dd;ny=oy/dd;nz=oz/dd;} else { const pa=Ex-Math.abs(rx),pb=Ey-Math.abs(ry),pc=Ez-Math.abs(rz); if(pa<=pb&&pa<=pc){nx=Math.sign(rx)||1;ny=0;nz=0;qx=(Math.sign(rx)||1)*Ex;} else if(pb<=pc){nx=0;ny=Math.sign(ry)||1;nz=0;qy=(Math.sign(ry)||1)*Ey;} else {nx=0;ny=0;nz=Math.sign(rz)||1;qz=(Math.sign(rz)||1)*Ez;} }
+          px=Cx+qx+nx*OFF2; py=Cy+qy+ny*OFF2; pz=Cz+qz+nz*OFF2;   // ride the rounded surface
+          const moved=Math.hypot(px-this.wx,py-this._cy,pz-this.wz);
+          if(moved<step*0.2) this._stuckT=(this._stuckT||0)+dt; else this._stuckT=0;
+          this.wx=px; this._cy=py; this.wz=pz; this._climbY=py;
+          this._upV.set(nx,ny,nz); this._fwdV.set(dxx||this._face.x, dyy, dzz||this._face.z); this._orient(this._upV,this._fwdV,dt);
+          if(ny<-0.15 || (py<6 && this._climbT>0.3) || this._stuckT>1.6){ this._cstate='ground'; this._cgBox=null; this._attachCD=0.6; this._stuckT=0; this._climbY=9; }   // leave ONLY at the real bottom edge; the climbT guard stops a freshly-attached spider (py~9) from instantly bailing
+          _updateSpider(this._spider, dt, Math.min(1, moved/(this.spd*dt+1e-3)));
+          this.mesh.scale.setScalar(this.spawn<1?(0.2+this.spawn*0.8):1);
+          this._render(dt); return;
+        }
+      }
       const sh=this._gs;
       if(!sh || GRID_SHEETS.indexOf(sh)<0){ this._cstate='ground'; this._gs=null; }
       else {
@@ -2899,7 +2936,7 @@ class Crawler extends Enemy{
           if(!nbOk && this._upV.y<0.5 && this._gcv<=-sh.hd+4 && this._climbT>0.4){ this._cstate='ground'; this._gs=null; this._attachCD=1.0; }  // bottom edge of a wall/side -> step down to the floor
         }
         if(Math.hypot(p.wx-this.wx,p.wz-this.wz)>560){ this._cstate='ground'; this._gs=null; this._attachCD=0.8; }   // only give up the climb if you run far away horizontally (stuck-detector handles dead ends)
-        _updateSpider(this._spider, dt, Math.max(0.35, Math.min(1, moved/(step+1e-3))));
+        _updateSpider(this._spider, dt, Math.min(1, moved/(this.spd*dt+1e-3)));
         this.mesh.scale.setScalar(this.spawn<1?(0.2+this.spawn*0.8):1);
         this._render(dt);
         return;
@@ -2948,8 +2985,13 @@ class Crawler extends Enemy{
     this.wx+=this._vx2*dt; this.wz+=this._vz2*dt;
     if(CITY) for(const box of _cityBoxes){ if(Math.abs(this.wx-box.x)<box.hw && Math.abs(this.wz-box.z)<box.hd){ const dxr=this.wx-box.x, dzr=this.wz-box.z; if(box.hw-Math.abs(dxr) < box.hd-Math.abs(dzr)) this.wx=box.x+(dxr>=0?1:-1)*(box.hw+2); else this.wz=box.z+(dzr>=0?1:-1)*(box.hd+2); break; } }   // never walk THROUGH a building on the ground
     if(this._attachCD<=0 && (!CITY || (p.py>30 && aware))){
-      const near=_nearestSheetSurface(this.wx,9,this.wz,28,null);
-      if(near && near.dist<24){ _sheetWorldNormal(near.sheet,_gsN); if(Math.abs(_gsN.y)<0.6){ this._gs=near.sheet; this._gcu=near.cu; this._gcv=near.cv; this._cstate='climb'; this._climbT=0; this._climbTotal=0; this._stuckT=0; } }
+      if(CITY){
+        let bb=null,bD=1e9; for(const box of _cityBoxes){ const ex=Math.max(Math.abs(this.wx-box.x)-box.hw,0), ez=Math.max(Math.abs(this.wz-box.z)-box.hd,0); const hd=Math.hypot(ex,ez); if(hd<bD){bD=hd;bb=box;} }
+        if(bb && bD<32){ this._cgBox=bb; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // bind to the building -> continuous surface crawl
+      } else {
+        const near=_nearestSheetSurface(this.wx,9,this.wz,28,null);
+        if(near && near.dist<24){ _sheetWorldNormal(near.sheet,_gsN); if(Math.abs(_gsN.y)<0.6){ this._gs=near.sheet; this._gcu=near.cu; this._gcv=near.cv; this._cstate='climb'; this._climbT=0; this._climbTotal=0; this._stuckT=0; } }
+      }
     }
     this._climbY += (9-this._climbY)*Math.min(1,dt*6);
     this._upV.set(0,1,0); this._fwdV.set(this._vx2,0,this._vz2);
@@ -5761,7 +5803,7 @@ class DropBomb{
     const GRAV=320;
     if(!this._orbitLock) this.vy-=GRAV*dt;
     this.wx+=this.vx*dt; this.wz+=this.vz*dt; this.y+=this.vy*dt;
-    this._orbitLock = (GS.zone===-16) ? _cityProjOrbit(this, 12, 170, dt) : (this._orbitLock||false);   // city: captured into a building's orbit (suspends fall/bounce)
+    this._orbitLock = (GS.zone===-16) ? _cityProjOrbit(this, 12, 46, dt) : (this._orbitLock||false);   // city: captured into a building's orbit (suspends fall/bounce)
 
     // Bounce off ground
     if(!this._orbitLock && this.y<=9){
@@ -5827,6 +5869,10 @@ class DropBomb{
     // Update mesh position
     this.mesh.position.set(this.wx,this.y,this.wz);
     this.mesh.rotation.x+=this.vx*dt*0.05; this.mesh.rotation.z-=this.vz*dt*0.05;
+    { const on=!!this._orbitLock;                                   // riding a building -> draw on top (the additive sphere is otherwise hidden under the opaque wall fill, same as the rockets)
+      const wantDT=!on, wantRO=on?12:0;
+      if(this._bodyMat.depthTest!==wantDT){ this._bodyMat.depthTest=wantDT; this._coreMat.depthTest=wantDT; }
+      if(this.mesh.renderOrder!==wantRO){ this.mesh.renderOrder=wantRO; this._coreMesh.renderOrder=wantRO; } }
 
     // Countdown color: white(1.0) → yellow(0.7) → orange(0.4) → red(0)
     const frac=Math.max(0,this.timer/this._maxTimer);
@@ -5956,7 +6002,7 @@ class Bullet{
     if(this.kind==='homing'){ let best=null,bd=1e9; for(const e of enemies){const dx=e.wx-this.wx,dz=e.wz-this.wz,d=dx*dx+dz*dz;if(d<bd){bd=d;best=e;}}
       if(best){const dx=best.wx-this.wx,dz=best.wz-this.wz,d=Math.hypot(dx,dz)||1;this.vx+=(dx/d)*1000*dt;this.vz+=(dz/d)*1000*dt;const s=Math.hypot(this.vx,this.vz),mx=480;if(s>mx){this.vx=this.vx/s*mx;this.vz=this.vz/s*mx;}} }
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this.life-=this.decay*dt*60;
-    const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 14, 140, dt) : false;   // building field owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the ground->wall corner
+    const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 12, 34, dt) : false;   // building field owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the ground->wall corner
     if(this._g3){ this.y+=this.vy*dt; }                                        // straight-line 3D flight (galaxy)
     else if(_cf){ this.y+=this.vy*dt; }                                        // riding/approaching a building -> climb freely, no ground pull
     else if(this.y>9){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){this.y=9;this.vy=0;} }
@@ -6043,7 +6089,7 @@ class Missile{
     const ns=Math.hypot(dirx,diry,dirz)||1;
     this.vx=dirx/ns*this.speed; this.vy=diry/ns*this.speed; this.vz=dirz/ns*this.speed;
     this.wx+=this.vx*dt; this.y+=this.vy*dt; this.wz+=this.vz*dt;
-    const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 26, 170, dt) : false;   // CITY: orbit walls (reach wall-crawling spiders); owns vertical motion at the ground->wall corner
+    const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 20, 52, dt) : false;   // CITY: orbit walls (reach wall-crawling spiders); owns vertical motion at the ground->wall corner
     if(!_cf && GS.zone!==-15 && this.y<2){ this.y=2; this.vy=Math.max(0,this.vy); }   // floor clamp only when NOT riding a building
     { const ot=!!_cf;   // riding a building -> render the rocket ON TOP so the opaque wall fill can't swallow it (the additive body was getting depth-occluded; the trail line peeks past the edge -> "trail right, rocket gone")
       if(this.body) this.body.material.depthTest=!ot;
@@ -6455,11 +6501,12 @@ class Player{
     announce('BOMB READY — AIM WITH RIGHT STICK','#ff8800');
     // Match DropBomb appearance exactly
     const geo=new THREE.SphereGeometry(7,10,8);
-    this._bombBodyMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+    this._bombBodyMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false});
     this._bombMesh=new THREE.Mesh(geo,this._bombBodyMat);
-    const coreMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false});
+    const coreMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false});
     this._bombCoreMesh=new THREE.Mesh(new THREE.SphereGeometry(3,6,6),coreMat);
     this._bombCoreMat=coreMat;
+    this._bombMesh.renderOrder=20; this._bombCoreMesh.renderOrder=20;   // equipped bomb always draws on top -> never occluded by a building behind it
     scene.add(this._bombMesh);
     scene.add(this._bombCoreMesh);
     this._bombInScene=true;
@@ -6486,6 +6533,15 @@ class Player{
 
   _throwBomb(dirX,dirZ,power){
     if(!this.bombArmed)return;
+    if(this._inPlanetGravity && this._bombLaunchVel){          // ON A BUILDING: launch in the surface frame (down-stick = down the wall), not world axes
+      const v=this._bombLaunchVel, sp=this._bombSpawn||{x:this.wx,y:this.py+40,z:this.wz};
+      const thrown=!!this._stickWasPushed;
+      const b=new DropBomb(sp.x, sp.z, sp.y, thrown?v.x+this.vx*0.3:v.x, thrown?v.z+this.vz*0.3:v.z, thrown?1.8:1.4, v.y);
+      GS.dropBombs.push(b);
+      if(MP.active) mpSend('event',{event:'shot',data:{x:sp.x,z:sp.z,y:sp.y,vx:v.x,vz:v.z,fuse:thrown?1.8:1.4,vy:v.y,bomb:true}});
+      this._disarmBomb(); Audio.blip(300,0.12,'sine',0.2,160); announce(thrown?'BOMB THROWN':'BOMB DROPPED','#ff8800');
+      return;
+    }
     const isDrop=(dirX===0&&dirZ===0);
     // If power supplied (flick), convert to crossDist equivalent
     // power is px/ms velocity — map 0.2→60 units, 2.0→400 units
@@ -6525,6 +6581,7 @@ class Player{
 
   updateBomb(dt,stickX,stickZ){
     if(!this.bombArmed)return;
+    if(this._inPlanetGravity){ this._bombSurfaceAim(dt); return; }   // wall/surface bomb handled in its own frame-correct path
     const sm=Math.hypot(stickX,stickZ);
     if(sm>0.12){
       // Stick pushed — move crosshair
@@ -6570,6 +6627,40 @@ class Player{
       if(this._bombCoreMesh) this._bombCoreMesh.scale.setScalar(0.8+0.4*Math.sin(t*6));
     } else if(!this.bombArmed&&this._bombMesh){
       this._disarmBomb();
+    }
+  }
+
+  _bombSurfaceAim(dt){
+    const N=(typeof _gN!=='undefined'&&_gN)?_gN:new THREE.Vector3(0,1,0);
+    const td=this._stickWasPushed?this._bombThrow3D:null, mag=this._bombThrowMag||0;
+    if(this._crosshair){ this._crosshair.visible=false; this._crosshairDot.visible=false; this._crosshairLines.visible=false; }
+    if(this._aimerLines) this._aimerLines.visible=false;
+    if(!this._trajDots){ const g=new THREE.SphereGeometry(2,5,4); this._trajDots=[]; for(let i=0;i<28;i++){ const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0xff8800,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false})); scene.add(m); this._trajDots.push(m); } }
+    // launch in the SURFACE frame: tangential part = where the stick points along the wall, plus a kick straight out along the normal
+    const tanSpeed=90+Math.min(1,mag)*250, outSpeed=16;   // small outward kick -> stays inside the building's orbit band and curves WITH the wall (player's surface frame), instead of flinging clear and dropping under world gravity
+    let lvx,lvy,lvz;
+    if(td){ lvx=td.x*tanSpeed+N.x*outSpeed; lvy=td.y*tanSpeed+N.y*outSpeed; lvz=td.z*tanSpeed+N.z*outSpeed; }
+    else { lvx=0; lvy=0; lvz=0; }                            // no aim -> just drop: rest on the surface (no pop off the normal)
+    this._bombLaunchVel={x:lvx,y:lvy,z:lvz};
+    const sX=this.wx+N.x*20, sY=this.py+N.y*20, sZ=this.wz+N.z*20;   // just off the wall (inside the orbit band) so it's captured immediately
+    this._bombSpawn={x:sX,y:sY,z:sZ};
+    if(this._bombMesh){
+      const t=performance.now()*0.001;
+      this._bombMesh.position.set(sX,sY,sZ); if(this._bombCoreMesh) this._bombCoreMesh.position.set(sX,sY,sZ);
+      this._bombHandPos={x:sX,y:sY,z:sZ};
+      this._bombMesh.scale.setScalar(1+0.15*Math.sin(t*8));
+      const g=Math.max(0,1-(this._stickWasPushed?0.8:0.3)*0.6); this._bombBodyMat&&this._bombBodyMat.color.setRGB(1,g,0);
+      if(this._bombCoreMesh) this._bombCoreMesh.scale.setScalar(0.8+0.4*Math.sin(t*6));
+    } else { this._disarmBomb(); return; }
+    // forward-sim the SAME physics the real bomb will fly (gravity + building orbit); draw on top so the wall can't hide it
+    let px=sX,py=sY,pz=sZ, vx=lvx,vy=lvy,vz=lvz, lock=false; const DT=0.045, GRAV=320;
+    for(let i=0;i<this._trajDots.length;i++){
+      if(!lock) vy-=GRAV*DT; px+=vx*DT; py+=vy*DT; pz+=vz*DT;
+      if(typeof _cityProjOrbit==='function'){ const fk={wx:px,wz:pz,y:py,vx,vy,vz}; lock=_cityProjOrbit(fk,12,46,DT); px=fk.wx; pz=fk.wz; py=fk.y; vx=fk.vx; vy=fk.vy; vz=fk.vz; }
+      if(!lock && py<=9){ py=9; vy=Math.abs(vy)*0.4; vx*=0.7; vz*=0.7; }
+      const frac=1-(i/this._trajDots.length)*0.7, m=this._trajDots[i];
+      m.position.set(px,py,pz); m.material.opacity=(i%2===0)?frac*0.7:0; m.material.depthTest=false;
+      const tt=i/this._trajDots.length; m.material.color.setRGB(1,0.5+tt*0.4,tt*0.2);
     }
   }
 
@@ -6636,16 +6727,22 @@ class Player{
       let svz=dirZ*spd+this.vz*0.3;
       let svy=launchVY;
       const DT=0.045;
-      let bounces=0;
+      let bounces=0, lock=false;
+      const onBldg=!!this._inPlanetGravity;
       for(let i=0;i<this._trajDots.length;i++){
-        svy-=GRAV*DT; sx+=svx*DT; sz+=svz*DT; sy+=svy*DT;
-        if(sy<=9&&bounces<2){
-          sy=9; svy=Math.abs(svy)*0.45; svx*=0.7; svz*=0.7; bounces++;
-        } else if(sy<=9){ sy=9; svy=0; }
+        if(!lock) svy-=GRAV*DT;                                   // orbit-locked steps coast (the building field carries it), exactly like the real bomb
+        sx+=svx*DT; sz+=svz*DT; sy+=svy*DT;
+        if(GS.zone===-16 && typeof _cityProjOrbit==='function'){  // mirror the real bomb: curve/orbit AROUND the building instead of a flat ground arc
+          const fk={wx:sx,wz:sz,y:sy,vx:svx,vy:svy,vz:svz};
+          lock=_cityProjOrbit(fk,12,46,DT);
+          sx=fk.wx; sz=fk.wz; sy=fk.y; svx=fk.vx; svy=fk.vy; svz=fk.vz;
+        } else lock=false;
+        if(!lock){ if(sy<=9&&bounces<2){ sy=9; svy=Math.abs(svy)*0.45; svx*=0.7; svz*=0.7; bounces++; } else if(sy<=9){ sy=9; svy=0; } }
         const frac=1-(i/this._trajDots.length)*0.7;
         const visible=(i%2===0)&&crossDist>5;
         this._trajDots[i].position.set(sx,sy,sz);
         this._trajDots[i].material.opacity=visible?frac*0.65:0;
+        this._trajDots[i].material.depthTest=!onBldg;             // on a building, draw the path on top so the wall can't hide the orbit dots
         const t=i/this._trajDots.length;
         this._trajDots[i].material.color.setRGB(1,0.5+t*0.4,t*0.2);
       }
@@ -7182,26 +7279,28 @@ class Player{
     const airborne=!onSurface&&height>3;
     const pulse=0.5+0.5*Math.sin(performance.now()*0.007);
     const fadeIn=clamp((height-3)/15,0,1);
-    const fadeOut=clamp(1-height/220,0.1,1);
-    const vis=airborne?fadeIn*fadeOut:0;
+    const vis=airborne?fadeIn:0;                       // NO height fade-out -> the indicator stays fully visible however high you are
+    const hH=(1-clamp(height/260,0,1))*0.34;           // height -> hue: green (close, low) -> yellow -> orange -> red (far, way up)
 
     // Ring at landing point
     this._shadowMesh.position.set(this.wx,groundY+0.5,this.wz);
     this._shadowMesh.scale.setScalar(0.7+pulse*0.4);
-    this._shadowMesh.material.opacity=vis*(0.4+pulse*0.5);
-    this._shadowMesh.material.color.setHex(height<40?0x00ffff:0x00ffcc);
+    this._shadowMesh.material.opacity=vis*(0.55+pulse*0.4);
+    this._shadowMesh.material.color.setHSL(hH,1,0.55);
 
     // Vertical line from ship down to landing point
     const la=this._linePosArr;
     la[0]=this.wx; la[1]=9+this.py; la[2]=this.wz; // ship bottom
     la[3]=this.wx; la[4]=groundY+1; la[5]=this.wz;  // landing point
     this._linePosAttr.needsUpdate=true;
-    this._lineIndicator.material.opacity=vis*0.35;
+    this._lineIndicator.material.opacity=vis*0.45;
+    this._lineIndicator.material.color.setHSL(hH,1,0.55);
 
     // Arrow chevrons mid-way, pointing down, pulsing offset
     const midY=groundY+(height*0.5)+Math.sin(performance.now()*0.005)*height*0.08;
     this._arrowIndicator.position.set(this.wx,midY,this.wz);
-    this._arrowIndicator.material.opacity=vis*(0.3+pulse*0.4);
+    this._arrowIndicator.material.opacity=vis*(0.4+pulse*0.4);
+    this._arrowIndicator.material.color.setHSL(hH,1,0.6);
   }
   _shoot(od){ const a=this.aim,bspd=520; Audio.shoot();
     const lvl=od?6:this.weaponLevel;
@@ -11165,7 +11264,9 @@ jL.onTap=()=>{
           const hist=jR._swipeHist||[];
           let threw=false;
 
-          if(hist.length>=2){
+          if(player._inPlanetGravity && player._stickWasPushed){ player._throwBomb(0,0); threw=true; }   // ON A WALL: release throws along the surface-frame indicator (no fast flick needed)
+
+          if(!threw && hist.length>=2){
             const first=hist[0], last=hist[hist.length-1];
             const totalDx=last.x-first.x, totalDy=last.y-first.y;
             const totalDist=Math.hypot(totalDx,totalDy);
@@ -11418,6 +11519,143 @@ function _updatePerfHud(){
     '\nbeam '+(typeof _spawnBeams!=='undefined'?_spawnBeams.length:0)+
     '\nptcl '+(typeof ps!=='undefined'&&ps?ps.n:0);
 }
+let _starfield=null;
+function _initStarfield(){
+  const N = IS_MOBILE ? 650 : 1200, R = 2600;   // inside the camera far-plane (4000)
+  const dir=new Float32Array(N*3), tw=new Float32Array(N), baseB=new Float32Array(N);
+  const eHead=new Float32Array(N), eTail=new Float32Array(N);                 // per-star ease: responsiveness + trail length
+  const lh=new Float32Array(N*3), lt=new Float32Array(N*3);                   // eased head / tail, in CAMERA-LOCAL (view) space
+  const colR=new Float32Array(N), colG=new Float32Array(N), colB=new Float32Array(N);
+  const headPos=new Float32Array(N*3), ptCol=new Float32Array(N*3), segPos=new Float32Array(N*2*3), segCol=new Float32Array(N*2*3);
+  for(let i=0;i<N;i++){
+    let x,y,z,l; do{ x=Math.random()*2-1; y=Math.random()*2-1; z=Math.random()*2-1; l=Math.hypot(x,y,z); }while(l<0.25||l>1);
+    x/=l; y/=l; z/=l; y=y*0.5+0.4;
+    const dl=Math.hypot(x,y,z)||1; dir[i*3]=x/dl; dir[i*3+1]=y/dl; dir[i*3+2]=z/dl;
+    tw[i]=Math.random()*6.283; baseB[i]=0.35+Math.random()*0.65;
+    eTail[i]=0.07+Math.random()*0.13;                  // ~5-14 frame trail; lower = longer streak
+    eHead[i]=Math.min(0.85, eTail[i]+0.05+Math.random()*0.45);   // point lag: some snap, some lag well behind
+    const t=Math.random();
+    if(t<0.66){ colR[i]=0.72+Math.random()*0.28; colG[i]=0.82+Math.random()*0.18; colB[i]=1.0; }
+    else if(t<0.86){ colR[i]=1.0; colG[i]=0.88; colB[i]=0.66; }
+    else { colR[i]=0.5; colG[i]=1.0; colB[i]=0.85; }
+  }
+  const ptGeo=new THREE.BufferGeometry(); ptGeo.setAttribute('position',new THREE.BufferAttribute(headPos,3)); ptGeo.setAttribute('color',new THREE.BufferAttribute(ptCol,3));
+  const ptMat=new THREE.PointsMaterial({size:IS_MOBILE?3:2.4, sizeAttenuation:false, vertexColors:true, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false, fog:false});
+  const points=new THREE.Points(ptGeo,ptMat); points.renderOrder=-10; points.frustumCulled=false;
+  const segGeo=new THREE.BufferGeometry(); segGeo.setAttribute('position',new THREE.BufferAttribute(segPos,3)); segGeo.setAttribute('color',new THREE.BufferAttribute(segCol,3));
+  const segMat=new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.85, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false, fog:false});
+  const segs=new THREE.LineSegments(segGeo,segMat); segs.renderOrder=-9; segs.frustumCulled=false;
+  const group=new THREE.Group(); group.add(points); group.add(segs); scene.add(group);
+  _starfield={N,R,dir,tw,baseB,eHead,eTail,lh,lt,colR,colG,colB,headPos,ptCol,segPos,segCol,ptGeo,segGeo,points,segs,group,_t:0,seeded:false};
+}
+// rotate vector (x,y,z) by quaternion (qx,qy,qz,qw) -> writes into out[0..2]
+function _qrot(x,y,z, qx,qy,qz,qw, out){
+  const tx=2*(qy*z-qz*y), ty=2*(qz*x-qx*z), tz=2*(qx*y-qy*x);
+  out[0]=x+qw*tx+(qy*tz-qz*ty); out[1]=y+qw*ty+(qz*tx-qx*tz); out[2]=z+qw*tz+(qx*ty-qy*tx);
+}
+const _qrTmp=[0,0,0];
+function _updateStarfield(dt){
+  if(typeof camera==='undefined'||typeof scene==='undefined') return;
+  if(!_starfield){ try{ _initStarfield(); }catch(e){ return; } }
+  const S=_starfield; S._t+=dt;
+  const playing=(typeof GS!=='undefined')&&(GS.state==='playing'||GS.state==='zoneTransition');
+  S.group.visible=playing; if(!playing){ S.seeded=false; return; }
+  S.group.position.copy(camera.position);
+  const q=camera.quaternion, qx=q.x,qy=q.y,qz=q.z,qw=q.w;          // camera world rotation
+  const ix=-qx,iy=-qy,iz=-qz,iw=qw;                               // inverse (conjugate) -> world dir into view space
+  const R=S.R, k=Math.min(1, dt*60);                              // frame-rate-normalise the ease rates
+  for(let i=0;i<S.N;i++){
+    const ph=S._t*0.3+S.tw[i], drift=0.012;
+    let dx=S.dir[i*3]+Math.sin(ph)*drift, dy=S.dir[i*3+1]+Math.cos(ph*0.8)*drift, dz=S.dir[i*3+2];
+    const dl=Math.hypot(dx,dy,dz)||1; dx/=dl; dy/=dl; dz/=dl;
+    _qrot(dx,dy,dz, ix,iy,iz,iw, _qrTmp);                         // localTrue = where this star sits in the CURRENT view
+    const ltx=_qrTmp[0], lty=_qrTmp[1], ltz=_qrTmp[2];
+    const o3=i*3;
+    if(!S.seeded){ S.lh[o3]=ltx; S.lh[o3+1]=lty; S.lh[o3+2]=ltz; S.lt[o3]=ltx; S.lt[o3+1]=lty; S.lt[o3+2]=ltz; }
+    const eh=Math.min(1,S.eHead[i]*k), et=Math.min(1,S.eTail[i]*k);
+    S.lh[o3]   += (ltx-S.lh[o3])*eh;   S.lh[o3+1] += (lty-S.lh[o3+1])*eh;   S.lh[o3+2] += (ltz-S.lh[o3+2])*eh;   // head lags the true position (per-star)
+    S.lt[o3]   += (S.lh[o3]-S.lt[o3])*et; S.lt[o3+1] += (S.lh[o3+1]-S.lt[o3+1])*et; S.lt[o3+2] += (S.lh[o3+2]-S.lt[o3+2])*et;   // tail trails the head (per-star)
+    _qrot(S.lh[o3],S.lh[o3+1],S.lh[o3+2], qx,qy,qz,qw, _qrTmp);   // back to world dir
+    const hx=_qrTmp[0]*R, hy=_qrTmp[1]*R, hz=_qrTmp[2]*R;
+    _qrot(S.lt[o3],S.lt[o3+1],S.lt[o3+2], qx,qy,qz,qw, _qrTmp);
+    const tx=_qrTmp[0]*R, ty=_qrTmp[1]*R, tz=_qrTmp[2]*R;
+    const b=S.baseB[i]*(0.6+0.4*Math.sin(S._t*2.2+S.tw[i]));
+    S.headPos[o3]=hx; S.headPos[o3+1]=hy; S.headPos[o3+2]=hz;
+    S.ptCol[o3]=S.colR[i]*b; S.ptCol[o3+1]=S.colG[i]*b; S.ptCol[o3+2]=S.colB[i]*b;
+    const o6=i*6;
+    S.segPos[o6]=hx; S.segPos[o6+1]=hy; S.segPos[o6+2]=hz; S.segPos[o6+3]=tx; S.segPos[o6+4]=ty; S.segPos[o6+5]=tz;
+    S.segCol[o6]=S.colR[i]*b; S.segCol[o6+1]=S.colG[i]*b; S.segCol[o6+2]=S.colB[i]*b;
+    S.segCol[o6+3]=0; S.segCol[o6+4]=0; S.segCol[o6+5]=0;
+  }
+  S.seeded=true;
+  S.ptGeo.attributes.position.needsUpdate=true; S.ptGeo.attributes.color.needsUpdate=true;
+  S.segGeo.attributes.position.needsUpdate=true; S.segGeo.attributes.color.needsUpdate=true;
+}
+// ════════════════════════════ SKY MUSIC VISUALIZER (dome) ════════════════════════════
+let _vizFFT=null, _vizSrcEl=null;
+function _vizLevel(){   // low-mid music energy 0..1, or null if no analyser available yet
+  try{
+    if(typeof Audio==='undefined'||!Audio.ctx) return null;
+    if(!_vizFFT){
+      const an=Audio.ctx.createAnalyser(); an.fftSize=128; an.smoothingTimeConstant=0.78;
+      if(Audio.musicGain){ try{ Audio.musicGain.connect(an); }catch(e){} }   // procedural-music bus
+      _vizFFT={an, data:new Uint8Array(an.frequencyBinCount)};
+    }
+    if(typeof MusicPlayer!=='undefined' && MusicPlayer.audio && MusicPlayer.audio!==_vizSrcEl){   // tap the mp3 once
+      try{ const src=Audio.ctx.createMediaElementSource(MusicPlayer.audio); src.connect(_vizFFT.an); src.connect(Audio.master||Audio.ctx.destination); }catch(e){}
+      _vizSrcEl=MusicPlayer.audio;
+    }
+    _vizFFT.an.getByteFrequencyData(_vizFFT.data);
+    const d=_vizFFT.data, hi=Math.min(d.length,28); let sum=0,n=0;
+    for(let i=2;i<hi;i++){ sum+=d[i]; n++; }
+    return n? (sum/n)/255 : 0;
+  }catch(e){ return null; }
+}
+let _skyViz=null; const _SV_ARMS=16, _SV_SEG=16;
+function _initSkyViz(){
+  const N=_SV_ARMS*_SV_SEG, verts=new Float32Array(N*8*3), cols=new Float32Array(N*8*3);
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(verts,3));
+  g.setAttribute('color', new THREE.BufferAttribute(cols,3));
+  const m=new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false, fog:false});
+  const mesh=new THREE.LineSegments(g,m); mesh.renderOrder=-8; mesh.frustumCulled=false;
+  const grp=new THREE.Group(); grp.add(mesh); scene.add(grp);
+  _skyViz={ grp, mesh, g, verts, cols, rad:new Float32Array(_SV_SEG), rot:0, t:0 };
+}
+function _updateSkyViz(dt){
+  if(typeof camera==='undefined'||typeof scene==='undefined') return;
+  const show=(typeof GS!=='undefined') && GS.state==='playing' && GS.zone===-16;   // sandbox sky for now
+  if(!_skyViz){ if(!show) return; try{ _initSkyViz(); }catch(e){ return; } }
+  const S=_skyViz; S.grp.visible=show; if(!show) return;
+  S.t+=dt; S.rot+=dt*0.06;
+  let lvl=_vizLevel(), target;
+  if(lvl===null || lvl<0.02) target=0.34+0.26*Math.sin(S.t*1.7)+0.12*Math.sin(S.t*3.3);   // no music -> breathe
+  else target=Math.min(1.4, lvl*1.7);
+  S.rad[0]+=(target-S.rad[0])*Math.min(1,dt*15);                          // centre snaps to the beat
+  for(let i=1;i<_SV_SEG;i++) S.rad[i]+=(S.rad[i-1]-S.rad[i])*Math.min(1,dt*9);   // wave eases OUTWARD along each arm (the elegant lag)
+  const Cx=camera.position.x, Cz=camera.position.z, CY=400, R=1600, TH0=0.14, THm=1.36;
+  const verts=S.verts, cols=S.cols; let p=0, c=0;
+  for(let a=0;a<_SV_ARMS;a++){
+    const phi=(a/_SV_ARMS)*Math.PI*2 + S.rot, cp=Math.cos(phi), sp=Math.sin(phi), blue=(a%2===0);
+    for(let i=0;i<_SV_SEG;i++){
+      const th=TH0+(i/(_SV_SEG-1))*(THm-TH0), ct=Math.cos(th), st=Math.sin(th), rv=S.rad[i];
+      const dx=st*cp, dy=ct, dz=st*sp;                      // dome direction
+      const etx=ct*cp, ety=-st, etz=ct*sp;                  // tangent along meridian
+      const efx=-sp, efz=cp;                                // tangent along azimuth
+      const rr=R+rv*150, px=Cx+dx*rr, py=CY+dy*rr, pz=Cz+dz*rr, sQ=22+rv*80;
+      const Tx=px+etx*sQ,Ty=py+ety*sQ,Tz=pz+etz*sQ, Rx=px+efx*sQ,Ry=py,Rz=pz+efz*sQ;
+      const Bx=px-etx*sQ,By=py-ety*sQ,Bz=pz-etz*sQ, Lx=px-efx*sQ,Ly=py,Lz=pz-efz*sQ;
+      verts[p++]=Tx;verts[p++]=Ty;verts[p++]=Tz; verts[p++]=Rx;verts[p++]=Ry;verts[p++]=Rz;
+      verts[p++]=Rx;verts[p++]=Ry;verts[p++]=Rz; verts[p++]=Bx;verts[p++]=By;verts[p++]=Bz;
+      verts[p++]=Bx;verts[p++]=By;verts[p++]=Bz; verts[p++]=Lx;verts[p++]=Ly;verts[p++]=Lz;
+      verts[p++]=Lx;verts[p++]=Ly;verts[p++]=Lz; verts[p++]=Tx;verts[p++]=Ty;verts[p++]=Tz;
+      const b=0.35+Math.min(1,rv)*0.65; let cr,cg,cb;
+      if(blue){ cr=0.15*b; cg=(0.45+rv*0.4)*b; cb=1.0*b; } else { cr=(0.55+rv*0.4)*b; cg=0.12*b; cb=1.0*b; }
+      for(let k=0;k<8;k++){ cols[c++]=cr; cols[c++]=cg; cols[c++]=cb; }
+    }
+  }
+  S.g.attributes.position.needsUpdate=true; S.g.attributes.color.needsUpdate=true;
+}
 function loop(ts){ requestAnimationFrame(loop);
   try{
     { const _lb=document.getElementById('lightmode-btn'), _gb=document.getElementById('gfx-btn'), _ov=document.getElementById('overlay');
@@ -11425,6 +11663,8 @@ function loop(ts){ requestAnimationFrame(loop);
       if(_lb) _lb.style.display=_show; if(_gb) _gb.style.display=_show; }
     let rawDt=Math.min((ts-lastT)/1000,0.033);lastT=ts;frame++;
     updateTime(); const dt=rawDt*TIME.scale;
+    _updateStarfield(dt);
+    _updateSkyViz(dt);
     _perfFps=_perfFps*0.9+(rawDt>0?1/rawDt:60)*0.1; if(frame%20===0) _updatePerfHud();
     if(_fly&&_fly.active){ updateFlight(dt); renderer.render(scene,camera); return; }
     if(_drive&&_drive.active){ updateDrive(dt); renderer.render(scene,camera); return; }
@@ -11933,9 +12173,20 @@ function loop(ts){ requestAnimationFrame(loop);
       // Update bomb ground crosshair — skip entirely in 3D aim mode
       if(player&&player.bombArmed&&!CAM.aimMode){
         const sm=Math.hypot(shootIn.x,shootIn.y);
-        let worldX=0,worldZ=0;
-        if(sm>0.08){ const ws=rotInput(shootIn.x,shootIn.y); worldX=ws.x; worldZ=ws.z; }
-        player.updateBomb(dt,worldX,worldZ);
+        if(player._inPlanetGravity){                                  // ON A BUILDING: map the aim stick onto the wall surface (down=down the wall)
+          if(sm>0.12){
+            const N=_gN, cr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);
+            let prr=cr.clone().addScaledVector(N,-cr.dot(N)); if(prr.lengthSq()<1e-5)prr.set(1,0,0); prr.normalize();
+            const pf=new THREE.Vector3().crossVectors(N,prr).normalize();
+            const tan=pf.multiplyScalar(-shootIn.y).addScaledVector(prr,shootIn.x);
+            if(tan.lengthSq()>1e-4){ tan.normalize(); player._bombThrow3D={x:tan.x,y:tan.y,z:tan.z}; player._bombThrowMag=sm; player._stickWasPushed=true; }
+          }
+          player.updateBomb(dt,0,0);
+        } else {
+          let worldX=0,worldZ=0;
+          if(sm>0.08){ const ws=rotInput(shootIn.x,shootIn.y); worldX=ws.x; worldZ=ws.z; }
+          player.updateBomb(dt,worldX,worldZ);
+        }
       } else if(player&&CAM.aimMode&&player.bombArmed){
         // 3D aim mode: show trajectory arc along camera forward direction
         player._hideAimer(); // hide ground ring/lines
@@ -15641,11 +15892,15 @@ function _glFaceCam(C, F, H, P, dt){
     }
   }
   const D=_GL_CAM_D;
-  // EYE: out along the edge diagonal, lifted, level (only moves when the edge changes)
-  const eye=C.clone().addScaledVector(_glEdge, H + D*0.86); eye.y+=D*0.54;
-  if(Fcur.y>0.5) eye.y += D*0.18;                           // top -> slight extra height for a better vantage
-  // LOOK: the face you're actually on, nudged toward the player
-  const NUDGE=0.35;   // LOOK at the shape centre, nudged toward the player -> fully continuous (no per-face aim jump at edges)
+  // FACE BLEND: ease the framing from the side edge-anchor up to a high look-down as the (continuous) normal rolls onto the roof.
+  // Driven by the live normal F.y -> no frozen "stuck on the side" framing once you reach the top.
+  const topness=Math.max(0,Math.min(1,(F.y-0.35)/0.5));
+  const roofY=C.y+H;
+  const xzk=(H+D*0.86)+((D*0.45)-(H+D*0.86))*topness;       // pull the eye in over the roof as you reach the top
+  const eye=C.clone().addScaledVector(_glEdge, xzk);
+  eye.y=(C.y+D*0.54)+((roofY+D*1.05)-(C.y+D*0.54))*topness; // mid-height on a side -> high above the roof on top
+  // LOOK: shape centre nudged toward the player; nudge harder on the roof so the player stays centred in the look-down
+  const NUDGE=0.35+0.4*topness;
   const ltx=C.x+(P.x-C.x)*NUDGE, lty=C.y+(P.y-C.y)*NUDGE, ltz=C.z+(P.z-C.z)*NUDGE;
   if(_glCamLook.lengthSq()<1e-6)_glCamLook.set(ltx,lty,ltz);
   _glCamLook.x+=(ltx-_glCamLook.x)*0.06; _glCamLook.y+=(lty-_glCamLook.y)*0.06; _glCamLook.z+=(ltz-_glCamLook.z)*0.06;
@@ -16515,6 +16770,7 @@ function _cityProjOrbit(b, R, SOI, dt){
     else { nx=0; ny=0; nz=Math.sign(rlz)||1; qz=nz*Ez; }
     dd=0;
   }
+  if(ny>0.5) return false;   // nearest surface is the ROOF / upper lip -> shoot straight off the top wherever you stand; only motion descending ALONGSIDE a wall (ny~horizontal) gets caught
   if(b.vy===undefined) b.vy=0;
   const CAP=300, sp=Math.min(Math.hypot(b.vx,b.vy,b.vz)||1, CAP);     // steady speed -> same on the wall as on the ground
   if(b.speed!==undefined) b.speed=Math.min(b.speed, CAP);            // missiles: stop the homing re-accelerating it up the wall
@@ -16530,7 +16786,7 @@ function _cityProjOrbit(b, R, SOI, dt){
     const k=Math.min(1, dt*3.2*(1-bD/SOI));
     b.vx+=(tox/tl*sp-b.vx)*k; b.vy+=(toy/tl*sp-b.vy)*k; b.vz+=(toz/tl*sp-b.vz)*k;
   }
-  const ns=Math.hypot(b.vx,b.vy,b.vz)||1; b.vx=b.vx/ns*sp; b.vy=b.vy/ns*sp; b.vz=b.vz/ns*sp;   // hold the steady speed: no bleed-to-stop, no speed-up
+  const ns=Math.hypot(b.vx,b.vy,b.vz); if(ns>20){ b.vx=b.vx/ns*sp; b.vy=b.vy/ns*sp; b.vz=b.vz/ns*sp; }   // hold steady speed ONLY while travelling; a near-stationary (dropped) projectile rests instead of being flung in a random leftover direction
   return true;
 }
 function updateCityGravity(dt){
@@ -16577,6 +16833,9 @@ function updateCityGravity(dt){
   let f=field(P);
   let N=f.nrm.clone();
   const grounded = f.dist <= PR+2; player._glGrounded=grounded;
+  if(grounded && N.y>0.55){   // crest onto the TOP face: hand off to normal rooftop camera/physics sooner (less edge resistance) -> one consistent roof view
+    _glExitGrav(V3(P.x, b.top+2, P.z), _glGVel); _cgBox=null; _cgNoGrab=0.35; player._onPlatform=true; return;
+  }
   // input -> camera-relative tangent on the surface plane
   let rx=moveIn.x, ry=moveIn.y;
   if(!IS_TOUCH){ if(keys['KeyD']||keys['ArrowRight'])rx+=1; if(keys['KeyA']||keys['ArrowLeft'])rx-=1; if(keys['KeyW']||keys['ArrowUp'])ry-=1; if(keys['KeyS']||keys['ArrowDown'])ry+=1; }
@@ -17367,9 +17626,8 @@ window.CTRL_MODE=window.CTRL_MODE||'standard';
 const MusicPlayer={
   audio:null, muted:false,
   load(url){
-    if(this.audio){this.audio.pause();this.audio=null;}
-    this.audio=new window.Audio(url);
-    this.audio.loop=true;
+    if(!this.audio){ this.audio=new window.Audio(); this.audio.loop=true; }   // reuse one element -> the visualizer's analyser tap survives track changes
+    this.audio.src=url;
     this.audio.volume=this.muted?0:0.5;
     this.audio.play().catch(()=>{});
   },
