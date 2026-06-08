@@ -6429,7 +6429,11 @@ class AllyBot{
   constructor(x,z,species){
     this.wx=x; this.wz=z; this.py=9; this.vx=0; this.vz=0; this._vx2=0; this._vz2=0;
     this.species=species||'crawler';
-    this.maxHp=5; this.hp=5; this.spd=130; this.t=Math.random()*6; this.life=30; this.spawn=0;
+    const _sp=this.species;
+    this._atkType = _sp==='droid'?'gun':(_sp==='ghost'?'orb':'acid');   // distinct combat per Robit type
+    this._stand   = _sp==='droid'?130:(_sp==='ghost'?80:46);            // droid hangs back & shoots; spider gets in close
+    this._atkRange= _sp==='droid'?240:(_sp==='ghost'?210:95);
+    this.maxHp=5; this.hp=5; this.spd=(_sp==='droid'?96:(_sp==='ghost'?112:130)); this.t=Math.random()*6; this.life=30; this.spawn=0;
     this.fireCD=0.6; this._biteCD=0; this._mood=2; this._moodT=0; this._hdg=Math.random()*Math.PI*2; this._lookH=this._hdg;
     // wall-crawl state — reused wholesale from the enemy Crawler
     this._cstate='ground'; this._cgBox=null; this._cy=9; this._climbY=9; this._climbT=0; this._attachCD=0; this._stuckT=0;
@@ -6476,6 +6480,18 @@ class AllyBot{
     const blink=(this.life>2)||(Math.sin(this.t*18)>-0.3);
     this._halo.visible=blink; this._spider.group.visible=blink;
   }
+  _allyAttack(TX,TY,TZ){
+    if(this._atkType==='acid'){ _spiderSpitAcid(this, TX, TY, TZ, true); return; }
+    const y0=this.py+12, sx=this.wx, sz=this.wz, dx=TX-sx, dy=(TY-y0), dz=TZ-sz, spd=560;
+    if(this._atkType==='gun'){                       // DROID — twin laser guns, fired straight at the target
+      for(const off of [-0.05,0.05]){ const ca=Math.cos(off),sa=Math.sin(off), ndx=dx*ca-dz*sa, ndz=dx*sa+dz*ca, nd=Math.hypot(ndx,dy,ndz)||1;
+        GS.bullets.push(new Bullet(sx,sz,ndx/nd*spd,ndz/nd*spd,'laser',y0,dy/nd*spd,true)); }
+      if(typeof ps!=='undefined')ps.ring(sx,sz,[1,0.6,0.2],3,28); if(typeof Audio!=='undefined')Audio.blip(440,0.05,'square',0.08,920);
+    } else {                                         // GHOST — slow homing spirit orb
+      const d=Math.hypot(dx,dy,dz)||1; GS.bullets.push(new Bullet(sx,sz,dx/d*spd*0.7,dz/d*spd*0.7,'homing',y0,dy/d*spd*0.7,true));
+      if(typeof ps!=='undefined')ps.spark(sx,sz,[0.5,1,0.92],y0); if(typeof Audio!=='undefined')Audio.blip(540,0.08,'sine',0.12,740);
+    }
+  }
   update(dt){
     this.t+=dt; this.life-=dt; this.spawn=Math.min(1,this.spawn+dt*3);
     if(this.fireCD>0) this.fireCD-=dt; if(this._biteCD>0) this._biteCD-=dt; if(this._attachCD>0) this._attachCD-=dt;
@@ -6487,7 +6503,7 @@ class AllyBot{
     if(tgt && td<AGGRO){ this._enemyTarget=tgt; this._enemyDist=td; chasing=true; TX=tgt.wx; TZ=tgt.wz; TY=(tgt.mesh?tgt.mesh.position.y:(tgt.py||9)); }
     else if(player){ TX=player.wx; TZ=player.wz; TY=Math.max(9, player.py||9); }
     else { TX=this.wx; TZ=this.wz; TY=9; }
-    if(chasing && this.fireCD<=0){ const dd=Math.hypot(TX-this.wx,TZ-this.wz); if(dd<95){ _spiderSpitAcid(this, TX, TY, TZ, true); this.fireCD=0.7+Math.random()*0.35; } }
+    if(chasing && this.fireCD<=0){ const dd=Math.hypot(TX-this.wx,TZ-this.wz); if(dd<this._atkRange){ this._allyAttack(TX,TY,TZ); this.fireCD=(this._atkType==='gun'?0.5:(this._atkType==='orb'?0.95:0.7))+Math.random()*0.3; } }
     const CITY=(typeof GS!=='undefined'&&GS.zone===-16);
 
     // ════ CLIMB — ride the building as one rounded box, body flat to the wall (ported from Crawler) ════
@@ -6503,7 +6519,7 @@ class AllyBot{
         let ox=rx-qx,oy=ry-qy,oz=rz-qz,dd=Math.hypot(ox,oy,oz),nx,ny,nz;
         if(dd>1e-4){nx=ox/dd;ny=oy/dd;nz=oz/dd;} else { const pa=Ex-Math.abs(rx),pb=Ey-Math.abs(ry),pc=Ez-Math.abs(rz); if(pa<=pb&&pa<=pc){nx=Math.sign(rx)||1;ny=0;nz=0;} else if(pb<=pc){nx=0;ny=Math.sign(ry)||1;nz=0;} else {nx=0;ny=0;nz=Math.sign(rz)||1;} }
         let dxx=0,dyy=0,dzz=0;
-        const distT=Math.hypot(TX-px,TY-py,TZ-pz), STOP=chasing?46:58;   // keep acid range vs enemy / personal space vs the player
+        const distT=Math.hypot(TX-px,TY-py,TZ-pz), STOP=chasing?Math.min(this._stand,54):58;   // keep attack range vs enemy / personal space vs the player
         if(distT>STOP){ let tx=TX-px, ty=TY-py, tz=TZ-pz; const tnn=tx*nx+ty*ny+tz*nz; tx-=nx*tnn; ty-=ny*tnn; tz-=nz*tnn; const tl=Math.hypot(tx,ty,tz); if(tl>1e-3){dxx=tx/tl;dyy=ty/tl;dzz=tz/tl;} }
         let sx=0,sy=0,sz=0;
         for(const o of GS.allies){ if(o===this||o._cgBox!==b) continue; const ex=px-o.wx,ey=py-(o._cy||9),ez=pz-o.wz,q2=ex*ex+ey*ey+ez*ez; if(q2<900&&q2>1){ const q=Math.sqrt(q2),w=(1-q/30)/q; sx+=ex*w; sy+=ey*w; sz+=ez*w; } }
@@ -6530,7 +6546,7 @@ class AllyBot{
 
     // ════ GROUND — chase an enemy at acid standoff, else follow the player ════
     if(chasing){
-      const dx=TX-this.wx, dz=TZ-this.wz, d=Math.hypot(dx,dz)||1; const STAND=46;
+      const dx=TX-this.wx, dz=TZ-this.wz, d=Math.hypot(dx,dz)||1; const STAND=this._stand;
       if(d>STAND+6){ this.vx+=(dx/d)*950*dt; this.vz+=(dz/d)*950*dt; }
       else if(d<STAND-10){ this.vx-=(dx/d)*620*dt; this.vz-=(dz/d)*620*dt; }
       else { this.vx*=0.7; this.vz*=0.7; }
@@ -6550,7 +6566,7 @@ class AllyBot{
     }
     const sp=Math.hypot(this.vx,this.vz); if(sp>this.spd){ this.vx=this.vx/sp*this.spd; this.vz=this.vz/sp*this.spd; }
     this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._vx2=this.vx; this._vz2=this.vz;
-    for(const e of GS.enemies){ if(!e.alive||e._captured) continue; const ex=this.wx-e.wx, ez=this.wz-e.wz, d=Math.hypot(ex,ez)||1; const mn=(e.size||12)*0.5+10; if(d<mn){ const pu=(mn-d); this.wx+=ex/d*pu; this.wz+=ez/d*pu; } }
+    if(this.species!=='ghost') for(const e of GS.enemies){ if(!e.alive||e._captured) continue; const ex=this.wx-e.wx, ez=this.wz-e.wz, d=Math.hypot(ex,ez)||1; const mn=(e.size||12)*0.5+10; if(d<mn){ const pu=(mn-d); this.wx+=ex/d*pu; this.wz+=ez/d*pu; } }   // ghost phases through
     for(const o of GS.allies){ if(o===this) continue; const ox=this.wx-o.wx, oz=this.wz-o.wz, d=Math.hypot(ox,oz)||1; const mn=20; if(d<mn){ const pu=(mn-d)*0.5; this.wx+=ox/d*pu; this.wz+=oz/d*pu; o.wx-=ox/d*pu; o.wz-=oz/d*pu; } }
     if(CITY) for(const box of _cityBoxes){ if(Math.abs(this.wx-box.x)<box.hw && Math.abs(this.wz-box.z)<box.hd){ const dxr=this.wx-box.x, dzr=this.wz-box.z; if(box.hw-Math.abs(dxr) < box.hd-Math.abs(dzr)) this.wx=box.x+(dxr>=0?1:-1)*(box.hw+2); else this.wz=box.z+(dzr>=0?1:-1)*(box.hd+2); break; } }
     // ATTACH: target is up high and we're against a building -> grab it & crawl (same trigger as the enemy)
@@ -6758,14 +6774,14 @@ class PlasmaLightning{
   constructor(){
     this.intensity=0; this.t=0; this._dmgT=0;
     this.group=new THREE.Group(); this.group.visible=false; scene.add(this.group);
-    this._coreMat=new THREE.MeshBasicMaterial({color:0xff5df5,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
-    this._core=new THREE.Mesh(new THREE.BufferGeometry(), this._coreMat); this._core.frustumCulled=false; this.group.add(this._core);
+    this._coreMat=new THREE.MeshBasicMaterial({color:0xff5df5,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false});
+    this._core=new THREE.Mesh(new THREE.BufferGeometry(), this._coreMat); this._core.frustumCulled=false; this.group.add(this._core); this.group.renderOrder=20;
     this._filMax=320; this._filPos=new Float32Array(this._filMax*3);
     const fg=new THREE.BufferGeometry(); fg.setAttribute('position', new THREE.BufferAttribute(this._filPos,3)); fg.setDrawRange(0,0);
-    this._filMat=new THREE.LineBasicMaterial({color:0xd9a0ff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+    this._filMat=new THREE.LineBasicMaterial({color:0xd9a0ff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false});
     this._fil=new THREE.LineSegments(fg, this._filMat); this._fil.frustumCulled=false; this.group.add(this._fil);
     this._filGeo=fg;
-    this._contactMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+    this._contactMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false});
     this._contact=new THREE.Mesh(new THREE.SphereGeometry(1,10,8), this._contactMat); this._contact.visible=false; this.group.add(this._contact);
   }
   update(pl,dt){
@@ -6798,12 +6814,17 @@ class PlasmaLightning{
     if(GS.zone===-16 && typeof _cityBoxes!=='undefined' && _cityBoxes.length){
       let wallT=Infinity, cap=primT;
       for(const b of _cityBoxes){
-        const minx=b.x-b.hw,maxx=b.x+b.hw,minz=b.z-b.hd,miny=0,maxy=b.top,minz2=b.z-b.hd,maxz=b.z+b.hd;
-        let t0=2,t1=cap,ok=true;
-        if(ok){ if(Math.abs(dir.x)<1e-7){ if(ox<minx||ox>maxx)ok=false; } else { let ta=(minx-ox)/dir.x,tb=(maxx-ox)/dir.x; if(ta>tb){const m=ta;ta=tb;tb=m;} if(ta>t0)t0=ta; if(tb<t1)t1=tb; } }
-        if(ok){ if(Math.abs(dir.y)<1e-7){ if(oy<miny||oy>maxy)ok=false; } else { let ta=(miny-oy)/dir.y,tb=(maxy-oy)/dir.y; if(ta>tb){const m=ta;ta=tb;tb=m;} if(ta>t0)t0=ta; if(tb<t1)t1=tb; } }
-        if(ok){ if(Math.abs(dir.z)<1e-7){ if(oz<minz2||oz>maxz)ok=false; } else { let ta=(minz2-oz)/dir.z,tb=(maxz-oz)/dir.z; if(ta>tb){const m=ta;ta=tb;tb=m;} if(ta>t0)t0=ta; if(tb<t1)t1=tb; } }
-        if(ok && t0<=t1 && t0<wallT) wallT=t0;
+        let hitT=Infinity;
+        if(b.poly && b.poly.length>=3){ hitT=_rayPolyPrism(ox,oy,oz, dir.x,dir.y,dir.z, b.poly, b.top, cap); }   // true polygon walls
+        else {
+          const minx=b.x-b.hw,maxx=b.x+b.hw,miny=0,maxy=b.top,minz2=b.z-b.hd,maxz=b.z+b.hd;
+          let t0=2,t1=cap,ok=true;
+          if(ok){ if(Math.abs(dir.x)<1e-7){ if(ox<minx||ox>maxx)ok=false; } else { let ta=(minx-ox)/dir.x,tb=(maxx-ox)/dir.x; if(ta>tb){const m=ta;ta=tb;tb=m;} if(ta>t0)t0=ta; if(tb<t1)t1=tb; } }
+          if(ok){ if(Math.abs(dir.y)<1e-7){ if(oy<miny||oy>maxy)ok=false; } else { let ta=(miny-oy)/dir.y,tb=(maxy-oy)/dir.y; if(ta>tb){const m=ta;ta=tb;tb=m;} if(ta>t0)t0=ta; if(tb<t1)t1=tb; } }
+          if(ok){ if(Math.abs(dir.z)<1e-7){ if(oz<minz2||oz>maxz)ok=false; } else { let ta=(minz2-oz)/dir.z,tb=(maxz-oz)/dir.z; if(ta>tb){const m=ta;ta=tb;tb=m;} if(ta>t0)t0=ta; if(tb<t1)t1=tb; } }
+          if(ok && t0<=t1) hitT=t0;
+        }
+        if(hitT<wallT) wallT=hitT;
       }
       if(wallT<primT){ primT=wallT; prim=null; wallStop=true; }   // wall is nearer than any enemy -> beam stops, nothing behind it gets hit
     }
@@ -6855,15 +6876,40 @@ function _updatePlasmaBeam(pl,dt){
 }
 window._updatePlasmaBeam=_updatePlasmaBeam;
 
+// Where the aim reticle sits (ground point at push-distance, or a rooftop it lands on). Bullets/rockets aim AT this so the shot visibly converges on the ring.
+function _reticleTarget(pl, ang, w, mag){
+  let D; if(w==='grenade') D=55+mag*180; else if(w==='rockets') D=60+mag*210; else D=40+mag*340;
+  const x=pl.wx+Math.cos(ang)*D, z=pl.wz+Math.sin(ang)*D; let y=9.4;
+  if(GS.zone===-16 && typeof _cityBoxes!=='undefined'){ for(const b of _cityBoxes){ if(Math.abs(x-b.x)<b.hw && Math.abs(z-b.z)<b.hd && b.top+1>y) y=b.top+1; } }
+  return {x,y,z,D};
+}
+// Nearest hit of a ray against a TRUE-POLYGON building (vertical walls per edge, height 0..top). Returns t along the ray or Infinity.
+function _rayPolyPrism(ox,oy,oz, dx,dy,dz, poly, top, cap){
+  let best=Infinity; const N=poly.length;
+  for(let i=0;i<N;i++){
+    const A=poly[i], B=poly[(i+1)%N], ex=B.x-A.x, ez=B.z-A.z;
+    const den=ex*dz - dx*ez; if(Math.abs(den)<1e-9) continue;     // ray parallel to this wall
+    const rx=A.x-ox, rz=A.z-oz;
+    const t=(ex*rz - ez*rx)/den, sseg=(dx*rz - dz*rx)/den;
+    if(t>2 && t<cap && sseg>=0 && sseg<=1){ const y=oy+dy*t; if(y>=0 && y<=top && t<best) best=t; }
+  }
+  return best;
+}
 function _updateGrenadeAim(pl,dt){
   if(!pl) return; let mk=pl._gnMark;
-  if(pl.primaryWeapon!=='grenade' || !pl.alive || (pl._aimMag||0)<0.08){ if(mk) mk.visible=false; return; }
-  if(!mk){ const m=new THREE.Mesh(new THREE.RingGeometry(7,11,26), new THREE.MeshBasicMaterial({color:0x9be84a,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); m.rotation.x=-Math.PI/2; scene.add(m); pl._gnMark=mk=m; }
+  const w=pl.primaryWeapon;
+  const supported=(w==='grenade'||w==='bullets'||w==='rockets');
+  // universal aim reticle: shows where the shot lands, distance scaling with stick push. Plasma uses its beam as its own aim.
+  if(!supported || !pl.alive || (pl._aimMag||0)<0.08 || pl._inPlanetGravity || pl._aim3DActive){ if(mk) mk.visible=false; return; }
+  if(!mk){ const m=new THREE.Mesh(new THREE.RingGeometry(7,11,26), new THREE.MeshBasicMaterial({color:0x9be84a,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); m.rotation.x=-Math.PI/2; scene.add(m);
+    const dot=new THREE.Mesh(new THREE.CircleGeometry(2.4,16), new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); dot.rotation.x=-Math.PI/2; dot.position.y=0.2; m.add(dot); m._dot=dot;
+    pl._gnMark=mk=m; }
   mk.visible=true;
-  const mag=Math.min(1,pl._aimMag), D=55+mag*180, a=pl.aim;
-  const lx=pl.wx+Math.cos(a)*D, lz=pl.wz+Math.sin(a)*D; let ly=9.4;
-  if(GS.zone===-16 && typeof _cityBoxes!=='undefined'){ for(const b of _cityBoxes){ if(Math.abs(lx-b.x)<b.hw && Math.abs(lz-b.z)<b.hd && b.top+1>ly) ly=b.top+1; } }   // sit on the rooftop if the landing spot is on a building
-  mk.position.set(lx, ly, lz);
+  const mag=Math.min(1,pl._aimMag), a=pl.aim;
+  let col; if(w==='grenade') col=0x9be84a; else if(w==='rockets') col=0xff8a33; else col=0x35d6ff;
+  const T=_reticleTarget(pl,a,w,mag);
+  mk.position.set(T.x, T.y, T.z);
+  if(mk.material.color.getHex()!==col){ mk.material.color.setHex(col); if(mk._dot) mk._dot.material.color.setHex(col); }
   pl._gnT=(pl._gnT||0)+dt; mk.material.opacity=0.5+0.28*Math.sin(pl._gnT*9); mk.scale.setScalar(1+0.08*Math.sin(pl._gnT*9));
 }
 window._updateGrenadeAim=_updateGrenadeAim;
@@ -6943,10 +6989,23 @@ window._armCrate=_armCrate;
     b.addEventListener('touchstart',f,{passive:false}); b.addEventListener('click',f);
     document.body.appendChild(b);
   }
+  function mkBtnLP(id,left,w,html,col,onTap,onHold){   // tap = onTap, press-and-hold = onHold
+    if(document.getElementById(id)) return;
+    const lp = left<0 ? ('calc(50% - '+(-left)+'px)') : ('calc(50% + '+left+'px)');
+    const b=document.createElement('button'); b.id=id; b.innerHTML=html;
+    b.style.cssText='position:fixed;left:'+lp+';bottom:calc(max(env(safe-area-inset-bottom), 28px) + 118px + 48px);transform:translateX(-50%);z-index:120;width:'+w+'px;height:38px;display:none;align-items:center;justify-content:center;border-radius:10px;background:rgba(6,16,20,0.66);border:2px solid '+col+';color:'+col+';padding:0 8px;font-family:Orbitron,monospace;font-weight:700;font-size:11px;letter-spacing:1px;-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);';
+    let held=false, tmr=null;
+    const down=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); held=false; if(tmr)clearTimeout(tmr); tmr=setTimeout(()=>{ held=true; tmr=null; try{onHold();}catch(e){} }, 300); };
+    const up=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); if(tmr){clearTimeout(tmr); tmr=null;} if(!held){ try{onTap();}catch(e){} } held=false; };
+    const cancel=()=>{ if(tmr){clearTimeout(tmr); tmr=null;} held=false; };
+    b.addEventListener('touchstart',down,{passive:false}); b.addEventListener('touchend',up,{passive:false}); b.addEventListener('touchcancel',cancel);
+    b.addEventListener('mousedown',down); b.addEventListener('mouseup',up);
+    document.body.appendChild(b);
+  }
   function mount(){
     const LOW='calc(max(env(safe-area-inset-bottom), 28px) + 118px + 48px - 56px)';   // ROBIT row — one step below the CRATE/CYCLE/BOMB line
     mkBtn('ally-cycle', -66, 40, '\u27F3', '#66ffaa', ()=>{ if(typeof _cycleAlly==='function')_cycleAlly(); });
-    mkBtn('ally-deploy', 0, 52, 'ROBIT', '#3aa0ff', ()=>{ if(typeof _armAlly==='function')_armAlly(); });
+    mkBtnLP('ally-deploy', 0, 52, 'ROBIT', '#3aa0ff', ()=>{ if(typeof _armAlly==='function')_armAlly(); }, ()=>{ if(typeof _openRobitMenu==='function')_openRobitMenu(); });
     mkBtn('crate-toggle', 0, 104, 'CRATE', '#33e0ff', ()=>{ if(typeof _armCrate==='function')_armCrate(); });   // CRATE stays on the CYCLE/BOMB line, dead centre
     const _dep=document.getElementById('ally-deploy'), _cy=document.getElementById('ally-cycle');
     if(_dep) _dep.style.bottom=LOW;      // ROBIT drops directly below CRATE
@@ -6954,6 +7013,34 @@ window._armCrate=_armCrate;
   }
   if(document.body) mount(); else window.addEventListener('DOMContentLoaded',mount);
 })();
+
+// ── HOLD-TO-PICK Robit menu — press & hold the ROBIT button to choose which captured creature to throw ──
+function _closeRobitMenu(){ const m=document.getElementById('robit-menu'); if(m)m.remove(); if(window._robitMenuOC){ document.removeEventListener('touchstart',window._robitMenuOC,true); document.removeEventListener('mousedown',window._robitMenuOC,true); window._robitMenuOC=null; } }
+function _openRobitMenu(){
+  if(!player||typeof Dex==='undefined') return;
+  let owned=[]; try{ owned=Object.keys(Dex.list()); }catch(e){}
+  if(!owned.length){ if(typeof announce==='function')announce('NO ROBITS YET','#ffaa33'); if(typeof Audio!=='undefined')Audio.blip(160,0.08,'square',0.12,120); return; }
+  _closeRobitMenu();
+  const dex=Dex.list();
+  const wrap=document.createElement('div'); wrap.id='robit-menu';
+  wrap.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:calc(max(env(safe-area-inset-bottom), 28px) + 118px + 48px + 60px);z-index:200;display:flex;gap:8px;padding:9px;border-radius:14px;background:rgba(4,12,16,0.93);border:1px solid #2a6a7a;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);box-shadow:0 6px 26px rgba(0,0,0,0.6);';
+  owned.forEach((id,i)=>{
+    const rec=dex[id], cnt=rec?rec.count:0, sel=((player._allySel||0)===i);
+    const cell=document.createElement('button');
+    cell.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:56px;height:60px;border-radius:11px;background:'+(sel?'rgba(20,72,92,0.95)':'rgba(8,24,30,0.85)')+';border:2px solid '+(sel?'#5fe0ff':'#1d4654')+';color:'+(sel?'#aef0ff':'#84b4c4')+';font-family:Orbitron,monospace;font-size:8px;font-weight:700;letter-spacing:0.5px;';
+    const nm=((rec&&rec.name)?rec.name.split(' ')[0]:id).toUpperCase().slice(0,6);
+    cell.innerHTML=_robitIcon(id)+'<span style="margin-top:1px">'+nm+'</span><span style="opacity:0.7;font-size:8px">x'+cnt+'</span>';
+    const pick=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); player._allySel=i;
+      if(typeof Audio!=='undefined')Audio.blip(580,0.06,'sine',0.14,840);
+      if(typeof announce==='function')announce('ROBIT: '+((rec&&rec.name)||id),'#66ffaa'); _closeRobitMenu(); };
+    cell.addEventListener('touchstart',pick,{passive:false}); cell.addEventListener('click',pick);
+    wrap.appendChild(cell);
+  });
+  document.body.appendChild(wrap);
+  if(typeof Audio!=='undefined')Audio.blip(720,0.05,'sine',0.12,1000);
+  setTimeout(()=>{ const oc=(ev)=>{ const m=document.getElementById('robit-menu'); if(m && !m.contains(ev.target)) _closeRobitMenu(); document.removeEventListener('touchstart',oc,true); document.removeEventListener('mousedown',oc,true); window._robitMenuOC=null; }; document.addEventListener('touchstart',oc,true); document.addEventListener('mousedown',oc,true); window._robitMenuOC=oc; }, 60);
+}
+window._openRobitMenu=_openRobitMenu; window._closeRobitMenu=_closeRobitMenu;
 
 
 const bulletGeo=new THREE.SphereGeometry(2.4,6,6);
@@ -6972,7 +7059,7 @@ class Bullet{
     const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 12, 34, dt) : false;   // building field owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the ground->wall corner
     if(this._g3){ this.y+=this.vy*dt; }                                        // straight-line 3D flight (galaxy)
     else if(_cf){ this.y+=this.vy*dt; }                                        // riding/approaching a building -> climb freely, no ground pull
-    else if(this.y>9){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){this.y=9;this.vy=0;} }
+    else if(this.y>9||this.vy>0.5){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){ this.y=9; this.vy=(this.vy<-55)?-this.vy*0.5:0; } }   // arc + bounce off the floor (loses half its energy each hop)
     this.mesh.position.set(this.wx,this.y,this.wz);
     if(!this._g3 && grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,0.7);
     if(GRID_SHEETS.length){ const _h=gridSheetHit(this.wx,this.y,this.wz,this.wx-this.vx*dt,this.y-(this._g3?this.vy*dt:0),this.wz-this.vz*dt);
@@ -7923,7 +8010,7 @@ class Player{
         const al=Math.hypot(avx,avz);
         const isRockets=this.primaryWeapon==='rockets', isPlasma=this.primaryWeapon==='plasma', isGrenade=this.primaryWeapon==='grenade';
         const fireRate=od?4:isPlasma?9:isGrenade?20:isRockets?14:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
-        if(firing&&(sMag>0.08||al>0.08)&&this.fireT>=fireRate){
+        if(firing&&this.fireT>=fireRate){
           this.fireT=0;
           if(isPlasma){ /* sustained beam handled per-frame */ }
           else if(isGrenade) this._fireGrenade(od);
@@ -8044,7 +8131,7 @@ class Player{
     this.fireT++;
     const isRockets=this.primaryWeapon==='rockets', isPlasma=this.primaryWeapon==='plasma', isGrenade=this.primaryWeapon==='grenade';
     const fireRate=od?4:isPlasma?9:isGrenade?20:isRockets?14:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
-    if(firing&&al>0.08&&this.fireT>=fireRate){
+    if(firing&&this.fireT>=fireRate){
       this.fireT=0;
       if(isPlasma){ /* sustained beam handled per-frame */ }
       else if(isGrenade) this._fireGrenade(od);
@@ -8336,7 +8423,7 @@ class Player{
     };
     const _roofFire=(GS.zone===-16 && this._onPlatform && !this._inPlanetGravity);
     const _mag=Math.min(1,Math.max(0, this._aimMag!=null?this._aimMag:1));
-    const pvy=(this._inPlanetGravity||isGalaxy)?0:-(1-_mag)*300;   // launch pitch: light push dives close, full push flies flat
+    const pvy=(this._inPlanetGravity||isGalaxy)?0:-(1-_mag)*380;   // launch pitch: pull toward center = steep dive at your feet, full push = flat/long
     const fire=(ang,kind)=>{
       if(this._aim3DActive && this._aim3D && !isGalaxy){          // desktop: fire toward the 3D crosshair (up / down / level)
         const off=ang-a, ca=Math.cos(off), sa=Math.sin(off), d=this._aim3D;
@@ -8346,7 +8433,7 @@ class Player{
         const d3=dir3FromAngle(ang)||new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
         GS.bullets.push(new Bullet(spawnX,spawnZ,d3.x*bspd,d3.z*bspd,kind,y0,d3.y*bspd,true));
       } else {
-        const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0); _b.vy=pvy; GS.bullets.push(_b);
+        const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0); _b.vy=pvy; GS.bullets.push(_b);   // ballistic: stick magnitude sets launch pitch; arcs + bounces off the ground
       }
       if(_roofFire) GS.bullets[GS.bullets.length-1]._noOrbit=true;   // rooftop shots ignore building gravity
     };
@@ -8394,7 +8481,7 @@ class Player{
       const ang=a+off;
       let dirX=Math.cos(ang), dirZ=Math.sin(ang), dirY=0;
       if(use3D){ const ca=Math.cos(off), sa=Math.sin(off), d=this._aim3D; dirX=d.x*ca-d.z*sa; dirZ=d.x*sa+d.z*ca; dirY=d.y; }
-      else if(!this._inPlanetGravity){ dirY=-(1-_mag)*0.6; }   // launch pitch: light push angles down/close, full push flies flat
+      else if(!this._inPlanetGravity){ dirY=0; }   // rockets launch flat and let heat-seeking do the work — no downward pitch
       // Get hand bone world position — alternate R/L hand each burst
       const side=(this._rocketSide+i)%2;
       const handBone=side===0?'mixamorig_RightHand':'mixamorig_LeftHand';
@@ -13145,12 +13232,20 @@ function loop(ts){ requestAnimationFrame(loop);
         }
       }
 
-      if(IS_TOUCH&&stickAim&&!grenadeActive&&!CAM.aimMode){
-        // Right stick = twin-stick aim + fire primary weapon
-        const ws=rotInput(shootIn.x,shootIn.y);
-        avx=ws.x; avz=ws.z; aiming=true;
+      if(IS_TOUCH && player && !player._inPlanetGravity) player._aim3DActive=false;   // touch flat-ground never uses the 3D crosshair -> the ballistic launch-pitch path runs (bullets angle down as you pull the stick in)
+      if(IS_TOUCH&&!grenadeActive&&!CAM.aimMode&&player){
+        // Right stick = twin-stick aim + fire. FIRE LATCHES: drag past the engage ring and it keeps firing until you lift your
+        // finger, even as you pull back toward center — so you can start far/flat and pull in to steepen the dive toward your feet.
         const stickMag=Math.hypot(shootIn.x,shootIn.y);
-        firing=stickMag>0.1&&!flickActive&&!nearWallStick&&!player._wallClimb;
+        const held=(typeof jR!=='undefined')?jR.isHeld:(stickMag>0.05);
+        if(!held){ player._fireLatched=false; }
+        else if(stickMag>0.38){ player._fireLatched=true; }                                    // dragged out far enough -> latch ON
+        if(player._fireLatched){
+          if(stickMag>0.05){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; }     // direction + magnitude track the stick (small mag => steep / close)
+          else { avx=Math.cos(player.aim)*0.04; avz=Math.sin(player.aim)*0.04; }               // dead center -> keep last direction, minimal mag = steepest dive at your feet
+          aiming=true;
+          firing=!flickActive&&!nearWallStick&&!player._wallClimb;
+        }
       }
       if(IS_TOUCH&&grenadeActive&&stickAim&&!CAM.aimMode){
         // Bomb armed (not in aim mode): right stick moves ground crosshair
@@ -17859,6 +17954,31 @@ function _cityAddBuilding(bx,bz,hw,hd,h,pal){
   for(const s of sheets) s._cityWall=true;
   _cityBoxes.push({x:bx,z:bz,hw,hd,top:h,sheets});
 }
+// Build a TRUE-POLYGON grid-shell building: one wall sheet per footprint EDGE (any angle) + a polygon roof cap.
+// Collision / wall-crawl still use the bounding box registered below — generalising those to the polygon is the next step.
+function _cityAddPolyBuilding(pts, h, pal){
+  if(!pts || pts.length<3) return;
+  const cell=16, up=new THREE.Vector3(0,1,0); h=Math.max(cell, Math.round(h/cell)*cell);
+  let mnx=1e9,mxx=-1e9,mnz=1e9,mxz=-1e9; for(const p of pts){ if(p.x<mnx)mnx=p.x; if(p.x>mxx)mxx=p.x; if(p.z<mnz)mnz=p.z; if(p.z>mxz)mxz=p.z; }
+  const sheets=[], N=pts.length;
+  for(let i=0;i<N;i++){                                   // a wall per edge
+    const A=pts[i], B=pts[(i+1)%N], ex=B.x-A.x, ez=B.z-A.z, len=Math.hypot(ex,ez); if(len<8) continue;
+    const lx=new THREE.Vector3(ex/len,0,ez/len);
+    const ny=new THREE.Vector3().crossVectors(up,lx).normalize();   // horizontal face normal
+    sheets.push(_cityFace((A.x+B.x)/2, h/2, (A.z+B.z)/2, lx, ny, up.clone(), len, h, cell, pal));
+  }
+  // polygon roof cap at height h — outline + faint fill in the palette colour
+  const P=_GS_PAL[pal]||_GS_PAL.neon, rc=(P[0][0]<<16)|(P[0][1]<<8)|P[0][2];
+  const shape=new THREE.Shape(); pts.forEach((p,i)=>{ if(i===0)shape.moveTo(p.x,-p.z); else shape.lineTo(p.x,-p.z); }); shape.closePath();
+  const rgeo=new THREE.ShapeGeometry(shape); rgeo.rotateX(-Math.PI/2); rgeo.translate(0,h,0);
+  const roofGrp=new THREE.Group();
+  roofGrp.add(new THREE.Mesh(rgeo, new THREE.MeshBasicMaterial({color:rc,transparent:true,opacity:0.12,side:THREE.DoubleSide,depthWrite:false})));
+  roofGrp.add(new THREE.LineSegments(new THREE.EdgesGeometry(rgeo), new THREE.LineBasicMaterial({color:rc,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})));
+  scene.add(roofGrp);
+  sheets.push({ group:roofGrp, _cityWall:true, update(){}, dispose(){ scene.remove(this.group); this.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } });
+  for(const s of sheets) s._cityWall=true;
+  _cityBoxes.push({x:(mnx+mxx)/2, z:(mnz+mxz)/2, hw:Math.max(cell,(mxx-mnx)/2), hd:Math.max(cell,(mxz-mnz)/2), top:h, sheets, poly:pts.map(p=>({x:p.x,z:p.z}))});
+}
 // ════════ MAP-BASED CITY — pour OSM building footprints through the same walkable grid-shell builder ════════
 const _MAP_SCALE=3;   // game units per real-world metre
 function _cityLatLonToXZ(lat,lon,lat0,lon0){
@@ -17872,17 +17992,19 @@ function _cityBuildFromFootprints(foot,pal){
   if(n){ lat0/=n; lon0/=n; }
   let count=0;
   for(const f of foot){
-    let cx,cz,hw,hd,h;
+    let cx,cz,hw,hd,h, poly=null;
     if(f.pts){
-      let mnx=1e9,mxx=-1e9,mnz=1e9,mxz=-1e9;
-      for(const pt of f.pts){ const q=_cityLatLonToXZ(pt[0],pt[1],lat0,lon0); if(q.x<mnx)mnx=q.x; if(q.x>mxx)mxx=q.x; if(q.z<mnz)mnz=q.z; if(q.z>mxz)mxz=q.z; }
+      poly=f.pts.map(pt=>_cityLatLonToXZ(pt[0],pt[1],lat0,lon0));   // ordered footprint polygon in world XZ
+      if(poly.length>2 && Math.hypot(poly[0].x-poly[poly.length-1].x, poly[0].z-poly[poly.length-1].z)<1) poly.pop();   // drop OSM closing duplicate
+      let mnx=1e9,mxx=-1e9,mnz=1e9,mxz=-1e9; for(const q of poly){ if(q.x<mnx)mnx=q.x; if(q.x>mxx)mxx=q.x; if(q.z<mnz)mnz=q.z; if(q.z>mxz)mxz=q.z; }
       cx=(mnx+mxx)/2; cz=(mnz+mxz)/2; hw=Math.max(12,(mxx-mnx)/2); hd=Math.max(12,(mxz-mnz)/2);
       const lvls=f.levels|| (f.height? Math.round(f.height/3) : (4+Math.floor(Math.random()*16)));
       h=Math.max(48, Math.round(lvls*3*_MAP_SCALE*1.4));
     } else { cx=f.cx; cz=f.cz; hw=f.hw; hd=f.hd; h=f.h; }
     if(Math.hypot(cx-0,cz-160)<130) continue;   // keep a clear spawn plaza at (0,160)
     if(hw>360||hd>360) continue;                // skip giant park/relation outlines
-    _cityAddBuilding(cx,cz,hw,hd,h,pal); count++;
+    if(poly && poly.length>=3) _cityAddPolyBuilding(poly, h, pal); else _cityAddBuilding(cx,cz,hw,hd,h,pal);
+    count++;
   }
   return count;
 }
@@ -17896,6 +18018,9 @@ function _cityBuildSampleMap(){
     {cx:-240,cz:-10,hw:42,hd:92,h:300},{cx:260,cz:-40,hw:44,hd:84,h:280},{cx:-30,cz:-340,hw:90,hd:60,h:470}
   ];
   for(const b of B) _cityAddBuilding(b.cx,b.cz,b.hw,b.hd,b.h,'neon');
+  // showcase TRUE-POLYGON footprints (offline): an L-shaped block + a hexagonal tower
+  _cityAddPolyBuilding([{x:-300,z:120},{x:-300,z:250},{x:-220,z:250},{x:-220,z:185},{x:-165,z:185},{x:-165,z:120}], 320, 'neon');
+  { const hp=[]; for(let i=0;i<6;i++){ const a=i/6*Math.PI*2+0.3; hp.push({x:300+Math.cos(a)*72, z:-220+Math.sin(a)*72}); } _cityAddPolyBuilding(hp, 480, 'neon'); }
   _cityAddProps(); if(typeof _cityMakeTestUI==='function')_cityMakeTestUI();
   if(typeof announce==='function')announce('SAMPLE MAP CITY (offline)','#39ffc9');
 }
@@ -18095,17 +18220,17 @@ function _makeRoboBoot(side){
 function _attachBoot(boot,foot,toe){
   player.model.updateWorldMatrix(true,true);
   const Pf=new THREE.Vector3(); foot.getWorldPosition(Pf);
-  let fwd=null;
-  if(toe){ const Pt=new THREE.Vector3(); toe.getWorldPosition(Pt); fwd=Pt.clone().sub(Pf); }
-  if(!fwd||fwd.lengthSq()<1e-6) fwd=new THREE.Vector3(0,0,1).applyQuaternion(player.model.getWorldQuaternion(new THREE.Quaternion()));
-  fwd.y=0; if(fwd.lengthSq()<1e-6) fwd.set(0,0,1); fwd.normalize();             // flatten -> boot sits upright at bind
+  // orient from the MODEL forward (its local +Z = the facing/aim direction) so BOTH boots always agree, regardless of the animated leg pose
+  const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
+  let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq);
+  fwd.y=0; if(fwd.lengthSq()<1e-6) fwd.set(0,0,1); fwd.normalize();
   const up=new THREE.Vector3(0,1,0);
   const right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6) right.set(1,0,0); right.normalize();
   const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
   const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
   const bq=new THREE.Quaternion(); foot.getWorldQuaternion(bq);
   boot.quaternion.copy(bq.clone().invert().multiply(desired));                    // local correction -> upright now, follows the bone after
-  const bs=new THREE.Vector3(); foot.getWorldScale(bs); const inv=(1/(bs.x||1))*5.8;
+  const bs=new THREE.Vector3(); foot.getWorldScale(bs); const inv=(1/(bs.x||1))*4.35;   // 75% of previous size
   boot.userData.invScale=inv; boot.userData.grow=0; boot.scale.setScalar(inv*0.05);
   boot.position.set(0,0,0);
   foot.add(boot);
