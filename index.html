@@ -18622,19 +18622,22 @@ function _makeRoboBoot(side){
 function _attachBoot(boot,foot,toe){
   player.model.updateWorldMatrix(true,true);
   const Pf=new THREE.Vector3(); foot.getWorldPosition(Pf);
-  // orient from the MODEL forward (its local +Z = the facing/aim direction) so BOTH boots always agree, regardless of the animated leg pose
+  // Build a CLEAN (reflection-free) desired WORLD transform, then express it in the bone's LOCAL space.
+  // Each Mixamo foot bone (left vs right) can carry its own mirror/negative-scale; composing inv(boneWorld)*desiredWorld
+  // cancels whatever each one carries, so BOTH boots end up upright & un-flipped without per-side sign guessing.
   const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
   let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq);
   fwd.y=0; if(fwd.lengthSq()<1e-6) fwd.set(0,0,1); fwd.normalize();
   const up=new THREE.Vector3(0,1,0);
   const right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6) right.set(1,0,0); right.normalize();
   const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
-  const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
-  const bq=new THREE.Quaternion(); foot.getWorldQuaternion(bq);
-  boot.quaternion.copy(bq.clone().invert().multiply(desired));                    // local correction -> upright now, follows the bone after
-  const bs=new THREE.Vector3(); foot.getWorldScale(bs); const inv=(1/(Math.abs(bs.x)||1))*4.35;   // 75% of previous size; ABS so a mirrored (right-side) Mixamo bone with negative scale.x doesn't flip the boot 180° about X
-  boot.userData.invScale=inv; boot.userData.grow=0; boot.scale.setScalar(inv*0.05);
-  boot.position.set(0,0,0);
+  const desiredQ=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
+  const bs=new THREE.Vector3(); foot.getWorldScale(bs); const size=(1/(Math.abs(bs.x)||1))*4.35;   // 75% of previous size
+  const desiredWorld=new THREE.Matrix4().compose(Pf, desiredQ, new THREE.Vector3(size,size,size));
+  const local=new THREE.Matrix4().copy(foot.matrixWorld).invert().multiply(desiredWorld);
+  local.decompose(boot.position, boot.quaternion, boot.scale);                    // boot.scale may carry a sign that exactly cancels THIS bone's mirror
+  boot.userData.baseScale=boot.scale.clone(); boot.userData.invScale=size; boot.userData.grow=0;
+  boot.scale.copy(boot.userData.baseScale).multiplyScalar(0.05);
   foot.add(boot);
   (player._boots=player._boots||[]).push(boot);
 }
@@ -18679,7 +18682,7 @@ function _updateBootStation(dt){
 function _updateBoots(dt){
   if(!player||!player._boots) return;
   for(const b of player._boots){
-    if(b.userData.grow<1){ b.userData.grow=Math.min(1,b.userData.grow+dt*3.2); const e=b.userData.grow; b.scale.setScalar(b.userData.invScale*(0.2+0.8*e)); }
+    if(b.userData.grow<1){ b.userData.grow=Math.min(1,b.userData.grow+dt*3.2); const e=b.userData.grow; const bsc=b.userData.baseScale, m=0.2+0.8*e; if(bsc) b.scale.set(bsc.x*m,bsc.y*m,bsc.z*m); else b.scale.setScalar(b.userData.invScale*m); }
     const jet=b.userData.jet; if(jet){ const f=(player._speedBoost>0)?(0.55+Math.random()*0.45):0.0; jet.material.opacity=f; jet.scale.z=0.6+f*0.9; }
   }
 }
