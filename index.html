@@ -18605,7 +18605,7 @@ const _BOOT_GLOW =new THREE.MeshBasicMaterial({color:0x00ffaa,transparent:true,o
 const _BOOT_THRUST=new THREE.MeshBasicMaterial({color:0x33ffdd,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false});
 function _makeRoboBoot(side){
   // designed in WORLD units, origin at ankle joint, +Y up, +Z toward toe, +X right
-  const g=new THREE.Group(), M=_BOOT_METAL, D=_BOOT_DARK;
+  const g=new THREE.Group(), M=_BOOT_METAL, D=_BOOT_DARK; g.userData.side=side;
   const sole=new THREE.Mesh(new THREE.BoxGeometry(1.9,0.55,3.0),D); sole.position.set(0,-1.78,0.6); g.add(sole);
   const foot=new THREE.Mesh(new THREE.BoxGeometry(1.8,1.25,2.5),M); foot.position.set(0,-1.0,0.45); g.add(foot);
   const toe =new THREE.Mesh(new THREE.BoxGeometry(1.7,0.9,0.95),M); toe.position.set(0,-1.28,1.8); toe.rotation.x=-0.25; g.add(toe);
@@ -18619,25 +18619,25 @@ function _makeRoboBoot(side){
   g.traverse(o=>{ o.frustumCulled=false; });
   return g;
 }
-function _attachBoot(boot,foot,toe){
+function _attachBoot(boot,foot,toe,side){
+  if(side===undefined) side=(boot.userData&&boot.userData.side)||1;
   player.model.updateWorldMatrix(true,true);
   const Pf=new THREE.Vector3(); foot.getWorldPosition(Pf);
-  // Build a CLEAN (reflection-free) desired WORLD transform, then express it in the bone's LOCAL space.
-  // Each Mixamo foot bone (left vs right) can carry its own mirror/negative-scale; composing inv(boneWorld)*desiredWorld
-  // cancels whatever each one carries, so BOTH boots end up upright & un-flipped without per-side sign guessing.
+  // orient from the MODEL forward (its local +Z = facing/aim) so both boots agree regardless of the animated leg pose
   const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
   let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq);
   fwd.y=0; if(fwd.lengthSq()<1e-6) fwd.set(0,0,1); fwd.normalize();
   const up=new THREE.Vector3(0,1,0);
   const right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6) right.set(1,0,0); right.normalize();
   const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
-  const desiredQ=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
-  const bs=new THREE.Vector3(); foot.getWorldScale(bs); const size=(1/(Math.abs(bs.x)||1))*4.35;   // 75% of previous size
-  const desiredWorld=new THREE.Matrix4().compose(Pf, desiredQ, new THREE.Vector3(size,size,size));
-  const local=new THREE.Matrix4().copy(foot.matrixWorld).invert().multiply(desiredWorld);
-  local.decompose(boot.position, boot.quaternion, boot.scale);                    // boot.scale may carry a sign that exactly cancels THIS bone's mirror
-  boot.userData.baseScale=boot.scale.clone(); boot.userData.invScale=size; boot.userData.grow=0;
-  boot.scale.copy(boot.userData.baseScale).multiplyScalar(0.05);
+  const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
+  const bq=new THREE.Quaternion(); foot.getWorldQuaternion(bq);
+  boot.quaternion.copy(bq.clone().invert().multiply(desired));                    // local correction -> upright, follows the bone after
+  const bs=new THREE.Vector3(); foot.getWorldScale(bs); const mag=(1/(Math.abs(bs.x)||1))*4.35;   // 75% of previous size
+  // SPLIT per side: LEFT bone reads upright with NEGATIVE uniform scale, RIGHT with POSITIVE (their rest bones mirror differently)
+  const inv=(side<0)?-mag:mag;
+  boot.userData.invScale=inv; boot.userData.grow=0; boot.scale.setScalar(inv*0.05);
+  boot.position.set(0,0,0);
   foot.add(boot);
   (player._boots=player._boots||[]).push(boot);
 }
@@ -18648,8 +18648,8 @@ function _collectBoots(){
   if(bones){
     const find=(sd,kd)=>{ const ex='mixamorig_'+sd+kd; if(bones[ex])return bones[ex]; const ss=sd.toLowerCase(),kk=kd.toLowerCase(); for(const key in bones){ const lk=key.toLowerCase(); if(lk.indexOf(kk)>=0&&lk.indexOf(ss)>=0)return bones[key]; } return null; };
     const RF=find('Right','Foot'), LF=find('Left','Foot'), RT=find('Right','ToeBase')||find('Right','Toe'), LT=find('Left','ToeBase')||find('Left','Toe');
-    if(RF){ _attachBoot(_makeRoboBoot(1),RF,RT); nAttached++; }
-    if(LF){ _attachBoot(_makeRoboBoot(-1),LF,LT); nAttached++; }
+    if(RF){ _attachBoot(_makeRoboBoot(1),RF,RT,1); nAttached++; }
+    if(LF){ _attachBoot(_makeRoboBoot(-1),LF,LT,-1); nAttached++; }
     player._hasBoots=true; player._speedBoost=Math.max(player._speedBoost||0,99999);
     try{ console.log('BOOT foot/toe bones:', Object.keys(bones).filter(k=>/foot|toe/i.test(k)), 'attached',nAttached); }catch(e){}
   }
@@ -18682,7 +18682,7 @@ function _updateBootStation(dt){
 function _updateBoots(dt){
   if(!player||!player._boots) return;
   for(const b of player._boots){
-    if(b.userData.grow<1){ b.userData.grow=Math.min(1,b.userData.grow+dt*3.2); const e=b.userData.grow; const bsc=b.userData.baseScale, m=0.2+0.8*e; if(bsc) b.scale.set(bsc.x*m,bsc.y*m,bsc.z*m); else b.scale.setScalar(b.userData.invScale*m); }
+    if(b.userData.grow<1){ b.userData.grow=Math.min(1,b.userData.grow+dt*3.2); const e=b.userData.grow; b.scale.setScalar(b.userData.invScale*(0.2+0.8*e)); }
     const jet=b.userData.jet; if(jet){ const f=(player._speedBoost>0)?(0.55+Math.random()*0.45):0.0; jet.material.opacity=f; jet.scale.z=0.6+f*0.9; }
   }
 }
