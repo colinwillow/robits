@@ -2301,6 +2301,40 @@ function _updateSpider(sp, dt, moveAmt){
   }
   sp.group.position.y = Math.sin(sp.gait*TAU)*(mv*0.9) + Math.sin(sp.t*1.6)*0.25;  // gait bob only while walking; idle breathing always
 }
+// ── build the right body for a deployed Robit by captured species ──
+function _makeDroidBody(){
+  const g=new THREE.Group(), inner=new THREE.Group(); inner.position.y=7; g.add(inner);
+  const glowHex=0xff8a33, dark=0x1a0c04;
+  const eMat=(c,o=0.9)=>new THREE.LineBasicMaterial({color:c,transparent:true,opacity:o,blending:THREE.AdditiveBlending,depthWrite:false});
+  const headGeo=new THREE.OctahedronGeometry(6,0);
+  inner.add(new THREE.Mesh(headGeo,new THREE.MeshBasicMaterial({color:dark})));
+  inner.add(new THREE.LineSegments(new THREE.EdgesGeometry(headGeo),eMat(glowHex,0.95)));
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(2.6,10,8), new THREE.MeshBasicMaterial({color:0xffd27a,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false})); eye.position.set(0,0,5); inner.add(eye);
+  const barGeo=new THREE.CylinderGeometry(0.9,1.2,11,6);
+  for(const gx of [-4,4]){ const bar=new THREE.Mesh(barGeo,new THREE.MeshBasicMaterial({color:0x221008})); bar.rotation.x=Math.PI/2; bar.position.set(gx,0,6); inner.add(bar);
+    const be=new THREE.LineSegments(new THREE.EdgesGeometry(barGeo),eMat(glowHex,0.85)); be.rotation.x=Math.PI/2; be.position.set(gx,0,6); inner.add(be); }
+  return {group:g, legs:[], gait:0, t:Math.random()*TAU};
+}
+function _makeGhostBody(){
+  const g=new THREE.Group();
+  const PR=[[9.5,0],[10.6,3],[11,8],[11,15],[10.3,20],[8.2,24],[5.2,27],[2.4,29],[0.001,30]].map(([r,y])=>new THREE.Vector2(r,y));
+  const bodyGeo=new THREE.LatheGeometry(PR,24);
+  const bodyMat=new THREE.MeshStandardMaterial({color:0x8effe6,emissive:0x2fe6c0,emissiveIntensity:1.7,transparent:true,opacity:0.92,roughness:0.4,metalness:0.08});
+  g.add(new THREE.Mesh(bodyGeo,bodyMat));
+  const glowMat=new THREE.MeshBasicMaterial({color:0x8effe6,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.BackSide});
+  const aura=new THREE.Mesh(bodyGeo,glowMat); aura.scale.setScalar(1.13); g.add(aura);
+  const bumpGeo=new THREE.SphereGeometry(3.0,10,8);
+  for(let i=0;i<7;i++){ const a=(i/7)*Math.PI*2; const b=new THREE.Mesh(bumpGeo,bodyMat); b.position.set(Math.cos(a)*8.7,0,Math.sin(a)*8.7); b.scale.y=0.85; g.add(b); }
+  const eyeMat=new THREE.MeshBasicMaterial({color:0x05202a}), eyeGeo=new THREE.SphereGeometry(2.3,10,8);
+  const eL=new THREE.Mesh(eyeGeo,eyeMat); eL.position.set(-3.9,16,9.5); eL.scale.set(1,1.25,0.7); g.add(eL);
+  const eR=new THREE.Mesh(eyeGeo,eyeMat); eR.position.set(3.9,16,9.5); eR.scale.set(1,1.25,0.7); g.add(eR);
+  return {group:g, legs:[], gait:0, t:Math.random()*TAU};
+}
+function _makeRobitBody(species){
+  if(species==='droid') return _makeDroidBody();
+  if(species==='ghost') return _makeGhostBody();
+  return _makeSpider(0x6fdcff);   // crawler / default — brighter glowing blue
+}
 
 class Diamond extends Enemy{
   constructor(wx,wz,wave){super(wx,wz);this._robitId='crawler';this._robitName='Acid Crawler';this.glow=[0,1,0.6];this.spd=42+rand(20)+(wave||1)*3;this.score=50;this.size=17;this.t=rand(TAU);this.hitFlash=0;this.hp=3;this._barY=26;
@@ -3407,6 +3441,7 @@ class Ghost extends Enemy{
   constructor(wx,wz,wave){
     super(wx,wz);
     this.glow=[0.42,1,0.92]; this.size=15; this.hp=3; this.score=120; this.t=Math.random()*6.28; this._yaw=0; this._barY=34;
+    this._robitId='ghost'; this._robitName='Ghost';
     const g=new THREE.Group();
     // body — lathe profile: rounded dome -> belly -> rim
     const PR=[[9.5,0],[10.6,3],[11,8],[11,15],[10.3,20],[8.2,24],[5.2,27],[2.4,29],[0.001,30]];
@@ -6402,7 +6437,9 @@ class AllyBot{
     this._upV=new THREE.Vector3(0,1,0); this._fwdV=new THREE.Vector3(0,0,1); this._rightV=new THREE.Vector3(1,0,0); this._faceV=new THREE.Vector3(0,0,1);
     this._rx=null; this._ry=null; this._rz=null;
     this.mesh=new THREE.Group(); scene.add(this.mesh);
-    this._spider=_makeSpider(0x3aa0ff); this._spider.group.scale.setScalar(1.1); this.mesh.add(this._spider.group);   // YOUR color = blue
+    this._spider=_makeRobitBody(this.species);
+    this._spider.group.scale.setScalar(this.species==='ghost'?0.82:(this.species==='droid'?1.05:1.1));
+    this.mesh.add(this._spider.group);   // render whatever you caught — ghost/droid/spider
     // floating segmented halo = health — kept world-upright & decoupled from the body so it stays level on walls
     this._halo=new THREE.Group(); this._haloSegs=[];
     const HN=12, hr=8.5;
@@ -6845,6 +6882,7 @@ window._spiderSpitAcid=_spiderSpitAcid;
 function _robitIcon(id){
   if(id==='crawler') return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M9 11 4 8M9 13 4 16M15 11 20 8M15 13 20 16M10.5 9 8.5 4M13.5 9 15.5 4M10.5 15 8.5 20M13.5 15 15.5 20"/></svg>';
   if(id==='droid') return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="7" width="12" height="11" rx="3"/><circle cx="12" cy="12.5" r="2"/><path d="M12 7V4M9.5 4h5"/></svg>';
+  if(id==='ghost') return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18.5V11a7 7 0 0 1 14 0v7.5l-2.3-1.7L14 18.5l-2-1.7-2 1.7-2.7-1.7z"/><circle cx="9.6" cy="11" r="1.15" fill="currentColor"/><circle cx="14.4" cy="11" r="1.15" fill="currentColor"/></svg>';
   return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l7 4v8l-7 4-7-4V7z"/><circle cx="12" cy="11" r="2.2"/></svg>';
 }
 window._robitIcon=_robitIcon;
@@ -8297,6 +8335,8 @@ class Player{
       return flat.normalize();
     };
     const _roofFire=(GS.zone===-16 && this._onPlatform && !this._inPlanetGravity);
+    const _mag=Math.min(1,Math.max(0, this._aimMag!=null?this._aimMag:1));
+    const pvy=(this._inPlanetGravity||isGalaxy)?0:-(1-_mag)*300;   // launch pitch: light push dives close, full push flies flat
     const fire=(ang,kind)=>{
       if(this._aim3DActive && this._aim3D && !isGalaxy){          // desktop: fire toward the 3D crosshair (up / down / level)
         const off=ang-a, ca=Math.cos(off), sa=Math.sin(off), d=this._aim3D;
@@ -8306,7 +8346,7 @@ class Player{
         const d3=dir3FromAngle(ang)||new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
         GS.bullets.push(new Bullet(spawnX,spawnZ,d3.x*bspd,d3.z*bspd,kind,y0,d3.y*bspd,true));
       } else {
-        GS.bullets.push(new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0));
+        const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0); _b.vy=pvy; GS.bullets.push(_b);
       }
       if(_roofFire) GS.bullets[GS.bullets.length-1]._noOrbit=true;   // rooftop shots ignore building gravity
     };
@@ -8342,6 +8382,7 @@ class Player{
   }
   _fireRocket(od){
     const a=this.aim;
+    const _mag=Math.min(1,Math.max(0, this._aimMag!=null?this._aimMag:1));
     const spread=od?0.22:0.14;
     const count=od?3:1;
     const offsets=count===1?[0]:[-spread,0,spread];
@@ -8353,6 +8394,7 @@ class Player{
       const ang=a+off;
       let dirX=Math.cos(ang), dirZ=Math.sin(ang), dirY=0;
       if(use3D){ const ca=Math.cos(off), sa=Math.sin(off), d=this._aim3D; dirX=d.x*ca-d.z*sa; dirZ=d.x*sa+d.z*ca; dirY=d.y; }
+      else if(!this._inPlanetGravity){ dirY=-(1-_mag)*0.6; }   // launch pitch: light push angles down/close, full push flies flat
       // Get hand bone world position — alternate R/L hand each burst
       const side=(this._rocketSide+i)%2;
       const handBone=side===0?'mixamorig_RightHand':'mixamorig_LeftHand';
@@ -17900,9 +17942,19 @@ function _buildCityDome(){
   const mat=new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:true,fog:false});
   const mesh=new THREE.LineSegments(geo,mat); mesh.frustumCulled=false; mesh.renderOrder=-10;
   const grp=new THREE.Group(); grp.scale.setScalar(1.0); grp.add(mesh); scene.add(grp);
-  // invisible depth-only ground mask -> writes depth at ground level so the sky mandala sinks behind the REAL ground (true perspective horizon, no flat clip, no show-through)
-  const occ=new THREE.Mesh(new THREE.RingGeometry(500,6000,56), new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:true,side:THREE.DoubleSide}));
-  occ.rotation.x=-Math.PI/2; occ.position.y=-3; occ.renderOrder=-100; occ.frustumCulled=false; scene.add(occ);   // hole (r<500) around player keeps the ground-deformation well visible
+  // invisible depth-only ground SKIN: a solid surface matching the grid lattice, deformed every frame to follow the real ground (funnels and all).
+  // The sky mandala is depth-masked by the actual ground surface -> no fake hole, no flat clip, no show-through; the look is unchanged because the skin draws no color.
+  let occ=null;
+  if(typeof grid!=='undefined' && grid && grid.x){
+    const nx=grid.nx, nz=grid.nz, nv=nx*nz, sp=new Float32Array(nv*3);
+    const sgeo=new THREE.BufferGeometry(); const spa=new THREE.BufferAttribute(sp,3); spa.setUsage(THREE.DynamicDrawUsage);
+    sgeo.setAttribute('position',spa);
+    const idx=[]; for(let r=0;r<nz-1;r++) for(let c=0;c<nx-1;c++){ const a=r*nx+c,b=a+1,d=a+nx,e=d+1; idx.push(a,d,b, b,d,e); }
+    sgeo.setIndex(idx);
+    const smat=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:true,side:THREE.DoubleSide});
+    occ=new THREE.Mesh(sgeo,smat); occ.frustumCulled=false; occ.renderOrder=-100; scene.add(occ);
+    occ._pa=spa; occ._sp=sp; occ._nv=nv;
+  }
   _cityDome={grp,mesh,geo,mat,occ,bocc:null,_boccN:-1,_bmat:null,pos,col,pa,ca,rv:new Float32Array(NR),targetJump:1,prevSum:0,rotCounter:0,frame:0,NR,SPK,RLO,RHI};
   try{ _cityBuildBOcc(_cityDome); }catch(e){}
 }
@@ -17963,17 +18015,14 @@ function _updateCityDome(dt){
   const D=2400, HSKY=460;
   v.grp.position.set(camera.position.x+_CSKY_DIR.x*D, camera.position.y+HSKY, camera.position.z+_CSKY_DIR.z*D);
   v.grp.quaternion.copy(camera.quaternion);
-  if(v.occ){ const _fx=(typeof player!=='undefined'&&player)?player.wx:camera.position.x, _fz=(typeof player!=='undefined'&&player)?player.wz:camera.position.z; v.occ.position.x=_fx; v.occ.position.z=_fz; }
+  if(v.occ && v.occ._sp && typeof grid!=='undefined' && grid && grid.x){ const sp=v.occ._sp, nv=v.occ._nv, gx=grid.x, gy=grid.y, gz=grid.z; for(let k=0,o=0;k<nv;k++,o+=3){ sp[o]=gx[k]; sp[o+1]=gy[k]-2; sp[o+2]=gz[k]; } v.occ._pa.needsUpdate=true; }
 }
 function _cityBuildBOcc(v){
   if(v.bocc){ for(const m of v.bocc){ scene.remove(m); if(m.geometry)m.geometry.dispose(); } }
   v.bocc=[]; v._boccN=(typeof _cityBoxes!=='undefined')?_cityBoxes.length:0;
-  if(typeof _cityBoxes==='undefined') return;
-  if(!v._bmat) v._bmat=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:true});
-  for(const b of _cityBoxes){   // inset a touch so the wireframe walls stay visible in FRONT; the mask hides anything BEHIND the building
-    const g=new THREE.BoxGeometry(Math.max(2,2*b.hw-4), Math.max(2,b.top-2), Math.max(2,2*b.hd-4));
-    const m=new THREE.Mesh(g,v._bmat); m.position.set(b.x,(b.top-2)/2,b.z); m.renderOrder=-99; m.frustumCulled=false; scene.add(m); v.bocc.push(m);
-  }
+  // Building occluder boxes are DISABLED: they were static and didn't follow deforming walls (black-plane artifact),
+  // and the deforming ground skin already handles the real show-through. Buildings stay see-through wireframe.
+  return;
 }
 function _disposeCityDome(){ const v=_cityDome; if(!v) return; if(v.grp) scene.remove(v.grp); if(v.occ){ scene.remove(v.occ); if(v.occ.geometry)v.occ.geometry.dispose(); if(v.occ.material)v.occ.material.dispose(); } if(v.bocc){ for(const m of v.bocc){ scene.remove(m); if(m.geometry)m.geometry.dispose(); } } if(v._bmat)v._bmat.dispose(); if(v.geo)v.geo.dispose(); if(v.mat)v.mat.dispose(); _cityDome=null; }
 let _cityFpsEMA=60, _cityFpsT=0;
