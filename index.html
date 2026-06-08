@@ -6756,7 +6756,21 @@ class PlasmaLightning{
       const ex=e.wx-ox, ee=ey-oy, ez=e.wz-oz, tp=ex*dir.x+ee*dir.y+ez*dir.z; if(tp<2||tp>MAXLEN) continue;
       const perp=Math.hypot(ex-dir.x*tp, ee-dir.y*tp, ez-dir.z*tp);
       if(perp < hitR+(e.size||12)*0.4 && tp<primT){ primT=tp; prim=e; } }
-    const LEN = prim ? Math.max(20, primT) : MAXLEN;
+    // buildings block the beam just like the other weapons — clamp to the nearest wall (ray vs each building AABB)
+    let wallStop=false;
+    if(GS.zone===-16 && typeof _cityBoxes!=='undefined' && _cityBoxes.length){
+      let wallT=Infinity, cap=primT;
+      for(const b of _cityBoxes){
+        const minx=b.x-b.hw,maxx=b.x+b.hw,minz=b.z-b.hd,miny=0,maxy=b.top,minz2=b.z-b.hd,maxz=b.z+b.hd;
+        let t0=2,t1=cap,ok=true;
+        if(ok){ if(Math.abs(dir.x)<1e-7){ if(ox<minx||ox>maxx)ok=false; } else { let ta=(minx-ox)/dir.x,tb=(maxx-ox)/dir.x; if(ta>tb){const m=ta;ta=tb;tb=m;} if(ta>t0)t0=ta; if(tb<t1)t1=tb; } }
+        if(ok){ if(Math.abs(dir.y)<1e-7){ if(oy<miny||oy>maxy)ok=false; } else { let ta=(miny-oy)/dir.y,tb=(maxy-oy)/dir.y; if(ta>tb){const m=ta;ta=tb;tb=m;} if(ta>t0)t0=ta; if(tb<t1)t1=tb; } }
+        if(ok){ if(Math.abs(dir.z)<1e-7){ if(oz<minz2||oz>maxz)ok=false; } else { let ta=(minz2-oz)/dir.z,tb=(maxz-oz)/dir.z; if(ta>tb){const m=ta;ta=tb;tb=m;} if(ta>t0)t0=ta; if(tb<t1)t1=tb; } }
+        if(ok && t0<=t1 && t0<wallT) wallT=t0;
+      }
+      if(wallT<primT){ primT=wallT; prim=null; wallStop=true; }   // wall is nearer than any enemy -> beam stops, nothing behind it gets hit
+    }
+    const LEN = Math.max(20, primT);
     let cx=ox+dir.x*LEN, cy=oy+dir.y*LEN, cz=oz+dir.z*LEN;
     if(prim){ cx=prim.wx; cy=(prim.mesh?prim.mesh.position.y:9); cz=prim.wz; }
     // jagged core nodes origin -> contact
@@ -6791,7 +6805,8 @@ class PlasmaLightning{
     }
     this._filGeo.setDrawRange(0, fp/3); this._filGeo.attributes.position.needsUpdate=true;
     this._filMat.opacity=0.85*Math.min(1,inten*1.4);
-    if(this._contact){ this._contact.visible=hitting; if(hitting){ this._contact.position.set(cx,cy,cz); const sc=(3.5+2*Math.sin(this.t*30))*(od?1.5:1)*Math.min(1,inten*1.5); this._contact.scale.setScalar(Math.max(1,sc)); this._contactMat.opacity=0.85*inten; } }
+    if(this._contact){ const showContact=hitting||wallStop; this._contact.visible=showContact; if(showContact){ this._contact.position.set(cx,cy,cz); const sc=(3.5+2*Math.sin(this.t*30))*(od?1.5:1)*Math.min(1,inten*1.5); this._contact.scale.setScalar(Math.max(1,sc)); this._contactMat.opacity=0.85*inten; } }
+    if(wallStop && typeof ps!=='undefined' && Math.random()<0.5) ps.spark(cx+rand(-4,4),cz+rand(-4,4),[1,0.5,1],cy+rand(-2,5));
     if(active && typeof ps!=='undefined' && Math.random()<0.6) ps.spark(ox+rand(-4,4),oz+rand(-4,4),[1,0.5,1],oy);
   }
 }
@@ -17880,11 +17895,13 @@ function _buildCityDome(){
   const pa=new THREE.BufferAttribute(pos,3); pa.setUsage(THREE.DynamicDrawUsage);
   const ca=new THREE.BufferAttribute(col,3); ca.setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute('position',pa); geo.setAttribute('color',ca);
-  const mat=new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false,fog:false});
-  if(typeof renderer!=='undefined'){ renderer.localClippingEnabled=true; mat.clippingPlanes=[ new THREE.Plane(new THREE.Vector3(0,1,0), -70) ]; }   // clip everything below world y=70 -> only the sky portion shows, never through the ground
-  const mesh=new THREE.LineSegments(geo,mat); mesh.frustumCulled=false; mesh.renderOrder=-10;   // draw FIRST -> the city paints over it; shows only against the black sky
+  const mat=new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:true,fog:false});
+  const mesh=new THREE.LineSegments(geo,mat); mesh.frustumCulled=false; mesh.renderOrder=-10;
   const grp=new THREE.Group(); grp.scale.setScalar(0.62); grp.add(mesh); scene.add(grp);
-  _cityDome={grp,mesh,geo,mat,pos,col,pa,ca,rv:new Float32Array(NR),targetJump:1,prevSum:0,rotCounter:0,frame:0,NR,SPK,RLO,RHI};
+  // invisible depth-only ground mask -> writes depth at ground level so the sky mandala sinks behind the REAL ground (true perspective horizon, no flat clip, no show-through)
+  const occ=new THREE.Mesh(new THREE.CircleGeometry(6000,40), new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:true}));
+  occ.rotation.x=-Math.PI/2; occ.position.y=-3; occ.renderOrder=-100; occ.frustumCulled=false; scene.add(occ);
+  _cityDome={grp,mesh,geo,mat,occ,pos,col,pa,ca,rv:new Float32Array(NR),targetJump:1,prevSum:0,rotCounter:0,frame:0,NR,SPK,RLO,RHI};
 }
 const _CSKY_DIR=new THREE.Vector3();
 function _updateCityDome(dt){
@@ -17942,8 +17959,9 @@ function _updateCityDome(dt){
   const D=1400, HSKY=260;
   v.grp.position.set(camera.position.x+_CSKY_DIR.x*D, camera.position.y+HSKY, camera.position.z+_CSKY_DIR.z*D);
   v.grp.quaternion.copy(camera.quaternion);
+  if(v.occ){ v.occ.position.x=camera.position.x; v.occ.position.z=camera.position.z; }
 }
-function _disposeCityDome(){ const v=_cityDome; if(!v) return; if(v.grp) scene.remove(v.grp); if(v.geo)v.geo.dispose(); if(v.mat)v.mat.dispose(); _cityDome=null; }
+function _disposeCityDome(){ const v=_cityDome; if(!v) return; if(v.grp) scene.remove(v.grp); if(v.occ){ scene.remove(v.occ); if(v.occ.geometry)v.occ.geometry.dispose(); if(v.occ.material)v.occ.material.dispose(); } if(v.geo)v.geo.dispose(); if(v.mat)v.mat.dispose(); _cityDome=null; }
 let _cityFpsEMA=60, _cityFpsT=0;
 function _cityRemoveTestUI(){ if(typeof document==='undefined') return; const e=document.getElementById('city-test-ui'); if(e) e.remove(); }
 function _cityMakeTestUI(){
