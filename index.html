@@ -17869,6 +17869,81 @@ window._cityGoto=function(){
   if(v){ const a=v.split(',').map(parseFloat); if(isFinite(a[0])&&isFinite(a[1])){ window._cityMapLat=a[0]; window._cityMapLon=a[1]; } }
   window._cityMode='map'; if(typeof startGameAtLevel==='function') startGameAtLevel(-16);
 };
+// ════════ SKY MANDALA — the flat p5 visualizer as a camera-facing backdrop, parked far/high behind the city ════════
+let _cityDome=null;
+function _buildCityDome(){
+  _disposeCityDome();
+  const NR=40, SPK=12, RLO=6, RHI=24;
+  const totalSq=2*SPK*NR + (RHI-RLO)*6, VERTS=totalSq*4*2;
+  const pos=new Float32Array(VERTS*3), col=new Float32Array(VERTS*3);
+  const geo=new THREE.BufferGeometry();
+  const pa=new THREE.BufferAttribute(pos,3); pa.setUsage(THREE.DynamicDrawUsage);
+  const ca=new THREE.BufferAttribute(col,3); ca.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position',pa); geo.setAttribute('color',ca);
+  const mat=new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false,fog:false});
+  if(typeof renderer!=='undefined'){ renderer.localClippingEnabled=true; mat.clippingPlanes=[ new THREE.Plane(new THREE.Vector3(0,1,0), -70) ]; }   // clip everything below world y=70 -> only the sky portion shows, never through the ground
+  const mesh=new THREE.LineSegments(geo,mat); mesh.frustumCulled=false; mesh.renderOrder=-10;   // draw FIRST -> the city paints over it; shows only against the black sky
+  const grp=new THREE.Group(); grp.scale.setScalar(0.62); grp.add(mesh); scene.add(grp);
+  _cityDome={grp,mesh,geo,mat,pos,col,pa,ca,rv:new Float32Array(NR),targetJump:1,prevSum:0,rotCounter:0,frame:0,NR,SPK,RLO,RHI};
+}
+const _CSKY_DIR=new THREE.Vector3();
+function _updateCityDome(dt){
+  if(typeof camera==='undefined') return;
+  if(!_cityDome){ try{ _buildCityDome(); }catch(e){ return; } }
+  const v=_cityDome; if(!v) return;
+  // ── cascade from music (same as the room visualizer) ──
+  if(typeof _vizLevel==='function') _vizLevel();
+  let sum=0; if(typeof _vizFFT!=='undefined' && _vizFFT && _vizFFT.data){ for(let i=6;i<30;i++) sum+=_vizFFT.data[i]; }
+  v.frame++;
+  if(sum>0){ const diff=Math.abs(sum-v.prevSum); v.prevSum=sum; v.targetJump=Math.max(diff/1.5,(sum/24)/10)*1.8; }
+  else v.targetJump=50+Math.sin(v.frame*0.2)*40;
+  const rv=v.rv, NR=v.NR;
+  rv[0]=Math.abs(rv[0]+(v.targetJump-rv[0])*0.15);
+  for(let j=1;j<NR;j++) rv[j]=Math.abs(rv[j]+(rv[j-1]-rv[j])*0.25);
+  v.rotCounter++;
+  // ── emit the flat mandala (spokes + rings), identical to the room version ──
+  const pos=v.pos, col=v.col; let p=0,c=0;
+  const D2R=Math.PI/180, DIST=5, OVER=50, BASE=200, CS=3;
+  for(let layer=0;layer<2;layer++){
+    const reverse=(layer===1), rotSpeed=reverse? -v.rotCounter*0.3 : v.rotCounter*0.5;
+    for(let u=0;u<v.SPK;u++){
+      const ang=(v.rotCounter/3 + rotSpeed + 30*u + 90)*D2R, ac=Math.cos(ang), as=Math.sin(ang);
+      for(let i=0;i<NR;i++){
+        const rvi=rv[i];
+        const lx=BASE + (reverse? -rvi : rvi)*DIST + OVER*(i+1), ly=OVER*(i+1);
+        const h=(reverse? rv[NR-1-i]/2 : rvi)*0.5, zd=-i*6 + rvi*2;
+        const a0x=lx-h,a0y=ly-h, a1x=lx+h,a1y=ly-h, a2x=lx+h,a2y=ly+h, a3x=lx-h,a3y=ly+h;
+        p=_emitSq(pos,p,
+          a0x*ac-a0y*as,a0x*as+a0y*ac,zd, a1x*ac-a1y*as,a1x*as+a1y*ac,zd,
+          a2x*ac-a2y*as,a2x*as+a2y*ac,zd, a3x*ac-a3y*as,a3x*as+a3y*ac,zd);
+        const g=Math.min(255,rvi*DIST/3)/255;
+        let cr,cg,cb; if(i<17){ if(i%2===0){cr=0;cg=g;cb=1;} else {cr=g;cg=0;cb=1;} } else {cr=0;cg=0;cb=1;}
+        c=_emitSqC(col,c,cr,cg,cb);
+      }
+    }
+  }
+  const phiBase=(v.rotCounter/3 + v.frame/4)*D2R, divs=[5,6,7,8,1,3], rIdx=[0,1,2,3,4,4];
+  for(let i=v.RLO;i<v.RHI;i++){
+    _SVM.makeRotationZ(phiBase + (20*i)*D2R).multiply(_SV_RX).multiply(_SV_RY);
+    const ric=Math.min(255,i)/255;
+    for(let e=0;e<6;e++){
+      const rvE=rv[rIdx[e]], h=(e===4? 40*CS : rvE/divs[e]*CS)*0.5, z=-rvE*DIST;
+      _sv0.set(-h,-h,z).applyMatrix4(_SVM); _sv1.set(h,-h,z).applyMatrix4(_SVM);
+      _sv2.set(h,h,z).applyMatrix4(_SVM);  _sv3.set(-h,h,z).applyMatrix4(_SVM);
+      p=_emitSq(pos,p,_sv0.x,_sv0.y,_sv0.z,_sv1.x,_sv1.y,_sv1.z,_sv2.x,_sv2.y,_sv2.z,_sv3.x,_sv3.y,_sv3.z);
+      const g=Math.min(255,rvE*DIST/3)/255;
+      let cr,cg,cb; if(e%2===0){cr=ric;cg=g;cb=1;} else {cr=g;cg=ric;cb=1;}
+      c=_emitSqC(col,c,cr,cg,cb);
+    }
+  }
+  v.pa.needsUpdate=true; v.ca.needsUpdate=true;
+  // ── park it far ahead + high, always facing the camera (trippy billboard) ──
+  camera.getWorldDirection(_CSKY_DIR); _CSKY_DIR.y=0; if(_CSKY_DIR.lengthSq()<1e-4)_CSKY_DIR.set(0,0,-1); _CSKY_DIR.normalize();
+  const D=1400, HSKY=260;
+  v.grp.position.set(camera.position.x+_CSKY_DIR.x*D, camera.position.y+HSKY, camera.position.z+_CSKY_DIR.z*D);
+  v.grp.quaternion.copy(camera.quaternion);
+}
+function _disposeCityDome(){ const v=_cityDome; if(!v) return; if(v.grp) scene.remove(v.grp); if(v.geo)v.geo.dispose(); if(v.mat)v.mat.dispose(); _cityDome=null; }
 let _cityFpsEMA=60, _cityFpsT=0;
 function _cityRemoveTestUI(){ if(typeof document==='undefined') return; const e=document.getElementById('city-test-ui'); if(e) e.remove(); }
 function _cityMakeTestUI(){
@@ -18129,6 +18204,7 @@ function buildCityTest(){
 function _disposeCityTest(){
   if(typeof _cityRemoveTestUI==='function') _cityRemoveTestUI();
   _removeBootStation();
+  if(typeof _disposeCityDome==='function') _disposeCityDome();
   for(const b of _cityBoxes){ if(b.sheets) for(const s of b.sheets) s.dispose(); }
   _cityBoxes=[];
   if(_cityProps){
@@ -18142,6 +18218,7 @@ function _disposeCityTest(){
   if(player){ player._grinding=null; player._grindCooldown=0; }
 }
 function updateCityTest(dt){
+  if(typeof _updateCityDome==='function') _updateCityDome(dt);
   for(const b of _cityBoxes){ for(const s of b.sheets) s.update(dt); }
   // rooftop surface flag (skipped while wall-crawling — gravity owns the player then)
   if(player && !player._inPlanetGravity){
