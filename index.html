@@ -1,4 +1,4 @@
-l<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
@@ -1782,7 +1782,7 @@ function neonMat(hex,emi=1.6){ return new THREE.MeshStandardMaterial({color:hex,
 
 // ── PLAYER MODEL — load GLB, fall back to procedural ship ──
 // Only load GLB when served over HTTP (not file://, not mobile for now)
-const ROBOT_GLB='robot.glb';
+const ROBOT_GLB='models/robot.glb';
 let _robotGltf=null; // cached after first load
 let _robotLoadPromise=null;
 
@@ -1802,7 +1802,7 @@ function loadRobotGLB(){
   return _robotLoadPromise;
 }
 
-const DRONE_GLB='drone_01.glb';
+const DRONE_GLB='models/drone_01.glb';
 let _droneGltf=null, _droneLoadPromise=null;
 function loadDroneGLB(){
   if(_droneLoadPromise) return _droneLoadPromise;
@@ -1812,7 +1812,7 @@ function loadDroneGLB(){
   });
   return _droneLoadPromise;
 }
-const HOVERBOARD_GLB='hoverboard.glb';
+const HOVERBOARD_GLB='models/hoverboard.glb';
 let _hoverGltf=null, _hoverLoadPromise=null;
 function loadHoverboardGLB(){
   if(_hoverLoadPromise) return _hoverLoadPromise;
@@ -1863,7 +1863,7 @@ function _fillBoard(container, target, glowHex, buildProc){
 loadHoverboardGLB(); // preload at startup so the board is ready when a skate zone opens
 
 // ── LARGE SCI-FI DOOR GLB (showcase prop) ──
-const LARGE_DOOR_GLB='large_door.glb';
+const LARGE_DOOR_GLB='models/large_door.glb';
 let _doorGltf=null, _doorLoadPromise=null;
 function loadDoorGLB(){
   if(_doorLoadPromise) return _doorLoadPromise;
@@ -1902,7 +1902,7 @@ function _makeDoorModel(target=120, glowHex=0x66ccff){
 loadDoorGLB(); // preload
 
 // ── ORANGE ALIEN GLB (animated prop) ──
-const ORANGE_ALIEN_GLB='orange_alien.glb';
+const ORANGE_ALIEN_GLB='models/orange_alien.glb';
 let _alienGltf=null, _alienLoadPromise=null;
 function loadAlienGLB(){
   if(_alienLoadPromise) return _alienLoadPromise;
@@ -10260,7 +10260,7 @@ function init(){
 const _debugZone=parseInt(new URLSearchParams(location.search).get('zone')||'0')||0;
 
 function startGame(levelIdx){
-  MusicPlayer.load('song_01.mp3');
+  MusicPlayer.load('audio/song_01.mp3');
   const startZone=levelIdx!==undefined?levelIdx:(_debugZone||0);
   GS.state='playing';GS.score=0;GS.displayScore=0;GS.lives=3;GS.hp=GS.maxHp;GS.mult=1;GS.multT=0;
   GS.wave=0;GS.waveT=0;GS.zone=startZone;GS.waveInZone=0;
@@ -11526,7 +11526,7 @@ function _transSpawnBoss(count){
   if(MP.active && !MP.isHost) return;
   for(let b=0;b<count;b++){
     const boss=new Boss(_transStage);
-    boss.wx=(count>1?(b===0?-80:80):0); boss.wz=-ARENA_R*0.32;   // far side, toward the gate
+    boss.wx=(count>1?(b===0?-80:80):0); boss.wz=-180;   // far side, toward the gate (inside survival containment)
     const bx=boss.wx, bz=boss.wz, isFirst=(b===0);
     _survSpawnBroadcast('Boss', bx, bz, _transStage);
     spawnBeam(bx,bz,0xff3366,()=>{ boss.addToScene(); GS.enemies.push(boss); if(isFirst) GS.boss=boss; }, b*0.25);
@@ -11554,7 +11554,7 @@ function _transSpawnEnemies(){
   const colOf=Cls=>Cls===Seeker?0xff4455:Cls===Pinwheel?0xaa66ff:Cls===Bouncer?0x44aaff:Cls===Serpent?0xffaa00:Cls===Tank?0x33ff66:Cls===Crawler?0xff66aa:Cls===Ghost?0xaa88ff:Cls===Turret?0xffcc33:0x66ddff;
   for(let k=0;k<count;k++){
     const ang=(k/count)*TAU+rand(0.5);
-    const r=ARENA_R*(0.35+Math.random()*0.4);
+    const r=110+Math.random()*150;   // spawn inside the contained survival arena (was up to 0.75*ARENA_R ≈ 667, far off-map)
     const x=Math.cos(ang)*r, z=Math.sin(ang)*r-20;
     const Cls=pool[Math.floor(Math.random()*pool.length)];
     _survSpawnBroadcast(Cls.name, x, z, wave);
@@ -11582,6 +11582,8 @@ function _transRippleColors(F,mode){
 
 function updateTransition(dt){
   if(!_transState) return;
+  // SURVIVAL CONTAINMENT — ARENA_R is ~890; keep enemies on the visible grid so fast movers (Bouncer/Pinwheel/Seeker) can't flee to the far edge and stall the round
+  { const SR=300; for(const e of GS.enemies){ if(!e||!e.alive) continue; const d=Math.hypot(e.wx,e.wz); if(d>SR){ const nx=e.wx/d, nz=e.wz/d; e.wx=nx*SR; e.wz=nz*SR; const vd=(e.vx||0)*nx+(e.vz||0)*nz; if(vd>0){ e.vx-=1.7*vd*nx; e.vz-=1.7*vd*nz; } } } }
   updateSpawnBeams(dt); updateBlockText(dt); updateExitGuide(dt); updatePhysicalText(dt); updatePowerupStations(dt); updateArenaObstacles(dt); _updateArena(dt);
   const now=performance.now()/1000, st=_transState, maxR=ARENA_R*1.18;
 
@@ -13713,6 +13715,8 @@ function loop(ts){ requestAnimationFrame(loop);
           if(!ud.clips[targetClip]) targetClip=targetClip.replace('.bomb','').replace('.shoot','');
           if(!ud.clips[targetClip]) targetClip='idle';
 
+          if(window._animTest && ud.clips[window._animTest]) targetClip=window._animTest;   // DEBUG anim-test: force-play a clip to verify it loaded
+
           if(targetClip!==ud.currentClip&&ud.clips[targetClip]){
             Object.values(ud.clips).forEach(a=>a.fadeOut(0.15));
             const next=ud.clips[targetClip];
@@ -13725,7 +13729,7 @@ function loop(ts){ requestAnimationFrame(loop);
         // Speed scaling — stationary/air clips always at 1.0, movement clips scale with speed
         const cur=ud.clips[ud.currentClip];
         if(cur){
-          const isStationary=['idle','floating','landing','dive_roll','roll','dash','dive','climbing','climb','wall_climb','front_flip','back_flip','frontflip','backflip'].some(n=>ud.currentClip&&ud.currentClip.includes(n));
+          const isStationary=['idle','floating','landing','dive_roll','roll','dash','dive','climbing','climb','wall_climb','front_flip','back_flip','frontflip','backflip','hang'].some(n=>ud.currentClip&&ud.currentClip.includes(n));
           const animSpd=isStationary?1.0:clamp(spd/140,0.5,1.6);
           if(!player._wallClimb) cur.setEffectiveTimeScale(animSpd);
         }
@@ -20554,7 +20558,7 @@ function _startRobotViewer(canvasId, opts={}){
       onGltf(window._cachedRobotGltf);
     } else {
       const ldr=new GLTFLoader();
-      ldr.load('robot.glb',
+      ldr.load('models/robot.glb',
         gltf=>{ window._cachedRobotGltf=gltf; window._titleRobotReady=true; onGltf(gltf); },
         null,
         e=>{ window._titleRobotReady=true; _robotViewerFallback(canvasId); }
@@ -20702,7 +20706,7 @@ window._showScreen=function(name){
       S.footL=find('Left','Foot'); S.footR=find('Right','Foot');
       if(gltf.animations&&gltf.animations.length){ S.mixer=new THREE.AnimationMixer(model); gltf.animations.forEach(a=>{ const n=a.name.toLowerCase().split('|').pop().split(':').pop(); S.clips[n]=a; }); poseButtons(); const idleKey=S.clips['idle']?'idle':(S.clips['floating']?'floating':Object.keys(S.clips)[0]); if(idleKey)playClip(idleKey); }
     }
-    if(window._cachedRobotGltf) build(window._cachedRobotGltf); else { try{ const ldr=new GLTFLoader(); ldr.load('robot.glb',g=>{ window._cachedRobotGltf=g; build(g); }, null, ()=>{}); }catch(e){} }
+    if(window._cachedRobotGltf) build(window._cachedRobotGltf); else { try{ const ldr=new GLTFLoader(); ldr.load('models/robot.glb',g=>{ window._cachedRobotGltf=g; build(g); }, null, ()=>{}); }catch(e){} }
     const _pd=t=>Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
     const _zoom=f=>{ S.camDist=Math.max(2,Math.min(20,(S.camDist||6.4)*f)); _applyCam(); };
     const onDown=e=>{ if(e.touches&&e.touches.length>=2){ S.pinch=_pd(e.touches); S.pinchD0=S.camDist; S.drag=false; } else { S.drag=true; S.lastX=(e.touches?e.touches[0].clientX:e.clientX); } };
