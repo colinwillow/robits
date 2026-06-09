@@ -18243,7 +18243,12 @@ function updateGrindRail(dt){
   if(player._grinding){
     const gr=player._grinding;
     const curve=(gr.rail&&gr.rail.curve)||rails[0].curve;
-    gr.t+=gr.speed*dt;
+    if(gr.u==null) gr.u=(gr.t!=null?gr.t:0);
+    if(gr.dir==null) gr.dir=(gr.speed>=0?1:-1);
+    const GRIND_SPEED=330;   // world units / sec -> consistent regardless of segment/curve density
+    const _len=(gr.rail&&gr.rail._len)||curve.getLength()||1;
+    gr.u += gr.dir*(GRIND_SPEED/_len)*dt;
+    gr.t = gr.u;
 
     // ── RIGHT STICK = spin aim (can shoot while grinding) ──
     if(IS_TOUCH){
@@ -18258,8 +18263,8 @@ function updateGrindRail(dt){
 
     // ── JUMP = flip off rail ──
     if(player._jumpTapped){
-      const tan=curve.getTangent(clamp(gr.t,0,1));
-      const dir=gr.speed>=0?1:-1;
+      const tan=curve.getTangentAt(clamp(gr.u,0,1));
+      const dir=gr.dir;
       if(player.model){ player.model.rotation.set(0, player.model.rotation.y, 0); }
       player._dashDir=[tan.x*dir,tan.z*dir];
       player._dashRamp=10; player._dashRampMax=10; player._dashPeak=300;
@@ -18278,10 +18283,10 @@ function updateGrindRail(dt){
     }
 
     // ── END OF RAIL — launch forward ──
-    if(gr.t>=1||gr.t<=0){
-      gr.t=clamp(gr.t,0,1);
-      const tan=curve.getTangent(gr.t);
-      const dir=gr.t>=1?1:-1;
+    if(gr.u>=1||gr.u<=0){
+      gr.u=clamp(gr.u,0,1); gr.t=gr.u;
+      const tan=curve.getTangentAt(gr.u);
+      const dir=gr.u>=1?1:-1;
       if(player.model){ player.model.rotation.set(0, player.model.rotation.y, 0); }
       player._dashDir=[tan.x*dir,tan.z*dir];
       player._dashRamp=14; player._dashRampMax=14; player._dashPeak=550;
@@ -18292,7 +18297,7 @@ function updateGrindRail(dt){
       return;
     }
 
-    const pos=curve.getPoint(gr.t);
+    const pos=curve.getPointAt(clamp(gr.u,0,1));
     const targetX=pos.x, targetY=pos.y-8, targetZ=pos.z;
     const snapSpeed=gr.snapIn?12:20;
     gr.snapIn=true;
@@ -18304,12 +18309,12 @@ function updateGrindRail(dt){
 
     // ── ORIENT TO RAIL FRAME: up vector follows the rail, so a loop carries the player around (upside-down at the top) ──
     { const fr=gr.rail&&gr.rail.frame; let up,tan;
-      if(fr){ const fi=Math.max(0,Math.min(fr.n,Math.round(gr.t*fr.n))); up=fr.U[fi].clone(); tan=fr.T[fi].clone(); }
-      else { tan=curve.getTangent(clamp(gr.t,0,1)); up=new THREE.Vector3(0,1,0); }
-      const dir=gr.speed>=0?1:-1; const fwd=tan.multiplyScalar(dir); if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
+      if(fr){ const fi=Math.max(0,Math.min(fr.n,Math.round(gr.u*fr.n))); up=fr.U[fi].clone(); tan=fr.T[fi].clone(); }
+      else { tan=curve.getTangentAt(clamp(gr.u,0,1)); up=new THREE.Vector3(0,1,0); }
+      const dir=gr.dir; const fwd=tan.multiplyScalar(dir); if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
       let right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6)right.set(1,0,0); right.normalize();
       const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
-      if(player.model&&player.model.userData&&player.model.userData.isRobot){
+      if(player.model){   // applies to GLB robot AND the procedural ship
         const q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
         q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),(gr.lean||0)*0.3));   // lean folded in as roll
         player.model.quaternion.slerp(q, 0.5);
@@ -18354,14 +18359,14 @@ function updateGrindRail(dt){
         const dxz=Math.hypot(player.wx-pp.x, player.wz-pp.z);
         const dy=Math.abs((player.py-2)-pp.y);
         const d=Math.hypot(dxz,dy);
-        if(d<bestDist){ bestDist=d; best={t:s.t,p:pp,rail:R}; }
+        if(d<bestDist){ bestDist=d; best={u:(s.u!=null?s.u:s.t),t:s.t,p:pp,rail:R}; }
       }
     }
     if(bestDist<25&&best){
-      const tan=best.rail.curve.getTangent(best.t);
+      const tan=best.rail.curve.getTangentAt(best.u);
       const dot=player.vx*tan.x+player.vz*tan.z;
       const dir=dot>=0?1:-1;
-      player._grinding={t:best.t, speed:dir*0.45, lean:0, snapIn:false, rail:best.rail};
+      player._grinding={u:best.u, t:best.u, dir:dir, lean:0, snapIn:false, rail:best.rail};
       Audio.blip(300,0.2,'sawtooth',0.3,600);
       announce('GRINDING','#00ffcc');
     }
@@ -18389,10 +18394,9 @@ function tryInteractWall(){
 let _cityBoxes=[];
 let _cityProps={powerups:[],arches:[],railGroup:null};
 function _railFrame(curve, n){
-  // Parallel-transport frame seeded with world-up. On gentle curves the up stays ~vertical;
-  // on a full vertical loop it rotates 360° with the tangent -> rider goes upside-down at the top.
+  // Parallel-transport frame seeded with world-up, in ARC-LENGTH space (getTangentAt).
   const T=[], U=[];
-  for(let i=0;i<=n;i++) T.push(curve.getTangent(i/n).normalize());
+  for(let i=0;i<=n;i++) T.push(curve.getTangentAt(i/n).normalize());
   let up=new THREE.Vector3(0,1,0); up.addScaledVector(T[0], -T[0].dot(up));
   if(up.lengthSq()<1e-5){ up.set(1,0,0); up.addScaledVector(T[0], -T[0].dot(up)); }
   up.normalize(); U.push(up.clone());
@@ -18409,10 +18413,10 @@ function _railFrame(curve, n){
 function _cityAddRail(pts){
   if(!pts||pts.length<2||typeof scene==='undefined') return null;
   const curve=new THREE.CatmullRomCurve3(pts);
-  const N=Math.max(80, pts.length*14), samples=[];
-  for(let gi=0;gi<=N;gi++) samples.push({t:gi/N, p:curve.getPoint(gi/N)});
+  const N=Math.max(80, pts.length*14), samples=[]; const _len=curve.getLength()||1;
+  for(let gi=0;gi<=N;gi++){ const u=gi/N; samples.push({u, t:u, p:curve.getPointAt(u)}); }   // arc-length sampled -> constant speed
   if(!window._grindRails) window._grindRails=[];
-  window._grindRails.push({curve, samples, frame:_railFrame(curve, N)});
+  window._grindRails.push({curve, samples, frame:_railFrame(curve, N), _len});
   const grp=new THREE.Group();
   grp.add(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(80,pts.length*16), 2, 8, false), new THREE.MeshBasicMaterial({color:0x00ffcc,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})));
   grp.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(Math.max(120,pts.length*18))), new THREE.LineBasicMaterial({color:0x00ffff,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false})));
@@ -18444,20 +18448,9 @@ function _cityAddProps(){
   // ── grind rails: a rooftop hop + a roller-coaster descent, routed OUT into open space (no clipping) ──
   try{
     window._grindRails=[]; window._grindRail=null; window._grindSamples=[]; _cityProps.railGroups=[];
-    const topY=tall.top;
     let cxs=0,czs=0; for(const b of _cityBoxes){ cxs+=b.x; czs+=b.z; } cxs/=_cityBoxes.length; czs/=_cityBoxes.length;
-    let ox=tall.x-cxs, oz=tall.z-czs; let ol=Math.hypot(ox,oz); if(ol<1){ ox=1; oz=0; ol=1; } ox/=ol; oz/=ol;
-    // (1) rooftop-to-rooftop hop: tallest -> next-tallest, arced high above both roofs
     const others=_cityBoxes.filter(b=>b!==tall).sort((a,b)=>b.top-a.top);
-    if(others.length){
-      const b2=others[0];
-      _cityAddRail([
-        new THREE.Vector3(tall.x, topY+10, tall.z),
-        new THREE.Vector3((tall.x+b2.x)/2, Math.max(topY,b2.top)+64, (tall.z+b2.z)/2),
-        new THREE.Vector3(b2.x, b2.top+10, b2.z)
-      ]);
-    }
-    // a few more rooftop-to-rooftop hops, chained across the tallest buildings (arced high to clear roofs)
+    // ── rooftop-to-rooftop hops — chained across the OTHER buildings (never the teleporter tower) ──
     for(let ri=0; ri+1<Math.min(others.length,4); ri++){
       const a=others[ri], b=others[ri+1];
       if(Math.hypot(a.x-b.x, a.z-b.z) > 760) continue;   // skip absurd spans
@@ -18467,20 +18460,28 @@ function _cityAddProps(){
         new THREE.Vector3(b.x, b.top+10, b.z)
       ]);
     }
-    // (2) roller-coaster descent: off the roof, out into the open, a vertical loop, down to the street
-    const loopBaseY=Math.max(46, topY*0.5), LR=44;
-    const lcx=tall.x+ox*(tall.hw+150), lcz=tall.z+oz*(tall.hd+150);
-    const pts=[
-      new THREE.Vector3(tall.x+ox*(tall.hw*0.3), topY+8,  tall.z+oz*(tall.hd*0.3)),
-      new THREE.Vector3(tall.x+ox*(tall.hw+70), topY*0.82, tall.z+oz*(tall.hd+70)),
-      new THREE.Vector3(tall.x+ox*(tall.hw+120),loopBaseY+10, tall.z+oz*(tall.hd+120))
-    ];
-    for(let i=0;i<=10;i++){ const a=(i/10)*Math.PI*2, fwd=(i/10)*30;
-      pts.push(new THREE.Vector3(lcx+ox*(Math.sin(a)*LR+fwd), loopBaseY+LR*(1-Math.cos(a)), lcz+oz*(Math.sin(a)*LR+fwd)));
+    // ── roller-coaster: a GRADUAL weaving descent off a rooftop, one real loop, gliding down to the street ──
+    {
+      const src=others.length?others[0]:tall;
+      let sox=src.x-cxs, soz=src.z-czs; let sl=Math.hypot(sox,soz); if(sl<1){ sox=1; soz=0; sl=1; } sox/=sl; soz/=sl;
+      const px=-soz, pz=sox;                       // perpendicular (for the S-weave)
+      const groundY=14, startY=src.top+8, drop=Math.max(60,startY-groundY);
+      const slope=0.5;                             // rise/run ~27deg -> gentle, controlled slant (not a plunge)
+      const pts=[]; let x=src.x+sox*(src.hw*0.5), z=src.z+soz*(src.hd*0.5), y=startY;
+      pts.push(new THREE.Vector3(x,y,z));
+      x+=sox*90; z+=soz*90; y-=drop*0.10; pts.push(new THREE.Vector3(x,y,z));        // roll clear of the roof edge
+      const STEPS=5;
+      for(let i=1;i<=STEPS;i++){ const dY=drop*0.60/STEPS, run=dY/slope; x+=sox*run; z+=soz*run; y-=dY;
+        const w=((i%2)?1:-1)*70; pts.push(new THREE.Vector3(x+px*w, y, z+pz*w)); }    // gentle S-weave on the way down
+      x+=sox*70; z+=soz*70; y-=drop*0.03; pts.push(new THREE.Vector3(x,y,z));         // flatten into the loop
+      const LR=42, lbY=y;
+      for(let a=1;a<=11;a++){ const ang=(a/11)*Math.PI*2, fwd=(a/11)*36;
+        pts.push(new THREE.Vector3(x+sox*(Math.sin(ang)*LR+fwd), lbY+LR*(1-Math.cos(ang)), z+soz*(Math.sin(ang)*LR+fwd))); }  // one vertical loop
+      x+=sox*36; z+=soz*36;                                                           // loop exit
+      const rem=Math.max(0,y-groundY); x+=sox*(rem/slope); z+=soz*(rem/slope);        // final glide to street
+      pts.push(new THREE.Vector3(x,groundY,z));
+      _cityAddRail(pts);
     }
-    pts.push(new THREE.Vector3(tall.x+ox*(tall.hw+200), Math.max(30, topY*0.32), tall.z+oz*(tall.hd+200)));
-    pts.push(new THREE.Vector3(tall.x+ox*(tall.hw+250), 12, tall.z+oz*(tall.hd+250)));
-    _cityAddRail(pts);
   }catch(e){}
 }
 function _cityFace(px,py,pz, lx,ny,lz, wSpan,hSpan, cell, pal){
