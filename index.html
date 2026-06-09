@@ -20464,6 +20464,95 @@ window._showScreen=function(name){
   },2200);
 })();
 
+
+// ════════ WORKSHOP / DRESS ROOM — turntable viewer + live boot-angle rig (drives the same _BOOT_FIX_L/R as the game) ════════
+(function(){
+  let S=null;
+  const D=v=>Math.round(v*180/Math.PI);
+  function fmt(e){ return D(e.x)+'\u00b0, '+D(e.y)+'\u00b0, '+D(e.z)+'\u00b0'; }
+  function refresh(){
+    const eL=document.getElementById('ws-read-L'), eR=document.getElementById('ws-read-R');
+    if(eL) eL.textContent=fmt(_BOOT_FIX_L); if(eR) eR.textContent=fmt(_BOOT_FIX_R);
+    const sl=document.getElementById('ws-side-L'), sr=document.getElementById('ws-side-R');
+    if(sl) sl.style.outline=(S&&S.side==='L')?'2px solid #00ffc8':'none';
+    if(sr) sr.style.outline=(S&&S.side==='R')?'2px solid #ffb866':'none';
+  }
+  function orient(boot,foot,side){
+    if(!boot||!foot||!S||!S.model) return;
+    S.model.updateWorldMatrix(true,true);
+    const mq=S.model.getWorldQuaternion(new THREE.Quaternion());
+    let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
+    const up=new THREE.Vector3(0,1,0);
+    const right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6)right.set(1,0,0); right.normalize();
+    const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
+    const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
+    desired.multiply(new THREE.Quaternion().setFromEuler(side<0?_BOOT_FIX_L:_BOOT_FIX_R));
+    const bq=foot.getWorldQuaternion(new THREE.Quaternion());
+    boot.quaternion.copy(bq.clone().invert().multiply(desired));
+    const bs=foot.getWorldScale(new THREE.Vector3());
+    const inv=(side<0)?(1/(bs.x||1))*4.35:(1/(Math.abs(bs.x)||1))*4.35;
+    boot.scale.setScalar(inv); boot.position.set(0,0,0);
+  }
+  function reorient(){ if(S){ if(S.bootL&&S.footL)orient(S.bootL,S.footL,-1); if(S.bootR&&S.footR)orient(S.bootR,S.footR,1); } }
+  function toggleBoots(){
+    if(!S||!S.model) return;
+    if(S.bootL||S.bootR){ if(S.bootL&&S.footL)S.footL.remove(S.bootL); if(S.bootR&&S.footR)S.footR.remove(S.bootR); S.bootL=S.bootR=null; }
+    else { if(S.footR){ S.bootR=_makeRoboBoot(1); S.footR.add(S.bootR); orient(S.bootR,S.footR,1); } if(S.footL){ S.bootL=_makeRoboBoot(-1); S.footL.add(S.bootL); orient(S.bootL,S.footL,-1); } }
+    const b=document.getElementById('ws-boots'); if(b) b.style.opacity=(S.bootL||S.bootR)?'1':'0.5';
+  }
+  function playClip(name){ if(!S||!S.mixer) return; if(name==='__bind'){ S.mixer.stopAllAction(); S.curAction=null; return; } const c=S.clips[name]; if(!c) return; if(S.curAction)S.curAction.fadeOut(0.25); const a=S.mixer.clipAction(c); a.reset().fadeIn(0.25).play(); S.curAction=a; }
+  function poseButtons(){
+    const row=document.getElementById('ws-poses'); if(!row) return; row.innerHTML='';
+    const mk=(label,key)=>{ const b=document.createElement('button'); b.textContent=label; b.style.cssText='background:#00ffc822;border:1px solid #00ffc866;color:#00ffc8;font:11px Orbitron,monospace;padding:7px 11px;border-radius:7px;white-space:nowrap;'; b.addEventListener('click',()=>playClip(key)); row.appendChild(b); };
+    mk('T-POSE','__bind'); Object.keys(S.clips).forEach(k=>mk(k.toUpperCase(),k));
+  }
+  window.openWorkshop=function(){
+    const ov=document.getElementById('workshop-overlay'); if(!ov) return; ov.style.display='block';
+    if(S){ S.running=true; refresh(); requestAnimationFrame(S.loop); return; }
+    const canvas=document.getElementById('workshop-canvas');
+    const cw=canvas.clientWidth||window.innerWidth, ch=canvas.clientHeight||window.innerHeight;
+    const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true});
+    renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1)); renderer.setSize(cw,ch,false); renderer.outputColorSpace=THREE.SRGBColorSpace;
+    const scn=new THREE.Scene();
+    const cam=new THREE.PerspectiveCamera(42,cw/ch,0.1,100); cam.position.set(0,0.3,6.4); cam.lookAt(0,0,0);
+    scn.add(new THREE.AmbientLight(0x6688ff,0.95));
+    const kl=new THREE.DirectionalLight(0x00ffc8,1.5); kl.position.set(2,3,3); scn.add(kl);
+    const rl=new THREE.DirectionalLight(0xaa55ff,0.8); rl.position.set(-3,1,-2); scn.add(rl);
+    const fl2=new THREE.DirectionalLight(0xffffff,0.45); fl2.position.set(0,2,5); scn.add(fl2);
+    const turn=new THREE.Group(); scn.add(turn);
+    S={renderer,scn,cam,turn,model:null,mixer:null,clips:{},curAction:null,footL:null,footR:null,bootL:null,bootR:null,autoSpin:true,running:true,side:'R',clock:new THREE.Clock(),loop:null,drag:false,lastX:0};
+    function build(gltf){
+      const model=SkeletonUtils.clone(gltf.scene);
+      const box=new THREE.Box3().setFromObject(model); const ctr=box.getCenter(new THREE.Vector3()), size=box.getSize(new THREE.Vector3());
+      const sc2=3.0/Math.max(size.x,size.y,size.z); model.scale.setScalar(sc2); model.position.sub(ctr.multiplyScalar(sc2));
+      model.traverse(c=>{ if((c.isSkinnedMesh||c.isMesh)&&c.material){ c.frustumCulled=false; try{ c.material.emissive=new THREE.Color(0x0044aa); c.material.emissiveIntensity=1.4; c.material.needsUpdate=true; }catch(e){} } });
+      turn.add(model); S.model=model;
+      const bones={}; model.traverse(o=>{ if(o.isBone)bones[o.name]=o; });
+      const find=(sd,kd)=>{ const ex='mixamorig_'+sd+kd; if(bones[ex])return bones[ex]; const ss=sd.toLowerCase(),kk=kd.toLowerCase(); for(const k in bones){ const lk=k.toLowerCase(); if(lk.indexOf(kk)>=0&&lk.indexOf(ss)>=0)return bones[k]; } return null; };
+      S.footL=find('Left','Foot'); S.footR=find('Right','Foot');
+      if(gltf.animations&&gltf.animations.length){ S.mixer=new THREE.AnimationMixer(model); gltf.animations.forEach(a=>{ const n=a.name.toLowerCase().split('|').pop().split(':').pop(); S.clips[n]=a; }); poseButtons(); const idleKey=S.clips['idle']?'idle':(S.clips['floating']?'floating':Object.keys(S.clips)[0]); if(idleKey)playClip(idleKey); }
+    }
+    if(window._cachedRobotGltf) build(window._cachedRobotGltf); else { try{ const ldr=new GLTFLoader(); ldr.load('robot.glb',g=>{ window._cachedRobotGltf=g; build(g); }, null, ()=>{}); }catch(e){} }
+    const onDown=e=>{ S.drag=true; S.lastX=(e.touches?e.touches[0].clientX:e.clientX); };
+    const onMove=e=>{ if(!S.drag)return; const x=(e.touches?e.touches[0].clientX:e.clientX); S.turn.rotation.y+=(x-S.lastX)*0.01; S.lastX=x; };
+    const onUp=()=>{ S.drag=false; };
+    canvas.addEventListener('mousedown',onDown); canvas.addEventListener('touchstart',onDown,{passive:true});
+    window.addEventListener('mousemove',onMove); canvas.addEventListener('touchmove',onMove,{passive:true});
+    window.addEventListener('mouseup',onUp); window.addEventListener('touchend',onUp);
+    S.loop=function(){ if(!S||!S.running) return; const dt=S.clock.getDelta(); if(S.mixer)S.mixer.update(dt); if(S.autoSpin&&!S.drag)S.turn.rotation.y+=dt*0.45; S.renderer.render(S.scn,S.cam); requestAnimationFrame(S.loop); };
+    const wire=(id,fn)=>{ const el=document.getElementById(id); if(el)el.addEventListener('click',fn); };
+    wire('ws-close',()=>window.closeWorkshop());
+    wire('ws-boots',toggleBoots);
+    wire('ws-spin',()=>{ S.autoSpin=!S.autoSpin; const b=document.getElementById('ws-spin'); if(b)b.style.opacity=S.autoSpin?'1':'0.5'; });
+    wire('ws-side-L',()=>{ S.side='L'; refresh(); });
+    wire('ws-side-R',()=>{ S.side='R'; refresh(); });
+    wire('ws-reset',()=>{ const e=(S.side==='L')?_BOOT_FIX_L:_BOOT_FIX_R; e.set(0,0,0); reorient(); refresh(); });
+    document.querySelectorAll('#ws-rot .ws-nudge').forEach(btn=>{ btn.addEventListener('click',()=>{ const ax=btn.getAttribute('data-axis'); const dg=parseFloat(btn.getAttribute('data-deg')); const e=(S.side==='L')?_BOOT_FIX_L:_BOOT_FIX_R; e[ax]+=dg*Math.PI/180; reorient(); refresh(); }); });
+    refresh(); requestAnimationFrame(S.loop);
+  };
+  window.closeWorkshop=function(){ const ov=document.getElementById('workshop-overlay'); if(ov)ov.style.display='none'; if(S)S.running=false; };
+})();
+
 try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:: '+(e&&e.message||String(e))); }
 </script>
 <!-- ON-SCREEN DEBUG CONSOLE — remove when done -->
@@ -20493,6 +20582,10 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
 <button id="dbg-ghost" style="position:fixed;bottom:0;right:272px;background:#33ffcc22;border:1px solid #33ffcc66;color:#33ffcc;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">+GHOST</button>
 <button id="gl-build" onclick="window._gridLabBuild&&window._gridLabBuild()" style="display:none;position:fixed;bottom:64px;left:50%;transform:translateX(-92px);background:#33ddff22;border:1px solid #33ddff99;color:#33ddff;font:12px monospace;padding:9px 16px;z-index:100000;border-radius:8px;">BUILD ⟳</button>
 <button id="gl-shape" onclick="window._gridLabShape&&window._gridLabShape()" style="display:none;position:fixed;bottom:64px;left:50%;transform:translateX(8px);background:#33ddff22;border:1px solid #33ddff99;color:#33ddff;font:12px monospace;padding:9px 16px;z-index:100000;border-radius:8px;">SHAPE ▷</button>
+<!-- ════ WORKSHOP / DRESS ROOM ════ -->
+<style>#workshop-overlay .ws-nudge{background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:12px monospace;padding:7px 11px;border-radius:6px;min-width:36px;}#workshop-overlay .ws-nudge:active{background:#1e4a6e;}#workshop-overlay button{cursor:pointer;}</style>
+<div id="workshop-overlay" style="display:none;position:fixed;inset:0;z-index:200000;background:radial-gradient(ellipse at 50% 38%,#0a1426 0%,#04060c 68%,#000 100%);font-family:Orbitron,monospace;"><canvas id="workshop-canvas" style="position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;"></canvas><div style="position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:10px 14px;pointer-events:none;"><div style="color:#00ffc8;font-size:15px;letter-spacing:2px;text-shadow:0 0 10px #00ffc8;">⚙ WORKSHOP</div><button id="ws-close" style="pointer-events:all;background:#ff447722;border:1px solid #ff4477aa;color:#ff6699;font:15px monospace;padding:5px 13px;border-radius:8px;">✕</button></div><div id="ws-poses" style="position:absolute;top:46px;left:0;right:0;display:flex;gap:7px;overflow-x:auto;padding:6px 12px;-webkit-overflow-scrolling:touch;"></div><div style="position:absolute;bottom:0;left:0;right:0;padding:10px 12px 18px;background:linear-gradient(0deg,rgba(2,6,14,0.94),rgba(2,6,14,0));"><div style="display:flex;gap:9px;justify-content:center;margin-bottom:10px;"><button id="ws-spin" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:11px Orbitron,monospace;padding:8px 14px;border-radius:8px;">↻ SPIN</button><button id="ws-boots" style="opacity:0.5;background:#00ffaa22;border:1px solid #00ffaa77;color:#00ffaa;font:11px Orbitron,monospace;padding:8px 14px;border-radius:8px;">BOOTS</button></div><div id="ws-rot" style="max-width:520px;margin:0 auto;background:rgba(0,8,16,0.72);border:1px solid #1e3a52;border-radius:12px;padding:10px 12px;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;"><span style="color:#7fb4d8;font-size:11px;">BOOT:</span><button id="ws-side-L" style="background:#00ffc822;border:1px solid #00ffc877;color:#00ffc8;font:11px monospace;padding:5px 13px;border-radius:7px;">LEFT</button><button id="ws-side-R" style="background:#ff993322;border:1px solid #ff993377;color:#ffb866;font:11px monospace;padding:5px 13px;border-radius:7px;">RIGHT</button><button id="ws-reset" style="margin-left:auto;background:#ff447722;border:1px solid #ff447766;color:#ff7799;font:10px monospace;padding:5px 11px;border-radius:7px;">RESET</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#ff6b6b;font-size:13px;font-weight:bold;">X</span><button class="ws-nudge" data-axis="x" data-deg="-5">−5</button><button class="ws-nudge" data-axis="x" data-deg="-1">−1</button><button class="ws-nudge" data-axis="x" data-deg="1">+1</button><button class="ws-nudge" data-axis="x" data-deg="5">+5</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#7bff7b;font-size:13px;font-weight:bold;">Y</span><button class="ws-nudge" data-axis="y" data-deg="-5">−5</button><button class="ws-nudge" data-axis="y" data-deg="-1">−1</button><button class="ws-nudge" data-axis="y" data-deg="1">+1</button><button class="ws-nudge" data-axis="y" data-deg="5">+5</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#6bb4ff;font-size:13px;font-weight:bold;">Z</span><button class="ws-nudge" data-axis="z" data-deg="-5">−5</button><button class="ws-nudge" data-axis="z" data-deg="-1">−1</button><button class="ws-nudge" data-axis="z" data-deg="1">+1</button><button class="ws-nudge" data-axis="z" data-deg="5">+5</button></div><div style="margin-top:9px;font-size:11px;color:#9fdcff;text-align:center;">L: <span id="ws-read-L">0°, 0°, 0°</span> &nbsp;·&nbsp; R: <span id="ws-read-R">0°, 0°, 0°</span></div></div></div></div>
+<button id="dbg-shop" onclick="window.openWorkshop&&window.openWorkshop()" style="position:fixed;bottom:0;right:328px;background:#00ffc822;border:1px solid #00ffc866;color:#00ffc8;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">SHOP</button>
 <script>
 (function(){
   const panel=document.getElementById('dbg-panel');
