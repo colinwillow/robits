@@ -8,6 +8,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ROBITS">
+<meta name="theme-color" content="#0b1f30">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>ROBITS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -408,7 +411,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
         <span style="display:flex"><svg width="26" height="26" viewBox="0 0 24 24" stroke="#00ffc8" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#00ffc8;animation-delay:0s"><circle cx="12" cy="12" r="7"/><path d="M12 1.5V5M12 19v3.5M1.5 12H5M19 12h3.5"/><circle cx="12" cy="12" r="1.6"/></svg></span>
         <div><div style="font-size:14px;letter-spacing:4px">SINGLE PLAYER</div><div style="font-size:9px;color:#ffffff44;letter-spacing:2px;margin-top:3px">CAMPAIGN · ARENA · GALAXY</div></div>
       </button>
-      <button onclick="window._showScreen('mp')" class="mode-btn" style="--c:#4488ff">
+      <button onclick="window._showScreen('mp');window._mpPrewake&&window._mpPrewake()" class="mode-btn" style="--c:#4488ff">
         <span style="display:flex"><svg width="26" height="26" viewBox="0 0 24 24" stroke="#4488ff" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#4488ff;animation-delay:-0.8s"><path d="M12 7.3 6.8 15.7M12 7.3 17.2 15.7M7.6 18h8.8"/><circle cx="12" cy="5" r="2.3"/><circle cx="5.7" cy="18" r="2.3"/><circle cx="18.3" cy="18" r="2.3"/></svg></span>
         <div><div style="font-size:14px;letter-spacing:4px">MULTIPLAYER</div><div style="font-size:9px;color:#ffffff44;letter-spacing:2px;margin-top:3px">1v1 · LOCAL · ONLINE</div></div>
       </button>
@@ -7501,6 +7504,24 @@ function _updateRobitStrip(playing){
   if(el.style.display!=='flex')el.style.display='flex';
 }
 window._updateRobitStrip=_updateRobitStrip;
+function _updateBootsToggle(playing){
+  let el=document.getElementById('boots-equip-toggle');
+  if(!el){ el=document.createElement('div'); el.id='boots-equip-toggle';
+    el.style.cssText='position:fixed;left:8px;top:96px;z-index:121;display:none;align-items:center;gap:6px;padding:6px 10px;border-radius:10px;font:bold 10px Orbitron,monospace;letter-spacing:1px;cursor:pointer;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);user-select:none;';
+    el.innerHTML='<span style="font-size:14px;">\u26a1</span><span id="bteq-tx"></span>';
+    const tap=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); if(player&&player._hasBoots){ player._bootsEquipped=!player._bootsEquipped; if(player._wallClimb&&!player._bootsEquipped) player._wallClimb=null; if(typeof Audio!=='undefined')Audio.blip(player._bootsEquipped?660:300,0.08,'square',0.14,player._bootsEquipped?900:200); } };
+    el.addEventListener('touchstart',tap,{passive:false}); el.addEventListener('click',tap);
+    document.body.appendChild(el); }
+  const show=!!playing && player && player._hasBoots;
+  if(!show){ if(el.style.display!=='none')el.style.display='none'; return; }
+  const on=!!player._bootsEquipped;
+  el.style.display='flex';
+  el.style.border='2px solid '+(on?'#00ffaa':'#446655');
+  el.style.background='rgba(6,20,16,'+(on?'0.72':'0.5')+')';
+  el.style.color=on?'#00ffaa':'#7faa99';
+  const tx=document.getElementById('bteq-tx'); if(tx) tx.textContent='WALL BOOTS '+(on?'ON':'OFF');
+}
+window._updateBootsToggle=_updateBootsToggle;
 function _deployAlly(){
   if(!player) return; const owned=_ownedSpecies();
   if(!owned.length){ if(typeof announce==='function')announce('NO ROBITS — CATCH ONE FIRST','#33e0ff'); return; }
@@ -8755,13 +8776,14 @@ class Player{
       this.boostFuel=Math.min(this.boostMax,this.boostFuel+JET_RECHARGE*dt);
     }
 
-    this.pvy -= GRAV*dt;
-    this.py += this.pvy*dt;
+    if(typeof _cityLedgeHangPlayer==='function') _cityLedgeHangPlayer(this,dt);   // city ledge grab/hang (no boots needed)
+    if(this._hang){ this.pvy=0; }                                                 // hanging: position pinned by the handler, no gravity
+    else { this.pvy -= GRAV*dt; this.py += this.pvy*dt; }
     // Track peak height while airborne for landing impact scaling
     if(this.py>0) this._peakPy=Math.max(this._peakPy||0, this.py);
     const wasAirborne=this._wasAirborne||false;
     let eFloor=0;
-    if(GS.zone===-16 && _cityBoxes.length && !this._inPlanetGravity){
+    if(GS.zone===-16 && _cityBoxes.length && !this._inPlanetGravity && !this._hang){
       const _cap=Math.max(10, Math.abs(this.pvy||0)*dt+6);
       for(const b of _cityBoxes){ const dx=this.wx-b.x, dz=this.wz-b.z;
         if(Math.abs(dx)<b.hw && Math.abs(dz)<b.hd && this.py<=b.top+2 && this.py>=b.top-_cap && b.top>eFloor) eFloor=b.top; }
@@ -8907,7 +8929,7 @@ class Player{
     }
 
     // CITY TEST — box buildings: rooftop landing has PRIORITY (descent capture), walls only block below the roof
-    if(GS.zone===-16 && _cityBoxes.length && !this._inPlanetGravity){
+    if(GS.zone===-16 && _cityBoxes.length && !this._inPlanetGravity && !this._hang){
       const cap=Math.min(34, Math.max(8, Math.abs(this.pvy||0)*dt + 6));   // capture window scales with fall speed so fast drops still land
       for(const b of _cityBoxes){
         const dx=this.wx-b.x, dz=this.wz-b.z, overFoot=(Math.abs(dx)<b.hw && Math.abs(dz)<b.hd);
@@ -13445,6 +13467,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(_ct){ const _ds=playing?'flex':'none'; if(_ct.style.display!==_ds)_ct.style.display=_ds; if(playing&&player){ const _txt='CRATE '+(player.crates||0); if(_ct.textContent!==_txt)_ct.textContent=_txt; const _on=(player._bombMode==='crate'&&player.bombArmed); const _bg=_on?'rgba(20,64,76,0.82)':'rgba(6,16,20,0.66)'; if(_ct.style.background!==_bg)_ct.style.background=_bg; } }
     const _dep=document.getElementById('ally-deploy'), _cyc=document.getElementById('ally-cycle');
     if(typeof _updateRobitStrip==='function') _updateRobitStrip(playing);
+    if(typeof _updateBootsToggle==='function') _updateBootsToggle(playing);
     if(_dep&&_cyc&&player&&typeof Dex!=='undefined'){
       let _owned=[]; try{ _owned=_ownedSpecies(); }catch(e){}
       const _dds=playing?'flex':'none'; if(_dep.style.display!==_dds)_dep.style.display=_dds;   // always visible in play -> stable layout, even with an empty roster
@@ -14050,7 +14073,8 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-16) updateCityTest(dt);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
       player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); player.draw(od); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
-      if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_bmv) window._reorientGameBoots(); }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
+      if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_bmv) window._reorientGameBoots(); }
+      if(player._hammer&&window._reorientHammer){ const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv) window._reorientHammer(); }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(GS.zone===-16) updateGrindRail(dt);
       { // ── DROP-THROUGH: HOLD the left stick down (a flick = dash) while on a platform ──
         const downHeld=(moveIn.y>0.55)||((keys['KeyS']||keys['ArrowDown'])&&!(keys['KeyW']||keys['ArrowUp']));
@@ -14455,8 +14479,8 @@ function loop(ts){ requestAnimationFrame(loop);
           const nearestFace=()=>{ const fx=Math.abs(player.wx-t.wx)/hw2, fz=Math.abs(player.wz-t.wz)/hd2;
             return fx>=fz ? {nx:Math.sign(player.wx-t.wx)||1,nz:0} : {nx:0,nz:Math.sign(player.wz-t.wz)||1}; };
 
-          // ── AUTO-ATTACH: walk/jump into a climbable face (no right stick needed) ──
-          if(!player._wallClimb && !player._crestSeq && !player._wallClimbCooldown &&
+          // ── AUTO-ATTACH: walk/jump into a climbable face (no right stick needed) — ONLY with wall boots equipped ──
+          if(player._bootsEquipped && !player._wallClimb && !player._crestSeq && !player._wallClimbCooldown &&
              !player._onPlatform && player.py < t.h-MANTLE_FROM*0.5){
             const f=nearestFace();
             const distToPlane = f.nx!==0 ? Math.abs(player.wx-t.wx)-hw2 : Math.abs(player.wz-t.wz)-hd2;
@@ -19019,7 +19043,7 @@ function _collectBoots(){
     const RF=find('Right','Foot'), LF=find('Left','Foot'), RT=find('Right','ToeBase')||find('Right','Toe'), LT=find('Left','ToeBase')||find('Left','Toe');
     if(RF){ _attachBoot(_makeRoboBoot(1),RF,RT,1); nAttached++; }
     if(LF){ _attachBoot(_makeRoboBoot(-1),LF,LT,-1); nAttached++; }
-    player._hasBoots=true; player._speedBoost=Math.max(player._speedBoost||0,99999);
+    player._hasBoots=true; player._bootsEquipped=true; player._speedBoost=Math.max(player._speedBoost||0,99999);
     try{ console.log('BOOT foot/toe bones:', Object.keys(bones).filter(k=>/foot|toe/i.test(k)), 'attached',nAttached); }catch(e){}
   }
   if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[0,1,0.7],34,170); ps.ring(player.wx,player.wz,[0,1,0.7],22,150); ps.ring(player.wx,player.wz,[0.6,1,1],12,90); }
@@ -19047,6 +19071,85 @@ function _updateBootStation(dt){
   const bob=Math.sin(st.t*2.2)*1.6; st.bL.position.y=24+bob; st.bR.position.y=24-bob;
   st.bL.rotation.y+=dt*0.9; st.bR.rotation.y-=dt*0.9;
   if(Math.hypot(player.wx-st.x,player.wz-st.z)<17 && player.py<16) _collectBoots();
+}
+// ════════ NEON ROBOT SLEDGEHAMMER — test power-up (equips to the right hand bone) ════════
+const _HAMMER_FIX=new THREE.Euler(-0.6,0,0);          // resting tilt in the fist (tunable)
+const _HAMMER_POS=new THREE.Vector3(0,0.5,0);         // model-relative seat offset (tunable)
+function _makeRoboHammer(){
+  const g=new THREE.Group();
+  const METAL=new THREE.MeshStandardMaterial({color:0x18e0ff,metalness:0.6,roughness:0.28,emissive:0x0a86b0,emissiveIntensity:0.9});
+  const DARK =new THREE.MeshStandardMaterial({color:0x182842,metalness:0.7,roughness:0.4,emissive:0x0a1830,emissiveIntensity:0.4});
+  const GLOW =new THREE.MeshBasicMaterial({color:0x33ffdd,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  const MAG  =new THREE.MeshBasicMaterial({color:0xff2da0,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  // handle (along +Y, grip at origin)
+  const shaft=new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.68,13,10),DARK); shaft.position.y=5.5; g.add(shaft);
+  for(const sx of [-1,1]){ const strip=new THREE.Mesh(new THREE.BoxGeometry(0.16,11,0.16),GLOW); strip.position.set(sx*0.55,5.5,0); g.add(strip); }
+  for(const gy of [0.4,1.8,3.2]){ const band=new THREE.Mesh(new THREE.TorusGeometry(0.72,0.16,6,12),MAG); band.rotation.x=Math.PI/2; band.position.y=gy; g.add(band); }
+  const pommel=new THREE.Mesh(new THREE.SphereGeometry(0.85,8,6),GLOW); pommel.position.y=-1.2; g.add(pommel);
+  // collar where shaft meets head
+  const collar=new THREE.Mesh(new THREE.CylinderGeometry(1.4,1.0,1.6,10),METAL); collar.position.y=11.7; g.add(collar);
+  // BIG exaggerated head (wide striking faces on ±Z)
+  const headGeo=new THREE.BoxGeometry(5.6,5.6,11);
+  const head=new THREE.Mesh(headGeo,METAL); head.position.y=13.6; g.add(head);
+  head.add(new THREE.LineSegments(new THREE.EdgesGeometry(headGeo),new THREE.LineBasicMaterial({color:0x9ffff0,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false})));
+  // glowing striking faces + magenta core band
+  for(const sz of [-1,1]){ const face=new THREE.Mesh(new THREE.BoxGeometry(5.8,5.8,1.0),GLOW); face.position.set(0,13.6,sz*5.4); g.add(face); }
+  const core=new THREE.Mesh(new THREE.BoxGeometry(6.0,1.4,11.4),MAG); core.position.y=13.6; g.add(core);
+  // angular bevel chunks (exaggerated mech look)
+  for(const sz of [-1,1]){ const cut=new THREE.Mesh(new THREE.ConeGeometry(2.6,3.2,4),METAL); cut.rotation.z=Math.PI/2; cut.rotation.y=Math.PI/4; cut.position.set(0,13.6,sz*6.4); g.add(cut); }
+  g.traverse(o=>{ o.frustumCulled=false; });
+  return g;
+}
+function _orientHammer(){
+  const h=player&&player._hammer; if(!h||!player.model||!h._hand) return;
+  player.model.updateWorldMatrix(true,true);
+  const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
+  let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
+  const up=new THREE.Vector3(0,1,0);
+  const right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6)right.set(1,0,0); right.normalize();
+  const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
+  const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
+  desired.multiply(new THREE.Quaternion().setFromEuler(_HAMMER_FIX));
+  const bq=new THREE.Quaternion(); h._hand.getWorldQuaternion(bq);
+  h.quaternion.copy(bq.clone().invert().multiply(desired));
+  const bs=new THREE.Vector3(); h._hand.getWorldScale(bs);
+  const inv=(1/(Math.abs(bs.x)||1))*4.35; h.scale.setScalar(inv);
+  const Ph=h._hand.getWorldPosition(new THREE.Vector3());
+  const wo=_HAMMER_POS.clone().applyQuaternion(mq).multiplyScalar(Math.abs(bs.x)||1);
+  h.position.copy(h._hand.worldToLocal(Ph.add(wo)));
+}
+window._reorientHammer=function(){ _orientHammer(); };
+function _collectHammer(){
+  const st=window._hammerStation; if(!st||st.collected) return; st.collected=true;
+  const bones=player&&player.model&&player.model.userData&&player.model.userData.bones;
+  let ok=false;
+  if(bones){
+    const hand=bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']||(function(){ for(const k in bones){ if(/hand/i.test(k)&&!/finger|thumb|index|middle|ring|pinky/i.test(k)) return bones[k]; } return null; })();
+    if(hand){ const hm=_makeRoboHammer(); hm._hand=hand; hand.add(hm); player._hammer=hm; _orientHammer(); ok=true; }
+  }
+  if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[1,0.2,0.7],34,170); ps.ring(player.wx,player.wz,[0.2,1,0.9],22,150); }
+  if(typeof Audio!=='undefined'){ Audio.blip(160,0.18,'sawtooth',0.25,70); Audio.blip(420,0.12,'square',0.2,900); }
+  if(typeof addTrauma==='function') addTrauma(0.18);
+  if(typeof announce==='function') announce(ok?'\u2692 SLEDGEHAMMER EQUIPPED':'NO HAND BONE FOUND', ok?'#33ffdd':'#ff5555');
+  _removeHammerStation();
+}
+function _spawnHammerStation(x,z){
+  if(window._hammerStation) _removeHammerStation();
+  const grp=new THREE.Group(); grp.position.set(x,0,z);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(15,1.3,8,32),new THREE.MeshBasicMaterial({color:0xff2da0,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=1.2; grp.add(ring);
+  const ring2=new THREE.Mesh(new THREE.TorusGeometry(9,0.7,8,28),new THREE.MeshBasicMaterial({color:0x33ffdd,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})); ring2.rotation.x=-Math.PI/2; ring2.position.y=2.2; grp.add(ring2);
+  const disc=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshBasicMaterial({color:0xaa1166,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); disc.rotation.x=-Math.PI/2; disc.position.y=0.5; grp.add(disc);
+  const col=new THREE.Mesh(new THREE.CylinderGeometry(5,8,42,16,1,true),new THREE.MeshBasicMaterial({color:0xff2da0,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); col.position.y=21; grp.add(col);
+  const ham=_makeRoboHammer(); ham.scale.setScalar(1.7); ham.position.y=15; grp.add(ham);
+  scene.add(grp);
+  window._hammerStation={grp,ring,ring2,col,ham,x,z,t:0,collected:false};
+}
+function _removeHammerStation(){ const st=window._hammerStation; if(!st) return; if(st.grp){ scene.remove(st.grp); st.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } window._hammerStation=null; }
+function _updateHammerStation(dt){
+  const st=window._hammerStation; if(!st||st.collected||!player) return;
+  st.t+=dt; st.ring.rotation.z+=dt*0.6; st.ring2.rotation.z-=dt*1.0;
+  st.ham.rotation.y+=dt*1.3; st.ham.position.y=15+Math.sin(st.t*2.0)*2.0;
+  if(Math.hypot(player.wx-st.x,player.wz-st.z)<17 && player.py<16) _collectHammer();
 }
 function _updateBoots(dt){
   if(!player||!player._boots) return;
@@ -19178,12 +19281,14 @@ function buildCityTest(){
   }
   _cityAddProps();
   _spawnBootStation(0,128);
+  _spawnHammerStation(48,128);
+  if(player){ player.wx=0; player.wz=30; player.py=9; player.pvy=0; }   // spawn a few steps back so you don't land on the boots
   if(typeof _cityMakeTestUI==='function') _cityMakeTestUI();
   _cityBroadcastLayout();
 }
 function _disposeCityTest(){
   if(typeof _cityRemoveTestUI==='function') _cityRemoveTestUI();
-  _removeBootStation();
+  _removeBootStation(); if(typeof _removeHammerStation==='function')_removeHammerStation();
   if(typeof _disposeCityDome==='function') _disposeCityDome();
   for(const b of _cityBoxes){ if(b.sheets) for(const s of b.sheets) s.dispose(); }
   _cityBoxes=[];
@@ -19211,7 +19316,7 @@ function updateCityTest(dt){
     for(const pu of _cityProps.powerups){ if(pu.collected){ if(pu.mesh)pu.mesh.visible=false; continue; } pu.update(player,dt); if(pu.collected && typeof MP!=='undefined' && MP.active){ try{ mpSend('event',{event:'powerup_taken',data:{idx:pu._mpIdx}}); }catch(e){} } }
     for(const ar of _cityProps.arches){ if(ar.update) ar.update(dt,player); }
   }
-  _updateBootStation(dt);
+  _updateBootStation(dt); if(typeof _updateHammerStation==='function')_updateHammerStation(dt);
   if(typeof _glGhostOccluders==='function') _glGhostOccluders();   // buildings between camera & robot fade out
   if(dt>0) _cityFpsEMA = _cityFpsEMA*0.92 + (1/dt)*0.08;
   _cityFpsT += dt;
@@ -19269,13 +19374,66 @@ function _cityProjOrbit(b, R, SOI, dt){
   const ns=Math.hypot(b.vx,b.vy,b.vz); if(ns>20){ b.vx=b.vx/ns*sp; b.vy=b.vy/ns*sp; b.vz=b.vz/ns*sp; }   // hold steady speed ONLY while travelling; a near-stationary (dropped) projectile rests instead of being flung in a random leftover direction
   return true;
 }
+function _cityLedgeHangPlayer(p,dt){
+  if(GS.zone!==-16 || typeof _cityBoxes==='undefined' || !_cityBoxes.length) return;
+  // ── UPDATE an existing hang ──
+  if(p._hang){
+    const h=p._hang, b=h.box;
+    if(!b || _cityBoxes.indexOf(b)<0){ p._hang=null; return; }
+    const HANG_DROP=22;
+    if(h.nx!==0) p.wx=b.x+h.nx*(b.hw+9); else p.wz=b.z+h.nz*(b.hd+9);
+    p.py=b.top-HANG_DROP; p.pvy=0; p.vx=0; p.vz=0;
+    p.aim=Math.atan2(-h.nz,-h.nx);
+    h.t=(h.t||0)+dt;
+    let cx=0,cy=0;
+    if(IS_TOUCH){ cx=moveIn.x; cy=moveIn.y; }
+    else { if(keys['KeyW']||keys['ArrowUp'])cy-=1; if(keys['KeyS']||keys['ArrowDown'])cy+=1; if(keys['KeyA']||keys['ArrowLeft'])cx-=1; if(keys['KeyD']||keys['ArrowRight'])cx+=1; }
+    if(p._jumpTapped){ p.vx=h.nx*200; p.vz=h.nz*200; p.pvy=200; p._hang=null; p._jumpTapped=false; _cgNoGrab=0.4; return; }
+    if(cy<-0.3 && h.t>0.12){                                  // push UP → mantle onto the roof
+      p._hang=null; p.py=b.top+1; p.pvy=0; p.vx=0; p.vz=0; p._onPlatform=true; p._platformY=b.top;
+      if(h.nx!==0) p.wx=b.x+h.nx*(b.hw-8); else p.wz=b.z+h.nz*(b.hd-8);
+      _cgNoGrab=0.5; if(typeof Audio!=='undefined')Audio.blip(520,0.1,'sine',0.14,720); return;
+    }
+    if(cy>0.4 && h.t>0.12){ p._hang=null; p.pvy=-20; _cgNoGrab=0.4; return; }   // push DOWN → let go
+    if(Math.abs(cx)>0.05){                                    // shimmy along the lip
+      const onXFace=h.nx!==0;
+      if(onXFace) p.wz += h.nx * cx * 34 * dt; else p.wx += (-h.nz) * cx * 34 * dt;
+      const latPos=onXFace?(p.wz-b.z):(p.wx-b.x), halfLat=onXFace?b.hd:b.hw;
+      const cl=Math.max(-(halfLat-6),Math.min(halfLat-6,latPos));
+      if(onXFace) p.wz=b.z+cl; else p.wx=b.x+cl;
+    }
+    return;
+  }
+  // ── auto-GRAB when near a building's top edge (even while falling) ──
+  if(_glGravOn || p._onPlatform || (_cgNoGrab||0)>0) return;
+  if(p.py<6) return;                       // must be airborne
+  if((p.pvy||0)>150) return;               // not while rocketing straight up
+  for(const b of _cityBoxes){
+    const dx=p.wx-b.x, dz=p.wz-b.z;
+    if(p.py>b.top+4 || p.py<b.top-40) continue;        // only in the top-edge band
+    const exX=Math.abs(dx)-b.hw, exZ=Math.abs(dz)-b.hd;
+    let nx=0,nz=0;
+    if(exX>=exZ){ nx=Math.sign(dx)||1; } else { nz=Math.sign(dz)||1; }
+    const distPlane = nx!==0 ? exX : exZ;
+    const latInside = nx!==0 ? (Math.abs(dz)<b.hd+14) : (Math.abs(dx)<b.hw+14);
+    if(distPlane>-6 && distPlane<22 && latInside){
+      p._hang={box:b, nx, nz, t:0};
+      if(nx!==0) p.wx=b.x+nx*(b.hw+9); else p.wz=b.z+nz*(b.hd+9);
+      p.py=b.top-22; p.pvy=0; p.vx=0; p.vz=0; p.aim=Math.atan2(-nz,-nx);
+      if(typeof Audio!=='undefined')Audio.blip(330,0.08,'sine',0.12,420);
+      return;
+    }
+  }
+}
 function updateCityGravity(dt){
   if(!player||!player.alive||!_cityBoxes.length) return;
   const PR=9, V3=(x,y,z)=>new THREE.Vector3(x,y,z);
   if(_cgNoGrab>0) _cgNoGrab-=dt;
   const P=new THREE.Vector3(player.wx,player.py,player.wz);
+  if(_glGravOn && !player._bootsEquipped){ _glExitGrav(P,_glGVel); _cgBox=null; return; }   // de-equip boots -> drop off the wall
   // ENTER: walk into a wall from the ground, or arc near a side face in the air
   if(!_glGravOn){
+    if(!player._bootsEquipped) return;   // wall-run REQUIRES equipped wall boots
     if(player._jetting || player._onPlatform || _cgNoGrab>0) return;
     const nb=_cityNearestBox(P), b0=nb.box; if(!b0) return;
     const C0=V3(b0.x,b0.top/2,b0.z), E0=V3(b0.hw,b0.top/2,b0.hd), r=P.clone().sub(C0);
@@ -19595,7 +19753,7 @@ document.getElementById('start-btn')&&document.getElementById('start-btn').addEv
 
 // ── CONFIG — replace with your deployed Partykit URL after deploy ──
 const ABLY_KEY = 'D8JDIg.JWwNUA:UHO9eAg_vdl5BD533eiV7JWGl-heuQYcGmdTgLuXs5c';
-const WS_SERVER_URL = '';   // e.g. 'wss://your-app.onrender.com' — leave '' to keep using Ably
+const WS_SERVER_URL = 'wss://robits-server.onrender.com';   // Render server (colinwillow/robits-server). Empty '' falls back to Ably.
 
 const MP = {
   transport: 'ably', // 'ably' or 'ws' (auto-uses 'ws' when WS_SERVER_URL is set)
@@ -19622,6 +19780,41 @@ function mpStatus(msg, col='#ff444488'){
   if(el){ el.textContent=msg; el.style.color=col; }
 }
 
+// ── SERVER WAKE + LOADING SCREEN (Render free tier cold-starts ~50s) ──
+const WAKE_URL = WS_SERVER_URL ? (WS_SERVER_URL.replace(/^wss?:/i,'https:').replace(/\/+$/,'')+'/health') : '';
+let _mpWoke=false;
+function _mpPrewake(){ if(_mpWoke||!WAKE_URL) return; _mpWoke=true; try{ fetch(WAKE_URL,{mode:'no-cors',cache:'no-store'}).catch(()=>{}); }catch(e){} }
+window._mpPrewake=_mpPrewake;
+function _mpLoadingEl(){
+  let o=document.getElementById('mp-loading');
+  if(!o){
+    o=document.createElement('div'); o.id='mp-loading';
+    o.style.cssText='position:fixed;inset:0;z-index:100000;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:radial-gradient(circle at 50% 40%,#0c2336,#040b14 80%);color:#bfe9ff;font-family:Orbitron,system-ui,sans-serif;text-align:center;padding:24px;';
+    o.innerHTML='<div id="mpl-title" style="font-size:22px;letter-spacing:6px;color:#6fdcff;text-shadow:0 0 18px #6fdcff88;">LOADING GAME</div>'+
+      '<div style="width:min(78vw,360px);height:10px;border:1px solid #2f7fa0;border-radius:6px;overflow:hidden;background:#04121c;"><div id="mpl-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#33ffdd,#6fdcff);box-shadow:0 0 12px #6fdcff;transition:width .25s ease;"></div></div>'+
+      '<div id="mpl-sub" style="font-size:11px;letter-spacing:2px;color:#7fb8d0;">Connecting\u2026</div>'+
+      '<div id="mpl-retry" style="display:none;font-size:11px;letter-spacing:2px;color:#ffd24a;border:1px solid #ffd24a55;border-radius:8px;padding:9px 16px;cursor:pointer;">TAP TO RETRY</div>';
+    document.body.appendChild(o);
+  }
+  return o;
+}
+function _mpLoadingShow(title,sub){ const o=_mpLoadingEl(); o.style.display='flex'; const t=document.getElementById('mpl-title'); if(t&&title)t.textContent=title; _mpLoadingSub(sub||'Connecting\u2026'); _mpLoadingProgress(0); const r=document.getElementById('mpl-retry'); if(r)r.style.display='none'; }
+function _mpLoadingSub(t){ const e=document.getElementById('mpl-sub'); if(e)e.textContent=t; }
+function _mpLoadingProgress(pp){ const b=document.getElementById('mpl-bar'); if(b)b.style.width=Math.max(0,Math.min(100,pp))+'%'; }
+function _mpLoadingHide(){ const o=document.getElementById('mp-loading'); if(o)o.style.display='none'; }
+function _mpLoadingRetry(fn){ _mpLoadingEl(); const r=document.getElementById('mpl-retry'); if(r){ r.style.display='block'; r.onclick=()=>{ r.style.display='none'; fn&&fn(); }; } }
+function _mpWake(){
+  return new Promise((resolve)=>{
+    _mpPrewake();
+    if(!WAKE_URL){ resolve(); return; }
+    const t0=Date.now(), EST=52000; let done=false;
+    const tick=setInterval(()=>{ if(done)return; const el=Date.now()-t0; _mpLoadingProgress(Math.min(90,(el/EST)*90)); if(el>2500)_mpLoadingSub('Waking server\u2026 '+Math.round(el/1000)+'s'); },200);
+    const finish=()=>{ if(done)return; done=true; clearInterval(tick); resolve(); };
+    let settled=false;
+    try{ fetch(WAKE_URL,{mode:'no-cors',cache:'no-store'}).then(()=>{settled=true;finish();}).catch(()=>{settled=true;finish();}); }catch(e){ settled=true; finish(); }
+    setTimeout(()=>{ if(!settled) finish(); }, 90000);
+  });
+}
 function mpConnect(roomCode){
   MP.roomCode=roomCode;
   mpStatus('CONNECTING...','#ffaa0088');
@@ -19715,12 +19908,19 @@ function mpConnectAbly(roomCode){
 
 function mpConnectWS(roomCode){
   if(MP.ws){ try{ MP.ws.close(); }catch(e){} MP.ws=null; }
-  MP.roomCode=roomCode; mpStatus('CONNECTING...','#ffaa0088');
+  MP.roomCode=roomCode;
+  _mpLoadingShow('LOADING GAME','Waking server…');
+  _mpWake().then(()=>_mpOpenWS(roomCode));
+}
+function _mpOpenWS(roomCode){
+  _mpLoadingSub('Connecting…'); _mpLoadingProgress(93);
   const url = WS_SERVER_URL || 'ws://localhost:8080';
   let ws;
-  try { ws = new WebSocket(url); } catch(e){ mpStatus('BAD SERVER URL','#ff4444'); return; }
+  try { ws = new WebSocket(url); } catch(e){ _mpLoadingSub('Bad server URL'); _mpLoadingRetry(()=>mpConnectWS(roomCode)); return; }
   MP.ws = ws;
-  ws.onopen = ()=>{ MP.connected=true; mpStatus(''); ws.send(JSON.stringify({type:'join', room:roomCode, name:MP.myName})); };
+  let opened=false;
+  const failT=setTimeout(()=>{ if(!opened){ try{ws.close();}catch(_){} _mpLoadingSub('Server slow to wake'); _mpLoadingRetry(()=>mpConnectWS(roomCode)); } }, 25000);
+  ws.onopen = ()=>{ opened=true; clearTimeout(failT); MP.connected=true; _mpLoadingProgress(100); _mpLoadingSub('Connected'); setTimeout(_mpLoadingHide,450); mpStatus(''); ws.send(JSON.stringify({type:'join', room:roomCode, name:MP.myName})); };
   ws.onmessage = (e)=>{
     let msg; try{ msg=JSON.parse(e.data); }catch(_){ return; }
     if(msg.type==='room_state'){ MP.myId=msg.yourId; }
@@ -19735,7 +19935,7 @@ function mpConnectWS(roomCode){
     mpHandleMessage(msg);
   };
   ws.onclose = ()=>{ MP.connected=false; if(MP.active) mpStatus('DISCONNECTED','#ff4444'); };
-  ws.onerror = ()=>{ mpStatus('CONNECTION FAILED','#ff4444'); };
+  ws.onerror = ()=>{ if(!opened){ clearTimeout(failT); _mpLoadingSub('Connection failed'); _mpLoadingRetry(()=>mpConnectWS(roomCode)); } else { mpStatus('CONNECTION FAILED','#ff4444'); } };
 }
 
 const _MP_ETYPES={Diamond,Bouncer,Pinwheel,Seeker,Drifter,Crawler,Shielder,Turret,Ghost,HoverBomber,Tank,BomberDrone};
@@ -20936,5 +21136,25 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
   window.addEventListener('error',e=>addLine('error',[e.message+' '+e.filename+':'+e.lineno]));
 })();
 </script>
+<!-- ===== INSTALL HINT — iOS "Add to Home Screen" prompt. DELETE THIS WHOLE BLOCK when shipping the native App Store build. ===== -->
+<script>
+(function(){
+  try{
+    var standalone = (window.navigator.standalone===true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+    if(standalone || !ios) return;                              // already installed, or not iOS Safari -> no hint
+    try{ if(sessionStorage.getItem('robits_hide_install')==='1') return; }catch(e){}
+    var bar=document.createElement('div');
+    bar.id='install-hint';
+    bar.style.cssText='position:fixed;left:8px;right:8px;top:calc(env(safe-area-inset-top,0px) + 8px);z-index:99999;display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid #2f7fa0;border-radius:12px;background:rgba(8,20,30,0.92);color:#cdeefb;font:600 11.5px/1.35 Orbitron,system-ui,sans-serif;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,0.55);';
+    bar.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6fdcff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7"/></svg>'+
+      '<span style="flex:1;">Play fullscreen: tap <b>Share</b>, choose <b>Add to Home Screen</b>, then open <b>ROBITS</b> from your home screen.</span>'+
+      '<span id="install-x" style="font-size:18px;padding:2px 7px;cursor:pointer;color:#7fd0c2;flex:none;">&times;</span>';
+    document.body.appendChild(bar);
+    document.getElementById('install-x').addEventListener('click',function(){ try{sessionStorage.setItem('robits_hide_install','1');}catch(e){} bar.remove(); });
+  }catch(e){}
+})();
+</script>
+<!-- ===== END INSTALL HINT ===== -->
 </body>
 </html>
