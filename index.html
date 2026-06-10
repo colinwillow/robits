@@ -1793,12 +1793,32 @@ const ROBOT_GLB='models/robot.glb';
 let _robotGltf=null; // cached after first load
 let _robotLoadPromise=null;
 
+// Force the robot's materials to render SOLID with correct depth. A re-exported GLB can
+// come in with alphaMode=BLEND and/or doubleSided, which draws interior + back polygons
+// out of depth order -> the "see-through / backside showing in front" artifact. Opaque +
+// depthWrite makes the near shell properly occlude everything behind it.
+function _fixRobotMaterials(root){
+  if(!root||!root.traverse) return;
+  root.traverse(c=>{
+    if(!(c.isMesh||c.isSkinnedMesh)||!c.material) return;
+    const mats=Array.isArray(c.material)?c.material:[c.material];
+    for(const mt of mats){
+      if(!mt) continue;
+      mt.transparent=false; mt.opacity=1;
+      mt.depthWrite=true; mt.depthTest=true;
+      mt.alphaTest=0; mt.blending=THREE.NormalBlending;
+      mt.needsUpdate=true;
+    }
+  });
+}
+
 function loadRobotGLB(){
   if(_robotLoadPromise) return _robotLoadPromise;
   _robotLoadPromise=new Promise((resolve)=>{ // never reject — just resolve null on failure
     const loader=new GLTFLoader();
     loader.load(ROBOT_GLB, gltf=>{
       _robotGltf=gltf;
+      _fixRobotMaterials(gltf.scene);
       window._cachedRobotGltf=gltf; // cache for title screen viewer
       console.log('Robot loaded. Animations:',gltf.animations.map(a=>a.name));
       resolve(gltf);
@@ -7879,6 +7899,7 @@ class Player{
     if(this._arrowIndicator){ scene.remove(this._arrowIndicator); this._arrowIndicator=null; }
     this.hovering=false;
     this._speedBoost=0; this._flickCooldown=0; this._dashDir=null; this._dashRamp=0; this._dashPeak=0;
+    this._flickPrevMag=0; this._flickArmed=true; this._meleeCombo=0; this._meleeComboT=0;
     this.primaryWeapon='bullets'; // cycles between 'bullets' and 'rockets'
     this.secWeapon='bullets'; // keep for compat — mirrors primaryWeapon
     this.secWeapons=['bullets','rockets']; // legacy compat ref
@@ -13635,6 +13656,9 @@ function loop(ts){ requestAnimationFrame(loop);
           ud._rollingTimer-=dt;
           if(ud._rollingTimer<0) ud._rollingTimer=0; // never go negative
         }
+        // Tick melee one-shot (blocks locomotion) + combo chain window
+        if(ud._meleeTimer>0){ ud._meleeTimer-=dt; if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud.currentClip=null; } }
+        if(player._meleeComboT>0){ player._meleeComboT-=dt; if(player._meleeComboT<0) player._meleeComboT=0; }
 
         // Landing detection — was airborne, now on ground (debounced)
         if(!ud._landingTimer&&!ud._rollingTimer&&onGround&&ud._prevAirborne){
@@ -13771,7 +13795,7 @@ function loop(ts){ requestAnimationFrame(loop);
         }
 
         // Skip blend switch while roll, landing, climbing, or flipping
-        if(!ud._rollingTimer&&!ud._landingTimer&&!player._wallClimb&&!player._hang&&!player._crestSeq&&!ud._flippingTimer&&!ud._voidTumble){
+        if(!ud._rollingTimer&&!ud._landingTimer&&!player._wallClimb&&!player._hang&&!player._crestSeq&&!ud._flippingTimer&&!ud._voidTumble&&!ud._meleeTimer){
           let targetClip='idle';
           let _skateAnim=false;
           if(GS.zone===-8||GS.zone===-10){
@@ -13825,7 +13849,7 @@ function loop(ts){ requestAnimationFrame(loop);
         // Speed scaling — stationary/air clips always at 1.0, movement clips scale with speed
         const cur=ud.clips[ud.currentClip];
         if(cur){
-          const isStationary=['idle','floating','landing','dive_roll','roll','dash','dive','climbing','climb','wall_climb','front_flip','back_flip','frontflip','backflip','hang'].some(n=>ud.currentClip&&ud.currentClip.includes(n));
+          const isStationary=['idle','floating','landing','dive_roll','roll','dash','dive','climbing','climb','wall_climb','front_flip','back_flip','frontflip','backflip','hang','melee'].some(n=>ud.currentClip&&ud.currentClip.includes(n));
           const animSpd=isStationary?1.0:clamp(spd/140,0.5,1.6);
           if(!player._wallClimb) cur.setEffectiveTimeScale(animSpd);
         }
@@ -13880,6 +13904,34 @@ function loop(ts){ requestAnimationFrame(loop);
       const grenadeActive=player&&player.bombArmed;
       const flickActive=player&&player._flickCooldown>0;
       if(flickActive&&player) player._flickCooldown--;
+
+      // ── RIGHT-STICK FLICK MELEE COMBO (melee_1 -> melee_2 -> melee_3 -> reset) ──
+      if(IS_TOUCH && player && player.alive && GS.state==='playing' && !grenadeActive && !CAM.aimMode && !player._wallClimb && !player._hang && !player._crestSeq){
+        const _fmag=Math.hypot(shootIn.x,shootIn.y);
+        const _fvel=_fmag-(player._flickPrevMag||0); player._flickPrevMag=_fmag;
+        if(_fmag<_MELEE_FLICK_LO) player._flickArmed=true;
+        const _ud0=player.model&&player.model.userData;
+        if(player._flickArmed && _fmag>_MELEE_FLICK_HI && _fvel>_MELEE_FLICK_VEL && _ud0&&_ud0.clips&&!_ud0._meleeTimer){
+          player._flickArmed=false;
+          const _ws=rotInput(shootIn.x,shootIn.y);
+          player.aim=Math.atan2(_ws.z,_ws.x);                       // orient toward the flick direction
+          if((player._meleeComboT||0)<=0) player._meleeCombo=0;     // window lapsed -> restart the combo
+          player._meleeCombo=(player._meleeCombo>=3)?1:(player._meleeCombo+1);
+          const _mname='melee_'+player._meleeCombo;
+          const _mclip=_ud0.clips[_mname]||_ud0.clips['melee_1'];
+          if(_mclip){
+            const _mdur=(_mclip._clip&&_mclip._clip.duration)||0.6;
+            Object.values(_ud0.clips).forEach(a=>a.fadeOut(0.08));
+            _mclip.reset().setEffectiveWeight(1).setEffectiveTimeScale(1.0).setLoop(THREE.LoopOnce,1);
+            _mclip.clampWhenFinished=true; _mclip.fadeIn(0.08).play();
+            _ud0.currentClip=_mname; _ud0._meleeTimer=_mdur;
+            player._meleeComboT=_mdur+0.6;                          // window to chain the next hit
+            player._flickCooldown=Math.ceil(_mdur*60)+2;            // suppress the fire shot during the swing
+            player._rollAimLock=true; const _ml=player; setTimeout(()=>{ if(_ml)_ml._rollAimLock=false; }, _mdur*1000);
+            if(typeof Audio!=='undefined'&&Audio.blip) Audio.blip(200,0.10,'square',0.18,520);
+          }
+        }
+      }
 
       // In puzzle lab: check if right stick is pointing toward a wall — suppress firing if so
       let nearWallStick=false;
@@ -14074,7 +14126,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
       player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); player.draw(od); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_bmv) window._reorientGameBoots(); }
-      if(player._hammer&&window._reorientHammer){ const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv) window._reorientHammer(); }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
+      if(player._hammer&&window._reorientHammer){ const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(GS.zone===-16) updateGrindRail(dt);
       { // ── DROP-THROUGH: HOLD the left stick down (a flick = dash) while on a platform ──
         const downHeld=(moveIn.y>0.55)||((keys['KeyS']||keys['ArrowDown'])&&!(keys['KeyW']||keys['ArrowUp']));
@@ -19075,6 +19127,10 @@ function _updateBootStation(dt){
 // ════════ NEON ROBOT SLEDGEHAMMER — test power-up (equips to the right hand bone) ════════
 const _HAMMER_FIX=new THREE.Euler(-0.6,0,0);          // resting tilt in the fist (tunable)
 let _HAMMER_SCALE=1.7;                                // equipped world-size (matches the power-up station's 1.7); was overshooting at 4.35
+// ── right-stick flick melee tuning ──
+let _MELEE_FLICK_HI=0.78;   // stick must snap past this to fire a melee
+let _MELEE_FLICK_LO=0.30;   // stick must return below this to re-arm the next flick
+let _MELEE_FLICK_VEL=0.16;  // min per-frame snap speed (separates a flick from a slow aim push)
 const _HAMMER_POS=new THREE.Vector3(0,0.5,0);         // model-relative seat offset (tunable)
 function _makeRoboHammer(){
   const g=new THREE.Group();
@@ -20871,7 +20927,7 @@ function _startRobotViewer(canvasId, opts={}){
     } else {
       const ldr=new GLTFLoader();
       ldr.load('models/robot.glb',
-        gltf=>{ window._cachedRobotGltf=gltf; window._titleRobotReady=true; onGltf(gltf); },
+        gltf=>{ _fixRobotMaterials(gltf.scene); window._cachedRobotGltf=gltf; window._titleRobotReady=true; onGltf(gltf); },
         null,
         e=>{ window._titleRobotReady=true; _robotViewerFallback(canvasId); }
       );
@@ -21030,7 +21086,7 @@ window._showScreen=function(name){
       S.footL=find('Left','Foot'); S.footR=find('Right','Foot');
       if(gltf.animations&&gltf.animations.length){ S.mixer=new THREE.AnimationMixer(model); gltf.animations.forEach(a=>{ const n=a.name.toLowerCase().split('|').pop().split(':').pop(); S.clips[n]=a; }); poseButtons(); const idleKey=S.clips['idle']?'idle':(S.clips['floating']?'floating':Object.keys(S.clips)[0]); if(idleKey)playClip(idleKey); }
     }
-    if(window._cachedRobotGltf) build(window._cachedRobotGltf); else { try{ const ldr=new GLTFLoader(); ldr.load('models/robot.glb',g=>{ window._cachedRobotGltf=g; build(g); }, null, ()=>{}); }catch(e){} }
+    if(window._cachedRobotGltf) build(window._cachedRobotGltf); else { try{ const ldr=new GLTFLoader(); ldr.load('models/robot.glb',g=>{ _fixRobotMaterials(g.scene); window._cachedRobotGltf=g; build(g); }, null, ()=>{}); }catch(e){} }
     const _pd=t=>Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
     const _zoom=f=>{ S.camDist=Math.max(2,Math.min(20,(S.camDist||6.4)*f)); _applyCam(); };
     const onDown=e=>{ if(e.touches&&e.touches.length>=2){ S.pinch=_pd(e.touches); S.pinchD0=S.camDist; S.drag=false; } else { S.drag=true; S.lastX=(e.touches?e.touches[0].clientX:e.clientX); } };
