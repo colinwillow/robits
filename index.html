@@ -6129,7 +6129,7 @@ class DropBomb{
     if((GS.zone===-6||GS.zone===-7) && _arenaObstacles.length){
       for(const o of _arenaObstacles){ if(o.t>=0.5 && this.y<o.h+6 && Math.abs(this.wx-o.x)<o.w*0.5+6 && Math.abs(this.wz-o.z)<o.d*0.5+6){ this.detonate(); return false; } }
     }
-    if(typeof GS_bots!=='undefined'){ for(const _b of GS_bots){ if(_b.alive && Math.hypot(this.wx-_b.wx,this.wz-_b.wz)<(_b.size||20)+8 && Math.abs((this.y||0)-(_b.py||0))<44){ this.detonate(); return false; } } }
+    if(typeof GS_bots!=='undefined'){ for(const _b of GS_bots){ if(_b.alive && Math.hypot(this.wx-_b.wx,this.wz-_b.wz)<(_b.size||20)+10 && Math.abs((this.y||0)-(_b.py||0))<90){ this.detonate(); return false; } } }
     if(this.timer<=0){ this.detonate(); return false; }
     return true;
   }
@@ -6137,6 +6137,8 @@ class DropBomb{
   detonate(){
     this.dead=true;
     const BLAST_R=120, BLAST_R2=BLAST_R*BLAST_R;
+    // BOT — explosive launch FIRST (before the enemy loop, which can throw). Knock BEFORE hit, light damage so they FLY instead of vanishing.
+    try{ if(typeof GS_bots!=='undefined'){ let _bhit=0; for(const _bot of GS_bots){ if(_bot&&_bot.alive){ const _bbd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_bbd<BLAST_R){ const _bsN=Math.max(0,(BLAST_R-_bbd)/BLAST_R); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 3+_bsN*4, 180+_bsN*180, 32+_bsN*22); _bot.hit(Math.max(1,Math.ceil(_bsN*2+1))); _bhit++; } } } if(_bhit&&typeof announce==='function') announce('DIRECT HIT!','#ff9933'); } }catch(_e){ console.warn('bomb->bot launch failed',_e); }
     // Fire burst — multiple layers of orange/yellow/white particles
     ps.burst(this.wx,this.wz,[1,0.9,0.2],50,200);   // bright yellow core
     ps.burst(this.wx,this.wz,[1,0.4,0.05],35,160);  // orange mid
@@ -6199,8 +6201,6 @@ class DropBomb{
       const d=Math.hypot(GS_trainingDummy.wx-this.wx,GS_trainingDummy.wz-this.wz);
       if(d<BLAST_R) GS_trainingDummy.hit(Math.ceil(45*(1-d/BLAST_R)),this.wx,this.wz);
     }
-    // BOT — big explosive launch (up-biased 45-ish arc, sends them flying + twirling)
-    if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){ if(_bot.alive){ const _bd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_bd<BLAST_R){ const _sN=Math.max(0,(BLAST_R-_bd)/BLAST_R); _bot.hit(Math.max(1,Math.ceil(_sN*8+2))); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 2+_sN*4, 160+_sN*180, 30+_sN*22); } } }
   }
 
   remove(){
@@ -7711,7 +7711,8 @@ function _openRobitMenu(){
 window._openRobitMenu=_openRobitMenu; window._closeRobitMenu=_closeRobitMenu;
 
 
-const bulletGeo=new THREE.SphereGeometry(2.4,6,6);
+const bulletGeo=(function(){ const g=new THREE.CylinderGeometry(0.12,0.6,6.5,7); g.rotateX(-Math.PI/2); return g; })();   // thin little rocket, not a cheesy ball
+const _BULLET_AXIS=new THREE.Vector3(0,0,1), _bvDir=new THREE.Vector3();
 const bulletMats={ normal:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xffdd00,emissiveIntensity:2.4}),
   laser:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x00ffea,emissiveIntensity:2.6}),
   homing:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xff66cc,emissiveIntensity:2.4}) };
@@ -7729,6 +7730,7 @@ class Bullet{
     else if(_cf){ this.y+=this.vy*dt; }                                        // riding/approaching a building -> climb freely, no ground pull
     else if(this.y>9||this.vy>0.5){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){ this.y=9; this.vy=(this.vy<-55)?-this.vy*0.5:0; } }   // arc + bounce off the floor (loses half its energy each hop)
     this.mesh.position.set(this.wx,this.y,this.wz);
+    _bvDir.set(this.vx,this.vy||0,this.vz); if(_bvDir.lengthSq()>1e-4){ _bvDir.normalize(); this.mesh.quaternion.setFromUnitVectors(_BULLET_AXIS,_bvDir); }
     if(!this._g3 && grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,0.7);
     if(GRID_SHEETS.length){ const _h=gridSheetHit(this.wx,this.y,this.wz,this.wx-this.vx*dt,this.y-(this._g3?this.vy*dt:0),this.wz-this.vz*dt);
       if(_h){ _h.sheet.impactLocal(_h.lu,_h.lv,this.kind==='laser'?2.6:1.6); if(_glSheets.indexOf(_h.sheet)<0 && !_h.sheet._cityWall){ if(typeof ps!=='undefined') ps.burst(this.wx,this.wz,this.kind==='laser'?[0.4,1,1]:[1,0.7,0.2],6,40,this.y); this.life=0; } }   // lab shape = deform & curve past; everything else still dies on impact
@@ -10023,6 +10025,13 @@ class BotPilot{
     this.shieldActive=false;       // knocked out of shield
   }
 
+  _solidify(){
+    if(typeof resolveObstacles==='function') resolveObstacles(this,16);
+    if(typeof _cityBoxes!=='undefined' && _cityBoxes && _cityBoxes.length){
+      for(const box of _cityBoxes){ if(Math.abs(this.wx-box.x)<box.hw && Math.abs(this.wz-box.z)<box.hd && (this.py||0)<box.top){ const dxr=this.wx-box.x, dzr=this.wz-box.z; if(box.hw-Math.abs(dxr) < box.hd-Math.abs(dzr)) this.wx=box.x+(dxr>=0?1:-1)*(box.hw+2); else this.wz=box.z+(dzr>=0?1:-1)*(box.hd+2); break; } }
+    }
+  }
+
   _tickHitFlash(){
     if(this._hitFlash>0){
       this._hitFlash--;
@@ -10107,7 +10116,7 @@ class BotPilot{
         const d2=Math.hypot(this.wx-zc.x,this.wz-zc.z);
         if(d2>edge){ this.wx=zc.x+(this.wx-zc.x)/d2*edge; this.wz=zc.z+(this.wz-zc.z)/d2*edge; this._kbVx*=0.3; this._kbVz*=0.3; }
       }
-      if(typeof resolveObstacles==='function') resolveObstacles(this,16);   // can't be knocked through buildings
+      this._solidify();   // can't be knocked through buildings, walls, or city blocks
     }
     if((this._stun>0)||this._launched||((this._downT||0)>0)){
       if(this.py>0||this.pvy>0){ this.pvy-=320*dt; this.py=Math.max(0,this.py+this.pvy*dt); if(this.py<=0){this.py=0;this.pvy=0;} }
@@ -10204,7 +10213,7 @@ class BotPilot{
       if(d2>edge){ nx=zc.x+(nx-zc.x)/d2*edge; nz=zc.z+(nz-zc.z)/d2*edge; }
     }
     this.wx=nx; this.wz=nz;
-    if(typeof resolveObstacles==='function') resolveObstacles(this,16);   // walk into buildings, not through them
+    this._solidify();   // walk into buildings, not through them
 
     // ── AIM — lead player at higher difficulties ──
     const leadT={rookie:0, soldier:0.1, elite:0.2}[this.diff];
