@@ -19600,18 +19600,21 @@ function _resolveGunDir(){
   if(!db&&player.model){ player.model.traverse(o=>{ if(!db&&/weapon.*dir/i.test(o.name||'')) db=o; }); }
   player._gunDirBone=db||null; player._gunDirBonesRef=bones; return player._gunDirBone;
 }
-function _orientHandLauncher(obj,bone){
+function _foreArmBone(bones,side){
+  const want=side==='L'?'Left':'Right';
+  return bones['mixamorig_'+want+'ForeArm']||bones[want+'ForeArm']||(function(){ for(const k in bones){ if(/forearm/i.test(k) && (side==='L'?/left/i.test(k):/right/i.test(k))) return bones[k]; } return null; })();
+}
+function _orientHandLauncher(obj,bone,fore){
   if(!obj||!bone||!player||!player.model) return;
-  const bones=player.model.userData.bones, dir=_resolveGunDir();
+  player.model.updateWorldMatrix(true,true);
   const bq=new THREE.Quaternion(); bone.getWorldQuaternion(bq);
   let aim;
-  if(dir){
-    const rh=(bones&&bones['mixamorig_RightHand'])||bone;            // aim line tracks the hand through every animation
-    const P0=rh.getWorldPosition(new THREE.Vector3());
-    const P1=dir.getWorldPosition(new THREE.Vector3());
-    aim=P1.sub(P0); if(aim.lengthSq()<1e-8) aim.set(0,0,1); aim.normalize();
+  if(fore){
+    const P0=fore.getWorldPosition(new THREE.Vector3());   // elbow (ForeArm bone origin)
+    const P1=bone.getWorldPosition(new THREE.Vector3());   // wrist (Hand bone origin)
+    aim=P1.sub(P0); if(aim.lengthSq()<1e-8) aim.set(0,0,1); aim.normalize();   // gun length runs down the forearm
   } else { aim=new THREE.Vector3(0,0,1); }
-  // upright basis: barrel(+Z)=aim line (follows the hand), up=world up -> stops the ~90° arbitrary roll
+  // upright basis: barrel(+Z)=forearm direction, up=world up -> no arbitrary roll
   const _up=new THREE.Vector3(0,1,0);
   let _right=new THREE.Vector3().crossVectors(_up,aim); if(_right.lengthSq()<1e-6) _right.set(1,0,0); _right.normalize();
   const _up2=new THREE.Vector3().crossVectors(aim,_right).normalize();
@@ -19692,10 +19695,11 @@ function _updateHandWeapons(){
   const weapon=player.primaryWeapon||'bullets';
   const meleeOut=!!player._hammer;
   const RH=bones['mixamorig_RightHand'], LH=bones['mixamorig_LeftHand'];
+  const LF=_foreArmBone(bones,'L'), RF=_foreArmBone(bones,'R');
   _ensureHandWeapon('L', true, LH, weapon);          // left hand always carries the current gun
   _ensureHandWeapon('R', !meleeOut, RH, weapon);     // right hand too — unless it's holding a melee weapon
-  if(player._handWpnL&&LH) _orientHandLauncher(player._handWpnL,LH);
-  if(player._handWpnR&&RH) _orientHandLauncher(player._handWpnR,RH);
+  if(player._handWpnL&&LH) _orientHandLauncher(player._handWpnL,LH,LF);
+  if(player._handWpnR&&RH) _orientHandLauncher(player._handWpnR,RH,RF);
 }
 window._updateHandWeapons=_updateHandWeapons;
 window._updateHandLaunchers=_updateHandWeapons;   // back-compat alias
