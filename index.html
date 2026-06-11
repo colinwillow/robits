@@ -6935,7 +6935,7 @@ class PlasmaLightning{
     this.group.visible=true;
     let ox=pl.wx, oy=9+pl.py, oz=pl.wz;
     const bones=pl.model&&pl.model.userData&&pl.model.userData.bones;
-    const _useL=(Math.floor(this.t/0.2)%2)===1;
+    const _useL=pl._hammer?true:((Math.floor(this.t/0.2)%2)===1);   // melee equipped -> fire from the LEFT hand only
     const hb=bones&&(_useL?(bones['mixamorig_LeftHand']||bones['mixamorig_RightHand']):(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']));
     if(hb){ const hp=new THREE.Vector3(); hb.getWorldPosition(hp); ox=hp.x; oy=hp.y; oz=hp.z; }
     const a=pl.aim; let dx=Math.cos(a),dy=0,dz=Math.sin(a);
@@ -6946,12 +6946,18 @@ class PlasmaLightning{
     const rt=new THREE.Vector3().crossVectors(dir,up).normalize();
     const upv=new THREE.Vector3().crossVectors(rt,dir).normalize();
     const MAXLEN=620, inten=this.intensity, hitR=16;
-    // FIRST enemy along the ray -> the beam stops there (no infinite pierce)
+    // unified targets the beam can lock onto: enemies + bots + training dummy + remote MP players
+    const _tg=[];
+    for(const e of GS.enemies){ if(e.alive&&!e._captured) _tg.push({x:e.wx,y:(e.mesh?e.mesh.position.y:9),z:e.wz,r:(e.size||12)*0.4,kind:'enemy',ref:e}); }
+    if(typeof GS_bots!=='undefined') for(const b of GS_bots){ if(b&&b.alive) _tg.push({x:b.wx,y:(b.py||0)+9,z:b.wz,r:(b.size||14)*0.5,kind:'bot',ref:b}); }
+    if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS.zone===-2){ const dm=GS_trainingDummy; _tg.push({x:dm.wx,y:(dm.py||0)+14,z:dm.wz,r:18,kind:'dummy',ref:dm}); }
+    if(typeof MP!=='undefined'&&MP.active&&MP.players){ for(const id in MP.players){ const rp=MP.players[id]; if(rp&&rp.mesh){ _tg.push({x:rp.mesh.position.x,y:rp.mesh.position.y+14,z:rp.mesh.position.z,r:15,kind:'mp',ref:rp,id}); } } }
+    // FIRST target along the ray -> the beam stops there (no infinite pierce)
     let prim=null, primT=MAXLEN;
-    for(const e of GS.enemies){ if(!e.alive||e._captured) continue; const ey=(e.mesh?e.mesh.position.y:9);
-      const ex=e.wx-ox, ee=ey-oy, ez=e.wz-oz, tp=ex*dir.x+ee*dir.y+ez*dir.z; if(tp<2||tp>MAXLEN) continue;
+    for(const tg of _tg){
+      const ex=tg.x-ox, ee=tg.y-oy, ez=tg.z-oz, tp=ex*dir.x+ee*dir.y+ez*dir.z; if(tp<2||tp>MAXLEN) continue;
       const perp=Math.hypot(ex-dir.x*tp, ee-dir.y*tp, ez-dir.z*tp);
-      if(perp < hitR+(e.size||12)*0.4 && tp<primT){ primT=tp; prim=e; } }
+      if(perp < hitR+tg.r && tp<primT){ primT=tp; prim=tg; } }
     // buildings block the beam just like the other weapons — clamp to the nearest wall (ray vs each building AABB)
     let wallStop=false;
     if(GS.zone===-16 && typeof _cityBoxes!=='undefined' && _cityBoxes.length){
@@ -6973,7 +6979,7 @@ class PlasmaLightning{
     }
     const LEN = Math.max(20, primT);
     let cx=ox+dir.x*LEN, cy=oy+dir.y*LEN, cz=oz+dir.z*LEN;
-    if(prim){ cx=prim.wx; cy=(prim.mesh?prim.mesh.position.y:9); cz=prim.wz; }
+    if(prim){ cx=prim.x; cy=prim.y; cz=prim.z; }
     // jagged core nodes origin -> contact
     const N=12, amp=(4+10*inten); const nodes=[];
     for(let i=0;i<=N;i++){ const tt=i/N, bx=ox+(cx-ox)*tt, by=oy+(cy-oy)*tt, bz=oz+(cz-oz)*tt;
@@ -6993,16 +6999,25 @@ class PlasmaLightning{
       if(pp)pushSeg(pp[0],pp[1],pp[2],px,py,pz); pp=[px,py,pz]; } }
     // chain + electrocute
     this._dmgT-=dt; const tick=(this._dmgT<=0); if(tick) this._dmgT=0.28;
-    const zap=(e)=>{ e._stunT=Math.max(e._stunT||0,18); if(e._vx2!==undefined)e._vx2*=0.2; if(e._vz2!==undefined)e._vz2*=0.2; if(e.vx!==undefined)e.vx*=0.3; if(e.vz!==undefined)e.vz*=0.3;
+    const zap=(e)=>{ e._stunT=Math.max(e._stunT||0,18); e._electroT=Math.max(e._electroT||0,1.0); if(e._vx2!==undefined)e._vx2*=0.2; if(e._vz2!==undefined)e._vz2*=0.2; if(e.vx!==undefined)e.vx*=0.3; if(e.vz!==undefined)e.vz*=0.3;
       if(tick){ const pts=(e.hit?e.hit(od?2:1):0); if(typeof spawnDmgNum==='function'&&Math.random()<0.5)spawnDmgNum(e.wx,(e.mesh?e.mesh.position.y:9)+18,e.wz,1,'#cf9dff');
         const idx=GS.enemies.indexOf(e); if((pts>0||!e.alive)&&idx>=0){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(idx,1); if(typeof registerKill==='function')registerKill(e); } } };
     let hitting=false;
-    if(prim && prim.alive){ hitting=true;
-      const used=new Set([prim]); const chain=[{x:cx,y:cy,z:cz,e:prim}]; let cur=chain[0];
-      for(let j=0;j<2;j++){ let best=null,bd=78*78; for(const e2 of GS.enemies){ if(!e2.alive||e2._captured||used.has(e2))continue; const ey2=(e2.mesh?e2.mesh.position.y:9); const q=(e2.wx-cur.x)**2+(ey2-cur.y)**2+(e2.wz-cur.z)**2; if(q<bd){bd=q;best={x:e2.wx,y:ey2,z:e2.wz,e:e2};} } if(!best)break; chain.push(best); used.add(best.e); cur=best; }
-      for(let c=0;c<chain.length-1;c++){ jaggedTo(chain[c].x,chain[c].y+3,chain[c].z, chain[c+1].x,chain[c+1].y+3,chain[c+1].z, 4, 9); }
-      if(chain.length===1){ for(let c=0;c<3;c++) jaggedTo(cx,cy,cz, cx+rand(-13,13),cy+rand(-4,15),cz+rand(-13,13), 3, 6); }   // residual crackle on a lone target
-      for(const t of chain){ if(typeof ps!=='undefined'&&Math.random()<0.7) ps.spark(t.x+rand(-5,5),t.z+rand(-5,5),[0.8,0.4,1],t.y+rand(-2,7)); zap(t.e); }
+    if(prim){ hitting=true;
+      if(prim.kind==='enemy' && prim.ref.alive){
+        const e0=prim.ref;
+        const used=new Set([e0]); const chain=[{x:cx,y:cy,z:cz,e:e0}]; let cur=chain[0];
+        for(let j=0;j<2;j++){ let best=null,bd=78*78; for(const e2 of GS.enemies){ if(!e2.alive||e2._captured||used.has(e2))continue; const ey2=(e2.mesh?e2.mesh.position.y:9); const q=(e2.wx-cur.x)**2+(ey2-cur.y)**2+(e2.wz-cur.z)**2; if(q<bd){bd=q;best={x:e2.wx,y:ey2,z:e2.wz,e:e2};} } if(!best)break; chain.push(best); used.add(best.e); cur=best; }
+        for(let c=0;c<chain.length-1;c++){ jaggedTo(chain[c].x,chain[c].y+3,chain[c].z, chain[c+1].x,chain[c+1].y+3,chain[c+1].z, 4, 9); }
+        if(chain.length===1){ for(let c=0;c<3;c++) jaggedTo(cx,cy,cz, cx+rand(-13,13),cy+rand(-4,15),cz+rand(-13,13), 3, 6); }
+        for(const t of chain){ if(typeof ps!=='undefined'&&Math.random()<0.7) ps.spark(t.x+rand(-5,5),t.z+rand(-5,5),[0.8,0.4,1],t.y+rand(-2,7)); zap(t.e); }
+      } else {
+        for(let c=0;c<3;c++) jaggedTo(cx,cy,cz, cx+rand(-13,13),cy+rand(-4,15),cz+rand(-13,13), 3, 6);   // crackle at the contact
+        if(typeof ps!=='undefined'&&Math.random()<0.85) ps.spark(cx+rand(-5,5),cz+rand(-5,5),[0.8,0.4,1],cy+rand(-2,7));
+        if(prim.kind==='bot'){ const b=prim.ref; b._stun=Math.max(b._stun||0,16); b._electroT=Math.max(b._electroT||0,1.0); if(b.vx!==undefined){b.vx*=0.4;b.vz*=0.4;} if(tick&&b.hit)b.hit(od?2:1); }
+        else if(prim.kind==='dummy'){ const dm=prim.ref; dm._electroT=Math.max(dm._electroT||0,1.0); if(tick&&dm.hit)dm.hit(od?2:1, ox, oz); }
+        else if(prim.kind==='mp'){ if(tick && typeof mpSend==='function'){ mpSend('event',{event:'player_hit',data:{target:prim.id,dmg:od?2:1,zap:1}}); } }
+      }
     }
     this._filGeo.setDrawRange(0, fp/3); this._filGeo.attributes.position.needsUpdate=true;
     this._filMat.opacity=0.85*Math.min(1,inten*1.4);
@@ -7018,6 +7033,23 @@ function _updatePlasmaBeam(pl,dt){
   pl._pBeam.update(pl,dt);
 }
 window._updatePlasmaBeam=_updatePlasmaBeam;
+// keep zapped targets crackling/stunned for ~1s after the plasma beam leaves them
+function _updateElectro(dt){
+  const TICK=0.26;
+  const proc=(e)=>{ if(!e||!e._electroT||e._electroT<=0) return;
+    if(e.alive===false){ e._electroT=0; return; }
+    e._electroT-=dt;
+    if(e._stunT!==undefined) e._stunT=Math.max(e._stunT||0,12);
+    if(e._stun!==undefined)  e._stun =Math.max(e._stun ||0,12);
+    if(e.vx!==undefined){ e.vx*=0.86; e.vz*=0.86; }
+    e._eTick=(e._eTick||0)-dt; if(e._eTick<=0){ e._eTick=TICK; if(e.hit){ try{ e.hit(1, e.wx, e.wz); }catch(_){ } } }
+    if(typeof ps!=='undefined'&&Math.random()<0.55){ const y=(e.mesh?e.mesh.position.y:(e.py||0)+9); ps.spark(e.wx+rand(-6,6),e.wz+rand(-6,6),[0.85,0.4,1],y+rand(0,16)); }
+  };
+  for(const e of GS.enemies) proc(e);
+  if(typeof GS_bots!=='undefined') for(const b of GS_bots) proc(b);
+  if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) proc(GS_trainingDummy);
+}
+window._updateElectro=_updateElectro;
 // ════════ FLAMETHROWER — particle "liquid fire": fake curl-noise turbulence + buoyancy + drag + temperature color-ramp ════════
 const _FLAME_TEX=(()=>{ const c=document.createElement('canvas'); c.width=c.height=64; const g=c.getContext('2d');
   const grd=g.createRadialGradient(32,32,0,32,32,32);
@@ -8746,6 +8778,7 @@ class Player{
 
       const top=MOVE.topSpeed*speedMult*(od?1.25:1);
       let tvx=this.inX*top, tvz=this.inZ*top;
+      if(this._zapT>0){ this._zapT-=dt; tvx*=0.35; tvz*=0.35; if(typeof ps!=='undefined'&&Math.random()<0.5) ps.spark(this.wx+rand(-6,6),this.wz+rand(-6,6),[0.85,0.4,1],9+(this.py||0)+rand(0,18)); }   // electrocuted: slowed + sparking
       const inMag=Math.hypot(rawX,rawZ);
       let e = inMag>0.05 ? MOVE.velEaseUp : MOVE.velEaseDown;
       if(window._meleeLandLock && this.model&&this.model.userData&&this.model.userData._meleeTimer>0){ tvx=0; tvz=0; e=Math.max(e,0.35); this._jumpTapped=false; }   // land-lock (opt-in): plant in place for the swing
@@ -14383,7 +14416,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-5) updateTransition(dt);
       if(GS.zone===-16) updateCityTest(dt);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
-      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); player.draw(od); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
+      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); player.draw(od); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_bmv) window._reorientGameBoots(); }
       if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
@@ -19542,8 +19575,72 @@ function _makeRoboSword(){
   g.traverse(o=>{ o.frustumCulled=false; });
   return g;
 }
-window._meleeModel=window._meleeModel||'sword';   // 'sword' or 'hammer'
-function _makeMeleeWeapon(type){ const m=type||window._meleeModel; return (m==='hammer')?_makeRoboHammer():_makeRoboSword(); }
+function _makeRoboAxe(){
+  const g=new THREE.Group();
+  const METAL=new THREE.MeshStandardMaterial({color:0x18e0ff,metalness:0.6,roughness:0.28,emissive:0x0a86b0,emissiveIntensity:0.9});
+  const DARK =new THREE.MeshStandardMaterial({color:0x182842,metalness:0.7,roughness:0.4,emissive:0x0a1830,emissiveIntensity:0.4});
+  const GLOW =new THREE.MeshBasicMaterial({color:0xff9a3c,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  const MAG  =new THREE.MeshBasicMaterial({color:0xffc24a,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  const line=(geo,c)=>new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:c,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+  const shaft=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.62,15,10),DARK); shaft.position.y=6.5; g.add(shaft);
+  for(const sx of [-1,1]){ const strip=new THREE.Mesh(new THREE.BoxGeometry(0.14,13,0.14),GLOW); strip.position.set(sx*0.5,6.5,0); g.add(strip); }
+  const pommel=new THREE.Mesh(new THREE.OctahedronGeometry(0.8,0),GLOW); pommel.position.y=-1.0; g.add(pommel);
+  const headblk=new THREE.Mesh(new THREE.BoxGeometry(1.5,3.2,1.5),METAL); headblk.position.y=13.4; g.add(headblk);
+  const bitGeo=new THREE.BoxGeometry(7.0,5.8,0.5);
+  const bit=new THREE.Mesh(bitGeo,METAL); bit.position.set(4.4,13.4,0); g.add(bit); bit.add(line(bitGeo,0xffd9a0));
+  for(const sy of [-1,1]){ const cut=new THREE.Mesh(new THREE.ConeGeometry(1.9,4.4,3),METAL); cut.rotation.z=-Math.PI/2; cut.position.set(7.5,13.4+sy*2.5,0); g.add(cut); }
+  const edge=new THREE.Mesh(new THREE.BoxGeometry(0.55,6.6,0.62),GLOW); edge.position.set(7.9,13.4,0); g.add(edge);
+  const core=new THREE.Mesh(new THREE.BoxGeometry(6.4,1.0,0.7),MAG); core.position.set(4.4,13.4,0); g.add(core);
+  const spike=new THREE.Mesh(new THREE.ConeGeometry(1.0,3.6,4),METAL); spike.rotation.z=Math.PI/2; spike.position.set(-2.4,13.4,0); g.add(spike);
+  g.userData._baseX=7.6; g.userData._tipX=7.6; g.userData._baseY=10.6; g.userData._tipY=16.4;   // trail traces the axe's outer edge
+  g.traverse(o=>{ o.frustumCulled=false; });
+  return g;
+}
+function _makeRoboSpear(){
+  const g=new THREE.Group();
+  const STEEL=new THREE.MeshStandardMaterial({color:0xbfefff,metalness:0.88,roughness:0.16,emissive:0x1a90c0,emissiveIntensity:0.7});
+  const DARK =new THREE.MeshStandardMaterial({color:0x0e1c33,metalness:0.7,roughness:0.42,emissive:0x07142a,emissiveIntensity:0.45});
+  const GLOW =new THREE.MeshBasicMaterial({color:0x9be84a,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  const CORE =new THREE.MeshBasicMaterial({color:0xd6ffa0,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+  const line=(geo,c)=>new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:c,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+  const shaft=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.5,21,10),DARK); shaft.position.y=9; g.add(shaft);
+  for(const sx of [-1,1]){ const strip=new THREE.Mesh(new THREE.BoxGeometry(0.13,19,0.13),GLOW); strip.position.set(sx*0.42,9,0); g.add(strip); }
+  const pommel=new THREE.Mesh(new THREE.ConeGeometry(0.6,1.6,6),STEEL); pommel.rotation.x=Math.PI; pommel.position.y=-2.0; g.add(pommel);
+  const collar=new THREE.Mesh(new THREE.CylinderGeometry(0.85,0.6,1.4,8),STEEL); collar.position.y=19.4; g.add(collar);
+  const hGeo=new THREE.BoxGeometry(2.0,5.2,0.34);
+  const head=new THREE.Mesh(hGeo,STEEL); head.position.y=22.4; g.add(head); head.add(line(hGeo,0xcbffff));
+  for(const sx of [-1,1]){ const e=new THREE.Mesh(new THREE.BoxGeometry(0.3,5.2,0.4),GLOW); e.position.set(sx*1.0,22.4,0); g.add(e); }
+  const corem=new THREE.Mesh(new THREE.BoxGeometry(0.45,4.0,0.5),CORE); corem.position.y=22.4; g.add(corem);
+  const tip=new THREE.Mesh(new THREE.ConeGeometry(1.0,3.4,4),STEEL); tip.rotation.y=Math.PI/4; tip.position.y=25.6; g.add(tip);
+  tip.add(new THREE.Mesh(new THREE.ConeGeometry(1.15,3.8,4),GLOW));
+  g.userData._baseY=19.5; g.userData._tipY=27.0;   // long thrusting reach; trail traces the spearhead
+  g.traverse(o=>{ o.frustumCulled=false; });
+  return g;
+}
+function _makeRoboScythe(){
+  const g=new THREE.Group();
+  const METAL=new THREE.MeshStandardMaterial({color:0xbfefff,metalness:0.85,roughness:0.18,emissive:0x6a30c0,emissiveIntensity:0.6});
+  const DARK =new THREE.MeshStandardMaterial({color:0x1a1233,metalness:0.7,roughness:0.42,emissive:0x130a2a,emissiveIntensity:0.45});
+  const GLOW =new THREE.MeshBasicMaterial({color:0xc080ff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  const shaft=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.6,18,10),DARK); shaft.position.y=8; g.add(shaft);
+  for(const sx of [-1,1]){ const strip=new THREE.Mesh(new THREE.BoxGeometry(0.14,16,0.14),GLOW); strip.position.set(sx*0.5,8,0); g.add(strip); }
+  const pommel=new THREE.Mesh(new THREE.OctahedronGeometry(0.85,0),GLOW); pommel.position.y=-1.4; g.add(pommel);
+  const knob=new THREE.Mesh(new THREE.SphereGeometry(0.9,8,6),METAL); knob.position.y=16.6; g.add(knob);
+  // curved crescent blade (partial torus) sweeping out to -X from the top
+  const bg=new THREE.Group(); bg.position.set(0,16.3,0); bg.rotation.z=-0.5; g.add(bg);
+  const arc=Math.PI*0.92;
+  const bladeGeo=new THREE.TorusGeometry(8.0,0.55,6,22,arc);
+  const blade=new THREE.Mesh(bladeGeo,METAL); blade.position.set(-8.0,0,0); bg.add(blade);
+  const edge=new THREE.Mesh(new THREE.TorusGeometry(8.0,0.24,6,22,arc),GLOW); edge.position.set(-8.0,0,0); bg.add(edge);
+  const btip=new THREE.Mesh(new THREE.ConeGeometry(0.7,2.6,5),METAL); btip.position.set(-8.0+8.0*Math.cos(arc),8.0*Math.sin(arc),0); btip.rotation.z=arc; bg.add(btip);
+  g.userData._baseX=0; g.userData._baseY=15.5; g.userData._tipX=-8.5; g.userData._tipY=13.0;   // trail sweeps across the crescent
+  g.traverse(o=>{ o.frustumCulled=false; });
+  return g;
+}
+window._meleeModel=window._meleeModel||'sword';   // default world weapon
+function _makeMeleeWeapon(type){ const m=type||window._meleeModel;
+  switch(m){ case 'hammer': return _makeRoboHammer(); case 'axe': return _makeRoboAxe(); case 'spear': return _makeRoboSpear(); case 'scythe': return _makeRoboScythe(); default: return _makeRoboSword(); } }
+window._MELEE_NAMES={sword:'\u2694 SWORD',hammer:'\u2692 SLEDGEHAMMER',axe:'\u2694 WAR AXE',spear:'\u2191 SPEAR',scythe:'\u263e SCYTHE'};
 function _orientHammer(){
   const h=player&&player._hammer; if(!h||!player.model||!h._hand) return;
   player.model.updateWorldMatrix(true,true);
@@ -19769,7 +19866,7 @@ function _collectHammer(st){
   if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[1,0.2,0.7],34,170); ps.ring(player.wx,player.wz,[0.2,1,0.9],22,150); }
   if(typeof Audio!=='undefined'){ Audio.blip(160,0.18,'sawtooth',0.25,70); Audio.blip(420,0.12,'square',0.2,900); }
   if(typeof addTrauma==='function') addTrauma(0.12);
-  if(typeof announce==='function') announce(ok?(((type==='hammer')?'\u2692 SLEDGEHAMMER':'\u2694 SWORD')+(window._hammerDirBone?' \u2014 aimed':' \u2014 no dir bone')):'NO HAND BONE FOUND', ok?'#33ffdd':'#ff5555');
+  if(typeof announce==='function') announce(ok?(((window._MELEE_NAMES&&window._MELEE_NAMES[type])||'\u2694 BLADE')+(window._hammerDirBone?' \u2014 aimed':' \u2014 no dir bone')):'NO HAND BONE FOUND', ok?'#33ffdd':'#ff5555');
   if(typeof _updateStowButton==='function') _updateStowButton();
 }
 function _toggleMeleeStow(){
@@ -19806,8 +19903,8 @@ window._updateStowButton=_updateStowButton;
 function _spawnHammerStation(x,z,type){
   type=type||'sword';
   window._hammerStations=window._hammerStations||[];
-  const hot =(type==='hammer')?0xff2da0:0x18e0ff;     // hammer pad = magenta, sword pad = cyan
-  const cool=(type==='hammer')?0x33ffdd:0x7fd0ff;
+  const _MC={sword:[0x18e0ff,0x7fd0ff],hammer:[0xff2da0,0x33ffdd],axe:[0xff9a3c,0xffd06a],spear:[0x9be84a,0xd6ffa0],scythe:[0xc080ff,0xe0c0ff]};
+  const _mc=_MC[type]||_MC.sword; const hot=_mc[0], cool=_mc[1];
   const grp=new THREE.Group(); grp.position.set(x,0,z);
   const ring=new THREE.Mesh(new THREE.TorusGeometry(15,1.3,8,32),new THREE.MeshBasicMaterial({color:hot,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=1.2; grp.add(ring);
   const ring2=new THREE.Mesh(new THREE.TorusGeometry(9,0.7,8,28),new THREE.MeshBasicMaterial({color:cool,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})); ring2.rotation.x=-Math.PI/2; ring2.position.y=2.2; grp.add(ring2);
@@ -19841,10 +19938,12 @@ function _slashBladePoints(){
   player.model.updateWorldMatrix(true,true);
   h.updateWorldMatrix(true,false);                                 // weapon model is already oriented (incl. _HAMMER_FIX + scale)
   const ud=h.userData||{};
-  const baseY=(ud._baseY!=null)?ud._baseY:0;                       // sample the model's OWN local +Y axis -> trail matches the rendered blade/head
+  const baseY=(ud._baseY!=null)?ud._baseY:0;                       // sample the model's OWN axis -> trail matches the rendered blade/head
   const tipY =(ud._tipY !=null)?ud._tipY :18;
-  const base=h.localToWorld(new THREE.Vector3(0,baseY,0));
-  const tip =h.localToWorld(new THREE.Vector3(0,tipY ,0));
+  const baseX=(ud._baseX!=null)?ud._baseX:0;                       // side-mounted blades (axe/scythe) trace off the handle axis
+  const tipX =(ud._tipX !=null)?ud._tipX :0;
+  const base=h.localToWorld(new THREE.Vector3(baseX,baseY,0));
+  const tip =h.localToWorld(new THREE.Vector3(tipX ,tipY ,0));
   return [base, tip];
 }
 function _ensureSlashTrail(){
@@ -20013,6 +20112,7 @@ function buildCityTest(){
   _glGravOn=false; _cgBox=null; if(player) player._inPlanetGravity=false;
   if(typeof MP!=='undefined' && MP.active && !MP.isHost){ try{ mpSend('event',{event:'city_req'}); }catch(e){} if(typeof _cityMakeTestUI==='function') _cityMakeTestUI();
     _spawnBootStation(0,128); _spawnHammerStation(40,128,'sword'); _spawnHammerStation(100,128,'hammer');
+    _spawnHammerStation(150,128,'axe'); _spawnHammerStation(200,128,'spear'); _spawnHammerStation(250,128,'scythe');
     _spawnWeaponPad(-50,128,'rockets'); _spawnWeaponPad(-100,128,'plasma'); _spawnWeaponPad(-150,128,'grenade');   // client gets its own local pickups (host doesn't broadcast these)
     return; }   // client: request & mirror the host building layout
   const cell=30, pal='neon', mode=(typeof window!=='undefined' && window._cityMode)||'random';
@@ -20046,6 +20146,7 @@ function buildCityTest(){
   _spawnBootStation(0,128);
   _spawnHammerStation(40,128,'sword');
   _spawnHammerStation(100,128,'hammer');
+  _spawnHammerStation(150,128,'axe'); _spawnHammerStation(200,128,'spear'); _spawnHammerStation(250,128,'scythe');
   _spawnWeaponPad(-50,128,'rockets');
   _spawnWeaponPad(-100,128,'plasma');
   _spawnWeaponPad(-150,128,'grenade');
@@ -20961,7 +21062,7 @@ function mpHandleRemoteEvent(msg){
       }
       break;
     case 'player_hit':
-      if(d.target===MP.myId) mpTakeDamage(d.dmg||1, msg.id);
+      if(d.target===MP.myId){ mpTakeDamage(d.dmg||1, msg.id); if(d.zap&&player){ player._zapT=Math.max(player._zapT||0,1.0); } }
       break;
     case 'powerup_taken':
       if(_cityProps && _cityProps.powerups){ const _pu=_cityProps.powerups.find(x=>x&&x._mpIdx===d.idx); if(_pu && !_pu.collected){ _pu.collected=true; if(_pu.mesh)_pu.mesh.visible=false; if(typeof ps!=='undefined')ps.ring(_pu.wx,_pu.wz,[0,1,0.78],24,120); } }
