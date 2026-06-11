@@ -6299,6 +6299,7 @@ class Grenade{
         if(e._ballCapable && e.alive && !e._ball && typeof e.enterBall==='function'){ const _bd=Math.max(3,Math.ceil(30*_prox+4)); const pts=e.hit(_bd); if(pts>0){ GS.score+=pts*GS.mult; GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); e.remove(); GS.enemies.splice(i,1); registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } else { e.enterBall(e.wx-this.wx,e.wz-this.wz, 80+_prox*170, 130+_prox*150); } }
         else { const _bd=Math.max(3,Math.ceil(30*_prox+4)); const pts=e.hit(_bd); if(e.knock)e.knock(e.wx-this.wx,e.wz-this.wz,_bd,1.2+_prox*1.6,_prox*_prox*16); if(pts>0){ GS.score+=pts*GS.mult; GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); e.remove(); GS.enemies.splice(i,1); registerKill(e); } }
       } }
+    if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){ if(_bot.alive) _bot.checkBombHit(this.wx,this.wz,BLAST_R); }
     if(player&&player.alive){ const pd=Math.hypot(player.wx-this.wx,player.wz-this.wz); if(pd<BLAST_R*0.7){ const s=1-pd/(BLAST_R*0.7), vy=s*s*120; if(vy>10) player.pvy=Math.max(player.pvy||0,vy); } }
   }
   remove(){ if(this.mesh) scene.remove(this.mesh); if(this._tipMat)this._tipMat.dispose(); }
@@ -9826,6 +9827,7 @@ class BotPilot{
     this._shieldMesh3D=null; this._shieldMat3D=null; this._shieldRimMat=null; this._shieldFaceMat=null;
     this._shieldHitFlash=0;
     this._stun=0; this._kbVx=0; this._kbVz=0; this._launched=false;
+    this.size=20; this._hitFlash=0; this._emiMats=null;
 
     // Difficulty: 'rookie' | 'soldier' | 'elite'
     const diff=opts.difficulty||'soldier';
@@ -9870,12 +9872,14 @@ class BotPilot{
         const sc=18/(sz.y||1);
         clone.scale.setScalar(sc);
         clone.position.y=-bbox.min.y*sc;
+        this._emiMats=[];
         clone.traverse(c=>{
           if((c.isMesh||c.isSkinnedMesh)&&c.material){
             c.material=c.material.clone();
             c.material.emissive=new THREE.Color(0xaa1100);
             c.material.emissiveIntensity=2.5;
             c.frustumCulled=false;
+            this._emiMats.push(c.material);
           }
         });
         const mixer=new THREE.AnimationMixer(clone);
@@ -9961,7 +9965,7 @@ class BotPilot{
   }
 
   hit(dmg){
-    if(this.isDummy){ this.inv=8; addTrauma(0.04); ps.burst(this.wx,this.wz,[1,0.4,0.1],8,60); this._updateHpBar(); return; }
+    if(this.isDummy){ this.inv=8; this._hitFlash=6; addTrauma(0.04); ps.burst(this.wx,this.wz,[1,1,1],10,80,(this.py||0)+12); ps.burst(this.wx,this.wz,[1,0.5,0.2],8,60,(this.py||0)+12); this._updateHpBar(); return; }
     if(this.inv>0) return;
     if(this.shieldActive&&this.shieldHp>0){
       this.shieldHp=Math.max(0,this.shieldHp-dmg*3);
@@ -9969,10 +9973,10 @@ class BotPilot{
       if(this.shieldHp<=0){ this.shieldActive=false; this._removeShieldMesh(); }
       return;
     }
-    this.hp-=dmg; this.inv=40;
+    this.hp-=dmg; this.inv=40; this._hitFlash=6;
     addTrauma(0.05);
     this._updateHpBar();
-    ps.burst(this.wx,this.wz,[1,0.4,0.1],8,60);
+    ps.burst(this.wx,this.wz,[1,1,1],10,80,(this.py||0)+12); ps.burst(this.wx,this.wz,[1,0.5,0.2],8,60,(this.py||0)+12);
     if(this.hp<=0) this.die();
     // Evade when hit
     this.state='evade'; this.stateT=60;
@@ -9983,6 +9987,12 @@ class BotPilot{
   // Smash-style knockback: horizontal impulse (+optional vertical launch) + control-lock
   knock(dirX,dirZ,mag,lift=0,stun=0){
     const d=Math.hypot(dirX,dirZ)||1, nx=dirX/d, nz=dirZ/d;
+    if(typeof ps!=='undefined'){
+      ps.burst(this.wx,this.wz,[1,1,1],8,70,(this.py||0)+12);
+      if(ps.ring) ps.ring(this.wx,this.wz,[1,0.6,0.2],8,60);
+      if(ps.spark) for(let _k=0;_k<5;_k++) ps.spark(this.wx-nx*8,this.wz-nz*8,[1,0.7,0.3],(this.py||0)+10);
+    }
+    this._hitFlash=Math.max(this._hitFlash||0,6);
     this._kbVx=(this._kbVx||0)+nx*mag;
     this._kbVz=(this._kbVz||0)+nz*mag;
     const sp=Math.hypot(this._kbVx,this._kbVz), CAP=26;
@@ -9991,6 +10001,14 @@ class BotPilot{
     if(stun>0) this._stun=Math.max(this._stun||0,stun);
     this._reactionPending=false;   // interrupt any pending AI decision
     this.shieldActive=false;       // knocked out of shield
+  }
+
+  _tickHitFlash(){
+    if(this._hitFlash>0){
+      this._hitFlash--;
+      const on=this._hitFlash>0;
+      if(this._emiMats){ for(const m of this._emiMats){ if(!m||!m.emissive)continue; if(on){ m.emissive.setHex(0xffffff); m.emissiveIntensity=5.0; } else { m.emissive.setHex(0xaa1100); m.emissiveIntensity=2.5; } } }
+    }
   }
 
   // Render while stunned/launched — face the flight vector, play the in-air 'floating' pose
@@ -10051,6 +10069,7 @@ class BotPilot{
   update(dt){
     if(!this.alive) return;
     if(this.inv>0) this.inv--;
+    this._tickHitFlash();
     if(this._dashCD>0) this._dashCD--;
     this.stateT=Math.max(0,this.stateT-1);
 
@@ -10231,13 +10250,14 @@ class BotPilot{
   }
 
   // Check if a bomb explosion hits this bot
-  checkBombHit(bx,bz){
+  checkBombHit(bx,bz,blast){
     if(!this.alive) return;
+    const R=blast||60;
     const d=Math.hypot(bx-this.wx, bz-this.wz);
-    if(d<60){
-      this.hit(Math.ceil((60-d)/15));
-      const sN=Math.max(0,(60-d)/60);
-      this.knock(this.wx-bx, this.wz-bz, 8+sN*10, 70+sN*90, 26+sN*22);
+    if(d<R){
+      this.hit(Math.max(1,Math.ceil((R-d)/15)));
+      const sN=Math.max(0,(R-d)/R);
+      this.knock(this.wx-bx, this.wz-bz, 8+sN*12, 80+sN*100, 26+sN*24);
     }
   }
 }
@@ -14832,7 +14852,7 @@ function loop(ts){ requestAnimationFrame(loop);
         // Check player bullets hitting bot
         for(let j=GS.bullets.length-1;j>=0;j--){
           const b=GS.bullets[j];
-          if(!b._fromBot&&bot.checkBulletHit(b)) GS.bullets.splice(j,1);
+          if(!b._fromBot&&bot.checkBulletHit(b)){ b.remove&&b.remove(); GS.bullets.splice(j,1); }
         }
       }
       if(GS_victoryFX) GS_victoryFX.update(dt);
