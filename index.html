@@ -2124,7 +2124,7 @@ function makePlayerModel(){
   loadRobotGLB().then(gltf=>{
     if(!gltf) return; // no GLB available, keep placeholder saucer
     const tryApply=()=>{
-      if(player&&player.model){ _applyRobotModel(player,gltf); }
+      if(player&&player.model&&!window._playerGlbApplied){ window._playerGlbApplied=true; _applyRobotModel(player,gltf); }
       else { setTimeout(tryApply,200); }
     };
     tryApply();
@@ -8173,7 +8173,7 @@ class Player{
       const spread=0.18;
       // Get hand position for missile spawn
       const getHandPos=(side)=>{
-        const boneName=side===0?'mixamorig_RightHand':'mixamorig_LeftHand';
+        const boneName=this._hammer?'mixamorig_LeftHand':(side===0?'mixamorig_RightHand':'mixamorig_LeftHand');
         const bones=this.model?.userData?.bones;
         if(bones&&bones[boneName]){
           const hp=new THREE.Vector3();
@@ -8686,7 +8686,7 @@ class Player{
         if(isSingularity){ this._handleSingularity(firing,od); }
         else if(isGridQuake){ this._handleQuake(firing,od); }
         else if(isNuke){ this._handleNuke(firing,od); }
-        else if(firing&&this.fireT>=fireRate){
+        else if(firing&&!this._flickPending&&this.fireT>=fireRate){
           this.fireT=0;
           if(isPlasma||isFlame){ /* sustained beam/flame handled per-frame */ }
           else if(isGrenade) this._fireGrenade(od);
@@ -8811,7 +8811,7 @@ class Player{
     if(isSingularity){ this._handleSingularity(firing,od); }
     else if(isGridQuake){ this._handleQuake(firing,od); }
     else if(isNuke){ this._handleNuke(firing,od); }
-    else if(firing&&this.fireT>=fireRate){
+    else if(firing&&!this._flickPending&&this.fireT>=fireRate){
       this.fireT=0;
       if(isPlasma||isFlame){ /* sustained beam/flame handled per-frame */ }
       else if(isGrenade) this._fireGrenade(od);
@@ -9130,7 +9130,7 @@ class Player{
   _firePlasma(od){
     const a=this.aim;
     let y0=9+this.py, sx=this.wx, sz=this.wz;
-    const bones=this.model?.userData?.bones, hb=this._plasmaSide?'mixamorig_LeftHand':'mixamorig_RightHand'; this._plasmaSide=!this._plasmaSide;
+    const bones=this.model?.userData?.bones, hb=this._hammer?'mixamorig_LeftHand':(this._plasmaSide?'mixamorig_LeftHand':'mixamorig_RightHand'); this._plasmaSide=!this._plasmaSide;
     if(bones&&bones[hb]){ const hp=new THREE.Vector3(); bones[hb].getWorldPosition(hp); y0=hp.y; sx=hp.x; sz=hp.z; }
     else if(this.model?.userData?.isRobot){ y0=22+this.py; }
     let dx=Math.cos(a), dy=0, dz=Math.sin(a);
@@ -9145,7 +9145,7 @@ class Player{
     { const lk=this._lockEnemy; if(lk&&lk.alive){ const dx=lk.wx-this.wx, dz=lk.wz-this.wz, dd=Math.hypot(dx,dz)||1; a=Math.atan2(dz,dx); D=Math.max(45,Math.min(360,dd)); } }   // grace-aim: ring on a target -> lob straight at them (they can still jump/dodge)
     const g=320, vy=od?205:178, tf=2*vy/g, sh=D/tf;                       // pick speed so it first lands ~D away
     let y0=14+this.py, sx=this.wx, sz=this.wz;
-    this._grenSide=!this._grenSide; const bones=this.model&&this.model.userData&&this.model.userData.bones, hb=bones&&(this._grenSide?(bones['mixamorig_LeftHand']||bones['mixamorig_RightHand']):(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']));
+    this._grenSide=!this._grenSide; const bones=this.model&&this.model.userData&&this.model.userData.bones, hb=bones&&(this._hammer?(bones['mixamorig_LeftHand']||bones['mixamorig_RightHand']):(this._grenSide?(bones['mixamorig_LeftHand']||bones['mixamorig_RightHand']):(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand'])));
     if(hb){ const hp=new THREE.Vector3(); hb.getWorldPosition(hp); y0=hp.y; sx=hp.x; sz=hp.z; }
     GS.dropBombs.push(new Grenade(sx,sz,y0, Math.cos(a)*sh, Math.sin(a)*sh, vy));
     if(typeof Audio!=='undefined'){ Audio.blip(68,0.13,'sine',0.32,38); Audio.blip(150,0.05,'square',0.12,90); }   // THUNK
@@ -9217,7 +9217,7 @@ class Player{
       else if(!this._inPlanetGravity){ dirY=0; }   // rockets launch flat and let heat-seeking do the work — no downward pitch
       // Get hand bone world position — alternate R/L hand each burst
       const side=(this._rocketSide+i)%2;
-      const handBone=side===0?'mixamorig_RightHand':'mixamorig_LeftHand';
+      const handBone=this._hammer?'mixamorig_LeftHand':(side===0?'mixamorig_RightHand':'mixamorig_LeftHand');
       let spawnX=this.wx+dirX*14, spawnZ=this.wz+dirZ*14, y0=9+this.py;
       if(bones&&bones[handBone]){
         const hp=new THREE.Vector3();
@@ -13861,7 +13861,7 @@ function loop(ts){ requestAnimationFrame(loop);
             if(tier>=3){ mag=8; lift=540; stn=30; dmg=3; }
             else if(tier===2){ mag=12; lift=0; stn=22; dmg=2; }
             else { mag=8; lift=0; stn=16; dmg=1; }
-            const REACH=54, ARCdot=Math.cos(1.0), ax=Math.cos(player.aim), az=Math.sin(player.aim);
+            const REACH=64, ARCdot=Math.cos(1.05), ax=Math.cos(player.aim), az=Math.sin(player.aim);
             let _connected=false;
             const _hitOne=(e)=>{ if(!e||!e.alive||e===player)return; const dx=e.wx-player.wx, dz=e.wz-player.wz, d=Math.hypot(dx,dz); if(d>REACH+(e.size||14))return; if(d>1 && ((dx/d)*ax+(dz/d)*az)<ARCdot)return; _connected=true; if(e.hit)e.hit(dmg); if(e.knock)e.knock(e.wx-player.wx,e.wz-player.wz,mag,lift,stn); };
             if(typeof GS!=='undefined'&&GS.enemies) GS.enemies.forEach(_hitOne);
