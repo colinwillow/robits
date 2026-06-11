@@ -2164,7 +2164,6 @@ function _applyRobotModel(player, gltf){
     const raw=clip.name;
     const name=raw.split('|').pop().split(':').pop();   // strip "Armature|idle" / "rig:idle" -> "idle"
     if(raw==='CINEMA_4D_Main'||name.toLowerCase()==='main') return; // skip default/NLA take
-    if(name.toLowerCase().includes('melee')) _trimClipTail(clip);
     const action=mixer.clipAction(clip);
     const isOneShot=['landing','dive_roll','roll','dash','dive'].some(n=>name.includes(n));
     if(isOneShot){
@@ -13934,34 +13933,18 @@ function loop(ts){ requestAnimationFrame(loop);
       const flickActive=player&&player._flickCooldown>0;
       if(flickActive&&player) player._flickCooldown--;
 
-      // ── RIGHT-STICK FLICK MELEE COMBO (melee_1 -> melee_2 -> melee_3 -> reset) ──
+      // ── RIGHT-STICK FLICK MELEE — a quick snap-out-AND-back = melee; pushing & holding = aim/fire ──
       if(IS_TOUCH && player && player.alive && GS.state==='playing' && !grenadeActive && !CAM.aimMode && !player._wallClimb && !player._hang && !player._crestSeq){
         const _fmag=Math.hypot(shootIn.x,shootIn.y);
-        const _fvel=_fmag-(player._flickPrevMag||0); player._flickPrevMag=_fmag;
-        if(_fmag<_MELEE_FLICK_LO) player._flickArmed=true;
-        const _ud0=player.model&&player.model.userData;
-        if(player._flickArmed && _fmag>_MELEE_FLICK_HI && _fvel>_MELEE_FLICK_VEL && _ud0&&_ud0.clips){   // interruptible: a new flick chains/cancels the current swing
-          player._flickArmed=false;
-          const _ws=rotInput(shootIn.x,shootIn.y);
-          player.aim=Math.atan2(_ws.z,_ws.x);                       // orient toward the flick direction
-          if((player._meleeComboT||0)<=0) player._meleeCombo=0;     // window lapsed -> restart the combo
-          player._meleeCombo=(player._meleeCombo>=3)?1:(player._meleeCombo+1);
-          const _mname='melee_'+player._meleeCombo;
-          if(!_ud0.clips[_mname] && !player._warnedMelee){ player._warnedMelee=_mname; if(typeof announce==='function') announce(_mname.toUpperCase()+' NOT IN GLB','#ff5555'); }
-          const _mclip=_ud0.clips[_mname]||_ud0.clips['melee_1'];
-          if(_mclip){
-            const _spd=_MELEE_SPEED||1;
-            const _mdur=(((_mclip._clip&&_mclip._clip.duration)||0.6)/_spd);
-            // hard-stop everything else (proven clean swap, like the dive-roll) -> no lingering blend that holds a pose
-            Object.values(_ud0.clips).forEach(a=>{ if(a!==_mclip){ a.stop(); a.setEffectiveWeight(0); } });
-            _mclip.reset().setEffectiveWeight(1).setEffectiveTimeScale(_spd).setLoop(THREE.LoopOnce,1);
-            _mclip.clampWhenFinished=true; _mclip.play();
-            _ud0.currentClip=_mname; _ud0._meleeTimer=_mdur; _ud0._meleeMax=_mdur;
-            player._meleeComboT=_mdur+0.7;                          // window to chain the next hit
-            player._flickCooldown=Math.ceil(_mdur*60)+2;            // suppress the fire shot during the swing
-            player._rollAimLock=true;                               // released by the melee tick when the swing ends
-            if(typeof Audio!=='undefined'&&Audio.blip) Audio.blip(200,0.10,'square',0.18,520);
-          }
+        const _now=performance.now();
+        if(player._flickPending){                                   // a snap-out is in progress — did it come back in time?
+          if(_now-(player._flickPendT||0) > _MELEE_FLICK_WINDOW_MS){ player._flickPending=false; }            // stayed out -> it's a HOLD (aim/fire)
+          else if(_fmag < _MELEE_FLICK_LO){ player._flickPending=false; _doMeleeFlick(player.model&&player.model.userData, player._flickDir); }   // came back -> FLICK -> melee
+        }
+        if(_fmag<_MELEE_FLICK_LO) player._flickArmed=true;          // re-arm near center
+        if(player._flickArmed && _fmag>_MELEE_FLICK_HI && !player._flickPending){   // snapped out -> watch for a quick return
+          player._flickArmed=false; player._flickPending=true; player._flickPendT=_now;
+          const _ws=rotInput(shootIn.x,shootIn.y); player._flickDir=Math.atan2(_ws.z,_ws.x);
         }
       }
 
@@ -14001,7 +13984,7 @@ function loop(ts){ requestAnimationFrame(loop);
         const stickMag=Math.hypot(shootIn.x,shootIn.y);
         const held=(typeof jR!=='undefined')?jR.isHeld:(stickMag>0.05);
         if(!held){ player._fireLatched=false; }
-        else if(stickMag>0.38){ player._fireLatched=true; }                                    // dragged out far enough -> latch ON
+        else if(stickMag>0.38 && !player._flickPending){ player._fireLatched=true; }            // dragged out far enough -> latch ON (held, not a flick)
         if(player._fireLatched){
           if(stickMag>0.05){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; }     // direction + magnitude track the stick (small mag => steep / close)
           else { avx=Math.cos(player.aim)*0.04; avz=Math.sin(player.aim)*0.04; }               // dead center -> keep last direction, minimal mag = steepest dive at your feet
@@ -19161,9 +19144,37 @@ const _HAMMER_FIX=new THREE.Euler(-0.6,0,0);          // resting tilt in the fis
 let _HAMMER_SCALE=1.7;                                // equipped world-size (matches the power-up station's 1.7); was overshooting at 4.35
 // ── right-stick flick melee tuning ──
 let _MELEE_FLICK_HI=0.78;   // stick must snap past this to fire a melee
-let _MELEE_FLICK_LO=0.30;   // stick must return below this to re-arm the next flick
+let _MELEE_FLICK_LO=0.40;   // stick must ease back below this to re-arm the next flick (higher = easier fast chaining)
 let _MELEE_FLICK_VEL=0.16;  // min per-frame snap speed (separates a flick from a slow aim push)
 let _MELEE_SPEED=1.25;      // swing playback speed (higher = snappier, shorter lock)
+let _MELEE_FLICK_WINDOW_MS=160;  // a flick must snap out AND return within this many ms; holding longer = aim/fire instead
+function _doMeleeFlick(ud, dirAngle){
+  if(!ud||!ud.clips||!player) return;
+  if(typeof dirAngle==='number') player.aim=dirAngle;                       // orient toward the flick direction
+  if((player._meleeComboT||0)<=0) player._meleeCombo=0;                     // chain window lapsed -> restart at melee_1
+  player._meleeCombo=(player._meleeCombo>=3)?1:(player._meleeCombo+1);      // 1 -> 2 -> 3 -> 1
+  const mname='melee_'+player._meleeCombo;
+  if(!ud.clips[mname] && player._warnedMelee!==mname){ player._warnedMelee=mname; if(typeof announce==='function') announce(mname.toUpperCase()+' NOT IN GLB','#ff5555'); }
+  const mc=ud.clips[mname]||ud.clips['melee_1'];
+  if(mc && !player._meleeDiag && mc._clip){ player._meleeDiag=true;          // one-time readout: are lower-body tracks present?
+    const trks=mc._clip.tracks||[]; const hasLeg=trks.some(t=>/leg|hips|spine|foot/i.test(t.name));
+    if(typeof announce==='function') announce('MELEE '+trks.length+' TRACKS'+(hasLeg?' \u2022 LEGS OK':' \u2022 NO LEG TRACKS'), hasLeg?'#33ffdd':'#ff5555');
+  }
+  if(!mc) return;
+  const spd=_MELEE_SPEED||1;
+  const mdur=(((mc._clip&&mc._clip.duration)||0.6)/spd);
+  // blend FROM the current pose INTO the swing: full weight from frame 1 (no bind-pose/T-pose gap), fade the previous out
+  const prev=(ud.currentClip && ud.clips[ud.currentClip] && ud.clips[ud.currentClip]!==mc) ? ud.clips[ud.currentClip] : null;
+  mc.reset().setEffectiveTimeScale(spd).setLoop(THREE.LoopOnce,1);
+  mc.clampWhenFinished=true; mc.setEffectiveWeight(1); mc.play();
+  if(prev){ if(!prev.isRunning()) prev.play(); prev.setEffectiveWeight(1); prev.fadeOut(0.15); }
+  Object.values(ud.clips).forEach(a=>{ if(a!==mc && a!==prev) a.fadeOut(0.10); });
+  ud.currentClip=mname; ud._meleeTimer=mdur; ud._meleeMax=mdur;
+  player._meleeComboT=Math.max(mdur,0.45)+0.9;
+  player._flickCooldown=8;
+  player._rollAimLock=true;
+  if(typeof Audio!=='undefined'&&Audio.blip) Audio.blip(170+player._meleeCombo*55,0.09,'square',0.16,520);
+}
 const _HAMMER_POS=new THREE.Vector3(0,0.5,0);         // model-relative seat offset (tunable)
 function _makeRoboHammer(){
   const g=new THREE.Group();
