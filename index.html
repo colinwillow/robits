@@ -14048,6 +14048,7 @@ function loop(ts){ requestAnimationFrame(loop);
               if((firing||wallPushing)&&ud.clips[swShoot]) targetClip=swShoot;
               else if(ud.clips[sw]) targetClip=sw;
               else { const sc=targetClip+'_shoot'; if((firing||wallPushing)&&ud.clips[sc]) targetClip=sc; }
+              if(targetClip.indexOf('_sword')>=0 && !window._swordAnimConfirmed){ window._swordAnimConfirmed=true; if(typeof announce==='function')announce('SWORD ANIMS LIVE','#33ffdd'); }
             }
             else {
               const shootClip=targetClip+'_shoot';
@@ -14338,6 +14339,7 @@ function loop(ts){ requestAnimationFrame(loop);
       player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); player.draw(od); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_bmv) window._reorientGameBoots(); }
       if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
+      if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
       if(GS.zone===-16) updateGrindRail(dt);
       { // ── DROP-THROUGH: HOLD the left stick down (a flick = dash) while on a platform ──
         const downHeld=(moveIn.y>0.55)||((keys['KeyS']||keys['ArrowDown'])&&!(keys['KeyW']||keys['ArrowUp']));
@@ -19376,6 +19378,7 @@ function _doMeleeFlick(ud, dirAngle){
   player._flickCooldown=8;
   player._rollAimLock=true;
   if(typeof Audio!=='undefined'&&Audio.blip) Audio.blip(170+player._meleeCombo*55,0.09,'square',0.16,520);
+  if(typeof _spawnSlashArc==='function') _spawnSlashArc(player._meleeCombo||1);
 }
 const _HAMMER_POS=new THREE.Vector3(0,0.5,0);         // model-relative seat offset (tunable)
 function _makeRoboHammer(){
@@ -19444,6 +19447,7 @@ function _collectHammer(){
   if(typeof Audio!=='undefined'){ Audio.blip(160,0.18,'sawtooth',0.25,70); Audio.blip(420,0.12,'square',0.2,900); }
   if(typeof addTrauma==='function') addTrauma(0.18);
   if(typeof announce==='function') announce(ok?('\u2692 SLEDGEHAMMER'+(window._hammerDirBone?' \u2014 aimed':' \u2014 no dir bone')):'NO HAND BONE FOUND', ok?'#33ffdd':'#ff5555');
+  try{ const _ck=Object.keys((player.model&&player.model.userData&&player.model.userData.clips)||{}); const _sw=_ck.filter(k=>/_sword/.test(k)).length; console.log('SWORD clips loaded:',_sw,_ck.filter(k=>/_sword/.test(k))); if(typeof announce==='function') setTimeout(()=>announce('SWORD ANIMS: '+_sw+' loaded',_sw?'#33ffdd':'#ff5555'),750); }catch(e){}
   _removeHammerStation();
 }
 function _spawnHammerStation(x,z){
@@ -19464,6 +19468,86 @@ function _updateHammerStation(dt){
   st.ham.rotation.y+=dt*1.3; st.ham.position.y=15+Math.sin(st.t*2.0)*2.0;
   if(Math.hypot(player.wx-st.x,player.wz-st.z)<17 && player.py<16) _collectHammer();
 }
+// ════════ SLASH FX — neon blade ribbon + crescent swoosh (drives off right_hand -> weapon_direction) ════════
+let _SLASH_BLADE_LEN=26;      // world length hand->blade tip for the ribbon (tunable)
+let _SLASH_TRAIL_LIFE=0.13;   // seconds a ribbon segment lingers
+const _SLASH_TRAIL_MAX=16;
+let _SLASH_ARC_LIFE=0.20;
+const _SLASHFX={ trail:null, samples:[], arcs:[] };
+function _slashBladePoints(){
+  const h=player&&player._hammer; if(!h||!h._hand||!player.model) return null;
+  player.model.updateWorldMatrix(true,true);
+  const base=h._hand.getWorldPosition(new THREE.Vector3());
+  let dir;
+  if(h._dirBone){ dir=h._dirBone.getWorldPosition(new THREE.Vector3()).sub(base); }
+  else { dir=new THREE.Vector3(0,1,0).applyQuaternion(player.model.getWorldQuaternion(new THREE.Quaternion())); }
+  if(dir.lengthSq()<1e-6) dir.set(0,1,0); dir.normalize();
+  return [base, base.clone().addScaledVector(dir,_SLASH_BLADE_LEN)];
+}
+function _ensureSlashTrail(){
+  if(_SLASHFX.trail) return _SLASHFX.trail;
+  if(typeof scene==='undefined') return null;
+  const maxV=(_SLASH_TRAIL_MAX-1)*6;
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(maxV*3),3));
+  geo.setAttribute('color',new THREE.BufferAttribute(new Float32Array(maxV*3),3));
+  const mat=new THREE.MeshBasicMaterial({vertexColors:true,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+  const m=new THREE.Mesh(geo,mat); m.frustumCulled=false; m.renderOrder=6;
+  scene.add(m); _SLASHFX.trail=m; return m;
+}
+function _updateSlashTrail(dt){
+  const t=_ensureSlashTrail(); if(!t) return;
+  const S=_SLASHFX.samples;
+  for(const s of S) s.t+=dt;
+  while(S.length && S[0].t>_SLASH_TRAIL_LIFE) S.shift();
+  const ud=player&&player.model&&player.model.userData;
+  if(ud && ud._meleeTimer>0){ const pts=_slashBladePoints(); if(pts){ S.push({base:pts[0],tip:pts[1],t:0}); if(S.length>_SLASH_TRAIL_MAX) S.shift(); } }
+  const M=S.length;
+  if(M<2){ t.visible=false; return; }
+  t.visible=true;
+  const pos=t.geometry.attributes.position.array, col=t.geometry.attributes.color.array;
+  const tier=(player._meleeCombo||1), bc=tier>=3?[1.0,0.95,0.55]:[0.55,1.0,0.95];
+  let vi=0, ci=0;
+  const put=(pt,f,edge)=>{ pos[vi++]=pt.x; pos[vi++]=pt.y; pos[vi++]=pt.z; const e=edge*f; col[ci++]=bc[0]*e; col[ci++]=bc[1]*e; col[ci++]=bc[2]*e; };
+  for(let i=0;i<M-1;i++){
+    const a=S[i], b=S[i+1];
+    const fa=Math.max(0,1-a.t/_SLASH_TRAIL_LIFE), fb=Math.max(0,1-b.t/_SLASH_TRAIL_LIFE);
+    put(a.base,fa,0.5); put(a.tip,fa,1.0); put(b.tip,fb,1.0);
+    put(a.base,fa,0.5); put(b.tip,fb,1.0); put(b.base,fb,0.5);
+  }
+  t.geometry.setDrawRange(0,vi/3);
+  t.geometry.attributes.position.needsUpdate=true;
+  t.geometry.attributes.color.needsUpdate=true;
+  t.geometry.boundingSphere=null;
+}
+function _makeSlashArc(tier){
+  const A=(tier>=3?1.55:1.15), R=(tier>=3?36:24), TH=(tier>=3?15:9), N=26;
+  const pos=[], idx=[];
+  for(let i=0;i<=N;i++){ const ta=i/N, ang=-A+ta*2*A, taper=Math.sin(ta*Math.PI), ro=R, ri=R-TH*taper; pos.push(Math.cos(ang)*ro,Math.sin(ang)*ro,0, Math.cos(ang)*ri,Math.sin(ang)*ri,0); }
+  for(let i=0;i<N;i++){ const a=i*2; idx.push(a,a+1,a+2, a+1,a+3,a+2); }
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); g.setIndex(idx);
+  const m=new THREE.MeshBasicMaterial({color:tier>=3?0xfff0b0:0x9ffff0,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+  const mesh=new THREE.Mesh(g,m); mesh.frustumCulled=false; mesh.renderOrder=7; return mesh;
+}
+function _spawnSlashArc(tier){
+  if(typeof scene==='undefined'||!player) return;
+  const m=_makeSlashArc(tier), fr=22, ax=Math.cos(player.aim), az=Math.sin(player.aim);
+  m.position.set(player.wx+ax*fr,(player.py||0)+22,player.wz+az*fr);
+  m._roll=(((player._meleeCombo||1)%2)?-1:1)*0.7; m._tier=tier; m._life=_SLASH_ARC_LIFE; m._age=0;
+  scene.add(m); _SLASHFX.arcs.push(m);
+}
+function _updateSlashArcs(dt){
+  if(typeof camera==='undefined') return;
+  for(let i=_SLASHFX.arcs.length-1;i>=0;i--){
+    const m=_SLASHFX.arcs[i]; m._age+=dt; const k=m._age/m._life;
+    if(k>=1){ scene.remove(m); m.geometry&&m.geometry.dispose(); m.material&&m.material.dispose(); _SLASHFX.arcs.splice(i,1); continue; }
+    m.quaternion.copy(camera.quaternion);
+    m.rotateZ(m._roll - k*0.45*Math.sign(m._roll||1));
+    m.scale.setScalar((m._tier>=3?1.05:0.85)*(0.65+k*0.7));
+    const o=1-k; m.material.opacity=0.95*o*o;
+  }
+}
+function _updateSlashFX(dt){ if(!player) return; _updateSlashTrail(dt); _updateSlashArcs(dt); }
 function _updateBoots(dt){
   if(!player||!player._boots) return;
   for(const b of player._boots){
