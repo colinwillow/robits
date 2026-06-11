@@ -6138,7 +6138,7 @@ class DropBomb{
     this.dead=true;
     const BLAST_R=120, BLAST_R2=BLAST_R*BLAST_R;
     // BOT — explosive launch FIRST (before the enemy loop, which can throw). Knock BEFORE hit, light damage so they FLY instead of vanishing.
-    try{ if(typeof GS_bots!=='undefined'){ let _bhit=0; for(const _bot of GS_bots){ if(_bot&&_bot.alive){ const _bbd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_bbd<BLAST_R){ const _bsN=Math.max(0,(BLAST_R-_bbd)/BLAST_R); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 3+_bsN*4, 180+_bsN*180, 32+_bsN*22); _bot.hit(Math.max(1,Math.ceil(_bsN*2+1))); _bhit++; } } } if(_bhit&&typeof announce==='function') announce('DIRECT HIT!','#ff9933'); } }catch(_e){ console.warn('bomb->bot launch failed',_e); }
+    try{ if(typeof GS_bots!=='undefined'){ let _bhit=0; for(const _bot of GS_bots){ if(_bot&&_bot.alive){ const _bbd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_bbd<BLAST_R){ const _bsN=Math.max(0,(BLAST_R-_bbd)/BLAST_R); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 2+_bsN*2, 480+_bsN*220, 30+_bsN*20); _bot.hit(Math.max(1,Math.ceil(_bsN*2+1))); _bhit++; } } } if(_bhit&&typeof announce==='function') announce('DIRECT HIT!','#ff9933'); } }catch(_e){ console.warn('bomb->bot launch failed',_e); }
     // Fire burst — multiple layers of orange/yellow/white particles
     ps.burst(this.wx,this.wz,[1,0.9,0.2],50,200);   // bright yellow core
     ps.burst(this.wx,this.wz,[1,0.4,0.05],35,160);  // orange mid
@@ -6319,7 +6319,7 @@ class Grenade{
         if(e._ballCapable && e.alive && !e._ball && typeof e.enterBall==='function'){ const _bd=Math.max(3,Math.ceil(30*_prox+4)); const pts=e.hit(_bd); if(pts>0){ GS.score+=pts*GS.mult; GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); e.remove(); GS.enemies.splice(i,1); registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } else { e.enterBall(e.wx-this.wx,e.wz-this.wz, 80+_prox*170, 130+_prox*150); } }
         else { const _bd=Math.max(3,Math.ceil(30*_prox+4)); const pts=e.hit(_bd); if(e.knock)e.knock(e.wx-this.wx,e.wz-this.wz,_bd,1.2+_prox*1.6,_prox*_prox*16); if(pts>0){ GS.score+=pts*GS.mult; GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); e.remove(); GS.enemies.splice(i,1); registerKill(e); } }
       } }
-    if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){ if(_bot.alive){ const _gd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_gd<BLAST_R){ const _gN=Math.max(0,(BLAST_R-_gd)/BLAST_R); _bot.hit(Math.max(1,Math.ceil(_gN*5+1))); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 2+_gN*2, 50+_gN*60, 26+_gN*16); } } }
+    if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){ if(_bot.alive){ const _gd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_gd<BLAST_R){ const _gN=Math.max(0,(BLAST_R-_gd)/BLAST_R); _bot.hit(Math.max(1,Math.ceil(_gN*3+1))); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 2+_gN*2, 130+_gN*90, 26+_gN*16); } } }
     if(player&&player.alive){ const pd=Math.hypot(player.wx-this.wx,player.wz-this.wz); if(pd<BLAST_R*0.7){ const s=1-pd/(BLAST_R*0.7), vy=s*s*120; if(vy>10) player.pvy=Math.max(player.pvy||0,vy); } }
   }
   remove(){ if(this.mesh) scene.remove(this.mesh); if(this._tipMat)this._tipMat.dispose(); }
@@ -7517,13 +7517,15 @@ function _updateGrenadeAim(pl,dt){
   let col; if(w==='grenade') col=0x9be84a; else if(w==='rockets') col=0xff8a33; else col=0x35d6ff;
   const T=_reticleTarget(pl,a,w,mag);
   pl._gnT=(pl._gnT||0)+dt; const pulse=0.55+0.28*Math.sin(pl._gnT*9), psc=1+0.08*Math.sin(pl._gnT*9);
-  const isAir=(w==='bullets'||w==='rockets');
-  if(isAir){
-    mk._ground.visible=false; mk._air.visible=false;      // aim reticle removed for bullets/rockets — keep only the heat-seek lock ring
-    // ROCKETS: glow the enemy nearest the aim line to imply the lock
-    if(w==='rockets'){
-      let best=null, bestDa=0.26;
-      for(const e of GS.enemies){ if(!e||!e.alive) continue; const dx=e.wx-pl.wx, dz=e.wz-pl.wz, d=Math.hypot(dx,dz); if(d<24||d>640) continue; const da=Math.abs(((Math.atan2(dz,dx)-a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI); if(da<bestDa){ bestDa=da; best=e; } }
+  const showLock=(w==='rockets'||w==='grenade');   // rockets + grenade: grace-aim lock ring on the target (no ground crosshair)
+  const hideReticle=(w==='bullets'||showLock);
+  if(hideReticle){
+    mk._ground.visible=false; mk._air.visible=false;
+    if(showLock){
+      // glow the nearest target (enemy OR bot) inside the aim cone — shows you're aiming at that guy
+      let best=null, bestDa=(w==='grenade')?0.38:0.26;   // grenade lob gets extra grace
+      const _scan=(arr)=>{ if(!arr)return; for(const e of arr){ if(!e||!e.alive) continue; const dx=e.wx-pl.wx, dz=e.wz-pl.wz, d=Math.hypot(dx,dz); if(d<24||d>640) continue; const da=Math.abs(((Math.atan2(dz,dx)-a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI); if(da<bestDa){ bestDa=da; best=e; } } };
+      _scan(GS.enemies); _scan(typeof GS_bots!=='undefined'?GS_bots:null);
       if(best){ const ey=(best.mesh?best.mesh.position.y:9); mk._lock.visible=true; mk._lock.position.set(best.wx, ey+0.6, best.wz); const lr=(best.size||14)+11; mk._lock.scale.set(lr,lr,lr); mk._lock.material.color.setHex(col); mk._lock.material.opacity=0.45+0.3*Math.sin(pl._gnT*12); mk._lock.rotation.z=pl._gnT*1.6; pl._lockEnemy=best; }
       else { mk._lock.visible=false; pl._lockEnemy=null; }
     } else { mk._lock.visible=false; pl._lockEnemy=null; }
@@ -9139,7 +9141,8 @@ class Player{
     if(typeof ps!=='undefined'){ ps.ring(sx,sz,[1,0.3,0.95],5,70); for(let i=0;i<7;i++) ps._spawn(sx,y0,sz, dx*rand(90,200)+rand(-20,20), dy*rand(90,200)+rand(-10,20), dz*rand(90,200)+rand(-20,20), 1,0.4,1, 0.04+rand(0.03)); }
   }
   _fireGrenade(od){
-    const a=this.aim, mag=Math.min(1, this._aimMag||0.5), D=55+mag*180;   // distance scales with how far you push the aim stick
+    let a=this.aim, mag=Math.min(1, this._aimMag||0.5), D=55+mag*180;   // distance scales with how far you push the aim stick
+    { const lk=this._lockEnemy; if(lk&&lk.alive){ const dx=lk.wx-this.wx, dz=lk.wz-this.wz, dd=Math.hypot(dx,dz)||1; a=Math.atan2(dz,dx); D=Math.max(45,Math.min(360,dd)); } }   // grace-aim: ring on a target -> lob straight at them (they can still jump/dodge)
     const g=320, vy=od?205:178, tf=2*vy/g, sh=D/tf;                       // pick speed so it first lands ~D away
     let y0=14+this.py, sx=this.wx, sz=this.wz;
     this._grenSide=!this._grenSide; const bones=this.model&&this.model.userData&&this.model.userData.bones, hb=bones&&(this._grenSide?(bones['mixamorig_LeftHand']||bones['mixamorig_RightHand']):(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']));
@@ -10055,7 +10058,7 @@ class BotPilot{
     }
     if(this._mixer) this._mixer.update(dt);
     if(this._clips){
-      const want=this._launched?(this._clips['floating']?'floating':'idle'):(this._clips['landing']?'landing':'idle');
+      const want=this._launched?(this._clips['flying']?'flying':(this._clips['floating']?'floating':'idle')):(this._clips['get_up']?'get_up':(this._clips['landing']?'landing':'idle'));
       if(want!==this._clips._cur && this._clips[want]){
         Object.values(this._clips).forEach(a=>{ if(typeof a.fadeOut==='function') a.fadeOut(0.12); });
         this._clips[want].reset().setEffectiveWeight(1).fadeIn(0.12).play();
@@ -10108,7 +10111,7 @@ class BotPilot{
     if(this._kbVx||this._kbVz){
       this.wx+=this._kbVx; this.wz+=this._kbVz;
       const _air=(this.py>2)||this._launched;
-      const _dec=_air?0.965:0.85;                       // glide through the air (parabola), slide-stop on the ground
+      const _dec=_air?0.93:0.8;                       // glide through the air (parabola), slide-stop on the ground
       this._kbVx*=_dec; this._kbVz*=_dec;
       if(Math.abs(this._kbVx)<0.05&&Math.abs(this._kbVz)<0.05){ this._kbVx=0; this._kbVz=0; }
       if(GS.zone!==-6&&GS.zone!==-7){
@@ -13839,7 +13842,6 @@ function loop(ts){ requestAnimationFrame(loop);
           ud._rollingTimer-=dt;
           if(ud._rollingTimer<0) ud._rollingTimer=0; // never go negative
         }
-/* ===== MELEE DISABLED (per-frame tick) — uncomment to restore =====
         // Tick melee one-shot (blocks locomotion) + combo chain window
         if(ud._meleeTimer>0){
           ud._meleeTimer-=dt;
@@ -13849,7 +13851,6 @@ function loop(ts){ requestAnimationFrame(loop);
           if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud.currentClip=null; player._rollAimLock=false; }   // release -> blend picks idle/run
         }
         if(player._meleeComboT>0){ player._meleeComboT-=dt; if(player._meleeComboT<0) player._meleeComboT=0; }
-===== END MELEE DISABLED ===== */
 
         // Landing detection — was airborne, now on ground (debounced)
         if(!ud._landingTimer&&!ud._rollingTimer&&onGround&&ud._prevAirborne){
@@ -14096,7 +14097,6 @@ function loop(ts){ requestAnimationFrame(loop);
       const flickActive=player&&player._flickCooldown>0;
       if(flickActive&&player) player._flickCooldown--;
 
-/* ===== MELEE DISABLED (flick trigger) — uncomment this block to restore =====
       // ── RIGHT-STICK FLICK MELEE — a quick snap-out-AND-back = melee; pushing & holding = aim/fire ──
       if(IS_TOUCH && player && player.alive && GS.state==='playing' && !grenadeActive && !CAM.aimMode && !player._wallClimb && !player._hang && !player._crestSeq){
         const _fmag=Math.hypot(shootIn.x,shootIn.y);
@@ -14111,7 +14111,6 @@ function loop(ts){ requestAnimationFrame(loop);
           const _ws=rotInput(shootIn.x,shootIn.y); player._flickDir=Math.atan2(_ws.z,_ws.x);
         }
       }
-===== END MELEE DISABLED ===== */
 
       // In puzzle lab: check if right stick is pointing toward a wall — suppress firing if so
       let nearWallStick=false;
@@ -14306,7 +14305,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
       player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); player.draw(od); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_bmv) window._reorientGameBoots(); }
-      if(player._hammer&&window._reorientHammer){ const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
+      if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(GS.zone===-16) updateGrindRail(dt);
       { // ── DROP-THROUGH: HOLD the left stick down (a flick = dash) while on a platform ──
         const downHeld=(moveIn.y>0.55)||((keys['KeyS']||keys['ArrowDown'])&&!(keys['KeyW']||keys['ArrowUp']));
@@ -19306,7 +19305,8 @@ function _updateBootStation(dt){
   if(Math.hypot(player.wx-st.x,player.wz-st.z)<17 && player.py<16) _collectBoots();
 }
 // ════════ NEON ROBOT SLEDGEHAMMER — test power-up (equips to the right hand bone) ════════
-const _HAMMER_FIX=new THREE.Euler(-0.6,0,0);          // resting tilt in the fist (tunable)
+const _HAMMER_FIX=new THREE.Euler(-0.6,0,0);          // resting tilt/roll around the handle (tunable)
+const _HAMMER_AXIS=new THREE.Vector3(0,1,0);          // hammer handle runs along local +Y; aligned to the right_hand->weapon_direction line
 let _HAMMER_SCALE=1.7;                                // equipped world-size (matches the power-up station's 1.7); was overshooting at 4.35
 // ── right-stick flick melee tuning ──
 let _MELEE_FLICK_HI=0.78;   // stick must snap past this to fire a melee
@@ -19375,12 +19375,22 @@ function _orientHammer(){
   const h=player&&player._hammer; if(!h||!player.model||!h._hand) return;
   player.model.updateWorldMatrix(true,true);
   const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
-  let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
-  const up=new THREE.Vector3(0,1,0);
-  const right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6)right.set(1,0,0); right.normalize();
-  const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
-  const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
-  desired.multiply(new THREE.Quaternion().setFromEuler(_HAMMER_FIX));
+  let desired;
+  if(h._dirBone){
+    // orient the handle (+Y) along the world line from the hand bone to the weapon_direction bone
+    const P0=h._hand.getWorldPosition(new THREE.Vector3());
+    const P1=h._dirBone.getWorldPosition(new THREE.Vector3());
+    let dir=P1.sub(P0); if(dir.lengthSq()<1e-8) dir.set(0,1,0); dir.normalize();
+    desired=new THREE.Quaternion().setFromUnitVectors(_HAMMER_AXIS, dir);
+    desired.multiply(new THREE.Quaternion().setFromEuler(_HAMMER_FIX));   // optional roll/tilt around the handle
+  } else {
+    let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
+    const up=new THREE.Vector3(0,1,0);
+    const right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6)right.set(1,0,0); right.normalize();
+    const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
+    desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
+    desired.multiply(new THREE.Quaternion().setFromEuler(_HAMMER_FIX));
+  }
   const bq=new THREE.Quaternion(); h._hand.getWorldQuaternion(bq);
   h.quaternion.copy(bq.clone().invert().multiply(desired));
   const bs=new THREE.Vector3(); h._hand.getWorldScale(bs);
@@ -19396,12 +19406,12 @@ function _collectHammer(){
   let ok=false;
   if(bones){
     const hand=bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']||(function(){ for(const k in bones){ if(/hand/i.test(k)&&!/finger|thumb|index|middle|ring|pinky/i.test(k)) return bones[k]; } return null; })();
-    if(hand){ const hm=_makeRoboHammer(); hm._hand=hand; hand.add(hm); player._hammer=hm; _orientHammer(); ok=true; }
+    if(hand){ const hm=_makeRoboHammer(); hm._hand=hand; let _db=bones['weapon_direction']||bones['mixamorig_weapon_direction']; if(!_db){ for(const k in bones){ if(/weapon.*dir/i.test(k)){ _db=bones[k]; break; } } } if(!_db&&player.model){ player.model.traverse(o=>{ if(!_db && /weapon.*dir/i.test(o.name||'')) _db=o; }); } hm._dirBone=_db||null; window._hammerDirBone=!!_db; hand.add(hm); player._hammer=hm; _orientHammer(); ok=true; }
   }
   if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[1,0.2,0.7],34,170); ps.ring(player.wx,player.wz,[0.2,1,0.9],22,150); }
   if(typeof Audio!=='undefined'){ Audio.blip(160,0.18,'sawtooth',0.25,70); Audio.blip(420,0.12,'square',0.2,900); }
   if(typeof addTrauma==='function') addTrauma(0.18);
-  if(typeof announce==='function') announce(ok?'\u2692 SLEDGEHAMMER EQUIPPED':'NO HAND BONE FOUND', ok?'#33ffdd':'#ff5555');
+  if(typeof announce==='function') announce(ok?('\u2692 SLEDGEHAMMER'+(window._hammerDirBone?' \u2014 aimed':' \u2014 no dir bone')):'NO HAND BONE FOUND', ok?'#33ffdd':'#ff5555');
   _removeHammerStation();
 }
 function _spawnHammerStation(x,z){
