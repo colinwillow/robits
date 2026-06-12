@@ -13951,10 +13951,37 @@ function loop(ts){ requestAnimationFrame(loop);
             let kvx=pv?(bx-pv.x):0, kvz=pv?(bz-pv.z):0;
             const HIT_R=(tier>=3?22:18);
             const _seg=(px,py,pz)=>{ const dx=bx-ax2,dy=by-ay2,dz=bz-az2, L2=dx*dx+dy*dy+dz*dz||1; let t=((px-ax2)*dx+(py-ay2)*dy+(pz-az2)*dz)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(px-(ax2+dx*t),py-(ay2+dy*t),pz-(az2+dz*t)); };
-            const _try=(e)=>{ if(!e||!e.alive||e===player||ud._meleeHitSet.has(e))return; const ey=(e.mesh?e.mesh.position.y:(e.py||0))+10; if(_seg(e.wx,ey,e.wz)>HIT_R+(e.size||14))return; ud._meleeHitSet.add(e); if(e.hit)e.hit(dmg); let dx=kvx,dz=kvz; if(dx*dx+dz*dz<1){ dx=e.wx-player.wx; dz=e.wz-player.wz; } if(e.knock)e.knock(dx,dz,mag,lift,stn); if(typeof addTrauma==='function')addTrauma(tier>=3?0.14:0.05); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(tier>=3?90:150,0.1,'square',0.2,tier>=3?60:600); };
-            if(typeof GS!=='undefined'&&GS.enemies) GS.enemies.forEach(_try);
-            if(typeof GS_bots!=='undefined') GS_bots.forEach(_try);
-            if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _try(GS_trainingDummy);
+            const _try=(e,kind)=>{
+              if(!e||e.alive===false||e===player||ud._meleeHitSet.has(e))return false;     // (dummy has no .alive -> still allowed through)
+              const ey=(e.mesh?e.mesh.position.y:(e.py||0))+10;
+              if(_seg(e.wx,ey,e.wz)>HIT_R+(e.size||14))return false;
+              ud._meleeHitSet.add(e);
+              if(e.hit)e.hit(dmg, player.wx, player.wz);                                    // pass attacker pos (dummy uses it for knock dir; others ignore extras)
+              if(typeof spawnDmgNum==='function') spawnDmgNum(e.wx,ey+8,e.wz,dmg,tier>=3?'#fff0b0':'#bfffff');   // visible feedback
+              let dx=kvx,dz=kvz; if(dx*dx+dz*dz<1){ dx=e.wx-player.wx; dz=e.wz-player.wz; }
+              if(e.knock){
+                if(kind==='bot') e.knock(dx,dz,mag,lift,stn);                                  // bot.knock(mag,lift,stun) — unchanged
+                else if(kind==='enemy'){ let _ed,_ef,_el;                                       // enemy.knock(dmg,forceMul,lift): gentle shove + subtle hop
+                  if(tier>=3){ _ed=10; _ef=2.4; _el=27; }        // finisher: launch away + a bit of air
+                  else if(tier===2){ _ed=4; _ef=0.8; _el=21; }   // upswing: pop a touch higher
+                  else { _ed=4; _ef=0.9; _el=14; }               // sweep: little shove + subtle air (re-hittable)
+                  e.knock(dx,dz,_ed,_ef,_el); }
+              }
+              if(typeof addTrauma==='function')addTrauma(tier>=3?0.14:0.05);
+              if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(tier>=3?90:150,0.1,'square',0.2,tier>=3?60:600);
+              return (e.alive===false);                                                     // reports a kill so the caller can clear it
+            };
+            if(typeof GS!=='undefined'&&GS.enemies){
+              for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e)continue;
+                if(_try(e,'enemy') && e.alive===false){                                             // melee killed a real enemy -> score + drop + remove
+                  GS.score=(GS.score||0)+((e.score||0)*(GS.mult||1));
+                  if(typeof Gem3D!=='undefined') GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult'));
+                  if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e);
+                }
+              }
+            }
+            if(typeof GS_bots!=='undefined') GS_bots.forEach(b=>_try(b,'bot'));
+            if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _try(GS_trainingDummy,'dummy');
           }
           if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; if(player._meleeAdditive){ player._meleeAdditive.fadeOut(0.12); player._meleeAdditive=null; } else { ud.currentClip=null; } player._rollAimLock=false; }   // release -> upper-body swing fades arms back to locomotion; full-body re-picks idle/run
         }
