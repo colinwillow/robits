@@ -2303,8 +2303,14 @@ class Enemy{
     if(this._kbVy||this._kbYOff){                     // airborne arc (applied to mesh.y after update())
       this._kbYOff=Math.max(0,(this._kbYOff||0)+(this._kbVy||0));
       this._kbVy=(this._kbVy||0)-(this._kbTumble?1.0:1.6);          // floatier fall while tumbling -> real hang time
-      if(this._kbYOff<=0 && this._kbVy<0){ this._kbYOff=0; this._kbVy=0;
-        if(this._kbTumble){ this._kbTumble=false; if(this.mesh){ this.mesh.rotation.x=0; this.mesh.rotation.z=0; } this._kbRotX=0; this._kbRotZ=0; } }   // landed -> settle upright
+      if(this._kbYOff<=0 && this._kbVy<0){
+        if((this._kbBounce||0)>0 && this._kbVy<-2.0){                 // BALL BOUNCE — rebound, lose energy, keep tumbling
+          this._kbBounce--; this._kbYOff=0.1; this._kbVy=-this._kbVy*0.46;
+          this._kbVx=(this._kbVx||0)*0.6; this._kbVz=(this._kbVz||0)*0.6; this._kbSpin=(this._kbSpin||0.3)*0.82;
+          if(typeof ps!=='undefined'&&ps.burst) ps.burst(this.wx,this.wz,this.glow||[1,1,1],4,45);
+        } else { this._kbYOff=0; this._kbVy=0; this._kbBounce=0;
+          if(this._kbTumble){ this._kbTumble=false; if(this.mesh){ this.mesh.rotation.x=0; this.mesh.rotation.z=0; } this._kbRotX=0; this._kbRotZ=0; } }   // settle upright
+      }
     }
     if(this._kbTumble&&this.mesh){                    // head-over-heels tumble through the arc
       this._kbRotX=(this._kbRotX||0)+(this._kbSpin||0.3);
@@ -13943,10 +13949,8 @@ function loop(ts){ requestAnimationFrame(loop);
           // ── MELEE CONNECT — true swept collision off the blade (hand->weapon_direction), once per target per swing ──
           if(_committed>0.02){
             if(!ud._meleeHitSet) ud._meleeHitSet=new Set();
-            const tier=player._meleeCombo||1; let mag,lift,stn,dmg;
-            if(tier>=3){ mag=18; lift=360; stn=34; dmg=3; }       // melee_3: finisher -> big launch AWAY (home-run)
-            else if(tier===2){ mag=5; lift=600; stn=26; dmg=2; }   // melee_2: upswing -> pop them straight UP
-            else { mag=9; lift=0; stn=16; dmg=1; }                 // melee_1: initial hit -> light shove, no launch
+            const tier=player._meleeCombo||1;                      // tier still drives the slash visuals; damage/knock are now EQUAL
+            const mag=10, lift=140, stn=20, dmg=2;
             // blade segment this frame: base=hand bone, tip=weapon_direction; fall back to fist / in-front when unarmed
             let bx,by,bz, ax2,ay2,az2;
             const _bp=(typeof _slashBladePoints==='function')?_slashBladePoints():null;
@@ -13955,7 +13959,7 @@ function loop(ts){ requestAnimationFrame(loop);
             // blade-tip velocity -> knock direction (send them the way the blade was moving)
             const pv=ud._meleePrevTip; ud._meleePrevTip={x:bx,z:bz};
             let kvx=pv?(bx-pv.x):0, kvz=pv?(bz-pv.z):0;
-            const HIT_R=(tier>=3?22:18);
+            const HIT_R=20;
             const _seg=(px,py,pz)=>{ const dx=bx-ax2,dy=by-ay2,dz=bz-az2, L2=dx*dx+dy*dy+dz*dz||1; let t=((px-ax2)*dx+(py-ay2)*dy+(pz-az2)*dz)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(px-(ax2+dx*t),py-(ay2+dy*t),pz-(az2+dz*t)); };
             const _try=(e,kind)=>{
               if(!e||e.alive===false||e===player||ud._meleeHitSet.has(e))return false;     // (dummy has no .alive -> still allowed through)
@@ -13965,13 +13969,14 @@ function loop(ts){ requestAnimationFrame(loop);
               if(e.hit)e.hit(dmg, player.wx, player.wz);                                    // pass attacker pos (dummy uses it for knock dir; others ignore extras)
               if(typeof spawnDmgNum==='function') spawnDmgNum(e.wx,ey+8,e.wz,dmg,tier>=3?'#fff0b0':'#bfffff');   // visible feedback
               let dx=kvx,dz=kvz; if(dx*dx+dz*dz<1){ dx=e.wx-player.wx; dz=e.wz-player.wz; }
+              { const _m=Math.hypot(dx,dz)||1, _s=(Math.random()-0.5)*0.55, _px=-dz/_m, _pz=dx/_m; dx+=_px*_m*_s; dz+=_pz*_m*_s; }   // scatter so a group doesn't all fly the same way
               if(e.knock){
                 if(kind==='bot') e.knock(dx,dz,mag,lift,stn);                                  // bot.knock(mag,lift,stun) — unchanged
-                else if(kind==='enemy'){ let _ed,_ef,_el;                                       // enemy.knock(dmg,forceMul,lift,tumble): tumbling pop, floaty land
-                  if(tier>=3){ _ed=10; _ef=2.4; _el=19; }        // finisher: launch away, big tumble
-                  else if(tier===2){ _ed=4; _ef=0.8; _el=15; }   // upswing: tumble a touch higher
-                  else { _ed=4; _ef=0.9; _el=11; }               // sweep: small tumbling pop (re-hittable)
-                  e.knock(dx,dz,_ed,_ef,_el,true); }
+                else if(kind==='enemy'){
+                  const _air=8+Math.random()*8;                  // varied lift -> sometimes catches air, sometimes skims low
+                  e.knock(dx,dz, 5, 1.15, _air, true);           // direction from the blade; tumbles through the arc
+                  e._kbBounce=1+(Math.random()<0.6?1:0);         // bounce once or twice on landing
+                }
               }
               if(typeof addTrauma==='function')addTrauma(tier>=3?0.14:0.05);
               if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(tier>=3?90:150,0.1,'square',0.2,tier>=3?60:600);
