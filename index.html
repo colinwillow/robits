@@ -9205,7 +9205,7 @@ class Player{
     else if(lvl>=2){ fire(a,'normal');fire(a+0.13,'normal');fire(a-0.13,'normal'); }
     else fire(a,'normal');
     if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:y0,a,lvl,od:!!od}});   // 1 event per shot -> remote shows every bullet
-    { const _md=(this._aim3DActive&&this._aim3D)?this._aim3D:{x:Math.cos(a),z:Math.sin(a)}; const _my=(this._inPlanetGravity?(this.py+10):5); ps.spark(this.wx+_md.x*14,this.wz+_md.z*14,[1,0.85,0],_my); } }
+    if(!(bones&&bones[handBone])){ const _md=(this._aim3DActive&&this._aim3D)?this._aim3D:{x:Math.cos(a),z:Math.sin(a)}; const _my=(this._inPlanetGravity?(this.py+10):5); ps.spark(this.wx+_md.x*14,this.wz+_md.z*14,[1,0.85,0],_my); } }   // ground spark only for the bone-less procedural ship; the robot uses the hand muzzle flash
   _firePlasma(od){
     const a=this.aim;
     let y0=9+this.py, sx=this.wx, sz=this.wz;
@@ -13969,13 +13969,13 @@ function loop(ts){ requestAnimationFrame(loop);
               if(e.hit)e.hit(dmg, player.wx, player.wz);                                    // pass attacker pos (dummy uses it for knock dir; others ignore extras)
               if(typeof spawnDmgNum==='function') spawnDmgNum(e.wx,ey+8,e.wz,dmg,tier>=3?'#fff0b0':'#bfffff');   // visible feedback
               let dx=kvx,dz=kvz; if(dx*dx+dz*dz<1){ dx=e.wx-player.wx; dz=e.wz-player.wz; }
-              { const _m=Math.hypot(dx,dz)||1, _s=(Math.random()-0.5)*0.55, _px=-dz/_m, _pz=dx/_m; dx+=_px*_m*_s; dz+=_pz*_m*_s; }   // scatter so a group doesn't all fly the same way
+              { const _m=Math.hypot(dx,dz)||1, _s=(Math.random()-0.5)*0.4, _px=-dz/_m, _pz=dx/_m; dx+=_px*_m*_s; dz+=_pz*_m*_s; }   // a little scatter so a group doesn't all fly the same way
               if(e.knock){
                 if(kind==='bot') e.knock(dx,dz,mag,lift,stn);                                  // bot.knock(mag,lift,stun) — unchanged
                 else if(kind==='enemy'){
-                  const _air=8+Math.random()*8;                  // varied lift -> sometimes catches air, sometimes skims low
-                  e.knock(dx,dz, 5, 1.15, _air, true);           // direction from the blade; tumbles through the arc
-                  e._kbBounce=1+(Math.random()<0.6?1:0);         // bounce once or twice on landing
+                  const _air=5+Math.random()*6;                  // gentler varied lift -> some air, some skim
+                  e.knock(dx,dz, 4, 0.95, _air, true);           // direction from the blade; tumbles
+                  e._kbBounce=(Math.random()<0.65?1:0);          // usually a single bounce
                 }
               }
               if(typeof addTrauma==='function')addTrauma(tier>=3?0.14:0.05);
@@ -14265,12 +14265,14 @@ function loop(ts){ requestAnimationFrame(loop);
         const _now=performance.now();
         if(player._flickPending){                                   // a snap-out is in progress — did it come back in time?
           if(_now-(player._flickPendT||0) > _MELEE_FLICK_WINDOW_MS){ player._flickPending=false; }            // stayed out -> it's a HOLD (aim/fire)
-          else if(_fmag < _MELEE_FLICK_LO){ player._flickPending=false; _doMeleeFlick(player.model&&player.model.userData, player._flickDir); }   // came back -> FLICK -> melee
+          else if(_fmag < _MELEE_FLICK_LO){ player._flickPending=false; if(player._preFlickAim!=null) player.aim=player._preFlickAim; _doMeleeFlick(player.model&&player.model.userData, null, player._flickCombo); }   // came back -> directional FLICK melee, no turn
         }
-        if(_fmag<_MELEE_FLICK_LO) player._flickArmed=true;          // re-arm near center
+        if(_fmag<_MELEE_FLICK_LO){ player._flickArmed=true; player._preFlickAim=player.aim; }   // re-arm + remember resting facing
         if(player._flickArmed && _fmag>_MELEE_FLICK_HI && !player._flickPending){   // snapped out -> watch for a quick return
           player._flickArmed=false; player._flickPending=true; player._flickPendT=_now;
           const _ws=rotInput(shootIn.x,shootIn.y); player._flickDir=Math.atan2(_ws.z,_ws.x);
+          const _ax=shootIn.x, _ay=shootIn.y;                                          // screen-relative flick -> which melee (up=-y)
+          player._flickCombo=(Math.abs(_ay)>=Math.abs(_ax))?((_ay<0)?1:2):3;           // up=melee_1, down=melee_2, left/right=melee_3
         }
       }
 
@@ -19515,11 +19517,11 @@ function _buildAdditiveMelee(ud,name){
   ud._addMelee[name]=act;
   return act;
 }
-function _doMeleeFlick(ud, dirAngle){
+function _doMeleeFlick(ud, dirAngle, comboOverride){
   if(!ud||!ud.clips||!player) return;
-  if(typeof dirAngle==='number') player.aim=dirAngle;                       // orient toward the flick direction
-  if((player._meleeComboT||0)<=0) player._meleeCombo=0;                     // chain window lapsed -> restart at melee_1
-  player._meleeCombo=(player._meleeCombo>=3)?1:(player._meleeCombo+1);      // 1 -> 2 -> 3 -> 1
+  if(typeof dirAngle==='number') player.aim=dirAngle;                       // flicks pass null -> DON'T turn the character
+  if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }  // directional flick: up=1, down=2, left/right=3
+  else { if((player._meleeComboT||0)<=0) player._meleeCombo=0; player._meleeCombo=(player._meleeCombo>=3)?1:(player._meleeCombo+1); }
   const mname='melee_'+player._meleeCombo;
   if(!ud.clips[mname] && player._warnedMelee!==mname){ player._warnedMelee=mname; if(typeof announce==='function') announce(mname.toUpperCase()+' NOT IN GLB','#ff5555'); }
   const mc=ud.clips[mname]||ud.clips['melee_1'];
