@@ -8804,7 +8804,7 @@ class Player{
       if(this._zapT>0){ this._zapT-=dt; tvx*=0.1; tvz*=0.1; if(typeof ps!=='undefined'&&Math.random()<0.55) ps.spark(this.wx+rand(-7,7),this.wz+rand(-7,7),[0.85,0.4,1],9+(this.py||0)+rand(0,20)); }   // electrocuted: held in place, jolting   // electrocuted: slowed + sparking
       const inMag=Math.hypot(rawX,rawZ);
       let e = inMag>0.05 ? MOVE.velEaseUp : MOVE.velEaseDown;
-      if(window._meleeLandLock && this.model&&this.model.userData&&this.model.userData._meleeTimer>0){ tvx=0; tvz=0; e=Math.max(e,0.35); this._jumpTapped=false; }   // land-lock (opt-in): plant in place for the swing
+      if(window._meleeLandLock && this.model&&this.model.userData&&this.model.userData._meleeTimer>0 && !(this._meleeLungeT>0)){ tvx=0; tvz=0; e=Math.max(e,0.35); this._jumpTapped=false; }   // land-lock (opt-in): plant in place for the swing
       this.vx=lerp(this.vx,tvx,e); this.vz=lerp(this.vz,tvz,e);
 
       let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
@@ -9156,7 +9156,9 @@ class Player{
     const handBone=this._hammer?'mixamorig_LeftHand':(this._shotSide===0?'mixamorig_RightHand':'mixamorig_LeftHand');
     let y0=9+this.py, spawnX=this.wx, spawnZ=this.wz;
     const bones=this.model?.userData?.bones;
-    if(bones&&bones[handBone]){
+    const _droneOn = window._fireDrone && window._fireDrone.active;
+    if(_droneOn){ const m=window._fireDrone.muzzle(a); spawnX=m.x; y0=m.y; spawnZ=m.z; window._fireDrone.flash(a,od); }
+    else if(bones&&bones[handBone]){
       const hp=new THREE.Vector3();
       bones[handBone].getWorldPosition(hp);
       y0=hp.y; spawnX=hp.x; spawnZ=hp.z;
@@ -9186,7 +9188,32 @@ class Player{
     const _roofFire=(GS.zone===-16 && this._onPlatform && !this._inPlanetGravity);
     const _mag=Math.min(1,Math.max(0, this._aimMag!=null?this._aimMag:1));
     const pvy=(this._inPlanetGravity||isGalaxy)?0:-(1-_mag)*380;   // launch pitch: pull toward center = steep dive at your feet, full push = flat/long
+    // ── DRONE AIMING: shoot the SELECTED target in full 3D (works no matter where the drone drifted); no target -> converge along the aim ray ──
+    let ab=a, _useDroneVY=false, _droneVY=0, _droneAimDir=null;
+    if(_droneOn){
+      // pick what you're aiming at: nearest alive enemy/bot inside the aim cone
+      let best=null, bestDa=(window._DRONE_CONE!=null?window._DRONE_CONE:0.55), bestD=1e9;
+      const _scan=(arr)=>{ if(!arr)return; for(const e of arr){ if(!e||e.alive===false||e._captured)continue; const dx=e.wx-this.wx,dz=e.wz-this.wz,d=Math.hypot(dx,dz); if(d<8||d>(window._DRONE_RANGE!=null?window._DRONE_RANGE:680))continue; const da=Math.abs(((Math.atan2(dz,dx)-a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI); if(da<bestDa && d<bestD){ bestD=d; best=e; } } };
+      _scan(GS.enemies); if(typeof GS_bots!=='undefined')_scan(GS_bots);
+      this._droneTarget=best||null; if(best)this._droneTargetT=performance.now();
+      if(best){                                                            // lock: fire straight at the target's 3D position (H + V)
+        const ty=(best.mesh?best.mesh.position.y:(best.py||9))+8;
+        let dx=best.wx-spawnX, dy=ty-y0, dz=best.wz-spawnZ; const L=Math.hypot(dx,dy,dz)||1;
+        _droneAimDir={x:dx/L,y:dy/L,z:dz/L}; ab=Math.atan2(dz,dx);
+      } else {                                                             // no target -> converge on the aim point along the look-direction
+        const CD=(window._DRONE_CONVERGE!=null?window._DRONE_CONVERGE:320);
+        const tx=this.wx+Math.cos(a)*CD, tz=this.wz+Math.sin(a)*CD, tyy=9+this.py;
+        ab=Math.atan2(tz-spawnZ, tx-spawnX);
+        const horiz=Math.hypot(tx-spawnX,tz-spawnZ)||1; _droneVY=(tyy-y0)/Math.max(horiz/bspd,1e-4); _useDroneVY=true;
+      }
+    }
     const fire=(ang,kind)=>{
+      if(_droneAimDir){                                          // DRONE LOCK: straight at the selected target in 3D, regardless of the drone's position
+        const off=ang-ab, ca=Math.cos(off), sa=Math.sin(off);
+        const dx=_droneAimDir.x*ca-_droneAimDir.z*sa, dz=_droneAimDir.x*sa+_droneAimDir.z*ca, dy=_droneAimDir.y;
+        const _b=new Bullet(spawnX,spawnZ,dx*bspd,dz*bspd,kind,y0,dy*bspd,true); GS.bullets.push(_b);
+        if(_roofFire) _b._noOrbit=true; return;
+      }
       if(this._aim3DActive && this._aim3D && !isGalaxy){          // desktop: fire toward the 3D crosshair (up / down / level)
         const off=ang-a, ca=Math.cos(off), sa=Math.sin(off), d=this._aim3D;
         const dx=d.x*ca-d.z*sa, dz=d.x*sa+d.z*ca;
@@ -9195,15 +9222,15 @@ class Player{
         const d3=dir3FromAngle(ang)||new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
         GS.bullets.push(new Bullet(spawnX,spawnZ,d3.x*bspd,d3.z*bspd,kind,y0,d3.y*bspd,true));
       } else {
-        const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0); _b.vy=pvy; GS.bullets.push(_b);   // ballistic: stick magnitude sets launch pitch; arcs + bounces off the ground
+        const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0); _b.vy=_useDroneVY?_droneVY:pvy; GS.bullets.push(_b);   // ballistic: stick magnitude sets launch pitch; arcs + bounces off the ground
       }
       if(_roofFire) GS.bullets[GS.bullets.length-1]._noOrbit=true;   // rooftop shots ignore building gravity
     };
-    if(od){ fire(a,'laser');fire(a+0.16,'laser');fire(a-0.16,'laser'); if(Math.random()<0.4)fire(a+rand(-0.5,0.5),'homing'); }
-    else if(lvl>=5){ fire(a,'normal'); fire(a+0.1,'normal'); } // lvl5 = faster bullets, missiles only via flick
-    else if(lvl>=3){ fire(a,'laser');fire(a+0.1,'normal');fire(a-0.1,'normal'); }
-    else if(lvl>=2){ fire(a,'normal');fire(a+0.13,'normal');fire(a-0.13,'normal'); }
-    else fire(a,'normal');
+    if(od){ fire(ab,'laser');fire(ab+0.16,'laser');fire(ab-0.16,'laser'); if(Math.random()<0.4)fire(ab+rand(-0.5,0.5),'homing'); }
+    else if(lvl>=5){ fire(ab,'normal'); fire(ab+0.1,'normal'); } // lvl5 = faster bullets, missiles only via flick
+    else if(lvl>=3){ fire(ab,'laser');fire(ab+0.1,'normal');fire(ab-0.1,'normal'); }
+    else if(lvl>=2){ fire(ab,'normal');fire(ab+0.13,'normal');fire(ab-0.13,'normal'); }
+    else fire(ab,'normal');
     if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:y0,a,lvl,od:!!od}});   // 1 event per shot -> remote shows every bullet
     if(!(bones&&bones[handBone])){ const _md=(this._aim3DActive&&this._aim3D)?this._aim3D:{x:Math.cos(a),z:Math.sin(a)}; const _my=(this._inPlanetGravity?(this.py+10):5); ps.spark(this.wx+_md.x*14,this.wz+_md.z*14,[1,0.85,0],_my); } }   // ground spark only for the bone-less procedural ship; the robot uses the hand muzzle flash
   _firePlasma(od){
@@ -13985,13 +14012,15 @@ function loop(ts){ requestAnimationFrame(loop);
         // Tick melee one-shot (blocks locomotion) + combo chain window
         if(ud._meleeTimer>0){
           ud._meleeTimer-=dt;
+          if(player._meleeLungeT>0) player._meleeLungeT-=dt;
           if(window._meleeLandLock) player._jumpTapped=false;        // land-lock (opt-in): block jump during the swing
           const _committed=(ud._meleeMax||0)-ud._meleeTimer;          // time elapsed in this swing
           // ── MELEE CONNECT — true swept collision off the blade (hand->weapon_direction), once per target per swing ──
           if(_committed>0.02){
             if(!ud._meleeHitSet) ud._meleeHitSet=new Set();
             const tier=player._meleeCombo||1;                      // tier still drives the slash visuals; damage/knock are now EQUAL
-            const mag=10, lift=140, stn=28, dmg=5;          // hits HARD now (vs ~1-2 for bullets) + stuns bots longer
+            const _MS=(window._MELEE_STATS&&(window._MELEE_STATS[player._meleeType||'sword']||window._MELEE_STATS.sword))||{dmg:5,reach:26,eForce:4,eLift:0.95,eAir:8,eStun:38,bMag:10,bLift:140,bStn:28};
+            const mag=_MS.bMag, lift=_MS.bLift, stn=_MS.bStn, dmg=_MS.dmg;   // per-weapon: sledgehammer huge, sword light/fast, etc.
             // blade segment this frame: base=hand bone, tip=weapon_direction; fall back to fist / in-front when unarmed
             let bx,by,bz, ax2,ay2,az2;
             const _bp=(typeof _slashBladePoints==='function')?_slashBladePoints():null;
@@ -14000,7 +14029,7 @@ function loop(ts){ requestAnimationFrame(loop);
             // blade-tip velocity -> knock direction (send them the way the blade was moving)
             const pv=ud._meleePrevTip; ud._meleePrevTip={x:bx,z:bz};
             let kvx=pv?(bx-pv.x):0, kvz=pv?(bz-pv.z):0;
-            const HIT_R=26;          // easier to actually connect
+            const HIT_R=_MS.reach;   // per-weapon reach (spear long, sword short)
             const _seg=(px,py,pz)=>{ const dx=bx-ax2,dy=by-ay2,dz=bz-az2, L2=dx*dx+dy*dy+dz*dz||1; let t=((px-ax2)*dx+(py-ay2)*dy+(pz-az2)*dz)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(px-(ax2+dx*t),py-(ay2+dy*t),pz-(az2+dz*t)); };
             const _try=(e,kind)=>{
               if(!e||e.alive===false||e===player||ud._meleeHitSet.has(e))return false;     // (dummy has no .alive -> still allowed through)
@@ -14014,14 +14043,19 @@ function loop(ts){ requestAnimationFrame(loop);
               if(e.knock){
                 if(kind==='bot') e.knock(dx,dz,mag,lift,stn);                                  // bot.knock(mag,lift,stun) — unchanged
                 else if(kind==='enemy'){
-                  e._stunT=Math.max(e._stunT||0,38);             // melee STUNS -> its real purpose: heavy burst + crowd control
-                  const _air=5+Math.random()*6;
-                  e.knock(dx,dz, 4, 0.95, _air, true);
+                  e._stunT=Math.max(e._stunT||0,_MS.eStun);      // per-weapon stun (hammer/scythe long -> crowd control)
+                  const _air=_MS.eAir*(0.8+Math.random()*0.4);
+                  e.knock(dx,dz, _MS.eForce, _MS.eLift, _air, true);
                   e._kbBounce=(Math.random()<0.65?1:0);
                 }
               }
-              if(typeof addTrauma==='function')addTrauma(tier>=3?0.14:0.05);
-              if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(tier>=3?90:150,0.1,'square',0.2,tier>=3?60:600);
+              if(typeof addTrauma==='function')addTrauma(_MS.trauma||0.06);                       // shake scales with weapon (stacks per enemy hit -> crowd swing = big shake)
+              if(typeof hitStop==='function'&&_MS.hitStop)hitStop(_MS.hitStop);                    // freeze a few frames on impact = punch
+              if(!ud._meleeFXdone){ ud._meleeFXdone=true;                                          // heavy-weapon flourish, once per swing
+                if(_MS.slow&&typeof slowmo==='function')slowmo(_MS.slow,_MS.slowH||16);            // brief slow-mo (hammer/axe)
+                if(_MS.zoom&&typeof punchZoom==='function')punchZoom(_MS.zoom);                    // camera punch
+              }
+              if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(_MS.thud||130,0.12,'square',0.22,(_MS.thud||130)<100?56:600);
               return (e.alive===false);                                                     // reports a kill so the caller can clear it
             };
             if(typeof GS!=='undefined'&&GS.enemies){
@@ -14036,9 +14070,16 @@ function loop(ts){ requestAnimationFrame(loop);
             if(typeof GS_bots!=='undefined') GS_bots.forEach(b=>_try(b,'bot'));
             if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _try(GS_trainingDummy,'dummy');
           }
-          if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; if(player._meleeAdditive){ player._meleeAdditive.fadeOut(0.12); player._meleeAdditive=null; } else { ud.currentClip=null; } player._rollAimLock=false; }   // release -> upper-body swing fades arms back to locomotion; full-body re-picks idle/run
+          if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; if(player._meleeAdditive){ player._meleeAdditive.fadeOut(0.12); player._meleeAdditive=null; } else { ud.currentClip=null; } player._rollAimLock=false; if(player._meleeBuf){ const _b=player._meleeBuf; player._meleeBuf=null; if(_b.tap){ _doMeleeTap(); } else { _doMeleeFlick(ud,(typeof _b.dir==='number'?_b.dir:null),_b.combo); } } }   // release -> upper-body swing fades arms back to locomotion; full-body re-picks idle/run
         }
         if(player._meleeComboT>0){ player._meleeComboT-=dt; if(player._meleeComboT<0) player._meleeComboT=0; }
+        // MELEE TARGET indicator — pulse a ring under the nearest in-range enemy so you can see who a tap will hit
+        if(window._meleeOnLeftStick && player && player.alive && typeof GS!=='undefined' && GS.state==='playing'){
+          let _tb=null,_tbd=1e9; const _TR=(window._MELEE_AUTOAIM_R||90), _tl=GS.enemies||[];
+          for(let _i=0;_i<_tl.length;_i++){ const _e=_tl[_i]; if(!_e||_e.alive===false||_e._captured) continue; const _d=Math.hypot(_e.wx-player.wx,_e.wz-player.wz); if(_d<_tbd&&_d<_TR){ _tbd=_d; _tb=_e; } }
+          window._meleeTarget=_tb;
+          if(_tb){ player._meleeRingT=(player._meleeRingT||0)+dt; if(player._meleeRingT>=0.22){ player._meleeRingT=0; if(typeof ps!=='undefined'&&ps.ring) ps.ring(_tb.wx,_tb.wz,[0.2,1,0.85],(_tb.size||12)*0.9,60); } }
+        }
 
         // Landing detection — was airborne, now on ground (debounced)
         if(!ud._landingTimer&&!ud._rollingTimer&&onGround&&ud._prevAirborne){
@@ -14509,7 +14550,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-5) updateTransition(dt);
       if(GS.zone===-16) updateCityTest(dt);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
-      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); resolveBodyCollisions(player); player.draw(od); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
+      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); resolveBodyCollisions(player); player.draw(od); if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_bmv) window._reorientGameBoots(); }
       if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
@@ -19534,7 +19575,82 @@ let _HAMMER_SCALE=1.7;                                // equipped world-size (ma
 let _MELEE_FLICK_HI=0.78;   // stick must snap past this to fire a melee
 let _MELEE_FLICK_LO=0.40;   // stick must ease back below this to re-arm the next flick (higher = easier fast chaining)
 let _MELEE_FLICK_VEL=0.16;  // min per-frame snap speed (separates a flick from a slow aim push)
-let _MELEE_SPEED=1.4;        // swing playback speed (higher = snappier)
+let _MELEE_SPEED=1.4;        // master swing-speed multiplier (per-weapon speed multiplies this)
+// ── per-weapon melee balance — keyed by player._meleeType. melee hits MUCH harder than bullets so it's worth closing in. ──
+window._MELEE_STATS = window._MELEE_STATS || {
+  //        dmg  reach  speed   eForce eLift eAir eStun   bMag bLift bStn   + impact: hitStop(frames) trauma(shake) thud(sfx pitch) slow/slowH/zoom (heavy only)
+  sword:  { dmg:6,  reach:27, speed:1.25, eForce:4,  eLift:0.9, eAir:6,  eStun:34, bMag:9,  bLift:130, bStn:24, hitStop:2, trauma:0.05, thud:150 },                                   // light + FAST, snappy
+  hammer: { dmg:20, reach:33, speed:0.72, eForce:11, eLift:1.7, eAir:16, eStun:60, bMag:22, bLift:300, bStn:50, hitStop:7, trauma:0.38, thud:58,  slow:0.35, slowH:16, zoom:0.9 },     // SLEDGEHAMMER: freeze + heavy shake + camera punch + slow-mo
+  axe:    { dmg:12, reach:30, speed:0.88, eForce:7,  eLift:1.2, eAir:11, eStun:46, bMag:15, bLift:210, bStn:38, hitStop:5, trauma:0.18, thud:90,  slow:0.6,  slowH:8,  zoom:0.5 },     // heavy cleave, brief slow
+  spear:  { dmg:7,  reach:42, speed:1.10, eForce:5,  eLift:0.7, eAir:5,  eStun:30, bMag:8,  bLift:110, bStn:22, hitStop:2, trauma:0.05, thud:140 },                                   // long poke, light
+  scythe: { dmg:9,  reach:35, speed:0.95, eForce:6,  eLift:1.0, eAir:9,  eStun:52, bMag:12, bLift:180, bStn:40, hitStop:4, trauma:0.12, thud:110 }                                    // wide reap, big stun (crowd control)
+};
+
+// ════════════════════════════════════════════════════════════════════════════════
+//  FIRE-DRONE (Stage 1) — a buddy that follows you with eased motion + wander
+//  and is where your projectiles launch from, freeing your hands for melee.
+//  Lazily built; ticks from the main loop; muzzle() overrides _shoot's spawn.
+//  Live knobs: window._DRONE_ON / _DRONE_HEIGHT / _DRONE_WANDER / _DRONE_EASE / _DRONE_LEASH
+// ════════════════════════════════════════════════════════════════════════════════
+window._DRONE_ON = (window._DRONE_ON!=null ? window._DRONE_ON : true);   // Stage 1: ON so it's visible to tune (later: gate on melee-equip / power-up)
+function _ensureFireDrone(){
+  if(window._fireDrone) return window._fireDrone;
+  if(typeof THREE==='undefined' || typeof scene==='undefined') return null;
+  const D={ active:false, t:0, wob:Math.random()*99, p:new THREE.Vector3(), vx:0, vz:0 };
+  const grp=new THREE.Group();
+  const core=new THREE.Mesh(new THREE.SphereGeometry(2.6,12,10), new THREE.MeshBasicMaterial({color:0x9af2ff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+  grp.add(core);
+  const disc=new THREE.Mesh(new THREE.CylinderGeometry(6.4,6.4,1.5,22), new THREE.MeshStandardMaterial({color:0x0a2c3a,emissive:0x27c8ff,emissiveIntensity:1.5,metalness:0.55,roughness:0.32}));
+  grp.add(disc);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(7.6,0.5,8,30), new THREE.MeshBasicMaterial({color:0x27c8ff,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false}));
+  ring.rotation.x=Math.PI/2; grp.add(ring);
+  grp.visible=false; scene.add(grp);
+  D.mesh=grp; D.core=core; D.ring=ring; D.disc=disc;
+  const sel=new THREE.Mesh(new THREE.TorusGeometry(1,0.07,8,30), new THREE.MeshBasicMaterial({color:0x6affd6,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false})); sel.rotation.x=Math.PI/2; sel.visible=false; sel.frustumCulled=false; scene.add(sel); D.sel=sel;
+  if(typeof player!=='undefined'&&player){ D.p.set(player.wx,(player.py||0)+34,player.wz); }
+  D.update=function(dt){
+    const on = !!window._DRONE_ON && typeof player!=='undefined' && player && player.alive!==false;
+    D.active=on; D.mesh.visible=on; if(!on) return;
+    D.t+=dt; const t=D.t;
+    const R=(window._DRONE_WANDER!=null?window._DRONE_WANDER:26);
+    const wx=Math.sin(t*0.70+D.wob)*R + Math.sin(t*0.33+D.wob*1.7)*R*0.5;
+    const wz=Math.cos(t*0.61+D.wob)*R + Math.cos(t*0.29+D.wob*2.3)*R*0.5;
+    const H=(window._DRONE_HEIGHT!=null?window._DRONE_HEIGHT:34);
+    const bob=Math.sin(t*2.1+D.wob)*3.4;
+    // anchor BIASES behind the robot's facing — keeps the firing angle shallow; eased follow makes it lag + resettle when you turn (wander-and-hang-out)
+    const fa=player.aim||0;
+    const BEHIND=(window._DRONE_BEHIND!=null?window._DRONE_BEHIND:34);
+    const bx=player.wx-Math.cos(fa)*BEHIND, bz=player.wz-Math.sin(fa)*BEHIND;
+    const tx=bx+wx, tz=bz+wz, ty=(player.py||0)+H+bob;
+    const EASE=(window._DRONE_EASE!=null?window._DRONE_EASE:3.0);
+    const k=1-Math.exp(-EASE*dt);
+    const nx=D.p.x+(tx-D.p.x)*k, ny=D.p.y+(ty-D.p.y)*k, nz=D.p.z+(tz-D.p.z)*k;
+    D.vx=(nx-D.p.x); D.vz=(nz-D.p.z); D.p.set(nx,ny,nz);
+    const MAXD=(window._DRONE_LEASH!=null?window._DRONE_LEASH:130);
+    const ddx=D.p.x-player.wx, ddz=D.p.z-player.wz, dd=Math.hypot(ddx,ddz);
+    if(dd>MAXD){ const sc=MAXD/dd; D.p.x=player.wx+ddx*sc; D.p.z=player.wz+ddz*sc; }
+    D.mesh.position.copy(D.p);
+    D.mesh.rotation.y = -(player.aim||0);
+    const bank=Math.max(-0.5,Math.min(0.5,(D.vx*Math.sin(player.aim||0)-D.vz*Math.cos(player.aim||0))*0.06));
+    D.disc.rotation.z += (bank-D.disc.rotation.z)*0.1;
+    D.ring.rotation.z += dt*1.7;
+    D.core.material.opacity=0.82+0.16*Math.sin(t*7);
+    D.core.scale.setScalar(0.9+0.2*Math.sin(t*5));
+    // selector ring on the enemy the drone is currently locked to
+    const tg=player._droneTarget;
+    if(tg && tg.alive!==false && (performance.now()-(player._droneTargetT||0))<260){
+      const ey=(tg.mesh?tg.mesh.position.y:(tg.py||9));
+      D.sel.visible=true; D.sel.position.set(tg.wx, ey+0.6, tg.wz);
+      const r=(tg.size||14)+10; D.sel.scale.set(r,r,r);
+      D.sel.material.opacity=0.5+0.32*Math.sin(t*11);
+    } else if(D.sel.visible){ D.sel.visible=false; }
+  };
+  D.muzzle=function(aim){ const a=(aim!=null?aim:(player.aim||0)); return { x:D.p.x+Math.cos(a)*9, y:D.p.y, z:D.p.z+Math.sin(a)*9 }; };
+  D.flash=function(a,od){ const fc=od?[1,0.9,0.2]:[0.4,0.95,1]; const m=D.muzzle(a);
+    for(let i=0;i<5;i++){ ps._spawn(m.x+rand(-3,3),m.y,m.z+rand(-3,3), Math.cos(a)*rand(60,140)+rand(-20,20), rand(-10,20), Math.sin(a)*rand(60,140)+rand(-20,20), fc[0],fc[1],fc[2],0.03+rand(0.02)); }
+    ps.ring(m.x,m.z,fc,3,40); if(D.core) D.core.scale.setScalar(1.7); };
+  window._fireDrone=D; return D;
+}
 let _MELEE_TRIM_START=0.167;  // sec skipped off the START of each swing (~5 frames @30fps) -> no windup
 let _MELEE_TRIM_END=0.167;    // sec cut off the END (~5 frames) -> locomotion takes over sooner
 let _MELEE_FLICK_WINDOW_MS=160;  // a flick must snap out AND return within this many ms; holding longer = aim/fire instead
@@ -19542,6 +19658,7 @@ if(typeof window!=='undefined' && window._meleeUpperBody===undefined) window._me
 if(typeof window!=='undefined' && window._meleeLandLock===undefined) window._meleeLandLock=true;      // PLANT in place during the swing -> can't interrupt the attack by moving
 if(typeof window!=='undefined' && window._meleeOnLeftStick===undefined) window._meleeOnLeftStick=true; // melee = LEFT-stick flick (moved off the right stick)
 if(typeof window!=='undefined' && window._MELEE_AUTOAIM_R===undefined) window._MELEE_AUTOAIM_R=90;      // TAP melee auto-faces the nearest enemy within this range
+if(typeof window!=='undefined' && window._MELEE_LUNGE===undefined) window._MELEE_LUNGE=true;            // TAP melee lunges toward the target (set false to disable)
 // ── upper-body additive swing: clone the melee clip, drop leg/hip tracks, rebase as additive-over-idle, layer it on the running legs (no GLB split needed) ──
 const _MELEE_LOWER_RE=/(Hips|Leg|Foot|Toe)/i;   // bones EXCLUDED from the upper-body layer (legs/hips stay driven by locomotion)
 function _buildAdditiveMelee(ud,name){
@@ -19563,6 +19680,7 @@ function _buildAdditiveMelee(ud,name){
 }
 function _doMeleeFlick(ud, dirAngle, comboOverride){
   if(!ud||!ud.clips||!player) return;
+  if(ud._meleeTimer && ud._meleeTimer>0){ player._meleeBuf={dir:(typeof dirAngle==='number'?dirAngle:null),combo:comboOverride}; return; }   // swing in progress -> buffer ONE, fired on finish (1 swing = 1 hit)
   if(typeof dirAngle==='number') player.aim=dirAngle;                       // flicks pass null -> DON'T turn the character
   if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }  // directional flick: up=1, down=2, left/right=3
   else { if((player._meleeComboT||0)<=0) player._meleeCombo=0; player._meleeCombo=(player._meleeCombo>=3)?1:(player._meleeCombo+1); }
@@ -19578,7 +19696,8 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
     if(typeof announce==='function') announce('HIPS pos:'+(hp?(pm?'MOVES':'FLAT'):'none')+'  rot:'+(hr?(rm?'MOVES':'FLAT'):'none'), (pm||rm)?'#33ffdd':'#ff5555');
   }
   if(!mc) return;
-  const spd=_MELEE_SPEED||1;
+  const _ws=window._MELEE_STATS&&window._MELEE_STATS[player._meleeType||'sword'];
+  const spd=(_MELEE_SPEED||1)*((_ws&&_ws.speed)||1);   // per-weapon: sword fast, hammer slow
   const fullDur=((mc._clip&&mc._clip.duration)||0.6);
   const trimS=Math.min(_MELEE_TRIM_START||0, fullDur*0.3);
   const trimE=Math.min(_MELEE_TRIM_END||0, fullDur*0.3);
@@ -19604,7 +19723,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
     Object.values(ud.clips).forEach(a=>{ if(a!==mc && a!==prev) a.fadeOut(0.10); });
     ud.currentClip=mname;
   }
-  ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null;
+  ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false; ud._meleeFXdone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null;
   player._meleeComboT=Math.max(mdur,0.45)+0.9;
   player._flickCooldown=8;
   player._rollAimLock=true;
@@ -19613,6 +19732,8 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
 }
 function _doMeleeTap(){
   if(!player||!player.model||!player.model.userData) return;
+  const ud=player.model.userData;
+  if(ud._meleeTimer && ud._meleeTimer>0){ player._meleeBuf={tap:true}; return; }   // chain: re-target + re-lunge when the current swing finishes
   // auto-target: face the nearest enemy in range so taps connect; tap again -> next combo in the cycle
   let best=null, bd=1e9; const R=window._MELEE_AUTOAIM_R||90;
   const list=(typeof GS!=='undefined'&&GS.enemies)?GS.enemies:[];
@@ -19620,7 +19741,13 @@ function _doMeleeTap(){
     const dx=e.wx-player.wx, dz=e.wz-player.wz; const d=Math.hypot(dx,dz);
     if(d<bd && d<R){ bd=d; best=e; } }
   const dir = best ? Math.atan2(best.wz-player.wz, best.wx-player.wx) : null;   // face the target (null -> keep current facing)
-  _doMeleeFlick(player.model.userData, dir, undefined);                          // undefined combo -> CYCLE to the next attack
+  if(best && window._MELEE_LUNGE!==false && bd>22){                              // LUNGE toward the target (not teleport) — short distance-scaled dash
+    player._dashDir=[Math.cos(dir), Math.sin(dir)];
+    player._dashRamp=7; player._dashRampMax=7;
+    player._dashPeak=Math.min(bd*7, (typeof MOVE!=='undefined'?MOVE.topSpeed:60)*2.4);
+    player._meleeLungeT=0.14;                                                     // brief window where land-lock yields so the lunge carries
+  }
+  _doMeleeFlick(ud, dir, undefined);                                              // undefined combo -> CYCLE to the next attack
 }
 const _HAMMER_POS=new THREE.Vector3(0,0.5,0);         // model-relative seat offset (tunable)
 function _makeRoboHammer(){
