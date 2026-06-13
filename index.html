@@ -11839,6 +11839,28 @@ function updateArenaObstacles(dt){
   }
 }
 // push a circular entity (wx,wz,vx,vz,py) out of any risen obstacle box
+function resolveBodyCollisions(pl){
+  if(!pl||!pl.alive||pl._wallClimb||pl._hang) return;
+  const PR=13;                                                    // player body radius (matches obstacle radius)
+  const push=(ex,ez,er,hard)=>{
+    let dx=pl.wx-ex, dz=pl.wz-ez, d=Math.hypot(dx,dz); const min=PR+er;
+    if(d>min) return;
+    if(d<=0.0001){ dx=Math.cos(pl.aim||0); dz=Math.sin(pl.aim||0); d=1; }
+    const o=(min-d), nx=dx/d, nz=dz/d, k=hard?1:0.5;
+    pl.wx+=nx*o*k; pl.wz+=nz*o*k;
+    return {nx,nz,o};
+  };
+  // training dummy — solid
+  if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS.zone===-2) push(GS_trainingDummy.wx,GS_trainingDummy.wz,14,true);
+  // remote MP players — solid (each client pushes itself out -> mutual separation)
+  if(typeof MP!=='undefined'&&MP.active&&MP.players){ for(const id in MP.players){ const rp=MP.players[id]; if(rp&&rp.mesh) push(rp.mesh.position.x,rp.mesh.position.z,13,true); } }
+  // enemies — soft bump (you shove into them but combat still flows); skip airborne/captured
+  if(typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(!e||!e.alive||e._captured||(e._kbYOff||0)>6) continue;
+    const hit=push(e.wx,e.wz,(e.size||12)*0.5,false);
+    if(hit && e.knock && Math.random()<0.5) e.knock(-hit.nx,-hit.nz,0,0.3,0);   // give them a tiny nudge back
+  } }
+}
+window.resolveBodyCollisions=resolveBodyCollisions;
 function resolveObstacles(e,r){
   if(!_arenaObstacles.length) return;
   const py=(e.py||0);
@@ -13950,7 +13972,7 @@ function loop(ts){ requestAnimationFrame(loop);
           if(_committed>0.02){
             if(!ud._meleeHitSet) ud._meleeHitSet=new Set();
             const tier=player._meleeCombo||1;                      // tier still drives the slash visuals; damage/knock are now EQUAL
-            const mag=10, lift=140, stn=20, dmg=2;
+            const mag=10, lift=140, stn=28, dmg=5;          // hits HARD now (vs ~1-2 for bullets) + stuns bots longer
             // blade segment this frame: base=hand bone, tip=weapon_direction; fall back to fist / in-front when unarmed
             let bx,by,bz, ax2,ay2,az2;
             const _bp=(typeof _slashBladePoints==='function')?_slashBladePoints():null;
@@ -13959,7 +13981,7 @@ function loop(ts){ requestAnimationFrame(loop);
             // blade-tip velocity -> knock direction (send them the way the blade was moving)
             const pv=ud._meleePrevTip; ud._meleePrevTip={x:bx,z:bz};
             let kvx=pv?(bx-pv.x):0, kvz=pv?(bz-pv.z):0;
-            const HIT_R=20;
+            const HIT_R=26;          // easier to actually connect
             const _seg=(px,py,pz)=>{ const dx=bx-ax2,dy=by-ay2,dz=bz-az2, L2=dx*dx+dy*dy+dz*dz||1; let t=((px-ax2)*dx+(py-ay2)*dy+(pz-az2)*dz)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(px-(ax2+dx*t),py-(ay2+dy*t),pz-(az2+dz*t)); };
             const _try=(e,kind)=>{
               if(!e||e.alive===false||e===player||ud._meleeHitSet.has(e))return false;     // (dummy has no .alive -> still allowed through)
@@ -13973,9 +13995,10 @@ function loop(ts){ requestAnimationFrame(loop);
               if(e.knock){
                 if(kind==='bot') e.knock(dx,dz,mag,lift,stn);                                  // bot.knock(mag,lift,stun) — unchanged
                 else if(kind==='enemy'){
-                  const _air=5+Math.random()*6;                  // gentler varied lift -> some air, some skim
-                  e.knock(dx,dz, 4, 0.95, _air, true);           // direction from the blade; tumbles
-                  e._kbBounce=(Math.random()<0.65?1:0);          // usually a single bounce
+                  e._stunT=Math.max(e._stunT||0,38);             // melee STUNS -> its real purpose: heavy burst + crowd control
+                  const _air=5+Math.random()*6;
+                  e.knock(dx,dz, 4, 0.95, _air, true);
+                  e._kbBounce=(Math.random()<0.65?1:0);
                 }
               }
               if(typeof addTrauma==='function')addTrauma(tier>=3?0.14:0.05);
@@ -14467,7 +14490,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-5) updateTransition(dt);
       if(GS.zone===-16) updateCityTest(dt);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
-      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); player.draw(od); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
+      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); resolveBodyCollisions(player); player.draw(od); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_bmv) window._reorientGameBoots(); }
       if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
@@ -22094,6 +22117,178 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
   console.warn=(...a)=>{_warn(...a);addLine('warn',a);};
   console.error=(...a)=>{_err(...a);addLine('error',a);};
   window.addEventListener('error',e=>addLine('error',[e.message+' '+e.filename+':'+e.lineno]));
+})();
+</script>
+
+<!-- ══ STUDIO MAJIA — animated boot splash (plays once on top, then fades to the title) ══ -->
+<div id="majia-splash" style="position:fixed;inset:0;z-index:100200;background:radial-gradient(ellipse at 50% 42%,#080818 0%,#030308 100%);transition:opacity .65s ease;">
+  <canvas id="majia-c" style="position:absolute;inset:0;width:100%;height:100%;display:block;"></canvas>
+  <div style="position:absolute;left:50%;bottom:8%;transform:translateX(-50%);width:200px;max-width:54vw;height:2px;background:rgba(120,150,180,.12);border-radius:2px;overflow:hidden;">
+    <div id="majia-bar" style="width:0%;height:100%;background:linear-gradient(90deg,#00ffc8,#4488ff);box-shadow:0 0 10px #00ffc8aa;border-radius:2px;"></div>
+  </div>
+</div>
+<script>
+(() => {
+  const root=document.getElementById('majia-splash'), cv=document.getElementById('majia-c');
+  if(!root||!cv) return;
+  const ctx=cv.getContext('2d');
+  const bar=document.getElementById('majia-bar');
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let W=0,H=0,DPR=1,F=120,cx=0,cy=0,S=5,eyeF=20,eyeY=0,preF=16,preY=0;
+  let targets=[],particles=[],edges=[],speed=1,running=true,fading=false;
+  const GRID_COLS=[[255,64,200],[150,90,255],[64,190,255],[80,255,170]];
+  const clamp01=t=>t<0?0:t>1?1:t;
+
+  function buildTargets(){
+    F=Math.min(W*0.165,H*0.26,168); S=Math.max(3,Math.round(F/38)); eyeF=Math.max(11,F*0.135);
+    cx=W*0.5; cy=H*0.5; eyeY=cy+F*0.64; preF=Math.max(10,eyeF*0.86); preY=eyeY+eyeF*1.75;
+    const off=document.createElement('canvas'); off.width=W; off.height=H;
+    const o=off.getContext('2d');
+    o.fillStyle='#fff'; o.textAlign='center'; o.textBaseline='middle';
+    o.font=`900 ${F}px Orbitron, sans-serif`;
+    if('letterSpacing' in o) o.letterSpacing=(F*0.03)+'px';
+    o.fillText('MAJIA',cx,cy);
+    const img=o.getImageData(0,0,W,H).data;
+    const op=(x,y)=>(x>=0&&x<W&&y>=0&&y<H)&&img[(y*W+x)*4+3]>120;
+    const ER=Math.max(1,Math.round(F*0.011));
+    targets=[];
+    for(let y=0;y<H;y+=S) for(let x=0;x<W;x+=S){
+      if(!op(x,y)) continue;
+      if(op(x-ER,y)&&op(x+ER,y)&&op(x,y-ER)&&op(x,y+ER)&&op(x-ER,y-ER)&&op(x+ER,y+ER)&&op(x-ER,y+ER)&&op(x+ER,y-ER)) targets.push({x,y});
+    }
+    const gmap=new Map();
+    for(let i=0;i<targets.length;i++){ const t=targets[i]; gmap.set((t.x/S)+','+(t.y/S),i); }
+    edges=[];
+    for(let i=0;i<targets.length;i++){ const t=targets[i],gx=t.x/S,gy=t.y/S; let n;
+      n=gmap.get((gx+1)+','+gy);     if(n!==undefined) edges.push([i,n]);
+      n=gmap.get(gx+','+(gy+1));     if(n!==undefined) edges.push([i,n]);
+      n=gmap.get((gx+1)+','+(gy+1)); if(n!==undefined&&Math.random()<0.5) edges.push([i,n]);
+      n=gmap.get((gx+1)+','+(gy-1)); if(n!==undefined&&Math.random()<0.5) edges.push([i,n]);
+    }
+  }
+  function initParticles(){
+    const sc=F/130;
+    particles=targets.map(t=>{
+      const a=Math.random()*Math.PI*2,d=F*(0.40+Math.random()*1.0);
+      return { tx:t.x,ty:t.y, x:t.x+Math.cos(a)*d, y:t.y+Math.sin(a)*d, vx:0,vy:0,
+        maxSpeed:(7.5+Math.random()*4.5)*sc*speed, maxForce:(0.26+Math.random()*0.16)*sc*speed,
+        damp:0.955+Math.random()*0.012, col:GRID_COLS[(Math.random()*GRID_COLS.length)|0],
+        rot:(Math.random()-0.5)*4.0, rotV:(Math.random()-0.5)*0.6, trot:0 };
+    });
+  }
+  function step(p,lock){
+    if(lock>=1){ p.x=p.tx; p.y=p.ty; p.vx=0; p.vy=0; p.rot=p.trot; p.rotV=0; return; }
+    let dx=p.tx-p.x,dy=p.ty-p.y,d=Math.hypot(dx,dy);
+    if(d>0.0001){ dx=dx/d*p.maxSpeed; dy=dy/d*p.maxSpeed; }
+    let sx=dx-p.vx,sy=dy-p.vy; const sl=Math.hypot(sx,sy);
+    if(sl>p.maxForce){ sx=sx/sl*p.maxForce; sy=sy/sl*p.maxForce; }
+    p.vx=(p.vx+sx)*p.damp; p.vy=(p.vy+sy)*p.damp;
+    const sp=Math.hypot(p.vx,p.vy);
+    if(sp>p.maxSpeed){ p.vx=p.vx/sp*p.maxSpeed; p.vy=p.vy/sp*p.maxSpeed; }
+    p.x+=p.vx; p.y+=p.vy;
+    p.rotV+=(p.trot-p.rot)*0.03; p.rotV*=0.93; p.rot+=p.rotV;
+    if(lock>0){ const sm=lock*lock*(3-2*lock);
+      p.x+=(p.tx-p.x)*sm*0.4; p.y+=(p.ty-p.y)*sm*0.4; p.vx*=(1-sm); p.vy*=(1-sm);
+      p.rot+=(p.trot-p.rot)*sm*0.4; p.rotV*=(1-sm); }
+  }
+  function resize(){
+    if(!running) return;                         // splash already handed off -> ignore
+    const w=cv.clientWidth, h=cv.clientHeight;
+    if(w<=0||h<=0) return;                        // transient zero-size mid-rotation -> skip (avoids getImageData throw)
+    W=w; H=h;
+    DPR=Math.min(2,window.devicePixelRatio||1);
+    cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    buildTargets(); initParticles();
+  }
+  window.addEventListener('resize',resize);
+
+  const LOCK_START=1050,FREEZE_AT=1600,SOLID_AT=1750,SOLID_IN=400;
+  const HOLD_UNTIL=reduce?1500:3700;
+  let start=performance.now();
+
+  function finish(){
+    if(fading) return; fading=true;
+    window.removeEventListener('resize',resize);
+    root.style.opacity='0';
+    setTimeout(()=>{ running=false; if(root&&root.parentNode) root.parentNode.removeChild(root); },700);
+  }
+  function draw(now){
+    if(!running) return;
+    requestAnimationFrame(draw);
+    const e=(now-start)*speed;
+    if(bar) bar.style.width=Math.min(100,(e/(HOLD_UNTIL-250))*100)+'%';
+    if(e>=HOLD_UNTIL){ finish(); }
+    if(reduce){ ctx.clearRect(0,0,W,H); drawSolid(1); drawEyebrow(1); drawPresents(1); return; }
+    const lock=clamp01((e-LOCK_START)/(FREEZE_AT-LOCK_START));
+    for(const p of particles) step(p,lock);
+    ctx.clearRect(0,0,W,H);
+    const solid=clamp01((e-SOLID_AT)/SOLID_IN);
+    const intro=clamp01(e/450);
+    const partA=0.95*intro;
+    const R=150,G=224,B=255;
+    const tissueA=intro*(1-solid)*0.5;
+    if(tissueA>0.02&&edges.length){
+      const TH=S*3.4,TH2=TH*TH;
+      ctx.lineWidth=1; ctx.strokeStyle=`rgba(${R},${G},${B},${tissueA})`;
+      ctx.beginPath();
+      for(let k=0;k<edges.length;k++){ const a=particles[edges[k][0]],b=particles[edges[k][1]];
+        const dx=a.x-b.x,dy=a.y-b.y; if(dx*dx+dy*dy<TH2){ ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); } }
+      ctx.stroke();
+    }
+    ctx.lineCap='round'; ctx.lineWidth=2.0;
+    for(const p of particles){
+      const sp=Math.hypot(p.vx,p.vy),sf=clamp01(sp/(p.maxSpeed*0.85));
+      const r=(150+(p.col[0]-150)*sf)|0,g=(224+(p.col[1]-224)*sf)|0,b=(255+(p.col[2]-255)*sf)|0;
+      ctx.fillStyle=`rgba(${r},${g},${b},${partA})`;
+      const HS=1.2+1.7*sf;
+      if(sf<0.02&&p.rot>-0.012&&p.rot<0.012){ ctx.fillRect(p.x-1.2,p.y-1.2,2.4,2.4); }
+      else { ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot); ctx.fillRect(-HS,-HS,HS*2,HS*2); ctx.restore(); }
+      if(sp>0.7){ ctx.strokeStyle=`rgba(${r},${g},${b},${0.7*partA})`;
+        ctx.beginPath(); ctx.moveTo(p.x-p.vx*1.4,p.y-p.vy*1.4); ctx.lineTo(p.x,p.y); ctx.stroke(); }
+    }
+    if(solid>0) drawSolid(solid);
+    drawEyebrow(clamp01((e-(SOLID_AT-300))/800));
+    drawPresents(clamp01((e-(SOLID_AT+450))/700));
+  }
+  function drawSolid(a){
+    ctx.save(); ctx.globalAlpha=a;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font=`900 ${F}px Orbitron, sans-serif`;
+    if('letterSpacing' in ctx) ctx.letterSpacing=(F*0.03)+'px';
+    ctx.shadowColor='transparent'; ctx.shadowBlur=0;
+    ctx.fillStyle='#ffffff'; ctx.fillText('MAJIA',cx,cy);
+    ctx.restore();
+  }
+  function drawEyebrow(a){
+    if(a<=0) return;
+    ctx.save(); ctx.globalAlpha=a;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font=`400 ${eyeF}px Orbitron, sans-serif`;
+    if('letterSpacing' in ctx) ctx.letterSpacing=(eyeF*0.62)+'px';
+    ctx.fillStyle='rgba(223,234,245,0.92)';
+    ctx.fillText('STUDIOS',cx+eyeF*0.31,eyeY);
+    const tw=ctx.measureText('STUDIOS').width+eyeF*0.62;
+    ctx.strokeStyle=`rgba(190,210,230,${0.5*a})`; ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.moveTo(cx-tw/2-eyeF*1.4,eyeY); ctx.lineTo(cx-tw/2-eyeF*0.4,eyeY);
+    ctx.moveTo(cx+tw/2+eyeF*0.4,eyeY); ctx.lineTo(cx+tw/2+eyeF*1.4,eyeY);
+    ctx.stroke(); ctx.restore();
+  }
+  function drawPresents(a){
+    if(a<=0) return;
+    ctx.save(); ctx.globalAlpha=a;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font=`italic 400 ${preF}px Orbitron, sans-serif`;
+    if('letterSpacing' in ctx) ctx.letterSpacing=(preF*0.22)+'px';
+    ctx.fillStyle='rgba(150,224,255,0.72)';
+    ctx.fillText('presents', cx, preY);
+    ctx.restore();
+  }
+
+  resize();
+  requestAnimationFrame(draw);
+  (document.fonts?document.fonts.ready:Promise.resolve()).then(()=>{ if(!fading && (performance.now()-start)<900){ resize(); start=performance.now(); } });
 })();
 </script>
 </body>
