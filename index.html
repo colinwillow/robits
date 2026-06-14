@@ -475,12 +475,13 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
         <div style="font-family:'Orbitron',sans-serif;font-size:8px;color:#00ffc866;letter-spacing:2px;margin-top:3px">STANDARD</div>
         <div style="margin-top:8px;font-family:'Orbitron',sans-serif;font-size:7px;color:#ffffff55;letter-spacing:1px">ATK ████░<br>DEF ███░░<br>SPD █████</div>
       </div>
-      <!-- Robot 2 — locked -->
-      <div style="text-align:center;padding:20px 16px;border:2px solid #ffffff11;
-        background:#ffffff04;border-radius:12px;min-width:130px;opacity:0.4">
-        <div style="margin-bottom:8px;display:flex;justify-content:center"><svg width="40" height="40" viewBox="0 0 24 24" stroke="#ffffff55" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1.3"/></svg></div>
-        <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#ffffff44">UNIT-02</div>
-        <div style="font-family:'Orbitron',sans-serif;font-size:8px;color:#ffffff22;letter-spacing:2px;margin-top:3px">COMING SOON</div>
+      <!-- UNIT-02 — ALIEN (shares the robot rig) -->
+      <div onclick="window._selectChar(1)" id="char-1" style="cursor:pointer;text-align:center;padding:20px 16px;border:2px solid #ffffff22;
+        background:#ffffff04;border-radius:12px;min-width:130px;transition:all 0.2s">
+        <div style="margin-bottom:4px;display:flex;justify-content:center;align-items:center;height:130px"><svg width="66" height="66" viewBox="0 0 24 24" stroke="#7CFF6B" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c4 0 6 3.2 6 7.5 0 5-3.2 9-6 12-2.8-3-6-7-6-12C6 5.2 8 2 12 2z"/><path d="M9.4 9.6c.8-.5 1.8-.1 2.1.9.3.9-.1 1.8-.9 2.1-.8.3-1.8-.1-2.1-1-.3-.9.1-1.7.9-2z"/><path d="M14.6 9.6c-.8-.5-1.8-.1-2.1.9-.3.9.1 1.8.9 2.1.8.3 1.8-.1 2.1-1 .3-.9-.1-1.7-.9-2z"/></svg></div>
+        <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#7CFF6B">UNIT-02</div>
+        <div style="font-family:'Orbitron',sans-serif;font-size:8px;color:#7CFF6B66;letter-spacing:2px;margin-top:3px">ALIEN</div>
+        <div style="margin-top:8px;font-family:'Orbitron',sans-serif;font-size:7px;color:#ffffff55;letter-spacing:1px">ATK ███░░<br>DEF ████░<br>SPD ████░</div>
       </div>
       <div style="text-align:center;padding:20px 16px;border:2px solid #ffffff11;
         background:#ffffff04;border-radius:12px;min-width:130px;opacity:0.4">
@@ -2102,6 +2103,18 @@ function _makeAlien(target=48){
 }
 loadAlienGLB(); // preload
 
+// ── PLAYER ALIEN — alien.glb, rigged to the SAME skeleton as the robot, so the robot's clips drive it ──
+const ALIEN_PLAYER_GLB='models/alien.glb';
+let _playerAlienGltf=null, _playerAlienPromise=null;
+function loadPlayerAlienGLB(){
+  if(_playerAlienPromise) return _playerAlienPromise;
+  _playerAlienPromise=new Promise((resolve)=>{ const loader=new GLTFLoader();
+    loader.load(ALIEN_PLAYER_GLB, gltf=>{ _playerAlienGltf=gltf; console.log('Player alien loaded (shares robot rig).'); resolve(gltf); },
+      undefined, ()=>{ console.warn('alien.glb failed to load (loads on the live site only)'); resolve(null); }); });
+  return _playerAlienPromise;
+}
+loadPlayerAlienGLB(); // preload
+
 // ── INTERACTIVE DOOR — proximity open/close, driven by the GLB's "open"/"closed" clips ──
 function _makeInteractiveDoor(target=130, glowHex=0x66ccff){
   const wrap=_makeDoorModel(target,glowHex);
@@ -2200,7 +2213,7 @@ function makePlayerModel(){
   loadRobotGLB().then(gltf=>{
     if(!gltf) return; // no GLB available, keep placeholder saucer
     const tryApply=()=>{
-      if(player&&player.model&&!window._playerGlbApplied){ window._playerGlbApplied=true; _applyRobotModel(player,gltf); }
+      if(player&&player.model&&!window._playerGlbApplied){ window._playerGlbApplied=true; _applySelectedCharacter(player, gltf); }
       else { setTimeout(tryApply,200); }
     };
     tryApply();
@@ -2209,11 +2222,25 @@ function makePlayerModel(){
   return grp;
 }
 
-function _applyRobotModel(player, gltf){
-  scene.remove(player.model);
+// Apply whichever pilot is selected. Robot clips drive both; the alien shares the rig.
+function _applySelectedCharacter(player, robotGltf){
+  const go=(rg)=>{
+    if(!rg) return;
+    if(window._playerChar==='alien'){
+      loadPlayerAlienGLB().then(ag=>{ _applyRobotModel(player, rg, ag||undefined); if(!ag) console.warn('alien.glb unavailable — using robot'); });
+    } else {
+      _applyRobotModel(player, rg);
+    }
+  };
+  if(robotGltf) go(robotGltf); else loadRobotGLB().then(go);
+}
 
-  // Use SkeletonUtils.clone so bot can also clone independently without conflict
-  const robotScene=SkeletonUtils.clone(gltf.scene);
+function _applyRobotModel(player, gltf, skinGltf){
+  scene.remove(player.model);
+  const isAlien=!!skinGltf;
+
+  // Clone the chosen SKIN (robot or alien). Animations always come from `gltf` (the robot rig) — the alien shares the skeleton, so clips retarget by bone name.
+  const robotScene=SkeletonUtils.clone((skinGltf||gltf).scene);
 
   // Size before scaling
   const bbox=new THREE.Box3().setFromObject(robotScene);
@@ -2256,9 +2283,9 @@ function _applyRobotModel(player, gltf){
       c.frustumCulled=false;
       c.castShadow=false;
       if(c.material){
-        // Add cyan emissive glow on top of baked texture
-        c.material.emissive=new THREE.Color(0x0d56cc);
-        c.material.emissiveIntensity=2.85;
+        // Add emissive glow on top of baked texture (alien = green, robot = cyan)
+        c.material.emissive=new THREE.Color(isAlien?0x1f7a2a:0x0d56cc);
+        c.material.emissiveIntensity=isAlien?1.5:2.85;
         c.material.needsUpdate=true;
       }
     }
@@ -10828,10 +10855,11 @@ function _makeGridShaderMat(){
 }
 // per-vertex shock deformation — drives the level mesh's own vertices like a GridSheet (works on any subdivided shape)
 window._customDeform=[]; const _csLP=new THREE.Vector3();
-window._customShock=function(wx,wy,wz,str){ const D=window._customDeform; if(!D)return; for(const e of D){ if(e.shocks.length<6) e.shocks.push({x:wx,y:wy,z:wz,r:0,str:str||1,life:1}); } };
+window._customShock=function(wx,wy,wz,str){ if(!window._customDeformOn)return; const D=window._customDeform; if(!D)return; for(const e of D){ if(e.shocks.length<6) e.shocks.push({x:wx,y:wy,z:wz,r:0,str:str||1,life:1}); } };
 function _updateCustomGrid(dt){
   if(window._customGridMat) window._customGridMat.uniforms.uTime.value+=dt;
-  const D=window._customDeform; if(!D||!D.length) return; const AMP=(window._CUSTOM_AMP||7), BAND=(window._CUSTOM_BAND||30);
+  if(!window._customDeformOn) return;
+  const D=window._customDeform; if(!D||!D.length) return; const AMP=(window._CUSTOM_AMP||2.5), BAND=(window._CUSTOM_BAND||30), MAXD=(window._CUSTOM_MAXD||12);
   for(const e of D){
     let active=false; for(let s=e.shocks.length-1;s>=0;s--){ const sk=e.shocks[s]; sk.r+=520*dt; sk.life-=dt*1.4; if(sk.life<=0)e.shocks.splice(s,1); else active=true; }
     const pos=e.posAttr, wR=e.wRest, wN=e.wN, inv=e.inv, sk=e.shocks, n=pos.count;
@@ -10840,7 +10868,7 @@ function _updateCustomGrid(dt){
     for(let i=0;i<n;i++){ const i3=i*3, wx=wR[i3],wy=wR[i3+1],wz=wR[i3+2]; let disp=0;
       for(let s=0;s<sk.length;s++){ const S=sk[s], dx=wx-S.x,dy=wy-S.y,dz=wz-S.z, d=Math.sqrt(dx*dx+dy*dy+dz*dz);
         if(Math.abs(d-S.r)<BAND) disp+=((BAND-Math.abs(d-S.r))/BAND)*S.str*S.life*Math.sin((d-S.r)*0.16); }
-      disp*=AMP; _csLP.set(wx+wN[i3]*disp, wy+wN[i3+1]*disp, wz+wN[i3+2]*disp).applyMatrix4(inv);
+      disp*=AMP; if(disp>MAXD)disp=MAXD; else if(disp<-MAXD)disp=-MAXD; _csLP.set(wx+wN[i3]*disp, wy+wN[i3+1]*disp, wz+wN[i3+2]*disp).applyMatrix4(inv);
       pos.array[i3]=_csLP.x; pos.array[i3+1]=_csLP.y; pos.array[i3+2]=_csLP.z; }
     pos.needsUpdate=true; e.mesh.geometry.boundingSphere=null;
   }
@@ -10882,19 +10910,32 @@ function _customLevelToSheets(root){
   }
   return sheets;
 }
+// dedup edge index from a triangle geometry (for a wireframe that shares the live vertex buffer)
+function _edgeIndexFromGeo(geo){
+  const idx=geo.index, out=[], seen=new Set();
+  const add=(a,b)=>{ const k=a<b?(a*16777619+b):(b*16777619+a); if(!seen.has(k)){seen.add(k);out.push(a,b);} };
+  if(idx){ for(let t=0;t<idx.count;t+=3){ const a=idx.getX(t),b=idx.getX(t+1),c=idx.getX(t+2); add(a,b);add(b,c);add(c,a);} }
+  else { const n=geo.attributes.position.count; for(let i=0;i<n;i+=3){ add(i,i+1);add(i+1,i+2);add(i+2,i);} }
+  return out;
+}
 function buildCustomLevel(){
   _disposeCustomLevel();
   if(typeof announce==='function') announce('LOADING  level_01.glb …','#39ffd0');
   window._arenaVoid=false; window._skyArena=false; if(typeof grid!=='undefined'&&grid&&grid.clearArenaMask)grid.clearArenaMask();   // keep the ground grid visible
-  const mode=window._customMode||'deform';   // 'deform' (default): the mesh's own verts ripple like a sheet · 'sheets': rebuild faces as GridSheets · 'static': grid shader, no ripple
-  const GMAT=_makeGridShaderMat(); window._customGridMat=GMAT;
+  const mode=window._customMode||'grid';   // 'grid' (default): clean neon wireframe, stable · 'deform': experimental per-vertex ripple · 'sheets': GridSheets · 'shader': grid shader
+  window._customDeformOn=(mode==='deform'); const useShader=(mode==='shader');
+  window._customGridMat = useShader ? _makeGridShaderMat() : null;
+  const _FILL=new THREE.MeshBasicMaterial({color:0x06231c,transparent:true,opacity:0.32,side:THREE.DoubleSide});
+  const _WIRE=new THREE.LineBasicMaterial({color:0x2bff9a,transparent:true,opacity:0.72,blending:THREE.AdditiveBlending,depthWrite:false});
   if(player){ player.wx=0; player.wz=0; player.py=2; player.pvy=0; }   // safe stand on the y=0 grid until the mesh loads
   const loader=new GLTFLoader();
   loader.load('levels/level_01.glb', gltf=>{
     const root=gltf.scene; const meshes=[];
     root.traverse(o=>{ if(o.isMesh && o.geometry){
       if(!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
-      o.material=(mode==='sheets')?new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}):GMAT;   // sheets mode = invisible collision proxy
+      if(useShader){ o.material=window._customGridMat; }
+      else if(mode==='sheets'){ o.material=new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}); }   // invisible collision proxy
+      else { o.material=_FILL; try{ const lg=new THREE.BufferGeometry(); lg.setAttribute('position',o.geometry.attributes.position); lg.setIndex(_edgeIndexFromGeo(o.geometry)); o.add(new THREE.LineSegments(lg,_WIRE)); }catch(e){} }   // grid: faint fill + neon wireframe sharing live verts
       o.frustumCulled=false; meshes.push(o);
     }});
     // auto-fit: scale to a target footprint, center on origin, sit the lowest point on y=0
@@ -10905,15 +10946,15 @@ function buildCustomLevel(){
     scene.add(root); _customLevelRoot=root; window._customLevelMeshes=meshes; window._customLevelReady=true;
     let sheets=[];
     if(mode==='sheets'){ try{ sheets=_customLevelToSheets(root); }catch(e){ console.warn('sheet extract:',e); } }
-    else {
-      // paint the grid in REST surface coords (aGrid/aGN) and capture per-vertex deform state so the mesh ripples like a sheet
+    else if(mode==='deform' || useShader){
+      // capture per-vertex rest world pos/normal (deform sim + shader). Only built in those modes — 'grid' stays static.
       window._customDeform=[]; const tv=new THREE.Vector3(), nm=new THREE.Matrix3();
       for(const o of meshes){ const pos=o.geometry.attributes.position, nA=o.geometry.attributes.normal, np=pos.count;
         const aGrid=new Float32Array(np*3), aGN=new Float32Array(np*3); nm.getNormalMatrix(o.matrixWorld);
         for(let i=0;i<np;i++){ tv.fromBufferAttribute(pos,i).applyMatrix4(o.matrixWorld); aGrid[i*3]=tv.x;aGrid[i*3+1]=tv.y;aGrid[i*3+2]=tv.z;
           tv.fromBufferAttribute(nA,i).applyMatrix3(nm).normalize(); aGN[i*3]=tv.x;aGN[i*3+1]=tv.y;aGN[i*3+2]=tv.z; }
         o.geometry.setAttribute('aGrid',new THREE.BufferAttribute(aGrid,3)); o.geometry.setAttribute('aGN',new THREE.BufferAttribute(aGN,3));
-        if(mode!=='static' && np<22000){ window._customDeform.push({ mesh:o, posAttr:pos, restL:new Float32Array(pos.array), wRest:aGrid, wN:aGN, inv:new THREE.Matrix4().copy(o.matrixWorld).invert(), shocks:[], _dirty:false }); }
+        if(mode==='deform' && np<22000){ window._customDeform.push({ mesh:o, posAttr:pos, restL:new Float32Array(pos.array), wRest:aGrid, wN:aGN, inv:new THREE.Matrix4().copy(o.matrixWorld).invert(), shocks:[], _dirty:false }); }
       }
     }
     window._customSheets=sheets;
@@ -22287,9 +22328,15 @@ window._deploy=function(){
   else { window._showScreen('levelselect'); }   // freeroam -> curated level list
 };
 
+window._playerChar='robot';
 window._selectChar=function(idx){
-  // future: set player character
-  console.log('Selected char',idx);
+  window._playerChar = (idx===1) ? 'alien' : 'robot';
+  // highlight the chosen tile
+  [['char-0',0],['char-1',1]].forEach(([id,i])=>{ const el=document.getElementById(id); if(!el)return; const on=(i===idx);
+    el.style.borderColor = on?'#00ffc8':'#ffffff22'; el.style.boxShadow = on?'0 0 20px #00ffc833':'none'; el.style.background = on?'#00ffc808':'#ffffff04'; });
+  // if a player already exists (re-selecting), swap the model live
+  if(typeof player!=='undefined' && player && player.model){ window._playerGlbApplied=false; _applySelectedCharacter(player); window._playerGlbApplied=true; }
+  console.log('Pilot selected:', window._playerChar);
 };
 
 window._highlightCtrl=function(id){
