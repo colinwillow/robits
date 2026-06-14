@@ -9068,7 +9068,7 @@ class Player{
     if(this.py>0) this._peakPy=Math.max(this._peakPy||0, this.py);
     const wasAirborne=this._wasAirborne||false;
     let eFloor=0;
-    if(GS.zone===-18 && typeof _customFloorAt==='function'){ const _cf=_customFloorAt(this.wx,this.wz,this.py); if(_cf>eFloor) eFloor=_cf; }
+    if(GS.zone===-18 && typeof _customFloorAt==='function'){ const _cf=_customFloorAt(this.wx,this.wz,this.py); this._cf18=_cf; if(_cf>eFloor) eFloor=_cf; }
     if(GS.zone===-16 && _cityBoxes.length && !this._inPlanetGravity && !this._hang){
       const _cap=Math.max(10, Math.abs(this.pvy||0)*dt+6);
       for(const b of _cityBoxes){ const dx=this.wx-b.x, dz=this.wz-b.z;
@@ -9088,6 +9088,7 @@ class Player{
           if(impact>30||peakH>40){
             // Scale shockwave by how high we fell from
             const str=clamp((impact/120)*(0.5+peakH/200), 0.08, 1.5);
+            if(GS.zone===-18){ if(typeof window._customRipple==='function') window._customRipple(this.wx,this.wz, clamp(str+0.5,0.5,1.9)); if(typeof grid!=='undefined'&&grid.shock) grid.shock(this.wx,this.wz, str*4); }
             if(eFloor>0){
               // landed on a building ROOF — shock the building's grid sheets, leave the ground plane alone
               if(typeof gridSheetsBlast==='function') gridSheetsBlast(this.wx, eFloor, this.wz, str*4.5, Math.min(56, 38+str*20));
@@ -9234,6 +9235,7 @@ class Player{
     if(GS.zone===-8){ const _rh=_skateRampHeight(this.wx,this.wz); if(_rh>groundY){ groundY=_rh; if(this.py<=_rh+10) onSurface=true; } }
     if(GS.zone===-9){ const _fg=_fractGroundY(this.wx,this.wz,this.py); if(_fg>groundY){ groundY=_fg; if(this.py<=_fg+12) onSurface=true; } }
     if(GS.zone===-10){ groundY=this._pipeSurfY||0; if(!this._pipeAir) onSurface=true; }
+    if(GS.zone===-18){ const _cf=this._cf18; if(_cf!=null && _cf>-9000){ groundY=Math.max(groundY,_cf); if(this.py<=_cf+3) onSurface=true; } }
     const height=this.py-groundY;
     const airborne=!onSurface&&height>3;
     const pulse=0.5+0.5*Math.sin(performance.now()*0.007);
@@ -10790,7 +10792,7 @@ let _customLevelRoot=null; window._customLevelMeshes=[]; window._customLevelRead
 const _CUSTOM_DOWN=new THREE.Vector3(0,-1,0), _CUSTOM_ORIG=new THREE.Vector3(), _customRay=new THREE.Raycaster();
 function _disposeCustomLevel(){
   if(_customLevelRoot){ scene.remove(_customLevelRoot); _customLevelRoot.traverse(o=>{ if(o.geometry&&o.geometry.dispose)o.geometry.dispose(); if(o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m&&m.dispose&&m.dispose()); } }); _customLevelRoot=null; }
-  window._customLevelMeshes=[]; window._customLevelReady=false;
+  window._customLevelMeshes=[]; window._customLevelReady=false; window._customGridMat=null;
 }
 function _customFloorAt(x,z,py){
   const meshes=window._customLevelMeshes; if(!meshes||!meshes.length) return -9999;
@@ -10799,20 +10801,51 @@ function _customFloorAt(x,z,py){
   for(const h of hits){ if(h.point.y<=py+22) return h.point.y; }   // highest surface at/below your feet -> pass under overhangs
   return -9999;
 }
+// grid-shader: paints glowing world-space grid lines across any mesh + expanding light "ripples" on impact
+let _custRipIdx=0;
+function _makeGridShaderMat(){
+  const m=new THREE.ShaderMaterial({ transparent:true, depthWrite:true, side:THREE.DoubleSide,
+    uniforms:{ uTime:{value:0}, uColor:{value:new THREE.Color(0x39ffd0)}, uCell:{value:14.0},
+      uRip:{value:Array.from({length:6},()=>new THREE.Vector4(0,0,-999,0))} },
+    vertexShader:`varying vec3 vW; varying vec3 vN;
+      void main(){ vec4 wp=modelMatrix*vec4(position,1.0); vW=wp.xyz; vN=normalize(mat3(modelMatrix)*normal); gl_Position=projectionMatrix*viewMatrix*wp; }`,
+    fragmentShader:`precision highp float; varying vec3 vW; varying vec3 vN;
+      uniform float uTime; uniform vec3 uColor; uniform float uCell; uniform vec4 uRip[6];
+      float gl_(vec2 p){ vec2 q=p/uCell; vec2 g=abs(fract(q-0.5)-0.5)/fwidth(q); float l=min(g.x,g.y); return 1.0-min(l,1.0); }
+      void main(){
+        vec3 n=abs(normalize(vN)); n/=max(0.0001,(n.x+n.y+n.z));
+        float grid=gl_(vW.zy)*n.x+gl_(vW.xz)*n.y+gl_(vW.xy)*n.z;
+        float pulse=0.6+0.4*sin(uTime*1.5);
+        vec3 col=uColor*grid*(0.55+0.45*pulse);
+        float a=0.10+grid*0.85;
+        for(int i=0;i<6;i++){ vec4 r=uRip[i]; if(r.w<=0.0)continue; float age=uTime-r.z; if(age<0.0||age>1.6)continue;
+          float d=distance(vW.xz,r.xy); float ring=age*230.0;
+          float b=r.w*exp(-pow((d-ring)/26.0,2.0))*(1.0-age/1.6);
+          col+=uColor*b*1.5; a=min(1.0,a+b); }
+        if(a<0.02) discard;
+        gl_FragColor=vec4(col,a);
+      }`
+  });
+  m.extensions={derivatives:true};
+  return m;
+}
+window._customRipple=function(x,z,str){ const M=window._customGridMat; if(!M)return; M.uniforms.uRip.value[_custRipIdx%6].set(x,z,M.uniforms.uTime.value,str||1.0); _custRipIdx++; };
+function _updateCustomGrid(dt){ if(window._customGridMat) window._customGridMat.uniforms.uTime.value+=dt; }
 function buildCustomLevel(){
   _disposeCustomLevel();
   if(typeof announce==='function') announce('LOADING  level_01.glb …','#39ffd0');
-  const FILL=new THREE.MeshBasicMaterial({color:0x0a2230,transparent:true,opacity:0.32,side:THREE.DoubleSide});
-  const EDGE=new THREE.LineBasicMaterial({color:0x39ffd0,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+  window._arenaVoid=false; window._skyArena=false; if(typeof grid!=='undefined'&&grid&&grid.clearArenaMask)grid.clearArenaMask();   // keep the ground grid visible
+  const GMAT=_makeGridShaderMat(); window._customGridMat=GMAT;
+  const EDGE=new THREE.LineBasicMaterial({color:0x39ffd0,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false});
   if(player){ player.wx=0; player.wz=0; player.py=2; player.pvy=0; }   // safe stand on the y=0 grid until the mesh loads
   const loader=new GLTFLoader();
   loader.load('levels/level_01.glb', gltf=>{
     const root=gltf.scene; const meshes=[];
     root.traverse(o=>{ if(o.isMesh && o.geometry){
-      o.material=FILL; o.frustumCulled=false;
+      if(!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
+      o.material=GMAT; o.frustumCulled=false;
       try{ const pos=o.geometry.attributes&&o.geometry.attributes.position;
         if(pos && pos.count<60000){ o.add(new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry,22),EDGE)); }   // structural Tron edges
-        else { o.material=new THREE.MeshBasicMaterial({color:0x39ffd0,wireframe:true,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false}); }
       }catch(e){}
       meshes.push(o);
     }});
@@ -14137,7 +14170,7 @@ function loop(ts){ requestAnimationFrame(loop);
 
     _camRestoreTick();
     updateCamera(rawDt);
-    grid.update(dt); ps.update(dt); if(ps2)ps2.update(dt);
+    grid.update(dt); ps.update(dt); if(ps2)ps2.update(dt); if(GS.zone===-18 && typeof _updateCustomGrid==='function') _updateCustomGrid(dt);
     for(const p of GS_portals) p.update(dt,player);
     // Tick robot animation mixer
     if(player&&player._mixer){
