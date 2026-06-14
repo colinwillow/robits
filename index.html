@@ -9088,7 +9088,7 @@ class Player{
           if(impact>30||peakH>40){
             // Scale shockwave by how high we fell from
             const str=clamp((impact/120)*(0.5+peakH/200), 0.08, 1.5);
-            if(GS.zone===-18){ if(typeof window._customRipple==='function') window._customRipple(this.wx,this.wz, clamp(str+0.5,0.5,1.9)); if(typeof grid!=='undefined'&&grid.shock) grid.shock(this.wx,this.wz, str*4); }
+            if(GS.zone===-18){ if(typeof gridSheetsBlast==='function') gridSheetsBlast(this.wx,this.py,this.wz, str*4, 100); if(typeof window._customRipple==='function') window._customRipple(this.wx,this.wz, clamp(str+0.5,0.5,1.9)); if(typeof grid!=='undefined'&&grid.shock) grid.shock(this.wx,this.wz, str*4); }
             if(eFloor>0){
               // landed on a building ROOF — shock the building's grid sheets, leave the ground plane alone
               if(typeof gridSheetsBlast==='function') gridSheetsBlast(this.wx, eFloor, this.wz, str*4.5, Math.min(56, 38+str*20));
@@ -10792,6 +10792,7 @@ let _customLevelRoot=null; window._customLevelMeshes=[]; window._customLevelRead
 const _CUSTOM_DOWN=new THREE.Vector3(0,-1,0), _CUSTOM_ORIG=new THREE.Vector3(), _customRay=new THREE.Raycaster();
 function _disposeCustomLevel(){
   if(_customLevelRoot){ scene.remove(_customLevelRoot); _customLevelRoot.traverse(o=>{ if(o.geometry&&o.geometry.dispose)o.geometry.dispose(); if(o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m&&m.dispose&&m.dispose()); } }); _customLevelRoot=null; }
+  if(window._customSheets){ for(const s of window._customSheets){ try{ s.dispose&&s.dispose(); }catch(e){} } window._customSheets=[]; }
   window._customLevelMeshes=[]; window._customLevelReady=false; window._customGridMat=null;
 }
 function _customFloorAt(x,z,py){
@@ -10831,23 +10832,57 @@ function _makeGridShaderMat(){
 }
 window._customRipple=function(x,z,str){ const M=window._customGridMat; if(!M)return; M.uniforms.uRip.value[_custRipIdx%6].set(x,z,M.uniforms.uTime.value,str||1.0); _custRipIdx++; };
 function _updateCustomGrid(dt){ if(window._customGridMat) window._customGridMat.uniforms.uTime.value+=dt; }
+// Extract flat faces from a (plane-built) GLB and rebuild each as an oriented GridSheet — the deforming grid.
+function _customLevelToSheets(root){
+  root.updateMatrixWorld(true);
+  const CELL=(window._CUSTOM_CELL||18), MAXSHEETS=(window._CUSTOM_MAXSHEETS||70), MINSIZE=20;
+  const groups=new Map();
+  const A=new THREE.Vector3(),B=new THREE.Vector3(),C=new THREE.Vector3(),N=new THREE.Vector3(),e1=new THREE.Vector3(),e2=new THREE.Vector3();
+  root.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position) return;
+    const g=o.geometry, pos=g.attributes.position, idx=g.index, mw=o.matrixWorld;
+    const tris=idx?idx.count/3:pos.count/3;
+    for(let t=0;t<tris;t++){
+      const ia=idx?idx.getX(t*3):t*3, ib=idx?idx.getX(t*3+1):t*3+1, ic=idx?idx.getX(t*3+2):t*3+2;
+      A.fromBufferAttribute(pos,ia).applyMatrix4(mw); B.fromBufferAttribute(pos,ib).applyMatrix4(mw); C.fromBufferAttribute(pos,ic).applyMatrix4(mw);
+      e1.subVectors(B,A); e2.subVectors(C,A); N.crossVectors(e1,e2); const area=N.length(); if(area<1e-4) continue; N.multiplyScalar(1/area);
+      const d=N.dot(A);
+      const q=v=>Math.round(v*16)/16, key=q(N.x)+'_'+q(N.y)+'_'+q(N.z)+'_'+Math.round(d/CELL);
+      let grp=groups.get(key); if(!grp){ grp={n:N.clone(), pts:[]}; groups.set(key,grp); }
+      grp.pts.push(A.clone(),B.clone(),C.clone());
+    }
+  });
+  const sheets=[]; const tmp=new THREE.Vector3();
+  const sorted=[...groups.values()].sort((a,b)=>b.pts.length-a.pts.length);   // biggest faces first
+  for(const grp of sorted){
+    if(sheets.length>=MAXSHEETS) break;
+    const n=grp.n, pts=grp.pts; if(pts.length<3) continue;
+    const up=Math.abs(n.y)>0.9?new THREE.Vector3(1,0,0):new THREE.Vector3(0,1,0);
+    const U=new THREE.Vector3().crossVectors(up,n).normalize(); const V=new THREE.Vector3().crossVectors(n,U).normalize();
+    const ctr=new THREE.Vector3(); for(const p of pts) ctr.add(p); ctr.multiplyScalar(1/pts.length);
+    let minU=1e9,maxU=-1e9,minV=1e9,maxV=-1e9;
+    for(const p of pts){ tmp.subVectors(p,ctr); const u=tmp.dot(U),v=tmp.dot(V); if(u<minU)minU=u;if(u>maxU)maxU=u;if(v<minV)minV=v;if(v>maxV)maxV=v; }
+    const w=maxU-minU, h=maxV-minV; if(w<MINSIZE||h<MINSIZE) continue;
+    ctr.addScaledVector(U,(minU+maxU)/2).addScaledVector(V,(minV+maxV)/2);
+    const cols=Math.min(40,Math.max(2,Math.round(w/CELL)+1)), rows=Math.min(40,Math.max(2,Math.round(h/CELL)+1));
+    const m=new THREE.Matrix4().makeBasis(U,n,V); const quat=new THREE.Quaternion().setFromRotationMatrix(m);
+    try{ sheets.push(new GridSheet({cols,rows,cell:CELL,position:ctr.clone(),quaternion:quat,palette:'blue',fill:true,subdiv:IS_MOBILE?1:2})); }catch(e){ console.warn('sheet:',e); }
+  }
+  return sheets;
+}
 function buildCustomLevel(){
   _disposeCustomLevel();
   if(typeof announce==='function') announce('LOADING  level_01.glb …','#39ffd0');
   window._arenaVoid=false; window._skyArena=false; if(typeof grid!=='undefined'&&grid&&grid.clearArenaMask)grid.clearArenaMask();   // keep the ground grid visible
-  const GMAT=_makeGridShaderMat(); window._customGridMat=GMAT;
-  const EDGE=new THREE.LineBasicMaterial({color:0x39ffd0,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false});
+  const useShader=(window._customMode==='shader');
+  const COLL=useShader?_makeGridShaderMat():new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false});   // default: invisible collision proxy (sheets are the visuals)
+  if(useShader) window._customGridMat=COLL;
   if(player){ player.wx=0; player.wz=0; player.py=2; player.pvy=0; }   // safe stand on the y=0 grid until the mesh loads
   const loader=new GLTFLoader();
   loader.load('levels/level_01.glb', gltf=>{
     const root=gltf.scene; const meshes=[];
     root.traverse(o=>{ if(o.isMesh && o.geometry){
       if(!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
-      o.material=GMAT; o.frustumCulled=false;
-      try{ const pos=o.geometry.attributes&&o.geometry.attributes.position;
-        if(pos && pos.count<60000){ o.add(new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry,22),EDGE)); }   // structural Tron edges
-      }catch(e){}
-      meshes.push(o);
+      o.material=COLL; o.frustumCulled=false; meshes.push(o);
     }});
     // auto-fit: scale to a target footprint, center on origin, sit the lowest point on y=0
     let box=new THREE.Box3().setFromObject(root); const size=new THREE.Vector3(); box.getSize(size);
@@ -10855,9 +10890,12 @@ function buildCustomLevel(){
     root.updateMatrixWorld(true); box=new THREE.Box3().setFromObject(root); const c=new THREE.Vector3(); box.getCenter(c);
     root.position.x-=c.x; root.position.z-=c.z; root.position.y-=box.min.y; root.updateMatrixWorld(true);
     scene.add(root); _customLevelRoot=root; window._customLevelMeshes=meshes; window._customLevelReady=true;
+    // rebuild the level's flat faces as deforming GRID SHEETS (unless in shader mode)
+    let sheets=[]; if(!useShader){ try{ sheets=_customLevelToSheets(root); }catch(e){ console.warn('sheet extract:',e); } }
+    window._customSheets=sheets;
     if(player){ const f=_customFloorAt(0,0,500); player.wx=0; player.wz=0; player.py=(f>-9000?f:0)+2; player.pvy=0; }
-    if(typeof announce==='function') announce('LEVEL_01  ·  custom mesh','#39ffd0');
-    console.log('[custom level] meshes:',meshes.length,'scale:',s.toFixed(3),'raw size:',size);
+    if(typeof announce==='function') announce(useShader?'LEVEL_01 · shader':('LEVEL_01 · '+sheets.length+' grid sheets'),'#39ffd0');
+    console.log('[custom level] collision meshes:',meshes.length,'grid sheets:',sheets.length,'scale:',s.toFixed(3),'raw size:',size);
   }, undefined, err=>{
     console.warn('level_01.glb load failed:',err);
     if(typeof announce==='function') announce('level_01.glb FAILED to load','#ff4466');
