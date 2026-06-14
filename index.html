@@ -2235,6 +2235,13 @@ function _applySelectedCharacter(player, robotGltf){
   if(robotGltf) go(robotGltf); else loadRobotGLB().then(go);
 }
 
+// Drop animation tracks that target nodes the skin doesn't have (e.g. robot-only weapon_direction/new_robot on the alien) — silences harmless PropertyBinding warnings. Clones the clip so the originals are untouched.
+function _filterClipToScene(clip, root){
+  const names=new Set(); root.traverse(o=>{ if(o.name) names.add(o.name); });
+  const tracks=clip.tracks.filter(t=>{ for(const nm of names){ if(t.name===nm||t.name.startsWith(nm+'.')) return true; } return false; });
+  if(tracks.length===clip.tracks.length) return clip;
+  const c=clip.clone(); c.tracks=tracks; return c;
+}
 function _applyRobotModel(player, gltf, skinGltf){
   const isAlien=!!skinGltf;
 
@@ -2290,13 +2297,16 @@ function _applyRobotModel(player, gltf, skinGltf){
       c.frustumCulled=false;
       c.castShadow=false;
       c.visible=true;
-      const mats=Array.isArray(c.material)?c.material:[c.material];
-      mats.forEach(mt=>{ if(!mt) return;
-        if(isAlien){ mt.transparent=false; mt.opacity=1; mt.side=THREE.DoubleSide; mt.depthWrite=true;
-          if(!mt.map && mt.color && (mt.color.r+mt.color.g+mt.color.b)<0.12) mt.color=new THREE.Color(0x7CFF6B); }   // rescue near-black / untextured imports
-        if('emissive' in mt){ mt.emissive=new THREE.Color(isAlien?0x1f7a2a:0x0d56cc); mt.emissiveIntensity=isAlien?1.4:2.85; if('toneMapped' in mt) mt.toneMapped=false; }
-        mt.needsUpdate=true;
-      });
+      if(isAlien){
+        // DEBUG VISIBILITY: replace with an unlit, double-sided bright material so the mesh renders regardless of imported material, normals, or lighting. (We'll restore a nicer look once it's confirmed visible.)
+        c.material=new THREE.MeshBasicMaterial({color:0x7CFF6B, side:THREE.DoubleSide});
+      } else {
+        const mats=Array.isArray(c.material)?c.material:[c.material];
+        mats.forEach(mt=>{ if(!mt) return;
+          if('emissive' in mt){ mt.emissive=new THREE.Color(0x0d56cc); mt.emissiveIntensity=2.85; if('toneMapped' in mt) mt.toneMapped=false; }
+          mt.needsUpdate=true;
+        });
+      }
     }
   });
 
@@ -2319,7 +2329,7 @@ function _applyRobotModel(player, gltf, skinGltf){
     const raw=clip.name;
     const name=raw.split('|').pop().split(':').pop();   // strip "Armature|idle" / "rig:idle" -> "idle"
     if(raw==='CINEMA_4D_Main'||name.toLowerCase()==='main') return; // skip default/NLA take
-    const action=mixer.clipAction(clip);
+    const action=mixer.clipAction(isAlien?_filterClipToScene(clip,robotScene):clip);
     const isOneShot=['landing','dive_roll','roll','dash','dive'].some(n=>name.includes(n));
     if(isOneShot){
       action.setLoop(THREE.LoopOnce,1);
@@ -2353,6 +2363,8 @@ function _applyRobotModel(player, gltf, skinGltf){
 
   scene.add(robotScene);
   player.model=robotScene;
+  if(isAlien){ try{ const _bb=new THREE.Box3().setFromObject(robotScene); const _sz=_bb.getSize(new THREE.Vector3()), _ct=_bb.getCenter(new THREE.Vector3());
+    console.log('[char] ALIEN added — final size:', _sz.x.toFixed(1),_sz.y.toFixed(1),_sz.z.toFixed(1),' center:', _ct.x.toFixed(1),_ct.y.toFixed(1),_ct.z.toFixed(1),' visible:', robotScene.visible); }catch(e){} }
   // Log all bone names for IK setup
   robotScene.traverse(c=>{
     if(c.isBone) console.log('Bone:', c.name);
