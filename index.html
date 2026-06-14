@@ -2236,16 +2236,23 @@ function _applySelectedCharacter(player, robotGltf){
 }
 
 function _applyRobotModel(player, gltf, skinGltf){
-  scene.remove(player.model);
   const isAlien=!!skinGltf;
 
-  // Clone the chosen SKIN (robot or alien). Animations always come from `gltf` (the robot rig) — the alien shares the skeleton, so clips retarget by bone name.
-  const robotScene=SkeletonUtils.clone((skinGltf||gltf).scene);
+  // Clone the chosen SKIN (robot or alien) FIRST — if it throws, keep the old model rather than leaving the player invisible.
+  // Animations always come from `gltf` (the robot rig); the alien shares the skeleton, so clips retarget by bone name.
+  let robotScene;
+  try{ robotScene=SkeletonUtils.clone((skinGltf||gltf).scene); }
+  catch(e){ console.warn('[char] SkeletonUtils.clone failed — deep-clone fallback:',e);
+    try{ robotScene=(skinGltf||gltf).scene.clone(true); }catch(e2){ console.error('[char] clone failed entirely, keeping current model:',e2); return; } }
+  scene.remove(player.model);
 
   // Size before scaling
   const bbox=new THREE.Box3().setFromObject(robotScene);
   const size=new THREE.Vector3(); bbox.getSize(size);
   console.log('Robot raw size:', JSON.stringify({x:size.x.toFixed(2),y:size.y.toFixed(2),z:size.z.toFixed(2)}));
+  let _meshN=0,_skinN=0; robotScene.traverse(c=>{ if(c.isSkinnedMesh){_skinN++;_meshN++;} else if(c.isMesh)_meshN++; });
+  console.log('[char] applying '+(isAlien?'ALIEN':'ROBOT')+' — meshes:',_meshN,'(skinned:',_skinN+')','size.y:',size.y.toFixed(2));
+  if(isAlien && _meshN===0) console.warn('[char] alien.glb has NO renderable mesh — only bones/empties? Re-export with the skinned mesh included.');
 
   const targetHeight=18;
   const autoScale=targetHeight/(size.y||1);
@@ -2282,12 +2289,14 @@ function _applyRobotModel(player, gltf, skinGltf){
     if(c.isSkinnedMesh||c.isMesh){
       c.frustumCulled=false;
       c.castShadow=false;
-      if(c.material){
-        // Add emissive glow on top of baked texture (alien = green, robot = cyan)
-        c.material.emissive=new THREE.Color(isAlien?0x1f7a2a:0x0d56cc);
-        c.material.emissiveIntensity=isAlien?1.5:2.85;
-        c.material.needsUpdate=true;
-      }
+      c.visible=true;
+      const mats=Array.isArray(c.material)?c.material:[c.material];
+      mats.forEach(mt=>{ if(!mt) return;
+        if(isAlien){ mt.transparent=false; mt.opacity=1; mt.side=THREE.DoubleSide; mt.depthWrite=true;
+          if(!mt.map && mt.color && (mt.color.r+mt.color.g+mt.color.b)<0.12) mt.color=new THREE.Color(0x7CFF6B); }   // rescue near-black / untextured imports
+        if('emissive' in mt){ mt.emissive=new THREE.Color(isAlien?0x1f7a2a:0x0d56cc); mt.emissiveIntensity=isAlien?1.4:2.85; if('toneMapped' in mt) mt.toneMapped=false; }
+        mt.needsUpdate=true;
+      });
     }
   });
 
