@@ -14884,7 +14884,7 @@ function loop(ts){ requestAnimationFrame(loop);
             let kvx=pv?(bx-pv.x):0, kvz=pv?(bz-pv.z):0;
             const HIT_R=_MS.reach;   // per-weapon reach (spear long, sword short)
             const _seg=(px,py,pz)=>{ const dx=bx-ax2,dy=by-ay2,dz=bz-az2, L2=dx*dx+dy*dy+dz*dz||1; let t=((px-ax2)*dx+(py-ay2)*dy+(pz-az2)*dz)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(px-(ax2+dx*t),py-(ay2+dy*t),pz-(az2+dz*t)); };
-            if(typeof _deflectProjectiles==='function') _deflectProjectiles();   // PARRY: deflect the incoming projectile if its gauge marker is in the green
+            // (parry is handled by the armed window in _parryGaugeTick — swing arms it, the projectile entering the zone triggers it)
             const _try=(e,kind)=>{
               if(!e||e.alive===false||e===player||ud._meleeHitSet.has(e))return false;     // (dummy has no .alive -> still allowed through)
               const ey=(e.mesh?e.mesh.position.y:(e.py||0))+10;
@@ -20612,12 +20612,15 @@ function _parryAlert(){ let e=document.getElementById('parry-alert'); if(e)retur
 function _parryHideDebug(){ if(window._parryLineMesh)window._parryLineMesh.visible=false; const a=document.getElementById('parry-dist'); if(a)a.style.display='none'; const b=document.getElementById('parry-alert'); if(b)b.style.display='none'; }
 function _parryGaugeTick(dt){
   if(!player || GS.state!=='playing'){ _parryHideDebug(); if(player){player._parryTarget=null;player._parryInWin=false;} return; }
+  if(player._parryArmT>0) player._parryArmT-=dt;
   const t=_findParryTarget();
   player._parryTarget=t.obj; player._parryKind=t.kind;
   if(!t.obj){ _parryHideDebug(); player._parryInWin=false; return; }
   const WN=(window._PARRY_WIN_NEAR!=null?window._PARRY_WIN_NEAR:0), WF=(window._PARRY_WIN_FAR!=null?window._PARRY_WIN_FAR:50);
   const dist=t.dist, inWin=(dist>=WN && dist<=WF);
   player._parryInWin=inWin;
+  // ARMED PARRY — you swung recently AND the projectile is now in the window -> deflect (works no matter where in the swing/anim it lands)
+  if(inWin && (player._parryArmT||0)>0){ _parryDeflect(t.obj, t.kind, 'green'); player._parryArmT=0; player._parryTarget=null; player._parryInWin=false; _parryHideDebug(); return; }
   const obj=t.obj, ox=(obj.wx!=null?obj.wx:obj.x), oy=(obj.y!=null?obj.y:12), oz=(obj.wz!=null?obj.wz:obj.z);
   // 3D line player -> projectile
   const ln=_parryLine(); const pos=ln.geometry.attributes.position; pos.setXYZ(0, player.wx,(player.py||0)+18, player.wz); pos.setXYZ(1, ox, oy, oz); pos.needsUpdate=true; ln.geometry.computeBoundingSphere(); ln.visible=true;
@@ -20648,10 +20651,12 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   { const _og=(player.py<=4)||player._onPlatform||(player._inPlanetGravity&&player._glGrounded); _airMelee = player._inPlanetGravity ? !player._glGrounded : (!_og && player.py>8); }
   let mname;
   if(_airMelee && ud.clips['air_to_ground_melee']){
-    mname='air_to_ground_melee'; player._meleeCombo=0; player._airSlam=true;   // air slam -> plants dead on ground impact; ground sequence restarts at melee_1 after
+    mname='air_to_ground_melee'; player._meleeStep=-1; player._airSlam=true;   // air slam -> plants on impact; ground sequence restarts at the front of the order after
   } else {
     if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }
-    else { if((player._meleeComboT||0)<=0) player._meleeCombo=0; player._meleeCombo=(player._meleeCombo>=5)?1:(player._meleeCombo+1); }   // sequential 1->2->3->4->5 (resets after the combo-gap below)
+    else { const _seq=(window._MELEE_SEQ&&window._MELEE_SEQ.length)?window._MELEE_SEQ:[2,3,4,5,1];   // order swings fire in — melee_2 first (not a spin -> reads better for parries)
+      if((player._meleeComboT||0)<=0) player._meleeStep=0; else player._meleeStep=((player._meleeStep||0)+1)%_seq.length;
+      player._meleeCombo=_seq[player._meleeStep]; }
     mname='melee_'+player._meleeCombo;
   }
   if(!ud.clips[mname] && player._warnedMelee!==mname){ player._warnedMelee=mname; if(typeof announce==='function') announce(mname.toUpperCase()+' NOT IN GLB','#ff5555'); }
@@ -20694,7 +20699,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
     Object.values(ud.clips).forEach(a=>{ if(a!==mc && a!==prev) a.fadeOut(0.10); });
     ud.currentClip=mname;
   }
-  ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false; ud._meleeFXdone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; player._parrySwingDone=false;
+  ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false; ud._meleeFXdone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; player._parryArmT=(window._PARRY_SWING_WIN!=null?window._PARRY_SWING_WIN:0.34);   // arm a parry window: if a projectile enters the zone during it, deflect
   player._meleeComboT=mdur+(window._MELEE_COMBO_GAP!=null?window._MELEE_COMBO_GAP:1.0);   // ~1s grace after the swing to chain; wait longer -> sequence restarts at melee_1
   player._flickCooldown=8;
   player._rollAimLock=true;
