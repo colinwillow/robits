@@ -20259,7 +20259,7 @@ let _HAMMER_SCALE=1.7;                                // equipped world-size (ma
 let _MELEE_FLICK_HI=0.78;   // stick must snap past this to fire a melee
 let _MELEE_FLICK_LO=0.40;   // stick must ease back below this to re-arm the next flick (higher = easier fast chaining)
 let _MELEE_FLICK_VEL=0.16;  // min per-frame snap speed (separates a flick from a slow aim push)
-let _MELEE_SPEED=2.8;        // master swing-speed multiplier (per-weapon speed multiplies this) — 2x of old 1.4 so swings are quick. tune live: window._MELEE_SPEED
+let _MELEE_SPEED=1.4;        // master swing-speed multiplier (per-weapon speed multiplies this). gentle quickening so authored clips still finish; raise via window._MELEE_SPEED for snappier
 // ── per-weapon melee balance — keyed by player._meleeType. melee hits MUCH harder than bullets so it's worth closing in. ──
 window._MELEE_STATS = window._MELEE_STATS || {
   //        dmg  reach  speed   eForce eLift eAir eStun   bMag bLift bStn   + impact: hitStop(frames) trauma(shake) thud(sfx pitch) slow/slowH/zoom (heavy only)
@@ -20335,8 +20335,8 @@ function _ensureFireDrone(){
     ps.ring(m.x,m.z,fc,3,40); if(D.core) D.core.scale.setScalar(1.7); };
   window._fireDrone=D; return D;
 }
-let _MELEE_TRIM_START=0.167;  // sec skipped off the START of each swing (~5 frames @30fps) -> no windup
-let _MELEE_TRIM_END=0.167;    // sec cut off the END (~5 frames) -> locomotion takes over sooner
+let _MELEE_TRIM_START=0;  // sec skipped off the START of each swing. 0 = play full clip (new clips are authored clean, no windup to skip). tune: window._MELEE_TRIM_START
+let _MELEE_TRIM_END=0;    // sec cut off the END. 0 = let the follow-through finish before locomotion resumes. tune: window._MELEE_TRIM_END
 let _MELEE_FLICK_WINDOW_MS=160;  // a flick must snap out AND return within this many ms; holding longer = aim/fire instead
 if(typeof window!=='undefined' && window._meleeUpperBody===undefined) window._meleeUpperBody=false;   // FULL-BODY swing (legs+torso play the whole clip). set true for the upper-body additive split.
 if(typeof window!=='undefined' && window._meleeLandLock===undefined) window._meleeLandLock=true;      // PLANT in place during the swing -> can't interrupt the attack by moving
@@ -20391,9 +20391,11 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   const _ws=window._MELEE_STATS&&window._MELEE_STATS[player._meleeType||'sword'];
   const spd=((typeof window!=='undefined'&&window._MELEE_SPEED!=null?window._MELEE_SPEED:_MELEE_SPEED)||1)*((_ws&&_ws.speed)||1);   // per-weapon: sword fast, hammer slow
   const fullDur=((mc._clip&&mc._clip.duration)||0.6);
-  const trimS=Math.min(_MELEE_TRIM_START||0, fullDur*0.3);
-  const trimE=Math.min(_MELEE_TRIM_END||0, fullDur*0.3);
-  const mdur=Math.max(fullDur*0.4, fullDur-trimS-trimE)/spd;
+  const _tS=(typeof window!=='undefined'&&window._MELEE_TRIM_START!=null)?window._MELEE_TRIM_START:_MELEE_TRIM_START;
+  const _tE=(typeof window!=='undefined'&&window._MELEE_TRIM_END!=null)?window._MELEE_TRIM_END:_MELEE_TRIM_END;
+  const trimS=Math.min(_tS||0, fullDur*0.3);
+  const trimE=Math.min(_tE||0, fullDur*0.3);
+  const mdur=Math.max(fullDur*0.4, fullDur-trimS-trimE)/spd;   // swing window = full (sped-up) clip when trims are 0 -> the whole animation plays before locomotion resumes
   let usedAdditive=false;
   if(window._meleeUpperBody){
     const add=_buildAdditiveMelee(ud,mname);
