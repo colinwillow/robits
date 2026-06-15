@@ -8997,7 +8997,7 @@ class Player{
       let e = inMag>0.05 ? MOVE.velEaseUp : MOVE.velEaseDown;
       if(this.model&&this.model.userData&&this.model.userData._meleeTimer>0 && !(this._meleeLungeT>0)){
         if(window._meleeLandLock){ tvx=0; tvz=0; e=Math.max(e,0.35); this._jumpTapped=false; }   // opt-in: PLANT in place for the swing
-        else { const _cd=Math.pow((window._MELEE_CARRY_DECAY!=null?window._MELEE_CARRY_DECAY:0.6),dt); tvx=this.vx*_cd; tvz=this.vz*_cd; e=1; this._jumpTapped=false; }   // DEFAULT: CARRY entry momentum through the swing (running slam slides forward; air-melee arcs forward+down), no re-steer
+        else { const _cd=Math.pow((window._MELEE_CARRY_DECAY!=null?window._MELEE_CARRY_DECAY:0.3),dt); tvx=this.vx*_cd; tvz=this.vz*_cd; e=1; this._jumpTapped=false; }   // DEFAULT: CARRY entry momentum through the swing (running slam slides forward then settles; air-melee arcs forward+down), no re-steer
       }
       this.vx=lerp(this.vx,tvx,e); this.vz=lerp(this.vz,tvz,e);
 
@@ -14757,7 +14757,9 @@ function loop(ts){ requestAnimationFrame(loop);
           // Clear any flip state
           ud._flippingTimer=0; ud._flipToFloat=false; ud._flipToFloatT=0;
           if(ud._flipClipName&&ud.clips[ud._flipClipName]){ ud.clips[ud._flipClipName].stop(); ud.clips[ud._flipClipName].setEffectiveWeight(0); }
-          const _hardFall=(ud._maxFallVy||0)<=-(window._ROLL_LAND_VY!=null?window._ROLL_LAND_VY:420);   // fast impact == big drop -> roll instead of soft land
+          const _slam=!!player._airSlam; player._airSlam=false;
+          if(_slam && window._AIR_SLAM_STOP!==false){ player.vx=0; player.vz=0; player._dashDir=null; player._dashRamp=0; }   // air slam plants dead on impact -> no ground slide
+          const _hardFall=!_slam && (ud._maxFallVy||0)<=-(window._ROLL_LAND_VY!=null?window._ROLL_LAND_VY:420);   // fast impact == big drop -> roll instead of soft land; never roll out of a slam
           const _landName=(_hardFall&&ud.clips['roll_landing'])?'roll_landing':'landing';
           if(ud.clips[_landName]){
             Object.values(ud.clips).forEach(a=>a.fadeOut(0.18));
@@ -20374,7 +20376,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   { const _og=(player.py<=4)||player._onPlatform||(player._inPlanetGravity&&player._glGrounded); _airMelee = player._inPlanetGravity ? !player._glGrounded : (!_og && player.py>8); }
   let mname;
   if(_airMelee && ud.clips['air_to_ground_melee']){
-    mname='air_to_ground_melee'; player._meleeCombo=0;                     // next ground swing starts the 1->5 sequence over
+    mname='air_to_ground_melee'; player._meleeCombo=0; player._airSlam=true;   // air slam -> plants dead on ground impact; ground sequence restarts at melee_1 after
   } else {
     if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }
     else { if((player._meleeComboT||0)<=0) player._meleeCombo=0; player._meleeCombo=(player._meleeCombo>=5)?1:(player._meleeCombo+1); }   // sequential 1->2->3->4->5 (resets after the combo-gap below)
