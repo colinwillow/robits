@@ -8013,6 +8013,7 @@ class Missile{
     // Home in on target — FULL 3D. A rocket fired from a rooftop flies on its launch trajectory and arcs toward
     // wherever the enemy ACTUALLY is (incl. a spider partway up a wall) instead of dumping its altitude to the floor.
     this._findTarget(enemies);
+    if(this._homePlayer && player && player.alive!==false){ this.target=player; }   // cannon rocket: lock onto the player so it flies at you to be deflected
     let dirx=this.vx, diry=this.vy, dirz=this.vz;
     const cs=Math.hypot(this.vx,this.vy,this.vz)||1; dirx/=cs; diry/=cs; dirz/=cs;
     if(this.target){
@@ -11072,6 +11073,7 @@ function _updateCarry(dt){
   ring.style.display=ready?'block':'none';
 }
 function _disposeBarrels(){
+  if(typeof _disposeCannon==='function')_disposeCannon();
   for(const c of (window._crates||[])){ if(c.grp){scene.remove(c.grp);c.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} if(c.bar){scene.remove(c.bar);c.bar.traverse(o=>{if(o.geometry)o.geometry.dispose();});} }
   for(const p of (window._itemPU||[])){ if(p.grp){scene.remove(p.grp);p.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} }
   for(const d of (window._crateDebris||[])){ if(d.m){scene.remove(d.m); d.m.traverse(o=>{if(o.geometry)o.geometry.dispose();});} }
@@ -11084,8 +11086,98 @@ function _disposeBarrels(){
   const knob=document.getElementById('joy-knob-right'); if(knob){knob.style.background='';knob.style.boxShadow='';}
   const js=document.getElementById('joystick-right'); if(js){js.style.borderColor='';}
 }
-function _spawnTrainingBarrels(){ _spawnCrate(60,-40); _spawnCrate(95,-10); _spawnCrate(40,20); }
-window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateCarry(dt); }catch(e){ console.warn('crate tick:',e); } };
+function _spawnTrainingBarrels(){ _spawnCrate(60,-40); _spawnCrate(95,-10); _spawnCrate(40,20); _spawnCannon((window._CANNON_X!=null?window._CANNON_X:0),(window._CANNON_Z!=null?window._CANNON_Z:-210),(window._CANNON_R!=null?window._CANNON_R:200)); }
+window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateCarry(dt); if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
+
+// ============================================================
+//  TRAINING CANNON — debug rig. Fires the player's own projectiles AT you when you step inside its dotted circle of influence. Built to develop melee projectile-deflection.
+// ============================================================
+window._cannon = window._cannon || null;
+if(typeof window._CANNON_PROJ==='undefined') window._CANNON_PROJ='bomb';
+const _CANNON_CYCLE=['bomb','grenade','rocket'];   // extensible: crate / powerup later
+
+function _makeCannonMesh(){
+  const g=new THREE.Group();
+  const baseMat=new THREE.MeshStandardMaterial({color:0x223038,emissive:0x0a1418,roughness:0.6,metalness:0.7});
+  const base=new THREE.Mesh(new THREE.CylinderGeometry(15,20,12,18),baseMat); base.position.y=6; g.add(base);
+  const bring=new THREE.Mesh(new THREE.TorusGeometry(16,1.1,8,30), new THREE.MeshBasicMaterial({color:0xff5a3c,transparent:true,opacity:0.9})); bring.rotation.x=Math.PI/2; bring.position.y=12; g.add(bring);
+  const turret=new THREE.Group(); turret.position.y=15; g.add(turret);
+  const tMat=new THREE.MeshStandardMaterial({color:0x2c3a44,emissive:0x12222a,roughness:0.5,metalness:0.78});
+  const dome=new THREE.Mesh(new THREE.SphereGeometry(11,18,12,0,Math.PI*2,0,Math.PI*0.55),tMat); turret.add(dome);
+  const tEdge=new THREE.Mesh(new THREE.TorusGeometry(11,0.8,8,26), new THREE.MeshBasicMaterial({color:0x33e0ff,transparent:true,opacity:0.9})); tEdge.rotation.x=Math.PI/2; turret.add(tEdge);
+  const barrel=new THREE.Group(); turret.add(barrel);   // barrel points local +X
+  const bMat=new THREE.MeshStandardMaterial({color:0x1a242b,emissive:0x081016,roughness:0.4,metalness:0.85});
+  const tube=new THREE.Mesh(new THREE.CylinderGeometry(4.2,4.8,30,16),bMat); tube.rotation.z=Math.PI/2; tube.position.set(16,2,0); barrel.add(tube);
+  const muzzle=new THREE.Mesh(new THREE.TorusGeometry(4.7,1.1,8,18), new THREE.MeshBasicMaterial({color:0xff7a3c})); muzzle.rotation.y=Math.PI/2; muzzle.position.set(31,2,0); barrel.add(muzzle);
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(3,12,10), new THREE.MeshBasicMaterial({color:0x661510})); eye.position.set(5,5,0); barrel.add(eye);
+  g.userData.turret=turret; g.userData.barrel=barrel; g.userData.eye=eye; g.userData.muzzleLocal=new THREE.Vector3(33,2,0);
+  return g;
+}
+function _makeInfluenceCircle(R){
+  const grp=new THREE.Group();
+  const N=Math.max(40, Math.floor(R/5));
+  grp.userData.dots=[];
+  for(let i=0;i<N;i++){ const a=i/N*Math.PI*2; const m=new THREE.Mesh(new THREE.SphereGeometry(1.7,6,5), new THREE.MeshBasicMaterial({color:0xff5a3c,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false})); m.position.set(Math.cos(a)*R,1.6,Math.sin(a)*R); grp.add(m); grp.userData.dots.push(m); }
+  return grp;
+}
+function _spawnCannon(x,z,R){
+  _disposeCannon(); R=R||190;
+  const grp=_makeCannonMesh(); grp.position.set(x,0,z); scene.add(grp);
+  const circ=_makeInfluenceCircle(R); circ.position.set(x,0,z); scene.add(circ);
+  window._cannon={grp,circ,x,z,R,turretYaw:0,cd:1.0,active:false,t:0};
+  _ensureCannonBtn(); const b=document.getElementById('cannon-proj-btn'); if(b)b.style.display='block';
+  return window._cannon;
+}
+function _disposeCannon(){
+  const c=window._cannon; if(!c)return;
+  if(c.grp){scene.remove(c.grp);c.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});}
+  if(c.circ){scene.remove(c.circ);c.circ.traverse(o=>{if(o.geometry)o.geometry.dispose();});}
+  window._cannon=null; const b=document.getElementById('cannon-proj-btn'); if(b)b.style.display='none';
+}
+function _ensureCannonBtn(){
+  let b=document.getElementById('cannon-proj-btn'); if(b)return b;
+  b=document.createElement('button'); b.id='cannon-proj-btn';
+  b.style.cssText='position:fixed;left:12px;top:84px;z-index:120;min-width:128px;height:34px;border-radius:9px;background:rgba(6,16,20,0.72);border:2px solid #ff7a3c;color:#ff9a5c;font-family:Orbitron,monospace;font-weight:700;font-size:11px;letter-spacing:1px;padding:0 10px;display:none;-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);';
+  const upd=()=>{ b.textContent='CANNON: '+String(window._CANNON_PROJ||'bomb').toUpperCase(); };
+  const cyc=(ev)=>{ if(ev){ev.preventDefault();ev.stopPropagation();} const i=_CANNON_CYCLE.indexOf(window._CANNON_PROJ||'bomb'); window._CANNON_PROJ=_CANNON_CYCLE[(i+1)%_CANNON_CYCLE.length]; upd(); if(typeof Audio!=='undefined'){try{Audio.blip(420,0.06,'square',0.12,700);}catch(_){}} };
+  b.addEventListener('touchstart',cyc,{passive:false}); b.addEventListener('click',cyc);
+  upd(); document.body.appendChild(b); return b;
+}
+function _cannonFire(c, ang, dist){
+  const barrel=c.grp.userData.barrel; c.grp.updateWorldMatrix(true,true);
+  const mw=c.grp.userData.muzzleLocal.clone(); barrel.localToWorld(mw);
+  const sx=mw.x, sy=Math.max(10,mw.y), sz=mw.z;
+  const dirx=Math.cos(ang), dirz=Math.sin(ang);
+  const proj=window._CANNON_PROJ||'bomb';
+  try{
+    if(proj==='rocket' && typeof Missile!=='undefined'){
+      const m=new Missile(sx,sz,dirx,dirz,sy,0.04); m._homePlayer=true; m._fromCannon=true; GS.missiles.push(m);
+    } else if(proj==='grenade' && typeof Grenade!=='undefined'){
+      const g=320, vy=190, tf=2*vy/g, sh=Math.max(60,Math.min(440,dist))/tf;
+      const gr=new Grenade(sx,sz,sy, dirx*sh, dirz*sh, vy); gr._fromCannon=true; GS.dropBombs.push(gr);
+    } else {
+      const g=320, vy=205, tf=2*vy/g, sh=Math.max(70,Math.min(470,dist))/tf;
+      const b=new DropBomb(sx,sz,sy, dirx*sh, dirz*sh, 3.0, vy); b._fromCannon=true; GS.dropBombs.push(b);
+    }
+  }catch(e){ console.warn('cannon fire',e); }
+  if(typeof ps!=='undefined'){ ps.burst(sx,sz,[1,0.6,0.2],14,120); ps.ring(sx,sz,[1,0.5,0.2],6,80); }
+  if(typeof Audio!=='undefined'){ try{ Audio.blip(88,0.12,'square',0.2,58); Audio.blip(150,0.05,'square',0.1,90); }catch(_){} }
+}
+function _cannonTick(dt){
+  const c=window._cannon; if(!c||!player)return; c.t+=dt;
+  const dx=player.wx-c.x, dz=player.wz-c.z, dist=Math.hypot(dx,dz);
+  const inRange=(player.alive!==false)&&dist<=c.R&&GS.state==='playing';
+  c.active=inRange;
+  if(c.circ&&c.circ.userData.dots){ const base=inRange?0.9:0.4; const dots=c.circ.userData.dots; for(let i=0;i<dots.length;i++){ const d=dots[i]; d.material.opacity=base*(0.55+0.45*Math.sin(c.t*4+i*0.3)); d.material.color.setHex(inRange?0xff2a1a:0xff5a3c); } }
+  const eye=c.grp.userData.eye; if(eye)eye.material.color.setHex(inRange?0xff2a1a:0x551210);
+  if(inRange){
+    const ang=Math.atan2(dz,dx);
+    const tgt=-ang;   // barrel is local +X; turret.rotation.y=-ang points it at the player
+    let diff=((tgt-c.turretYaw+Math.PI)%(Math.PI*2)+Math.PI*2)%(Math.PI*2)-Math.PI;
+    c.turretYaw+=diff*Math.min(1,dt*6); c.grp.userData.turret.rotation.y=c.turretYaw;
+    if(Math.abs(diff)<0.4){ c.cd-=dt; if(c.cd<=0){ c.cd=(window._CANNON_CD!=null?window._CANNON_CD:2.4); _cannonFire(c,ang,dist); } }   // only fire once roughly aimed
+  } else { c.cd=Math.min(c.cd,0.8); }
+}
 function _makeOlmecMask(){
   const G=new THREE.Group(), headG=new THREE.Group(); G.add(headG);
   const FILL=new THREE.MeshBasicMaterial({color:0x39ffd0,transparent:true,opacity:0.09,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
