@@ -6330,6 +6330,7 @@ class DropBomb{
           player.pvy=Math.max(player.pvy,launchVy);
           if(launchStrength>0.5) player.jetFuel=100;
         }
+        if(this._fromCannon && !this._deflected && launchStrength>0.15 && typeof playerDie==='function') playerDie(1,'#ff7a3c');   // a cannon bomb's blast hurts you (a deflected one no longer does)
       }
     }
     let hitCount=0;
@@ -11086,7 +11087,7 @@ function _disposeBarrels(){
   const knob=document.getElementById('joy-knob-right'); if(knob){knob.style.background='';knob.style.boxShadow='';}
   const js=document.getElementById('joystick-right'); if(js){js.style.borderColor='';}
 }
-function _spawnTrainingBarrels(){ _spawnCrate(60,-40); _spawnCrate(95,-10); _spawnCrate(40,20); _spawnCannon((window._CANNON_X!=null?window._CANNON_X:0),(window._CANNON_Z!=null?window._CANNON_Z:-210),(window._CANNON_R!=null?window._CANNON_R:200)); }
+function _spawnTrainingBarrels(){ _spawnCrate(60,-40); _spawnCrate(95,-10); _spawnCrate(40,20); _spawnCannon((window._CANNON_X!=null?window._CANNON_X:0),(window._CANNON_Z!=null?window._CANNON_Z:-340),(window._CANNON_R!=null?window._CANNON_R:420)); }
 window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateCarry(dt); if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
 
 // ============================================================
@@ -11163,8 +11164,16 @@ function _cannonFire(c, ang, dist){
   if(typeof ps!=='undefined'){ ps.burst(sx,sz,[1,0.6,0.2],14,120); ps.ring(sx,sz,[1,0.5,0.2],6,80); }
   if(typeof Audio!=='undefined'){ try{ Audio.blip(88,0.12,'square',0.2,58); Audio.blip(150,0.05,'square',0.1,90); }catch(_){} }
 }
+function _cannonHurtCheck(){
+  if(!player||player.alive===false||GS.state!=='playing'||(player.inv||0)>0)return;
+  const px=player.wx, pz=player.wz, py=(player.py||0)+12;
+  const HR=(window._CANNON_HIT_R!=null?window._CANNON_HIT_R:30), HR2=HR*HR;
+  if(typeof GS!=='undefined'&&GS.dropBombs){ for(const b of GS.dropBombs){ if(!b||b.dead||b._deflected||!b._fromCannon)continue; const dx=b.wx-px,dz=b.wz-pz; if(dx*dx+dz*dz<HR2 && Math.abs((b.y||0)-py)<HR*1.5){ if(typeof b.detonate==='function')b.detonate(); else if(typeof b.explode==='function')b.explode(); else { b.dead=true; if(typeof ps!=='undefined')ps.burst(b.wx,b.wz,[1,0.6,0.2],18,150); } if(typeof playerDie==='function')playerDie(1,'#ff7a3c'); return; } } }
+  if(typeof GS!=='undefined'&&GS.missiles){ for(let i=GS.missiles.length-1;i>=0;i--){ const m=GS.missiles[i]; if(!m||m._deflected||!m._fromCannon)continue; const dx=m.wx-px,dz=m.wz-pz; if(dx*dx+dz*dz<HR2 && Math.abs((m.y||0)-py)<HR*1.5){ if(typeof ps!=='undefined'){ps.burst(m.wx,m.wz,[1,0.5,0.2],22,170);ps.ring(m.wx,m.wz,[1,0.5,0.2],10,120);} if(m.group)scene.remove(m.group); GS.missiles.splice(i,1); if(typeof playerDie==='function')playerDie(1,'#ff7a3c'); return; } } }
+}
 function _cannonTick(dt){
   const c=window._cannon; if(!c||!player)return; c.t+=dt;
+  _cannonHurtCheck();
   const dx=player.wx-c.x, dz=player.wz-c.z, dist=Math.hypot(dx,dz);
   const inRange=(player.alive!==false)&&dist<=c.R&&GS.state==='playing';
   c.active=inRange;
