@@ -8638,7 +8638,7 @@ class Player{
       const g=Math.max(0,1-rage*0.6);
       if(this._bombMode==='ally'){ this._bombBodyMat&&this._bombBodyMat.color.setHex(0x3aa0ff); if(this._bombCoreMat)this._bombCoreMat.color.setHex(0x9ad0ff); this._bombMesh.rotation.y+=dt*2.2; }
       else if(this._bombMode==='crate'){ this._bombBodyMat&&this._bombBodyMat.color.setHex(0x33e0ff); if(this._bombCoreMat)this._bombCoreMat.color.setHex(0x9af6ff); this._bombMesh.rotation.x=0.4; this._bombMesh.rotation.y+=dt*1.6; }
-      else if(this._bombMode==='item'){ this._bombMesh.rotation.y+=dt*2.2; this._bombMesh.rotation.x+=dt*1.1; }
+      else if(this._bombMode==='item'){ if(!(this._carryPayload&&this._carryPayload.kind==='crate')){ this._bombMesh.rotation.y+=dt*2.2; this._bombMesh.rotation.x+=dt*1.1; } }
       else { this._bombBodyMat&&this._bombBodyMat.color.setRGB(1,g,0); }
       if(this._bombCoreMesh) this._bombCoreMesh.scale.setScalar(0.8+0.4*Math.sin(t*6));
     } else if(!this.bombArmed&&this._bombMesh){
@@ -10894,18 +10894,32 @@ function _spawnCrateDebris(x,y,z){
   }
   for(let k=0;k<6;k++){ const s=rand(2.4,5.5); const m=new THREE.Mesh(new THREE.BoxGeometry(s,s*0.4,s*rand(0.6,1.6)), new THREE.MeshStandardMaterial({color:woodCol,emissive:0x140a03,roughness:0.9})); m.position.set(x+rand(-6,6),y+rand(0,14),z+rand(-6,6)); scene.add(m); const a=Math.random()*6.28, sp=rand(55,115); window._crateDebris.push({m,vx:Math.cos(a)*sp,vy:rand(80,150),vz:Math.sin(a)*sp,rx:rand(-7,7),rz:rand(-7,7),t:0}); }
 }
+// Replicates the bomb's EXACT effect on enemies: spiders (_ballCapable) get enterBall (the beautiful up-roll-tumble); others get the bomb's knock. dmgScale<1 = lighter damage.
+function _bombBlastEnemies(x,y,z,R,dmgScale){
+  dmgScale=(dmgScale==null?1:dmgScale); const R2=R*R; let hitCount=0;
+  try{
+    if(typeof GS!=='undefined'&&GS.enemies){ for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e)continue; const dd=(e.wx-x)**2+(e.wz-z)**2; if(dd<R2){ const prox=1-Math.sqrt(dd)/R;
+      if(e._ballCapable && e.alive && !e._ball && typeof e.enterBall==='function'){
+        const pts=e.hit(1);
+        if(pts>0){ GS.score+=pts*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-14,14),e.wz+rand(-14,14),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); }
+        else { e.enterBall(e.wx-x, e.wz-z, 120+prox*260, 200+prox*220); }
+        hitCount++;
+      } else {
+        const bd=Math.max(2,Math.ceil((52*prox+6)*dmgScale)); const pts=e.hit(bd);
+        if(e.knock)e.knock(e.wx-x, e.wz-z, bd, 1.6+prox*2.4, prox*prox*26);
+        if(pts>0){ GS.score+=pts*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-14,14),e.wz+rand(-14,14),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); hitCount++; }
+      } } } }
+    if(typeof GS_bots!=='undefined'){ for(const b of GS_bots){ if(b&&b.alive){ const bd=Math.hypot(b.wx-x,b.wz-z); if(bd<R){ const n=Math.max(0,(R-bd)/R); if(b.knock)b.knock(b.wx-x,b.wz-z, 2+n*2, 480+n*220, 30+n*20); if(b.hit)b.hit(Math.max(1,Math.ceil(n*2+1))); } } } }
+    if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS.zone===-2){ const d=Math.hypot(GS_trainingDummy.wx-x,GS_trainingDummy.wz-z); if(d<R&&GS_trainingDummy.hit)GS_trainingDummy.hit(Math.ceil(45*(1-d/R)*dmgScale),x,z); }
+    if(hitCount>0){ if(typeof hitStop==='function')hitStop(4); if(GS.mult<25)GS.mult++; if(typeof updateUI==='function')updateUI(); }
+  }catch(_){}
+}
 function _smashCrateAt(x,z){
   _spawnCrateDebris(x,12,z);
   if(typeof ps!=='undefined'){ ps.ring(x,z,[0.4,1,0.85],12,92); for(let k=0;k<20;k++){ const a=Math.random()*6.28,sp=rand(30,90); ps._spawn(x+rand(-8,8),rand(6,24),z+rand(-8,8),Math.cos(a)*sp,rand(20,70),Math.sin(a)*sp,0.7,0.5,0.25,0.6); } }
   if(typeof Audio!=='undefined'){try{Audio.blip(90,0.22,'square',0.3,40);Audio.blip(220,0.12,'square',0.18,160);}catch(_){}}
   if(typeof addTrauma==='function')addTrauma(0.12);
-  // fling nearby enemies/bots (bomb-style tumble) — light damage, big knockback
-  try{
-    const KR=90;
-    if(typeof GS!=='undefined'&&GS.enemies){ for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive)continue; const d=Math.hypot(e.wx-x,e.wz-z); if(d<KR){ const prox=Math.max(0,1-d/KR); const dmg=Math.max(2,Math.ceil(20*prox+3)); if(e.knock)e.knock(e.wx-x,e.wz-z, dmg, 1.2+prox*1.6, prox*prox*16, true); if(e.hit){ const pts=e.hit(dmg,x,z); if(pts>0||!e.alive){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); } } } } }
-    if(typeof GS_bots!=='undefined'){ for(const b of GS_bots){ if(b&&b.alive){ const d=Math.hypot(b.wx-x,b.wz-z); if(d<KR){ const prox=Math.max(0,1-d/KR); if(b.knock)b.knock(b.wx-x,b.wz-z, 2+prox*2, 480+prox*220, 30+prox*20); if(b.hit)b.hit(Math.max(1,Math.ceil(prox*3+1))); } } } }
-    if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS.zone===-2&&Math.hypot(GS_trainingDummy.wx-x,GS_trainingDummy.wz-z)<KR&&GS_trainingDummy.hit)GS_trainingDummy.hit(8,x,z);
-  }catch(_){}
+  _bombBlastEnemies(x,12,z, 110, 0.7);   // EXACT bomb effect (spiders enterBall -> tumble), slightly lighter damage
   const n=Math.random()<0.3?2:1;
   for(let k=0;k<n;k++){ const type=_ITEM_TYPES[Math.floor(Math.random()*_ITEM_TYPES.length)]; const a=Math.random()*6.28; _spawnPU(x,16,z,type, Math.cos(a)*rand(20,55), rand(95,150), Math.sin(a)*rand(20,55)); }
 }
@@ -14691,9 +14705,13 @@ function loop(ts){ requestAnimationFrame(loop);
                 if(kind==='bot') e.knock(dx,dz,mag,lift,stn);                                  // bot.knock(mag,lift,stun) — unchanged
                 else if(kind==='enemy'){
                   e._stunT=Math.max(e._stunT||0,_MS.eStun);      // per-weapon stun (hammer/scythe long -> crowd control)
-                  const _air=_MS.eAir*(0.8+Math.random()*0.4)*1.5;   // more upward pop -> spiders launch up and tumble (bomb-like)
-                  e.knock(dx,dz, _MS.eForce, _MS.eLift, _air, true);
-                  e._kbBounce=(Math.random()<0.65?1:0);
+                  if(e._ballCapable && e.alive && !e._ball && typeof e.enterBall==='function'){
+                    e.enterBall(dx, dz, (window._MELEE_BALL_F!=null?window._MELEE_BALL_F:170), (window._MELEE_BALL_L!=null?window._MELEE_BALL_L:240));   // spiders -> bomb-style ball launch (up + tumble), exactly like the bomb
+                  } else {
+                    const _air=_MS.eAir*(0.8+Math.random()*0.4);
+                    e.knock(dx,dz, _MS.eForce, _MS.eLift, _air, true);
+                    e._kbBounce=(Math.random()<0.65?1:0);
+                  }
                 }
               }
               if(typeof addTrauma==='function')addTrauma(_MS.trauma||0.06);                       // shake scales with weapon (stacks per enemy hit -> crowd swing = big shake)
@@ -20720,16 +20738,16 @@ function _shoulderRig(side, want, weapon, bones, dt){
     } else if(R.wpn!==weapon){
       if(R.mesh&&R.mesh.parent)R.mesh.parent.remove(R.mesh);
       const m=_makeWeaponHandModel(weapon, side==='L'?-1:1); if(m){ m.userData._wpn=weapon; m.scale.setScalar(_LAUNCHER_SCALE); m.position.copy(R.p); m.quaternion.copy(R.q); scene.add(m); R.mesh=m; } R.wpn=weapon;
-      // weapon changed -> hop up slightly and backflip into the new weapon
+      // weapon changed -> pop up and do a full FRONT flip into the new weapon (matches the hand), carrying your momentum so it stays above the shoulder
       R.state='flying'; R.flyT=0;
-      R.v=new THREE.Vector3((Math.random()-0.5)*16, (window._SH_SWAP_POP!=null?window._SH_SWAP_POP:60), (Math.random()-0.5)*16);
-      R.spin=(window._SH_SWAP_SPIN!=null?window._SH_SWAP_SPIN:-13);   // negative -> backflip (flip sign for a frontflip)
+      R.v=new THREE.Vector3((player.vx||0)+(Math.random()-0.5)*10, (window._SH_SWAP_POP!=null?window._SH_SWAP_POP:80), (player.vz||0)+(Math.random()-0.5)*10);
+      R.spin=(window._SH_SWAP_SPIN!=null?window._SH_SWAP_SPIN:18);   // positive -> full front flip (matches the hand)
       if(typeof Audio!=='undefined'){ try{ Audio.blip(360,0.06,'square',0.10,720); }catch(_){ } }
     }
     if(R.state==='returning') R.state='flying';
   } else {
     if(!R) return;
-    if(R.state!=='returning') R.state='returning';   // fly back to the hand
+    if(R.state!=='returning'){ R.state='returning'; R._retSpin=(window._SH_STOW_SPIN!=null?window._SH_STOW_SPIN:16); }   // fly back to the hand with a flip
   }
   const m=R.mesh; if(!m){ player[K]=null; return; }
   if(R.state==='docked'){
@@ -20765,8 +20783,10 @@ function _shoulderRig(side, want, weapon, bones, dt){
     m.position.copy(R.p); m.quaternion.copy(R.q);
     if(typeof ps!=='undefined' && Math.random()<0.75){ ps._spawn(R.p.x,R.p.y,R.p.z, (Math.random()-0.5)*26,(Math.random()-0.5)*26-12,(Math.random()-0.5)*26, 1,0.66,0.3, 0.02+Math.random()*0.02); }
     if(hw>0.6 && R.p.distanceTo(gx)<(window._SH_DOCK!=null?window._SH_DOCK:3.5)){ R.state='docked'; if(typeof ps!=='undefined')ps.ring(R.p.x,R.p.z,[0.5,0.95,1],11,90); if(typeof Audio!=='undefined'){ try{ Audio.blip(520,0.05,'square',0.12,1000); }catch(_){ } } }   // touchdown
-  } else {                                                            // returning -> simple fly back to the hand
-    R.p.lerp(gx,k); R.q.slerp(gq,Math.min(1,k*1.35)); m.position.copy(R.p); m.quaternion.copy(R.q);
+  } else {                                                            // returning -> flip DOWN to the hand
+    const dist=R.p.distanceTo(gx); const fade=Math.max(0,Math.min(1,(dist-8)/40));   // flip while traveling, align once near the hand
+    if(R._retSpin && fade>0.01){ const fa=player.aim||0; _shFlipAxis.set(Math.sin(fa),0,-Math.cos(fa)); R.q.premultiply(_shQ.setFromAxisAngle(_shFlipAxis, R._retSpin*fade*(dt||0.016))); }
+    R.p.lerp(gx,k); R.q.slerp(gq,Math.min(1,k*1.35)*(1-fade*0.7)); m.position.copy(R.p); m.quaternion.copy(R.q);
     if(typeof ps!=='undefined' && Math.random()<0.5){ ps._spawn(R.p.x,R.p.y,R.p.z, (Math.random()-0.5)*22,(Math.random()-0.5)*22-8,(Math.random()-0.5)*22, 1,0.66,0.3, 0.02+Math.random()*0.02); }
     if(R.p.distanceTo(gx)<5){ if(m.parent)m.parent.remove(m); player[K]=null; }
   }
