@@ -20780,12 +20780,15 @@ function _shoulderRig(side, want, weapon, bones, dt){
     R.v.y -= (window._SH_GRAV!=null?window._SH_GRAV:240)*dts;           // gravity on the toss
     R.p.addScaledVector(R.v, dts*(1-hw));                              // ballistic pop, fades as homing takes over
     R.p.lerp(gx, k*hw);                                               // homing pull onto the shoulder
-    const sp=(R.spin||0)*(1-hw);                                      // flips, fading out as it settles
-    if(Math.abs(sp)>1e-4){ const fa=player.aim||0; _shFlipAxis.set(Math.sin(fa),0,-Math.cos(fa)); R.q.premultiply(_shQ.setFromAxisAngle(_shFlipAxis, sp*dts)); }   // front/back flip (around the pitch axis), not a barrel roll
-    R.q.slerp(gq, Math.min(1,k*(0.15+hw*1.4)));                       // align to the docked pose on the way down
+    const _prog=Math.min(1, (R.flyT)/((window._SH_POP_HOLD!=null?window._SH_POP_HOLD:0.14)+(window._SH_HOME_RAMP!=null?window._SH_HOME_RAMP:0.5)));
+    const _ease=2*_prog-_prog*_prog;                                  // easeOut: whips around fast, eases into the dock
+    const _dir=((R.spin||1)<0)?-1:1;                                  // sign of R.spin -> front vs back flip
+    const _turns=(R._flipTurns!=null?R._flipTurns:1);
+    const _fa=player.aim||0; _shFlipAxis.set(Math.sin(_fa),0,-Math.cos(_fa));
+    R.q.copy(gq).premultiply(_shQ.setFromAxisAngle(_shFlipAxis, 2*Math.PI*_turns*_ease*_dir));   // ONE clean full flip (0->2pi) that lands EXACTLY on the docked pose — no slerp fighting it
     m.position.copy(R.p); m.quaternion.copy(R.q);
     if(typeof ps!=='undefined' && Math.random()<0.75){ ps._spawn(R.p.x,R.p.y,R.p.z, (Math.random()-0.5)*26,(Math.random()-0.5)*26-12,(Math.random()-0.5)*26, 1,0.66,0.3, 0.02+Math.random()*0.02); }
-    if(hw>0.6 && R.p.distanceTo(gx)<(window._SH_DOCK!=null?window._SH_DOCK:3.5)){ R.state='docked'; if(typeof ps!=='undefined')ps.ring(R.p.x,R.p.z,[0.5,0.95,1],11,90); if(typeof Audio!=='undefined'){ try{ Audio.blip(520,0.05,'square',0.12,1000); }catch(_){ } } }   // touchdown
+    if(hw>0.8 && R.p.distanceTo(gx)<(window._SH_DOCK!=null?window._SH_DOCK:3.5)){ R.state='docked'; if(typeof ps!=='undefined')ps.ring(R.p.x,R.p.z,[0.5,0.95,1],11,90); if(typeof Audio!=='undefined'){ try{ Audio.blip(520,0.05,'square',0.12,1000); }catch(_){ } } }   // touchdown
   } else {                                                            // returning -> flip DOWN to the hand
     const dist=R.p.distanceTo(gx); const fade=Math.max(0,Math.min(1,(dist-8)/40));   // flip while traveling, align once near the hand
     if(R._retSpin && fade>0.01){ const fa=player.aim||0; _shFlipAxis.set(Math.sin(fa),0,-Math.cos(fa)); R.q.premultiply(_shQ.setFromAxisAngle(_shFlipAxis, R._retSpin*fade*(dt||0.016))); }
