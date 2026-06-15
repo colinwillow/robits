@@ -8856,7 +8856,6 @@ class Player{
     return true;
   }
   updateShield(dt){
-    if(!window._OLD_BUBBLE){ this.shieldActive=false; return; }   // disabled — the held knight shield replaces the passive bubble
     // No drain — shield only loses HP from hits
     // Tick regen delay
     if(this._shieldRegenDelay>0){ this._shieldRegenDelay--; }
@@ -14884,7 +14883,7 @@ function loop(ts){ requestAnimationFrame(loop);
             let kvx=pv?(bx-pv.x):0, kvz=pv?(bz-pv.z):0;
             const HIT_R=_MS.reach;   // per-weapon reach (spear long, sword short)
             const _seg=(px,py,pz)=>{ const dx=bx-ax2,dy=by-ay2,dz=bz-az2, L2=dx*dx+dy*dy+dz*dz||1; let t=((px-ax2)*dx+(py-ay2)*dy+(pz-az2)*dz)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(px-(ax2+dx*t),py-(ay2+dy*t),pz-(az2+dz*t)); };
-            if(typeof _deflectProjectiles==='function') _deflectProjectiles(ax2, az2, bx, bz);   // PARRY: blade's GROUND path must sweep through the projectile (height ignored)
+            if(typeof _deflectProjectiles==='function') _deflectProjectiles();   // PARRY: deflect the incoming projectile if its gauge marker is in the green
             const _try=(e,kind)=>{
               if(!e||e.alive===false||e===player||ud._meleeHitSet.has(e))return false;     // (dummy has no .alive -> still allowed through)
               const ey=(e.mesh?e.mesh.position.y:(e.py||0))+10;
@@ -15446,7 +15445,7 @@ function loop(ts){ requestAnimationFrame(loop);
         if(player._dropThru>0) player._dropThru-=dt;
         if(window._perfHudOn){ let _dd=document.getElementById('drop-dbg'); if(!_dd){ _dd=document.createElement('div'); _dd.id='drop-dbg'; _dd.style.cssText='position:fixed;left:8px;top:150px;z-index:99999;font:11px monospace;color:#33ffcc;background:rgba(0,0,0,0.6);padding:4px 7px;border-radius:4px;pointer-events:none;white-space:pre'; document.body.appendChild(_dd); } _dd.style.display='block'; _dd.textContent='py '+player.py.toFixed(1)+'  pvy '+(player.pvy||0).toFixed(1)+'\nmoveY '+moveIn.y.toFixed(2)+'  hold '+(player._downHold||0).toFixed(2)+'\nonPlat '+(player._onPlatform?1:0)+'  dropThru '+(player._dropThru||0).toFixed(2); } else { const _dd=document.getElementById('drop-dbg'); if(_dd)_dd.style.display='none'; } }
       if(player) player.updateShield(dt);
-      if(typeof _shieldTick==='function') _shieldTick(dt);
+      if(typeof _parryGaugeTick==='function') _parryGaugeTick(dt);
       if(player) player._lastFiring=firing||player._secFireActive||false;
       if(_versusActive) checkVersusRoundEnd();
       // ── MULTIPLAYER tick ──
@@ -20565,26 +20564,69 @@ function _buildAdditiveMelee(ud,name){
   ud._addMelee[name]=act;
   return act;
 }
-// ── MELEE PARRY — the blade's GROUND PATH (XZ) must sweep through the projectile; height is ignored so the stylized swing arc still connects. Bats it the way you swiped. (NOT bullets.) ──
-function _deflectProjectiles(ax, az, bx, bz){
-  if(!player) return false;
+// ── MELEE PARRY (timing gauge) — when something deflectable is incoming, a gauge shows above you with a green window. Swing while the marker is in the green to deflect it back. Tune the green to land where the blade is in front during the spin. ──
+function _parryDeflect(obj, kind){
+  if(!obj) return;
+  const fx=Math.cos(player.aim||0), fz=Math.sin(player.aim||0);
   const SPD=(window._PARRY_SPEED!=null?window._PARRY_SPEED:560);
-  const PAD=(window._PARRY_PAD!=null?window._PARRY_PAD:14);                  // band around the blade's ground line
-  const dx=Math.cos(player.aim||0), dz=Math.sin(player.aim||0);             // bat it the way you swiped (you turn to face the swipe) so it flies where you swing
-  const _seg2=(ox,oz)=>{ const ex=bx-ax, ez=bz-az, L2=ex*ex+ez*ez||1; let t=((ox-ax)*ex+(oz-az)*ez)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(ox-(ax+ex*t), oz-(az+ez*t)); };   // 2D point->segment distance (XZ only)
-  const _contact=(ox,oz,size)=> _seg2(ox,oz) < (PAD+(size||8));
-  const _fx=(x,y,z)=>{
-    if(typeof ps!=='undefined'){ ps.ring(x,z,[0.55,1,0.85],15,160); ps.ring(x,z,[1,1,1],8,110); ps.burst(x,z,[0.8,1,1],22,170); }
-    if(typeof grid!=='undefined'&&grid.shock)grid.shock(x,z,2.2);
-    if(typeof addTrauma==='function')addTrauma(0.14); if(typeof hitStop==='function')hitStop(6); if(typeof slowmo==='function')slowmo(0.4,9);
-    if(typeof Audio!=='undefined'){try{Audio.blip(950,0.06,'square',0.2,1500);Audio.blip(520,0.05,'sine',0.12,820);}catch(_){}}
-    if(typeof announce==='function')announce('PARRY!','#7dffd0');
-  };
-  let did=false;
-  if(typeof GS!=='undefined'&&GS.dropBombs){ for(const b of GS.dropBombs){ if(!b||b.dead||b._deflected)continue; if(_contact(b.wx,b.wz,8)){ b._deflected=true; b._fromCannon=false; b.vx=dx*SPD; b.vz=dz*SPD; b.vy=Math.max(b.vy||0,150); if(b.timer!=null)b.timer=Math.max(b.timer,1.4); did=true; _fx(b.wx,b.y,b.wz); } } }
-  if(typeof GS!=='undefined'&&GS.missiles){ for(const m of GS.missiles){ if(!m||m._deflected)continue; if(_contact(m.wx,m.wz,7)){ m._deflected=true; m._homePlayer=false; m._fromCannon=false; m.target=null; const s=Math.max(m.speed||280,340); m.vx=dx*s; m.vz=dz*s; m.vy=40; m.speed=s; did=true; _fx(m.wx,m.y,m.wz); } } }
-  if(window._itemShots){ for(const s of window._itemShots){ if(!s||s._deflected)continue; if(_contact(s.x,s.z,9)){ s._deflected=true; s.vx=dx*SPD; s.vz=dz*SPD; s.vy=Math.max(s.vy||0,170); did=true; _fx(s.x,s.y,s.z); } } }
-  return did;
+  if(kind==='missile'){ obj._deflected=true; obj._homePlayer=false; obj._fromCannon=false; obj.target=null; const s=Math.max(obj.speed||300,340); obj.vx=fx*s; obj.vz=fz*s; obj.vy=40; obj.speed=s; }
+  else if(kind==='bomb'){ obj._deflected=true; obj._fromCannon=false; obj.vx=fx*SPD; obj.vz=fz*SPD; obj.vy=Math.max(obj.vy||0,150); if(obj.timer!=null)obj.timer=Math.max(obj.timer,1.4); }
+  else if(kind==='item'){ obj._deflected=true; obj.vx=fx*SPD; obj.vz=fz*SPD; obj.vy=Math.max(obj.vy||0,150); }
+  else { const s=Math.hypot(obj.vx,obj.vz)||300; obj._deflected=true; obj.vx=fx*s; obj.vz=fz*s; }   // bullet
+  const x=(obj.wx!=null?obj.wx:obj.x), z=(obj.wz!=null?obj.wz:obj.z);
+  if(typeof ps!=='undefined'){ ps.ring(x,z,[0.55,1,0.85],16,180); ps.ring(x,z,[1,1,1],8,120); ps.burst(x,z,[0.8,1,1],24,190); }
+  if(typeof grid!=='undefined'&&grid.shock)grid.shock(x,z,2.6);
+  if(typeof addTrauma==='function')addTrauma(0.16); if(typeof hitStop==='function')hitStop(7); if(typeof slowmo==='function')slowmo(0.42,10);
+  if(typeof Audio!=='undefined'){try{Audio.blip(950,0.06,'square',0.2,1500);Audio.blip(520,0.05,'sine',0.12,820);}catch(_){}}
+  if(typeof announce==='function')announce('PARRY!','#7dffd0');
+}
+function _findParryTarget(){
+  if(!player) return {obj:null,kind:null,dist:1e9};
+  const px=player.wx, pz=player.wz;
+  const DANGER=(window._PARRY_DANGER!=null?window._PARRY_DANGER:240);
+  let best=null, bestKind=null, bestDist=1e9;
+  const consider=(o,k,ox,oz,vx,vz)=>{ const dx=ox-px, dz=oz-pz; const d=Math.hypot(dx,dz); if(d>DANGER)return; if((vx*(px-ox)+vz*(pz-oz))<=0)return; if(d<bestDist){bestDist=d;best=o;bestKind=k;} };   // in range + heading toward you
+  if(typeof GS!=='undefined'){
+    if(GS.dropBombs)for(const b of GS.dropBombs){ if(b&&!b.dead&&!b._deflected&&b._fromCannon)consider(b,'bomb',b.wx,b.wz,b.vx||0,b.vz||0); }
+    if(GS.missiles)for(const m of GS.missiles){ if(m&&!m._deflected)consider(m,'missile',m.wx,m.wz,m.vx||0,m.vz||0); }
+  }
+  if(window._itemShots)for(const s of window._itemShots){ if(s&&!s._deflected)consider(s,'item',s.x,s.z,s.vx||0,s.vz||0); }
+  return {obj:best, kind:bestKind, dist:bestDist};
+}
+function _parryGaugeEl(){
+  let g=document.getElementById('parry-gauge'); if(g)return g;
+  g=document.createElement('div'); g.id='parry-gauge';
+  g.style.cssText='position:fixed;width:88px;height:13px;transform:translate(-50%,-50%);z-index:118;pointer-events:none;display:none;border:1.5px solid rgba(0,230,255,0.6);border-radius:7px;background:rgba(4,12,18,0.72);overflow:hidden;box-shadow:0 0 10px rgba(0,230,255,0.4)';
+  const grn=document.createElement('div'); grn.id='parry-gauge-green'; grn.style.cssText='position:absolute;top:0;bottom:0;background:rgba(60,255,150,0.4);border-left:1px solid #5fffa0;border-right:1px solid #5fffa0';
+  const mk=document.createElement('div'); mk.id='parry-gauge-mark'; mk.style.cssText='position:absolute;top:-2px;bottom:-2px;width:3px;background:#fff;border-radius:2px;box-shadow:0 0 6px #fff';
+  g.appendChild(grn); g.appendChild(mk); document.body.appendChild(g); return g;
+}
+function _hideParryGauge(){ const g=document.getElementById('parry-gauge'); if(g)g.style.display='none'; }
+function _parryGaugeTick(dt){
+  if(!player || GS.state!=='playing'){ _hideParryGauge(); if(player){player._parryTarget=null;player._parryInGreen=false;} return; }
+  const t=_findParryTarget();
+  player._parryTarget=t.obj; player._parryKind=t.kind;
+  if(!t.obj){ _hideParryGauge(); player._parryInGreen=false; return; }
+  const DANGER=(window._PARRY_DANGER!=null?window._PARRY_DANGER:240);
+  const GN=(window._PARRY_GREEN_NEAR!=null?window._PARRY_GREEN_NEAR:26), GF=(window._PARRY_GREEN_FAR!=null?window._PARRY_GREEN_FAR:78);
+  const dist=t.dist, inGreen=(dist>=GN && dist<=GF);
+  player._parryInGreen=inGreen;
+  const approach=Math.max(0,Math.min(1,1-dist/DANGER));
+  const gLo=Math.max(0,1-GF/DANGER), gHi=Math.min(1,1-GN/DANGER);
+  const g=_parryGaugeEl();
+  const v=new THREE.Vector3(player.wx,(player.py||0)+52,player.wz); v.project(camera);
+  if(v.z>1){ g.style.display='none'; return; }
+  g.style.left=((v.x*0.5+0.5)*window.innerWidth)+'px'; g.style.top=((-v.y*0.5+0.5)*window.innerHeight)+'px'; g.style.display='block';
+  g.style.borderColor=inGreen?'#5fffa0':'rgba(0,230,255,0.6)';
+  const grn=document.getElementById('parry-gauge-green'); if(grn){ grn.style.left=(gLo*100)+'%'; grn.style.width=((gHi-gLo)*100)+'%'; }
+  const mk=document.getElementById('parry-gauge-mark'); if(mk){ mk.style.left=(approach*100)+'%'; mk.style.background=inGreen?'#5fffa0':'#fff'; mk.style.boxShadow=inGreen?'0 0 9px #5fffa0':'0 0 6px #fff'; }
+}
+// called during the melee swing: deflect the gauged target if its marker is in the green window
+function _deflectProjectiles(){
+  if(!player || !player._parryTarget || !player._parryInGreen) return false;
+  _parryDeflect(player._parryTarget, player._parryKind);
+  player._parryTarget=null; player._parryInGreen=false; _hideParryGauge();
+  return true;
 }
 function _doMeleeFlick(ud, dirAngle, comboOverride){
   if(!ud||!ud.clips||!player) return;
