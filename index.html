@@ -20734,16 +20734,16 @@ function _shoulderRig(side, want, weapon, bones, dt){
   const m=R.mesh; if(!m){ player[K]=null; return; }
   if(R.state==='docked'){
     if(!haveT){ return; }
-    if(!R.v) R.v=new THREE.Vector3();
-    const dts2=(dt||0.016);
-    const STIFF=(window._SH_SPRING!=null?window._SH_SPRING:115), DAMP=(window._SH_DAMP!=null?window._SH_DAMP:11.5);
-    R.v.x+=(tPos.x-R.p.x)*STIFF*dts2; R.v.y+=(tPos.y-R.p.y)*STIFF*dts2; R.v.z+=(tPos.z-R.p.z)*STIFF*dts2;
-    const pvy=(player.pvy!=null?player.pvy:(player._vy||0)); if(pvy>140) R.v.y -= pvy*0.9;   // takeoff: cannon lags, then springs back up (pop on jump/flip)
-    const dmp=Math.exp(-DAMP*dts2); R.v.multiplyScalar(dmp);
-    R.p.addScaledVector(R.v,dts2);
-    R.q.slerp(tQ, 1-Math.exp(-13*dts2));
-    m.position.copy(R.p); m.quaternion.copy(R.q);
-    if(typeof ps!=='undefined' && R.p.distanceTo(tPos)>4.5 && Math.random()<0.45){ ps._spawn(R.p.x,R.p.y,R.p.z,(Math.random()-0.5)*16,(Math.random()-0.5)*16,(Math.random()-0.5)*16, 0.5,0.95,1, 0.02+Math.random()*0.02); }   // catch-up trail
+    // stay glued to the shoulder while grounded, running, AND on the way up
+    m.position.copy(tPos); m.quaternion.copy(tQ); R.p.copy(tPos); R.q.copy(tQ);
+    const pvy=(player.pvy!=null?player.pvy:(player._vy||0));
+    if(pvy>140) R._wasRising=true;                                  // a real jump is underway
+    if(R._wasRising && pvy<=10){                                    // reached the apex -> launch it off the shoulder
+      R._wasRising=false; R.state='flying'; R.flyT=0;
+      R.v=new THREE.Vector3((Math.random()-0.5)*16, (window._SH_APEX_POP!=null?window._SH_APEX_POP:110), (Math.random()-0.5)*16);
+      R.spin=(window._SH_APEX_SPIN!=null?window._SH_APEX_SPIN:14);   // a little flip as it hangs, then eases back onto the shoulder
+      if(typeof Audio!=='undefined'){ try{ Audio.blip(440,0.05,'square',0.09,840); }catch(_){ } }
+    }
     return;
   }
   // flying / returning -> arrival ease toward goal (a MOVING target, so running away makes it trail + catch up)
