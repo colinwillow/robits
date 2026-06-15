@@ -8015,6 +8015,7 @@ class Missile{
     // wherever the enemy ACTUALLY is (incl. a spider partway up a wall) instead of dumping its altitude to the floor.
     this._findTarget(enemies);
     if(this._homePlayer && player && player.alive!==false){ this.target=player; }   // cannon rocket: lock onto the player so it flies at you to be deflected
+    if(this._homeBack && this._homeBackTarget){ this.target=this._homeBackTarget; }   // deflected rocket: heat-seek back at whoever shot it
     let dirx=this.vx, diry=this.vy, dirz=this.vz;
     const cs=Math.hypot(this.vx,this.vy,this.vz)||1; dirx/=cs; diry/=cs; dirz/=cs;
     if(this.target){
@@ -20572,16 +20573,17 @@ function _parryDeflect(obj, kind, tier){
   const hasSrc=(obj._srcX!=null&&obj._srcZ!=null);
   // how far the attacker was -> how far the deflect travels (far attacker = far throw, close = short)
   let srcDist = hasSrc ? Math.hypot(obj._srcX-px, obj._srcZ-pz) : Math.hypot(ox-px,oz-pz);
-  srcDist=Math.max(40, srcDist) * (window._PARRY_RANGE_MULT!=null?window._PARRY_RANGE_MULT:0.6);   // tune how far the deflect travels relative to the throw distance
+  srcDist=Math.max(40, srcDist) * (window._PARRY_RANGE_MULT!=null?window._PARRY_RANGE_MULT:1.0);   // tune how far the deflect travels relative to the throw distance
   // direction
   let dirx, dirz;
   if(tier==='green' && hasSrc){ dirx=obj._srcX-px; dirz=obj._srcZ-pz; const l=Math.hypot(dirx,dirz)||1; dirx/=l; dirz/=l; }   // accurate -> straight back at them
   else if(tier==='green'){ const vl=Math.hypot(obj.vx||0,obj.vz||0)||1; dirx=-(obj.vx||0)/vl; dirz=-(obj.vz||0)/vl; }            // no source -> reverse the way it came
   else { const base=hasSrc?Math.atan2(obj._srcZ-pz,obj._srcX-px):(player.aim||0); const a=base+(Math.random()<0.5?1:-1)*(Math.PI*0.3+Math.random()*Math.PI*0.3); dirx=Math.cos(a); dirz=Math.sin(a); }   // yellow -> off to the side, NOT at them
   // apply, with travel range ~ srcDist
-  if(kind==='missile'){ obj._deflected=true; obj._homePlayer=false; obj._fromCannon=false; obj.target=null; const sp=Math.min(820,Math.max(160,srcDist*1.5)); obj.vx=dirx*sp; obj.vz=dirz*sp; obj.vy=30; obj.speed=sp; }
+  if(kind==='missile'){ obj._deflected=true; obj._homePlayer=false; obj._fromCannon=false; const sp=Math.min(820,Math.max(160,srcDist*1.5)); obj.vx=dirx*sp; obj.vz=dirz*sp; obj.vy=30; obj.speed=sp;
+    if(obj._srcX!=null){ obj._homeBack=true; obj._homeBackTarget={wx:obj._srcX, wz:obj._srcZ, py:14}; } else { obj.target=null; } }   // heat-seek back at the shooter
   else if(kind==='item'){ obj._deflected=true; const sp=Math.min(820,Math.max(140,srcDist*1.3)); obj.vx=dirx*sp; obj.vz=dirz*sp; obj.vy=Math.max(obj.vy||0,140); }
-  else if(kind==='bomb'){ obj._deflected=true; obj._fromCannon=false; const g=320, vy=Math.min(300,90+srcDist*0.38), tf=2*vy/g, sp=Math.min(900,srcDist/tf); obj.vx=dirx*sp; obj.vz=dirz*sp; obj.vy=vy; if(obj.timer!=null)obj.timer=Math.max(obj.timer,tf+0.4); }
+  else if(kind==='bomb'){ obj._deflected=true; obj._fromCannon=false; if(obj.maxBounces!=null)obj.maxBounces=0; const g=320, vy=Math.min(300,90+srcDist*0.34), tf=2*vy/g, sp=Math.min(900,srcDist/tf); obj.vx=dirx*sp; obj.vz=dirz*sp; obj.vy=vy; if(obj.timer!=null)obj.timer=Math.max(obj.timer,tf+0.4); }   // lands ~at the shooter, no big bounce overshoot
   else { obj._deflected=true; const s=Math.min(800,Math.max(150,srcDist*1.2)); obj.vx=dirx*s; obj.vz=dirz*s; }
   // FX (green = full PARRY, yellow = lesser DEFLECT)
   const perfect=(tier==='green');
@@ -20593,15 +20595,15 @@ function _parryDeflect(obj, kind, tier){
 }
 function _findParryTarget(){
   if(!player) return {obj:null,kind:null,dist:1e9};
-  const px=player.wx, pz=player.wz;
+  const px=player.wx, pz=player.wz, py=(player.py||0)+16;
   const DANGER=(window._PARRY_DANGER!=null?window._PARRY_DANGER:240);
   let best=null, bestKind=null, bestDist=1e9;
-  const consider=(o,k,ox,oz,vx,vz)=>{ const dx=ox-px, dz=oz-pz; const d=Math.hypot(dx,dz); if(d>DANGER)return; if((vx*(px-ox)+vz*(pz-oz))<=0)return; if(d<bestDist){bestDist=d;best=o;bestKind=k;} };   // in range + heading toward you
+  const consider=(o,k,ox,oz,oy,vx,vz)=>{ const dx=ox-px, dz=oz-pz, dy=(oy||0)-py; const d=Math.hypot(dx,dy,dz); if(d>DANGER)return; if((vx*(px-ox)+vz*(pz-oz))<=-30)return; if(d<bestDist){bestDist=d;best=o;bestKind=k;} };   // TRUE 3D distance (height counts) + roughly heading at you
   if(typeof GS!=='undefined'){
-    if(GS.dropBombs)for(const b of GS.dropBombs){ if(b&&!b.dead&&!b._deflected&&b._fromCannon)consider(b,'bomb',b.wx,b.wz,b.vx||0,b.vz||0); }
-    if(GS.missiles)for(const m of GS.missiles){ if(m&&!m._deflected)consider(m,'missile',m.wx,m.wz,m.vx||0,m.vz||0); }
+    if(GS.dropBombs)for(const b of GS.dropBombs){ if(b&&!b.dead&&!b._deflected&&b._fromCannon)consider(b,'bomb',b.wx,b.wz,b.y,b.vx||0,b.vz||0); }
+    if(GS.missiles)for(const m of GS.missiles){ if(m&&!m._deflected)consider(m,'missile',m.wx,m.wz,m.y,m.vx||0,m.vz||0); }
   }
-  if(window._itemShots)for(const s of window._itemShots){ if(s&&!s._deflected)consider(s,'item',s.x,s.z,s.vx||0,s.vz||0); }
+  if(window._itemShots)for(const s of window._itemShots){ if(s&&!s._deflected)consider(s,'item',s.x,s.z,s.y,s.vx||0,s.vz||0); }
   return {obj:best, kind:bestKind, dist:bestDist};
 }
 function _parryLine(){ if(window._parryLineMesh)return window._parryLineMesh; const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(6),3)); const l=new THREE.Line(geo, new THREE.LineBasicMaterial({color:0x33e0ff,transparent:true,opacity:0.95,depthTest:false})); l.frustumCulled=false; l.renderOrder=999; scene.add(l); window._parryLineMesh=l; return l; }
@@ -20613,7 +20615,7 @@ function _parryGaugeTick(dt){
   const t=_findParryTarget();
   player._parryTarget=t.obj; player._parryKind=t.kind;
   if(!t.obj){ _parryHideDebug(); player._parryInWin=false; return; }
-  const WN=(window._PARRY_WIN_NEAR!=null?window._PARRY_WIN_NEAR:45), WF=(window._PARRY_WIN_FAR!=null?window._PARRY_WIN_FAR:90);
+  const WN=(window._PARRY_WIN_NEAR!=null?window._PARRY_WIN_NEAR:0), WF=(window._PARRY_WIN_FAR!=null?window._PARRY_WIN_FAR:50);
   const dist=t.dist, inWin=(dist>=WN && dist<=WF);
   player._parryInWin=inWin;
   const obj=t.obj, ox=(obj.wx!=null?obj.wx:obj.x), oy=(obj.y!=null?obj.y:12), oz=(obj.wz!=null?obj.wz:obj.z);
