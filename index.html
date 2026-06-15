@@ -2364,14 +2364,16 @@ function _applyRobotModel(player, gltf, skinGltf){
 
   scene.add(robotScene);
   player.model=robotScene;
-  // Weapon scale compensation: held weapons are modelled for the robot's hand-bone world scale. A differently-proportioned skin (e.g. alien) reaches height 18 at a different overall scale, so its hand bone is bigger/smaller — correct held weapons so they aren't giant/tiny.
-  try{
+  // Weapon scale compensation. ROBOT is the reference (comp=1, no extra work — identical to before). Only a differently-proportioned skin (alien) computes a correction.
+  if(!isAlien){ window._WPN_SCALE_COMP=1; }
+  else { try{
     if(!window._WPN_REF_HANDSCALE){ const rs=gltf.scene; const rh=new THREE.Box3().setFromObject(rs).getSize(new THREE.Vector3()).y||1; const rauto=18/rh; rs.updateWorldMatrix(true,true); let rhb=null; rs.traverse(o=>{ if(!rhb&&o.name==='mixamorig_RightHand')rhb=o; }); let rls=1; if(rhb){ const s=new THREE.Vector3(); rhb.getWorldScale(s); rls=(s.x+s.y+s.z)/3||1; } window._WPN_REF_HANDSCALE=(rauto*rls)||1; }
     player.model.updateWorldMatrix(true,true);
     const _hb=bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']; let _hws=1; if(_hb){ const s=new THREE.Vector3(); _hb.getWorldScale(s); _hws=(s.x+s.y+s.z)/3||1; }
-    window._WPN_SCALE_COMP=(window._WPN_REF_HANDSCALE||_hws)/_hws;
-    console.log('[char] hand world scale:',_hws.toFixed(3),' weapon comp:',(window._WPN_SCALE_COMP||1).toFixed(3));
-  }catch(e){ window._WPN_SCALE_COMP=1; }
+    let _c=(window._WPN_REF_HANDSCALE||_hws)/_hws; if(!isFinite(_c)||_c<=0) _c=1;
+    window._WPN_SCALE_COMP=_c;
+    console.log('[char] alien weapon comp:',_c.toFixed(3));
+  }catch(e){ window._WPN_SCALE_COMP=1; } }
   if(isAlien){ try{ const _bb=new THREE.Box3().setFromObject(robotScene); const _sz=_bb.getSize(new THREE.Vector3()), _ct=_bb.getCenter(new THREE.Vector3());
     console.log('[char] ALIEN added — final size:', _sz.x.toFixed(1),_sz.y.toFixed(1),_sz.z.toFixed(1),' center:', _ct.x.toFixed(1),_ct.y.toFixed(1),_ct.z.toFixed(1),' visible:', robotScene.visible); }catch(e){} }
   // Log all bone names for IK setup
@@ -20422,7 +20424,7 @@ function _ensureHandWeapon(side,show,bone,weapon){
   const key='_handWpn'+side;
   if(show && bone){
     if(player[key] && (player[key].userData._wpn!==weapon || player[key].parent!==bone)){ if(player[key].parent)player[key].parent.remove(player[key]); player[key]=null; }   // rebuild on weapon change / model rebuild
-    if(!player[key]){ const m=_makeWeaponHandModel(weapon, side==='L'?-1:1); if(m){ m.userData._wpn=weapon; bone.add(m); const _c=window._WPN_SCALE_COMP; if(_c&&_c!==1) m.scale.multiplyScalar(_c); player[key]=m; } }
+    if(!player[key]){ const m=_makeWeaponHandModel(weapon, side==='L'?-1:1); if(m){ m.userData._wpn=weapon; bone.add(m); const _c=window._WPN_SCALE_COMP; if(_c&&isFinite(_c)&&_c>0&&_c!==1) m.scale.multiplyScalar(_c); player[key]=m; } }
   } else if(player[key]){
     if(player[key].parent)player[key].parent.remove(player[key]);
     player[key]=null;
