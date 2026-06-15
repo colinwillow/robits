@@ -14695,6 +14695,15 @@ function loop(ts){ requestAnimationFrame(loop);
             else { const bn=player.model&&player.model.userData&&player.model.userData.bones, hb=bn&&(bn['mixamorig_RightHand']||bn['mixamorig_LeftHand']); if(hb){ const hp=hb.getWorldPosition(new THREE.Vector3()); ax2=hp.x; ay2=hp.y; az2=hp.z; } else { ax2=player.wx; ay2=(player.py||0)+16; az2=player.wz; } bx=ax2+Math.cos(player.aim)*34; by=ay2; bz=az2+Math.sin(player.aim)*34; }
             // blade-tip velocity -> knock direction (send them the way the blade was moving)
             const pv=ud._meleePrevTip; ud._meleePrevTip={x:bx,z:bz};
+            // ── GRID DISTORTION follows the blade sweep — carve at the tip's ground point, deeper for heavy weapons / low sweeps ──
+            if(typeof grid!=='undefined' && (window._MELEE_GRID==null||window._MELEE_GRID>0)){
+              const _gw=(window._MELEE_GRID!=null?window._MELEE_GRID:1);
+              const _gnd=Math.max(0, 1-Math.max(0,by-4)/70);                 // tip near ground carves more; high sweeps barely touch it
+              if(_gnd>0.05){ const _sw=((_MS.bMag||9)/9)*_gnd*_gw;            // heavier weapon (bMag) -> deeper
+                if(grid.push) grid.push(bx,bz, -1.1*_sw, 28*((_MS.reach||26)/26));
+                if(grid.shock && Math.random()<0.6) grid.shock(bx,bz, 0.7*_sw);
+              }
+            }
             let kvx=pv?(bx-pv.x):0, kvz=pv?(bz-pv.z):0;
             const HIT_R=_MS.reach;   // per-weapon reach (spear long, sword short)
             const _seg=(px,py,pz)=>{ const dx=bx-ax2,dy=by-ay2,dz=bz-az2, L2=dx*dx+dy*dy+dz*dz||1; let t=((px-ax2)*dx+(py-ay2)*dy+(pz-az2)*dz)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(px-(ax2+dx*t),py-(ay2+dy*t),pz-(az2+dz*t)); };
@@ -14758,7 +14767,15 @@ function loop(ts){ requestAnimationFrame(loop);
           ud._flippingTimer=0; ud._flipToFloat=false; ud._flipToFloatT=0;
           if(ud._flipClipName&&ud.clips[ud._flipClipName]){ ud.clips[ud._flipClipName].stop(); ud.clips[ud._flipClipName].setEffectiveWeight(0); }
           const _slam=!!player._airSlam; player._airSlam=false;
-          if(_slam && window._AIR_SLAM_STOP!==false){ player.vx=0; player.vz=0; player._dashDir=null; player._dashRamp=0; }   // air slam plants dead on impact -> no ground slide
+          if(_slam && window._AIR_SLAM_STOP!==false){ player.vx=0; player.vz=0; player._dashDir=null; player._dashRamp=0;
+            // ── HEFTY SLAM SHOCKWAVE on ground impact ──
+            if(typeof grid!=='undefined'){ if(grid.push)grid.push(player.wx,player.wz,-(window._SLAM_GRID_DEPTH!=null?window._SLAM_GRID_DEPTH:16),(window._SLAM_GRID_R!=null?window._SLAM_GRID_R:230)); if(grid.shock)grid.shock(player.wx,player.wz,(window._SLAM_GRID_SHOCK!=null?window._SLAM_GRID_SHOCK:10)); if(grid.pulse)grid.pulse(0.5); }
+            if(typeof GRID_SHEETS!=='undefined'&&GRID_SHEETS.length&&typeof gridSheetsBlast==='function'){ try{ gridSheetsBlast(player.wx,player.py||0,player.wz,12,230); }catch(_){} }
+            if(typeof ps!=='undefined'){ ps.ring(player.wx,player.wz,[0.55,0.95,1],30,210); ps.ring(player.wx,player.wz,[1,1,1],16,140); ps.burst(player.wx,player.wz,[0.7,0.92,1],40,190); }
+            if(typeof addTrauma==='function')addTrauma(0.32); if(typeof hitStop==='function')hitStop(6);
+            if(typeof Audio!=='undefined'){ try{ Audio.blip(64,0.5,'sawtooth',0.45,28); if(Audio.noise)Audio.noise(0.4,0.35,520); }catch(_){} }
+            if(window._SLAM_AOE!==false && typeof _bombBlastEnemies==='function') _bombBlastEnemies(player.wx,player.py||0,player.wz,(window._SLAM_AOE_R!=null?window._SLAM_AOE_R:135),(window._SLAM_AOE_DMG!=null?window._SLAM_AOE_DMG:0.6));   // shockwave knocks/tumbles nearby enemies (bomb-style)
+          }
           const _hardFall=!_slam && (ud._maxFallVy||0)<=-(window._ROLL_LAND_VY!=null?window._ROLL_LAND_VY:420);   // fast impact == big drop -> roll instead of soft land; never roll out of a slam
           const _landName=(_hardFall&&ud.clips['roll_landing'])?'roll_landing':'landing';
           if(ud.clips[_landName]){
@@ -20264,7 +20281,7 @@ let _HAMMER_SCALE=1.7;                                // equipped world-size (ma
 let _MELEE_FLICK_HI=0.78;   // stick must snap past this to fire a melee
 let _MELEE_FLICK_LO=0.40;   // stick must ease back below this to re-arm the next flick (higher = easier fast chaining)
 let _MELEE_FLICK_VEL=0.16;  // min per-frame snap speed (separates a flick from a slow aim push)
-let _MELEE_SPEED=1.4;        // master swing-speed multiplier (per-weapon speed multiplies this). gentle quickening so authored clips still finish; raise via window._MELEE_SPEED for snappier
+let _MELEE_SPEED=1.5;        // master swing-speed multiplier (~150%). per-weapon speed multiplies this. tune live: window._MELEE_SPEED
 // ── per-weapon melee balance — keyed by player._meleeType. melee hits MUCH harder than bullets so it's worth closing in. ──
 window._MELEE_STATS = window._MELEE_STATS || {
   //        dmg  reach  speed   eForce eLift eAir eStun   bMag bLift bStn   + impact: hitStop(frames) trauma(shake) thud(sfx pitch) slow/slowH/zoom (heavy only)
