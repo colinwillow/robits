@@ -10831,6 +10831,135 @@ class TrainingDummy{
 let GS_trainingDummy=null;
 
 // ── holographic OLMEC mask: the head primitives rendered as a glowing wireframe hologram on a projector pedestal ──
+// ════════ THROWABLE POWER-UP ITEMS + BARRELS (self-contained — does not touch the bomb secondary) ════════
+window._barrels=window._barrels||[]; window._itemOrbs=window._itemOrbs||[]; window._itemShots=window._itemShots||[];
+const _ITEMDEF={
+  nuke:{col:0xff5a3c, glow:0xff9a66, label:'NUKE'},
+  singularity:{col:0xb060ff, glow:0xd09bff, label:'SINGULARITY'},
+  quake:{col:0x39ffc9, glow:0x9bffe0, label:'QUAKE'}
+};
+const _ITEM_TYPES=['nuke','singularity','quake'];
+
+// Trigger the powerful effect at a world point (reuses the existing effect entities)
+function _detonateItem(type,x,z,od){
+  try{
+    if(type==='nuke'){
+      if(!GS.nukes)GS.nukes=[]; if(typeof MushroomCloud!=='undefined')GS.nukes.push(new MushroomCloud(x,z,!!od));
+      const R=od?420:330;
+      for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive)continue; const d=Math.hypot(e.wx-x,e.wz-z); if(d<R){ if(e.knock)e.knock(e.wx-x,e.wz-z,8,1.8,10); const pts=(e.hit?e.hit(60):0); if(pts>0||!e.alive){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-14,14),e.wz+rand(-14,14),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); } } }
+      if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS.zone===-2){ if(Math.hypot(GS_trainingDummy.wx-x,GS_trainingDummy.wz-z)<R&&GS_trainingDummy.hit)GS_trainingDummy.hit(60,x,z); }
+    } else if(type==='singularity'){
+      if(!GS.wells)GS.wells=[]; if(typeof Singularity!=='undefined')GS.wells.push(new Singularity(x,z,!!od));
+    } else if(type==='quake'){
+      if(!GS.quakes)GS.quakes=[]; if(typeof QuakeStorm!=='undefined')GS.quakes.push(new QuakeStorm(x,z,!!od));
+    }
+    if(typeof addTrauma==='function')addTrauma(type==='nuke'?0.5:0.3);
+    if(typeof Audio!=='undefined'){try{Audio.blip(type==='nuke'?70:160,0.25,'square',0.3,40);}catch(_){}}
+  }catch(e){ console.warn('detonate item:',e); }
+}
+
+// ---- Barrel: shoot (or, later, throw) it to break -> drops one random item orb ----
+function _spawnBarrel(x,z){
+  const g=new THREE.Group();
+  const mat=new THREE.MeshStandardMaterial({color:0x5a3d22,emissive:0x150b03,roughness:0.75,metalness:0.25});
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(11,11,26,18),mat); body.position.y=13; g.add(body);
+  const ringMat=new THREE.MeshStandardMaterial({color:0x39ffc9,emissive:0x39ffc9,emissiveIntensity:0.7,roughness:0.4,metalness:0.6});
+  [5,13,21].forEach(yy=>{ const r=new THREE.Mesh(new THREE.TorusGeometry(11.3,0.85,8,22),ringMat); r.rotation.x=Math.PI/2; r.position.y=yy; g.add(r); });
+  g.position.set(x,0,z); scene.add(g);
+  const b={grp:g,x:x,z:z,hp:3,t:Math.random()*6}; window._barrels.push(b); return b;
+}
+function _breakBarrel(b){
+  const i=window._barrels.indexOf(b); if(i>=0)window._barrels.splice(i,1);
+  if(typeof ps!=='undefined'){ for(let k=0;k<26;k++){ const a=Math.random()*6.28,sp=rand(30,95); ps._spawn(b.x+rand(-9,9),rand(5,26),b.z+rand(-9,9),Math.cos(a)*sp,rand(25,80),Math.sin(a)*sp,0.7,0.5,0.25,0.5+Math.random()*0.35); } ps.ring(b.x,b.z,[0.4,1,0.85],10,82); }
+  if(typeof Audio!=='undefined'){try{Audio.blip(110,0.2,'square',0.28,40);}catch(_){}}
+  if(b.grp){ scene.remove(b.grp); b.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); }
+  const type=_ITEM_TYPES[Math.floor(Math.random()*_ITEM_TYPES.length)];
+  _spawnItemOrb(b.x,b.z,type);
+}
+function _updateBarrels(dt){
+  const A=window._barrels; if(!A||!A.length)return;
+  for(let i=A.length-1;i>=0;i--){ const b=A[i]; b.t+=dt; if(b.grp)b.grp.rotation.y+=dt*0.25;
+    if(typeof GS!=='undefined'&&GS.bullets&&GS.bullets.length){ for(let j=GS.bullets.length-1;j>=0;j--){ const bl=GS.bullets[j]; if(!bl)continue; const bx=(bl.wx!=null?bl.wx:bl.x), bz=(bl.wz!=null?bl.wz:bl.z); if(bx==null)continue; if(Math.hypot(bx-b.x,bz-b.z)<14){ b.hp--; if(bl.mesh){scene.remove(bl.mesh); if(bl.mesh.geometry)bl.mesh.geometry.dispose();} GS.bullets.splice(j,1); if(typeof ps!=='undefined')ps.ring(b.x,b.z,[1,0.85,0.35],4,30); if(b.hp<=0){ _breakBarrel(b); break; } } } }
+  }
+}
+
+// ---- Item orb: float on the ground, prompt to grab ----
+function _spawnItemOrb(x,z,type){
+  const def=_ITEMDEF[type]||_ITEMDEF.nuke;
+  const g=new THREE.Group();
+  const core=new THREE.Mesh(new THREE.IcosahedronGeometry(7,1),new THREE.MeshStandardMaterial({color:def.col,emissive:def.col,emissiveIntensity:1.4,roughness:0.3,metalness:0.4,toneMapped:false}));
+  g.add(core);
+  const halo=new THREE.Mesh(new THREE.TorusGeometry(11,0.7,8,30),new THREE.MeshBasicMaterial({color:def.glow,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})); halo.rotation.x=Math.PI/2; g.add(halo);
+  g.position.set(x,16,z); scene.add(g);
+  window._itemOrbs.push({grp:g,core:core,halo:halo,x:x,z:z,type:type,t:Math.random()*6}); 
+}
+function _updateItemOrbs(dt){
+  const A=window._itemOrbs; if(!A){window._nearOrb=null;return;}
+  let near=null,nd=1e9;
+  for(const o of A){ o.t+=dt; if(o.grp){ o.grp.position.y=16+Math.sin(o.t*2)*2.6; o.grp.rotation.y+=dt*1.2; if(o.halo)o.halo.rotation.z+=dt*2; }
+    if(player&&!player._carry){ const d=Math.hypot(player.wx-o.x,player.wz-o.z); if(d<36&&d<nd){nd=d;near=o;} } }
+  window._nearOrb=near;
+}
+function _grabItem(){
+  if(!player||player._carry) return false;
+  const o=window._nearOrb; if(!o) return false;
+  const i=window._itemOrbs.indexOf(o); if(i>=0)window._itemOrbs.splice(i,1);
+  if(o.grp){ scene.remove(o.grp); o.grp.traverse(c=>{ if(c.geometry)c.geometry.dispose(); }); }
+  player._carry={type:o.type};
+  const def=_ITEMDEF[o.type]||_ITEMDEF.nuke;
+  const hv=new THREE.Group();
+  hv.add(new THREE.Mesh(new THREE.IcosahedronGeometry(6,1),new THREE.MeshStandardMaterial({color:def.col,emissive:def.col,emissiveIntensity:1.5,roughness:0.3,metalness:0.4,toneMapped:false})));
+  scene.add(hv); player._carryVis=hv; window._nearOrb=null;
+  if(typeof announce==='function')announce(def.label+'  —  THROW IT','#ffd84a');
+  if(typeof Audio!=='undefined'){try{Audio.blip(540,0.1,'sine',0.2,860);}catch(_){}}
+  return true;
+}
+function _throwCarry(){
+  if(!player||!player._carry) return false;
+  const type=player._carry.type;
+  let dx=Math.cos(player.aim||0), dz=Math.sin(player.aim||0);
+  if(player._aim3DActive&&player._aim3D){ dx=player._aim3D.x; dz=player._aim3D.z; }
+  const m=Math.hypot(dx,dz)||1; dx/=m; dz/=m; const sp=180;
+  window._itemShots.push({x:player.wx+dx*16,z:player.wz+dz*16,y:(player.py||0)+24,vx:dx*sp+(player.vx||0)*0.3,vz:dz*sp+(player.vz||0)*0.3,vy:95,type:type,od:false});
+  if(player._carryVis){ scene.remove(player._carryVis); player._carryVis.traverse(c=>{ if(c.geometry)c.geometry.dispose(); }); player._carryVis=null; }
+  player._carry=null;
+  if(typeof Audio!=='undefined'){try{Audio.blip(300,0.12,'sine',0.2,160);}catch(_){}}
+  return true;
+}
+function _updateItemShots(dt){
+  const A=window._itemShots; if(!A||!A.length)return;
+  const GRAV=320;
+  for(let i=A.length-1;i>=0;i--){ const s=A[i]; s.vy-=GRAV*dt; s.x+=s.vx*dt; s.z+=s.vz*dt; s.y+=s.vy*dt;
+    if(typeof ps!=='undefined'&&Math.random()<0.7){ const def=_ITEMDEF[s.type]||_ITEMDEF.nuke; const c=new THREE.Color(def.col); ps._spawn(s.x,s.y,s.z,rand(-8,8),rand(-8,8),rand(-8,8),c.r,c.g,c.b,0.3); }
+    if(s.y<=6){ _detonateItem(s.type,s.x,s.z,s.od); A.splice(i,1); }
+  }
+}
+function _ensureGrabBtn(){
+  let b=document.getElementById('grab-btn'); if(b)return b;
+  b=document.createElement('div'); b.id='grab-btn';
+  b.style.cssText='position:fixed;left:50%;bottom:160px;transform:translateX(-50%);z-index:99990;display:none;align-items:center;justify-content:center;min-width:128px;height:54px;padding:0 24px;border-radius:27px;font-family:Orbitron,sans-serif;font-size:16px;letter-spacing:2px;color:#001018;font-weight:700;box-shadow:0 0 22px rgba(57,255,201,0.6);user-select:none;cursor:pointer;background:rgba(57,255,201,0.9)';
+  b.textContent='GRAB'; document.body.appendChild(b);
+  const act=(e)=>{ if(e){e.preventDefault();e.stopPropagation();} if(player&&player._carry)_throwCarry(); else _grabItem(); };
+  b.addEventListener('touchstart',act,{passive:false}); b.addEventListener('mousedown',act);
+  return b;
+}
+function _updateCarry(dt){
+  if(player&&player._carry&&player._carryVis){ const a=player.aim||0; player._carryVis.position.set(player.wx+Math.cos(a)*10,(player.py||0)+26,player.wz+Math.sin(a)*10); player._carryVis.rotation.y+=dt*3; }
+  const btn=_ensureGrabBtn();
+  if(player&&player._carry){ btn.style.display='flex'; btn.textContent='THROW'; btn.style.background='rgba(255,120,40,0.92)'; btn.style.boxShadow='0 0 22px rgba(255,120,40,0.6)'; }
+  else if(window._nearOrb){ btn.style.display='flex'; btn.textContent='GRAB'; btn.style.background='rgba(57,255,201,0.9)'; btn.style.boxShadow='0 0 22px rgba(57,255,201,0.6)'; }
+  else { btn.style.display='none'; }
+}
+function _disposeBarrels(){
+  for(const b of (window._barrels||[])){ if(b.grp){ scene.remove(b.grp); b.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();}); } }
+  for(const o of (window._itemOrbs||[])){ if(o.grp){ scene.remove(o.grp); o.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();}); } }
+  window._barrels=[]; window._itemOrbs=[]; window._itemShots=[];
+  if(player){ if(player._carryVis){ scene.remove(player._carryVis); player._carryVis.traverse(c=>{if(c.geometry)c.geometry.dispose();}); player._carryVis=null; } player._carry=null; }
+  window._nearOrb=null; const btn=document.getElementById('grab-btn'); if(btn)btn.style.display='none';
+}
+function _spawnTrainingBarrels(){ _spawnBarrel(60,-40); _spawnBarrel(95,-10); _spawnBarrel(40,20); }
+window._barrelTick=function(dt){ try{ _updateBarrels(dt); _updateItemOrbs(dt); _updateItemShots(dt); _updateCarry(dt); }catch(e){ console.warn('barrel tick:',e); } };
+
 function _makeOlmecMask(){
   const G=new THREE.Group(), headG=new THREE.Group(); G.add(headG);
   const FILL=new THREE.MeshBasicMaterial({color:0x39ffd0,transparent:true,opacity:0.09,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
@@ -11042,6 +11171,7 @@ function buildTrainingRoom(){
   // holographic OLMEC mask — a display hologram off to the front-left (placeholder for a future enemy)
   try{ if(window._trMask){ scene.remove(window._trMask); window._trMask=null; }
     const mk=_makeOlmecMask(); mk.scale.setScalar(1.15); mk.position.set(-72,22,14); mk.userData.baseY=22; scene.add(mk); window._trMask=mk;
+    if(typeof _spawnTrainingBarrels==="function")_spawnTrainingBarrels();
   }catch(e){ console.warn('olmec mask:',e); }
 
   // Announce
@@ -11162,7 +11292,7 @@ function startGame(levelIdx){
   // Build puzzle level for zone 0
   GS._puzzlePassed=false; GS._puzzleGate=null;
   { const _sv=(GS.zone===-13)?'flex':'none'; ['rl-boost-btn','rl-cam-btn'].forEach(id=>{const e=document.getElementById(id); if(e)e.style.display=_sv;}); }
-  _disposeRLArena(); _disposeRopeZone(); if(typeof _disposeCustomLevel==='function')_disposeCustomLevel();
+  _disposeRLArena(); _disposeRopeZone(); if(typeof _disposeCustomLevel==='function')_disposeCustomLevel(); if(typeof _disposeBarrels==='function')_disposeBarrels();
   if(GS.zone===-1){ buildTutorial(); }
   else if(GS.zone===-2){ buildTrainingRoom(); }
   else if(GS.zone===-3){ buildPuzzleLab(); }
@@ -14965,6 +15095,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
       if(typeof _updateHandWeapons==='function') _updateHandWeapons(dt);
       if(GS.zone!==-16){ if(typeof _updateWeaponPads==='function')_updateWeaponPads(dt); if(typeof _updateBootStation==='function')_updateBootStation(dt); if(typeof _updateHammerStation==='function')_updateHammerStation(dt); }   // pads/stations update everywhere except city (city does it inside updateCityTest)
+      if(typeof window._barrelTick==='function')window._barrelTick(dt);
       if(GS.zone===-16) updateGrindRail(dt);
       { // ── DROP-THROUGH: HOLD the left stick down (a flick = dash) while on a platform ──
         const downHeld=(moveIn.y>0.55)||((keys['KeyS']||keys['ArrowDown'])&&!(keys['KeyW']||keys['ArrowUp']));
