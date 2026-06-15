@@ -20360,9 +20360,17 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   if(!ud||!ud.clips||!player) return;
   if(ud._meleeTimer && ud._meleeTimer>0){ player._meleeBuf={dir:(typeof dirAngle==='number'?dirAngle:null),combo:comboOverride}; return; }   // swing in progress -> buffer ONE, fired on finish (1 swing = 1 hit)
   if(typeof dirAngle==='number') player.aim=dirAngle;                       // flicks pass null -> DON'T turn the character
-  if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }  // directional flick: up=1, down=2, left/right=3
-  else { if((player._meleeComboT||0)<=0) player._meleeCombo=0; player._meleeCombo=(player._meleeCombo>=3)?1:(player._meleeCombo+1); }
-  const mname='melee_'+player._meleeCombo;
+  // airborne? -> single air_to_ground_melee, leave the ground combo to restart fresh on landing
+  let _airMelee=false;
+  { const _og=(player.py<=4)||player._onPlatform||(player._inPlanetGravity&&player._glGrounded); _airMelee = player._inPlanetGravity ? !player._glGrounded : (!_og && player.py>8); }
+  let mname;
+  if(_airMelee && ud.clips['air_to_ground_melee']){
+    mname='air_to_ground_melee'; player._meleeCombo=0;                     // next ground swing starts the 1->5 sequence over
+  } else {
+    if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }
+    else { if((player._meleeComboT||0)<=0) player._meleeCombo=0; player._meleeCombo=(player._meleeCombo>=5)?1:(player._meleeCombo+1); }   // sequential 1->2->3->4->5 (resets after the combo-gap below)
+    mname='melee_'+player._meleeCombo;
+  }
   if(!ud.clips[mname] && player._warnedMelee!==mname){ player._warnedMelee=mname; if(typeof announce==='function') announce(mname.toUpperCase()+' NOT IN GLB','#ff5555'); }
   const mc=ud.clips[mname]||ud.clips['melee_1'];
   if(mc && !player._meleeDiag && mc._clip){ player._meleeDiag=true;          // one-time readout: does the ROOT (hips) actually move in this clip?
@@ -20402,7 +20410,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
     ud.currentClip=mname;
   }
   ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false; ud._meleeFXdone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null;
-  player._meleeComboT=Math.max(mdur,0.45)+0.9;
+  player._meleeComboT=mdur+(window._MELEE_COMBO_GAP!=null?window._MELEE_COMBO_GAP:1.0);   // ~1s grace after the swing to chain; wait longer -> sequence restarts at melee_1
   player._flickCooldown=8;
   player._rollAimLock=true;
   if(typeof Audio!=='undefined'&&Audio.blip) Audio.blip(170+player._meleeCombo*55,0.09,'square',0.16,520);
