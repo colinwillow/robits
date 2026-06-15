@@ -10876,7 +10876,7 @@ function _makeHealthBar(){
 function _spawnCrate(x,z){
   const grp=_makeItemCrateMesh(); grp.position.set(x,0,z); scene.add(grp);
   const bar=_makeHealthBar(); scene.add(bar);
-  const c={grp, bar, x, z, vx:0, vz:0, hp:5, hpMax:5, t:Math.random()*6, hitFlash:0, _meleeCd:0};
+  const c={grp, bar, x, z, wx:x, wz:z, py:12, vx:0, vz:0, hp:5, hpMax:5, t:Math.random()*6, hitFlash:0, _meleeCd:0};
   window._crates.push(c); return c;
 }
 function _spawnCrateDebris(x,y,z){
@@ -10887,6 +10887,13 @@ function _smashCrateAt(x,z){
   if(typeof ps!=='undefined'){ ps.ring(x,z,[0.4,1,0.85],12,92); for(let k=0;k<20;k++){ const a=Math.random()*6.28,sp=rand(30,90); ps._spawn(x+rand(-8,8),rand(6,24),z+rand(-8,8),Math.cos(a)*sp,rand(20,70),Math.sin(a)*sp,0.7,0.5,0.25,0.6); } }
   if(typeof Audio!=='undefined'){try{Audio.blip(90,0.22,'square',0.3,40);Audio.blip(220,0.12,'square',0.18,160);}catch(_){}}
   if(typeof addTrauma==='function')addTrauma(0.12);
+  // fling nearby enemies/bots (bomb-style tumble) — light damage, big knockback
+  try{
+    const KR=82;
+    if(typeof GS!=='undefined'&&GS.enemies){ for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive)continue; const d=Math.hypot(e.wx-x,e.wz-z); if(d<KR){ if(e.knock)e.knock(e.wx-x,e.wz-z, 3, 2.4, 32, true); if(e.hit){ const pts=e.hit(3); if(pts>0||!e.alive){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); } } } } }
+    if(typeof GS_bots!=='undefined'){ for(const b of GS_bots){ if(b&&b.alive&&Math.hypot(b.wx-x,b.wz-z)<KR){ if(b.knock)b.knock(b.wx-x,b.wz-z, 3, 300, 40); if(b.hit)b.hit(3); } } }
+    if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS.zone===-2&&Math.hypot(GS_trainingDummy.wx-x,GS_trainingDummy.wz-z)<KR&&GS_trainingDummy.hit)GS_trainingDummy.hit(6,x,z);
+  }catch(_){}
   const n=Math.random()<0.3?2:1;
   for(let k=0;k<n;k++){ const type=_ITEM_TYPES[Math.floor(Math.random()*_ITEM_TYPES.length)]; const a=Math.random()*6.28; _spawnPU(x,16,z,type, Math.cos(a)*rand(20,55), rand(95,150), Math.sin(a)*rand(20,55)); }
 }
@@ -10903,10 +10910,13 @@ function _updateCrates(dt){
   let nc=null,ncd=1e9;
   if(A&&A.length){
   for(let i=A.length-1;i>=0;i--){ const c=A[i]; c.t+=dt; if(c.hitFlash>0)c.hitFlash-=dt; c._meleeCd=(c._meleeCd||0)-dt;
-    c.grp.position.x+=c.vx*dt; c.grp.position.z+=c.vz*dt; const fr=Math.pow(0.05,dt); c.vx*=fr; c.vz*=fr; if(Math.abs(c.vx)<2)c.vx=0; if(Math.abs(c.vz)<2)c.vz=0;
-    c.x=c.grp.position.x; c.z=c.grp.position.z;
-    if(Math.abs(c.vx)+Math.abs(c.vz)>4) c.grp.rotation.y+=dt*1.4;
-    if(player){ const dx=c.x-player.wx, dz=c.z-player.wz, d=Math.hypot(dx,dz); if(d<22&&d>0.1){ const push=(22-d)*6; c.vx+=dx/d*push; c.vz+=dz/d*push; } }
+    c.grp.position.x+=c.vx*dt; c.grp.position.z+=c.vz*dt; const fr=Math.pow(0.015,dt); c.vx*=fr; c.vz*=fr; if(Math.abs(c.vx)<4)c.vx=0; if(Math.abs(c.vz)<4)c.vz=0;
+    c.x=c.grp.position.x; c.z=c.grp.position.z; c.wx=c.x; c.wz=c.z;
+    if(Math.abs(c.vx)+Math.abs(c.vz)>4) c.grp.rotation.y+=dt*1.0;
+    if(player){ const dx=c.x-player.wx, dz=c.z-player.wz, d=Math.hypot(dx,dz)||1; const R=21; if(d<R&&d>0.01){ const nx=dx/d, nz=dz/d, ov=R-d; c.vx+=nx*ov*2.6; c.vz+=nz*ov*2.6; player.wx-=nx*ov*0.5; player.wz-=nz*ov*0.5; if(player.vx!==undefined){ player.vx*=0.72; player.vz*=0.72; } } }
+    // ROCKETS damage the crate too
+    if(typeof GS!=='undefined'&&GS.missiles&&GS.missiles.length){ for(let j=GS.missiles.length-1;j>=0;j--){ const m=GS.missiles[j]; if(!m)continue; if(Math.hypot((m.wx||0)-c.x,(m.wz||0)-c.z)<18&&Math.abs((m.y||12)-12)<28){ c.hp-=(m.dmg||4); c.hitFlash=0.12; const dx=c.x-(m.wx||0),dz=c.z-(m.wz||0),dd=Math.hypot(dx,dz)||1; c.vx+=dx/dd*60; c.vz+=dz/dd*60; if(typeof ps!=='undefined'){ps.ring(c.x,c.z,[1,0.5,0.2],8,72);} if(m.remove)m.remove(); GS.missiles.splice(j,1); if(typeof Audio!=='undefined'){try{Audio.blip(120,0.15,'square',0.25,60);}catch(_){}} if(c.hp<=0){ _smashCrate(c); break; } } } }
+    if(window._crates.indexOf(c)<0) continue;
     // MELEE damages the crate
     if(meleeActive && c._meleeCd<=0 && player){ const d=Math.hypot(c.x-player.wx,c.z-player.wz); if(d<34){ c.hp-=2; c._meleeCd=0.34; c.hitFlash=0.12; const dx=c.x-player.wx,dz=c.z-player.wz,dd=Math.hypot(dx,dz)||1; c.vx+=dx/dd*95; c.vz+=dz/dd*95; if(typeof ps!=='undefined')ps.ring(c.x,c.z,[1,0.9,0.4],5,42); if(typeof Audio!=='undefined'){try{Audio.blip(150,0.09,'square',0.16,90);}catch(_){}} if(c.hp<=0){ _smashCrate(c); continue; } } }
     // bullets damage the crate
@@ -15309,7 +15319,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS._chainShock>0) GS._chainShock--;
       for(let i=GS.enemyMissiles.length-1;i>=0;i--){ if(!GS.enemyMissiles[i].update(dt)){GS.enemyMissiles.splice(i,1);} }
       for(let i=GS.missiles.length-1;i>=0;i--){
-        const targets=[...GS.enemies,...GS_bots.filter(b=>b.alive)];
+        const targets=[...GS.enemies,...GS_bots.filter(b=>b.alive),...(window._crates||[])];
         if(GS_trainingDummy&&GS.zone===-2) targets.push(GS_trainingDummy);
         if(!GS.missiles[i].update(dt,targets)){GS.missiles[i].remove();GS.missiles.splice(i,1);}
       }
