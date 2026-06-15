@@ -8505,7 +8505,7 @@ class Player{
       _ce.renderOrder=21; this._bombMesh.add(_ce); this._bombMesh.rotation.set(0.4,0.6,0);
     }
     if(_ally){ this._bombBodyMat.color.setHex(0x3aa0ff); this._bombCoreMat.color.setHex(0x9ad0ff); }
-    if(_item){ const pl=this._carryPayload||{kind:'item',type:'nuke'}; const def=(typeof _ITEMDEF!=='undefined'&&_ITEMDEF[pl.type])?_ITEMDEF[pl.type]:{col:0xffd84a,glow:0xffe9a0}; const SZ=(pl.kind==='crate')?13:9; this._bombMesh.geometry&&this._bombMesh.geometry.dispose(); this._bombMesh.geometry=new THREE.BoxGeometry(SZ,SZ,SZ); this._bombBodyMat.color.setHex(pl.kind==='crate'?0x7a4a26:def.col); this._bombBodyMat.opacity=0.96; this._bombBodyMat.blending=THREE.NormalBlending; this._bombCoreMat.color.setHex(def.glow); const _ie=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(SZ,SZ,SZ)), new THREE.LineBasicMaterial({color:pl.kind==='crate'?0x39ffc9:def.glow,transparent:true,opacity:0.97,depthTest:false})); _ie.renderOrder=21; this._bombMesh.add(_ie); }
+    if(_item){ const pl=this._carryPayload||{kind:'item',type:'nuke'}; this._bombBodyMat.opacity=0; this._bombBodyMat.transparent=true; if(this._bombCoreMat){ this._bombCoreMat.opacity=0; this._bombCoreMat.transparent=true; } if(typeof _makePUModel==='function'){ const mdl=_makePUModel(pl.kind==='crate'?'crate':pl.type); mdl.scale.setScalar(pl.kind==='crate'?1.05:1.0); this._bombMesh.add(mdl); } }
     this._bombMesh.renderOrder=20; this._bombCoreMesh.renderOrder=20;   // equipped bomb always draws on top -> never occluded by a building behind it
     scene.add(this._bombMesh);
     scene.add(this._bombCoreMesh);
@@ -10920,12 +10920,39 @@ function _updateCrates(dt){
   const D=window._crateDebris; if(D&&D.length){ for(let i=D.length-1;i>=0;i--){ const d=D[i]; d.t+=dt; d.vy-=400*dt; d.m.position.x+=d.vx*dt; d.m.position.y+=d.vy*dt; d.m.position.z+=d.vz*dt; d.m.rotation.x+=d.rx*dt; d.m.rotation.z+=d.rz*dt; if(d.m.position.y<2){ d.m.position.y=2; d.vy*=-0.35; d.vx*=0.6; d.vz*=0.6; } if(d.t>1.3){ const o=d.m.material; if(o){o.transparent=true; o.opacity=Math.max(0,1-(d.t-1.3)/0.6);} } if(d.t>1.9){ scene.remove(d.m); if(d.m.geometry)d.m.geometry.dispose(); D.splice(i,1); } } }
 }
 
-// ---------- POWER-UP pickups (physics cubes) ----------
+// ---------- POWER-UP pickups (physics) ----------
+function _makePUModel(type){
+  const g=new THREE.Group();
+  if(type==='nuke'){
+    const dark=new THREE.MeshStandardMaterial({color:0x303036,emissive:0x140805,roughness:0.5,metalness:0.7});
+    const body=new THREE.Mesh(new THREE.CylinderGeometry(4,4,9,16),dark); body.rotation.z=Math.PI/2; g.add(body);
+    const nose=new THREE.Mesh(new THREE.ConeGeometry(4,5,16),dark); nose.rotation.z=-Math.PI/2; nose.position.x=7; g.add(nose);
+    const band=new THREE.Mesh(new THREE.CylinderGeometry(4.15,4.15,2.4,16), new THREE.MeshStandardMaterial({color:0xff5a3c,emissive:0xff5a3c,emissiveIntensity:1.5,roughness:0.4,toneMapped:false})); band.rotation.z=Math.PI/2; band.position.x=-1.5; g.add(band);
+    const fmat=new THREE.MeshStandardMaterial({color:0xff7a44,emissive:0x3a1505,roughness:0.5,metalness:0.5});
+    for(let k=0;k<4;k++){ const fin=new THREE.Mesh(new THREE.BoxGeometry(3.6,0.5,4),fmat); fin.position.x=-5.5; fin.rotation.x=k*Math.PI/2; fin.position.y=Math.cos(k*Math.PI/2)*3; fin.position.z=Math.sin(k*Math.PI/2)*3; g.add(fin); }
+    g.rotation.z=0.5; g.scale.setScalar(0.85);
+  } else if(type==='singularity'){
+    const core=new THREE.Mesh(new THREE.IcosahedronGeometry(2.6,0), new THREE.MeshStandardMaterial({color:0x16001f,emissive:0x7a14b0,emissiveIntensity:1.3,roughness:0.3,toneMapped:false})); g.add(core);
+    const cube=new THREE.Mesh(new THREE.BoxGeometry(5.4,5.4,5.4), new THREE.MeshBasicMaterial({color:0xb060ff,wireframe:true,transparent:true,opacity:0.85})); g.add(cube);
+    const rmat=()=>new THREE.MeshBasicMaterial({color:0xd09bff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+    const r1=new THREE.Mesh(new THREE.TorusGeometry(6.2,0.42,8,32),rmat()); g.add(r1);
+    const r2=new THREE.Mesh(new THREE.TorusGeometry(6.2,0.42,8,32),rmat()); r2.rotation.x=Math.PI/2; g.add(r2);
+    const r3=new THREE.Mesh(new THREE.TorusGeometry(6.2,0.42,8,32),rmat()); r3.rotation.y=Math.PI/2.4; r3.rotation.x=Math.PI/3; g.add(r3);
+    g.userData.rings=[r1,r2,r3]; g.userData.cube=cube;
+  } else if(type==='quake'){
+    const cm=new THREE.MeshStandardMaterial({color:0x0d3a33,emissive:0x39ffc9,emissiveIntensity:0.95,roughness:0.25,metalness:0.3,flatShading:true,toneMapped:false});
+    const main=new THREE.Mesh(new THREE.OctahedronGeometry(5,0),cm); main.scale.y=1.5; g.add(main);
+    for(let k=0;k<5;k++){ const sp=new THREE.Mesh(new THREE.ConeGeometry(1.6,rand(4,7),5),cm); const a=Math.random()*6.28,r=3; sp.position.set(Math.cos(a)*r,rand(-3,3),Math.sin(a)*r); sp.rotation.set(rand(0,3),rand(0,3),rand(0,3)); g.add(sp); }
+    g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(7,0), new THREE.MeshBasicMaterial({color:0x9bffe0,wireframe:true,transparent:true,opacity:0.5})));
+  } else { // crate
+    const S=11, wood=new THREE.MeshStandardMaterial({color:0x7a4a26,emissive:0x1a0d04,roughness:0.85}); g.add(new THREE.Mesh(new THREE.BoxGeometry(S,S,S),wood)); g.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(S,S,S)), new THREE.LineBasicMaterial({color:0x39ffc9,transparent:true,opacity:0.9})));
+  }
+  return g;
+}
 function _spawnPU(x,y,z,type,vx,vy,vz){
   const def=_ITEMDEF[type]||_ITEMDEF.nuke;
   const g=new THREE.Group();
-  const cube=new THREE.Mesh(new THREE.BoxGeometry(9,9,9), new THREE.MeshStandardMaterial({color:def.col,emissive:def.col,emissiveIntensity:1.2,roughness:0.3,metalness:0.4,toneMapped:false})); g.add(cube);
-  const edge=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(9,9,9)), new THREE.LineBasicMaterial({color:def.glow,transparent:true,opacity:0.95})); cube.add(edge);
+  const cube=_makePUModel(type); g.add(cube);
   const ring=new THREE.Mesh(new THREE.RingGeometry(18,22,40), new THREE.MeshBasicMaterial({color:def.glow,transparent:true,opacity:0.0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=-6.5; g.add(ring);
   g.position.set(x,y,z); scene.add(g);
   window._itemPU.push({grp:g,cube,ring,x,y,z,vx,vy,vz,type,settled:false,t:Math.random()*6});
@@ -10973,17 +11000,25 @@ function _updateItemShots(dt){
 function _ensureGrabHand(){
   let h=document.getElementById('grab-hand'); if(h)return h;
   h=document.createElement('div'); h.id='grab-hand';
-  h.style.cssText='position:absolute;left:22px;bottom:max(env(safe-area-inset-bottom),28px);width:118px;height:118px;pointer-events:none;z-index:9;display:none;align-items:center;justify-content:center;font-size:42px;text-shadow:0 0 12px rgba(57,255,160,0.9)';
+  h.style.cssText='position:absolute;right:22px;bottom:max(env(safe-area-inset-bottom),28px);width:118px;height:118px;pointer-events:none;z-index:11;display:none;align-items:center;justify-content:center;font-size:42px;text-shadow:0 0 12px rgba(57,255,160,0.95)';
   h.textContent='\u270B'; document.body.appendChild(h);
   return h;
 }
+function _ensureGrabRing(){
+  let r=document.getElementById('grab-ring'); if(r)return r;
+  if(!document.getElementById('grabring-style')){ const st=document.createElement('style'); st.id='grabring-style'; st.textContent='@keyframes grabringpulse{0%{transform:scale(0.96);opacity:1;border-width:5px}100%{transform:scale(1.4);opacity:0;border-width:2px}}'; document.head.appendChild(st); }
+  r=document.createElement('div'); r.id='grab-ring';
+  r.style.cssText='position:absolute;right:14px;bottom:calc(max(env(safe-area-inset-bottom),28px) - 8px);width:134px;height:134px;border-radius:50%;border:5px solid #39ffa0;box-shadow:0 0 26px rgba(57,255,160,0.95),inset 0 0 18px rgba(57,255,160,0.5);pointer-events:none;z-index:10;display:none;animation:grabringpulse 0.7s ease-out infinite';
+  document.body.appendChild(r); return r;
+}
 function _updateCarry(dt){
-  // left-stick grab affordance (no throw button — the bomb machinery handles held mesh + throw)
-  const js=document.getElementById('joystick-left'); const knob=document.getElementById('joy-knob-left'); const hand=_ensureGrabHand();
+  // RIGHT-stick grab affordance (no throw button — the bomb machinery handles held mesh + throw)
+  const js=document.getElementById('joystick-right'); const knob=document.getElementById('joy-knob-right'); const hand=_ensureGrabHand(); const ring=_ensureGrabRing();
   const ready=!!_nearestGrab();
-  if(knob){ knob.style.background=ready?'rgba(57,255,160,0.5)':''; knob.style.boxShadow=ready?'0 0 18px rgba(57,255,160,0.85)':''; }
-  if(js){ js.style.borderColor=ready?'rgba(57,255,160,0.9)':''; js.style.boxShadow=ready?'0 0 22px rgba(57,255,160,0.5)':''; }
+  if(knob){ knob.style.background=ready?'rgba(57,255,160,0.45)':''; knob.style.boxShadow=ready?'0 0 18px rgba(57,255,160,0.85)':''; }
+  if(js){ js.style.borderColor=ready?'rgba(57,255,160,0.9)':''; }
   hand.style.display=ready?'flex':'none';
+  ring.style.display=ready?'block':'none';
 }
 function _disposeBarrels(){
   for(const c of (window._crates||[])){ if(c.grp){scene.remove(c.grp);c.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} if(c.bar){scene.remove(c.bar);c.bar.traverse(o=>{if(o.geometry)o.geometry.dispose();});} }
@@ -10993,8 +11028,9 @@ function _disposeBarrels(){
   if(player){ if(player._carryPayload){ player._carryPayload=null; if(typeof player._disarmBomb==='function'&&player._bombMode==='item')player._disarmBomb(); } }
   window._nearOrb=null; window._nearCrate=null;
   const hand=document.getElementById('grab-hand'); if(hand)hand.style.display='none';
-  const knob=document.getElementById('joy-knob-left'); if(knob){knob.style.background='';knob.style.boxShadow='';}
-  const js=document.getElementById('joystick-left'); if(js){js.style.borderColor='';js.style.boxShadow='';}
+  const ring=document.getElementById('grab-ring'); if(ring)ring.style.display='none';
+  const knob=document.getElementById('joy-knob-right'); if(knob){knob.style.background='';knob.style.boxShadow='';}
+  const js=document.getElementById('joystick-right'); if(js){js.style.borderColor='';}
 }
 function _spawnTrainingBarrels(){ _spawnCrate(60,-40); _spawnCrate(95,-10); _spawnCrate(40,20); }
 window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateCarry(dt); }catch(e){ console.warn('crate tick:',e); } };
@@ -14062,6 +14098,7 @@ function _chargeJumpVel(charge){
 
 jR.onTap=()=>{
   if(!player||GS.state!=='playing')return;
+  if(!player._carryPayload && typeof _grabItem==='function' && _grabItem()) return;   // tap right stick near a crate/power-up -> grab it
   if(GS.zone===-13){ player._rlJumpReq=true; return; }
   if(GS.zone===-14){ if(_ropeZ&&_ropeZ.grabbed){ player._ropeJumpReq=true; } else { player._jumpTapped=true; setTimeout(()=>{ if(player) player._jumpTapped=false; },90); } return; }
   // Galaxy planet: use hold duration for charge (set in _start/_end hooks below)
@@ -20243,7 +20280,7 @@ let _MELEE_TRIM_END=0.167;    // sec cut off the END (~5 frames) -> locomotion t
 let _MELEE_FLICK_WINDOW_MS=160;  // a flick must snap out AND return within this many ms; holding longer = aim/fire instead
 if(typeof window!=='undefined' && window._meleeUpperBody===undefined) window._meleeUpperBody=false;   // FULL-BODY swing (legs+torso play the whole clip). set true for the upper-body additive split.
 if(typeof window!=='undefined' && window._meleeLandLock===undefined) window._meleeLandLock=true;      // PLANT in place during the swing -> can't interrupt the attack by moving
-if(typeof window!=='undefined' && window._meleeOnLeftStick===undefined) window._meleeOnLeftStick=true; // melee = LEFT-stick flick (moved off the right stick)
+if(typeof window!=='undefined' && window._meleeOnLeftStick===undefined) window._meleeOnLeftStick=false; // melee = RIGHT-stick flick (moved back off the left stick)
 if(typeof window!=='undefined' && window._MELEE_AUTOAIM_R===undefined) window._MELEE_AUTOAIM_R=90;      // TAP melee auto-faces the nearest enemy within this range
 if(typeof window!=='undefined' && window._MELEE_LUNGE===undefined) window._MELEE_LUNGE=true;            // TAP melee lunges toward the target (set false to disable)
 // ── upper-body additive swing: clone the melee clip, drop leg/hip tracks, rebase as additive-over-idle, layer it on the running legs (no GLB split needed) ──
@@ -20318,7 +20355,6 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   if(typeof _spawnSlashArc==='function') _spawnSlashArc(player._meleeCombo||1);
 }
 function _doMeleeTap(){
-  if(player && !player._carryPayload && typeof _grabItem==='function'){ if(_grabItem()) return; }   // tap left stick near a crate/power-up -> grab it
   if(!player||!player.model||!player.model.userData) return;
   const ud=player.model.userData;
   if(ud._meleeTimer && ud._meleeTimer>0){ player._meleeBuf={tap:true}; return; }   // chain: re-target + re-lunge when the current swing finishes
