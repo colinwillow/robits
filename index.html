@@ -15445,7 +15445,7 @@ function loop(ts){ requestAnimationFrame(loop);
         if(player._dropThru>0) player._dropThru-=dt;
         if(window._perfHudOn){ let _dd=document.getElementById('drop-dbg'); if(!_dd){ _dd=document.createElement('div'); _dd.id='drop-dbg'; _dd.style.cssText='position:fixed;left:8px;top:150px;z-index:99999;font:11px monospace;color:#33ffcc;background:rgba(0,0,0,0.6);padding:4px 7px;border-radius:4px;pointer-events:none;white-space:pre'; document.body.appendChild(_dd); } _dd.style.display='block'; _dd.textContent='py '+player.py.toFixed(1)+'  pvy '+(player.pvy||0).toFixed(1)+'\nmoveY '+moveIn.y.toFixed(2)+'  hold '+(player._downHold||0).toFixed(2)+'\nonPlat '+(player._onPlatform?1:0)+'  dropThru '+(player._dropThru||0).toFixed(2); } else { const _dd=document.getElementById('drop-dbg'); if(_dd)_dd.style.display='none'; } }
       if(player) player.updateShield(dt);
-      if(typeof _parryGaugeTick==='function') _parryGaugeTick(dt);
+      if(typeof _parryGaugeTick==='function') _parryGaugeTick(dt);   // parry debug: distance line + number + ! window alert
       if(player) player._lastFiring=firing||player._secFireActive||false;
       if(_versusActive) checkVersusRoundEnd();
       // ── MULTIPLAYER tick ──
@@ -20572,7 +20572,7 @@ function _parryDeflect(obj, kind, tier){
   const hasSrc=(obj._srcX!=null&&obj._srcZ!=null);
   // how far the attacker was -> how far the deflect travels (far attacker = far throw, close = short)
   let srcDist = hasSrc ? Math.hypot(obj._srcX-px, obj._srcZ-pz) : Math.hypot(ox-px,oz-pz);
-  srcDist=Math.max(40, srcDist);
+  srcDist=Math.max(40, srcDist) * (window._PARRY_RANGE_MULT!=null?window._PARRY_RANGE_MULT:0.6);   // tune how far the deflect travels relative to the throw distance
   // direction
   let dirx, dirz;
   if(tier==='green' && hasSrc){ dirx=obj._srcX-px; dirz=obj._srcZ-pz; const l=Math.hypot(dirx,dirz)||1; dirx/=l; dirz/=l; }   // accurate -> straight back at them
@@ -20604,43 +20604,38 @@ function _findParryTarget(){
   if(window._itemShots)for(const s of window._itemShots){ if(s&&!s._deflected)consider(s,'item',s.x,s.z,s.vx||0,s.vz||0); }
   return {obj:best, kind:bestKind, dist:bestDist};
 }
-function _parryGaugeEl(){
-  let g=document.getElementById('parry-gauge'); if(g)return g;
-  g=document.createElement('div'); g.id='parry-gauge';
-  g.style.cssText='position:fixed;width:96px;height:13px;transform:translate(-50%,-50%);z-index:118;pointer-events:none;display:none;border:1.5px solid rgba(255,255,255,0.45);border-radius:7px;background:#222;overflow:hidden;box-shadow:0 0 10px rgba(0,0,0,0.5)';
-  const mk=document.createElement('div'); mk.id='parry-gauge-mark'; mk.style.cssText='position:absolute;top:-3px;bottom:-3px;width:3px;background:#fff;border-radius:2px;box-shadow:0 0 7px #fff,0 0 3px #000';
-  g.appendChild(mk); document.body.appendChild(g); return g;
-}
-function _hideParryGauge(){ const g=document.getElementById('parry-gauge'); if(g)g.style.display='none'; }
+function _parryLine(){ if(window._parryLineMesh)return window._parryLineMesh; const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(6),3)); const l=new THREE.Line(geo, new THREE.LineBasicMaterial({color:0x33e0ff,transparent:true,opacity:0.95,depthTest:false})); l.frustumCulled=false; l.renderOrder=999; scene.add(l); window._parryLineMesh=l; return l; }
+function _parryDistLabel(){ let e=document.getElementById('parry-dist'); if(e)return e; e=document.createElement('div'); e.id='parry-dist'; e.style.cssText='position:fixed;transform:translate(-50%,-50%);z-index:119;pointer-events:none;display:none;font-family:Orbitron,monospace;font-weight:800;font-size:14px;text-shadow:0 0 4px #000,0 0 8px #000'; document.body.appendChild(e); return e; }
+function _parryAlert(){ let e=document.getElementById('parry-alert'); if(e)return e; e=document.createElement('div'); e.id='parry-alert'; e.style.cssText='position:fixed;transform:translate(-50%,-50%);z-index:120;pointer-events:none;display:none;align-items:center;justify-content:center;width:36px;height:36px;background:#ffe23c;color:#1a1200;font-family:Orbitron,monospace;font-weight:900;font-size:21px;clip-path:polygon(50% 0%,60% 18%,82% 10%,75% 33%,98% 36%,80% 50%,98% 64%,75% 67%,82% 90%,60% 82%,50% 100%,40% 82%,18% 90%,25% 67%,2% 64%,20% 50%,2% 36%,25% 33%,18% 10%,40% 18%);box-shadow:0 0 14px #ffe23caa'; e.textContent='!'; document.body.appendChild(e); return e; }
+function _parryHideDebug(){ if(window._parryLineMesh)window._parryLineMesh.visible=false; const a=document.getElementById('parry-dist'); if(a)a.style.display='none'; const b=document.getElementById('parry-alert'); if(b)b.style.display='none'; }
 function _parryGaugeTick(dt){
-  if(!player || GS.state!=='playing'){ _hideParryGauge(); if(player){player._parryTarget=null;player._parryTier=null;} return; }
+  if(!player || GS.state!=='playing'){ _parryHideDebug(); if(player){player._parryTarget=null;player._parryInWin=false;} return; }
   const t=_findParryTarget();
   player._parryTarget=t.obj; player._parryKind=t.kind;
-  if(!t.obj){ _hideParryGauge(); player._parryTier=null; return; }
-  const DANGER=(window._PARRY_DANGER!=null?window._PARRY_DANGER:240);
-  const C=(window._PARRY_CENTER!=null?window._PARRY_CENTER:0.5);        // where the green is along the bar (raise -> later/closer)
-  const GHW=(window._PARRY_GREEN_HW!=null?window._PARRY_GREEN_HW:0.08);  // green half-width
-  const YHW=(window._PARRY_YELLOW_HW!=null?window._PARRY_YELLOW_HW:0.26);// yellow half-width
-  const approach=Math.max(0,Math.min(1,1-t.dist/DANGER));
-  const off=Math.abs(approach-C);
-  const tier = off<GHW?'green':(off<YHW?'yellow':'red');
-  player._parryTier=tier;
-  const g=_parryGaugeEl();
-  const v=new THREE.Vector3(player.wx,(player.py||0)+52,player.wz); v.project(camera);
-  if(v.z>1){ g.style.display='none'; return; }
-  g.style.left=((v.x*0.5+0.5)*window.innerWidth)+'px'; g.style.top=((-v.y*0.5+0.5)*window.innerHeight)+'px'; g.style.display='block';
-  const p=(x)=>(Math.max(0,Math.min(1,x))*100).toFixed(1)+'%';
-  g.style.background='linear-gradient(to right,#ff3344 0%,#ff3344 '+p(C-YHW)+',#ffd23c '+p(C-GHW)+',#5fffa0 '+p(C)+',#ffd23c '+p(C+GHW)+',#ff3344 '+p(C+YHW)+',#ff3344 100%)';
-  g.style.borderColor = tier==='green'?'#5fffa0':(tier==='yellow'?'#ffd23c':'rgba(255,255,255,0.45)');
-  const mk=document.getElementById('parry-gauge-mark'); if(mk){ mk.style.left=(approach*100)+'%'; }
+  if(!t.obj){ _parryHideDebug(); player._parryInWin=false; return; }
+  const WN=(window._PARRY_WIN_NEAR!=null?window._PARRY_WIN_NEAR:45), WF=(window._PARRY_WIN_FAR!=null?window._PARRY_WIN_FAR:90);
+  const dist=t.dist, inWin=(dist>=WN && dist<=WF);
+  player._parryInWin=inWin;
+  const obj=t.obj, ox=(obj.wx!=null?obj.wx:obj.x), oy=(obj.y!=null?obj.y:12), oz=(obj.wz!=null?obj.wz:obj.z);
+  // 3D line player -> projectile
+  const ln=_parryLine(); const pos=ln.geometry.attributes.position; pos.setXYZ(0, player.wx,(player.py||0)+18, player.wz); pos.setXYZ(1, ox, oy, oz); pos.needsUpdate=true; ln.geometry.computeBoundingSphere(); ln.visible=true;
+  ln.material.color.setHex(inWin?0x5fffa0:(dist<WN?0xff5a3c:0x33e0ff));
+  // live distance number at the midpoint
+  const mid=new THREE.Vector3((player.wx+ox)/2,((player.py||0)+18+oy)/2,(player.wz+oz)/2); mid.project(camera);
+  const lab=_parryDistLabel();
+  if(mid.z<1){ lab.style.display='block'; lab.style.left=((mid.x*0.5+0.5)*window.innerWidth)+'px'; lab.style.top=((-mid.y*0.5+0.5)*window.innerHeight)+'px'; lab.textContent=Math.round(dist); lab.style.color=inWin?'#5fffa0':(dist<WN?'#ff7a5c':'#7fe6ff'); }
+  else lab.style.display='none';
+  // spiky ! alert above the player while inside the window
+  const al=_parryAlert();
+  if(inWin){ const v=new THREE.Vector3(player.wx,(player.py||0)+60,player.wz); v.project(camera); if(v.z<1){ al.style.display='flex'; al.style.left=((v.x*0.5+0.5)*window.innerWidth)+'px'; al.style.top=((-v.y*0.5+0.5)*window.innerHeight)+'px'; } else al.style.display='none'; }
+  else al.style.display='none';
 }
-// called during the melee swing: evaluate the gauge tier ONCE — green = parry back at them, yellow = deflect off-side, red = miss
+// called during the melee swing: parry ONLY if the projectile is inside the tight distance window
 function _deflectProjectiles(){
   if(!player || !player._parryTarget || player._parrySwingDone) return false;
   player._parrySwingDone=true;
-  const tier=player._parryTier;
-  if(tier==='green' || tier==='yellow'){ _parryDeflect(player._parryTarget, player._parryKind, tier); player._parryTarget=null; player._parryTier=null; _hideParryGauge(); return true; }
-  return false;   // red / out of window -> miss
+  if(player._parryInWin){ _parryDeflect(player._parryTarget, player._parryKind, 'green'); player._parryTarget=null; player._parryInWin=false; _parryHideDebug(); return true; }
+  return false;   // outside the window -> miss
 }
 function _doMeleeFlick(ud, dirAngle, comboOverride){
   if(!ud||!ud.clips||!player) return;
