@@ -10944,8 +10944,15 @@ function _makePUModel(type){
     const main=new THREE.Mesh(new THREE.OctahedronGeometry(5,0),cm); main.scale.y=1.5; g.add(main);
     for(let k=0;k<5;k++){ const sp=new THREE.Mesh(new THREE.ConeGeometry(1.6,rand(4,7),5),cm); const a=Math.random()*6.28,r=3; sp.position.set(Math.cos(a)*r,rand(-3,3),Math.sin(a)*r); sp.rotation.set(rand(0,3),rand(0,3),rand(0,3)); g.add(sp); }
     g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(7,0), new THREE.MeshBasicMaterial({color:0x9bffe0,wireframe:true,transparent:true,opacity:0.5})));
-  } else { // crate
-    const S=11, wood=new THREE.MeshStandardMaterial({color:0x7a4a26,emissive:0x1a0d04,roughness:0.85}); g.add(new THREE.Mesh(new THREE.BoxGeometry(S,S,S),wood)); g.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(S,S,S)), new THREE.LineBasicMaterial({color:0x39ffc9,transparent:true,opacity:0.9})));
+  } else { // crate — same neon-wood look as the ground crate, centered for held/thrown
+    const S=14;
+    const wood=new THREE.MeshStandardMaterial({color:0x7a4a26,emissive:0x1a0d04,emissiveIntensity:0.5,roughness:0.85,metalness:0.15});
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(S,S,S),wood));
+    const groove=new THREE.MeshStandardMaterial({color:0x3a2614,roughness:0.9});
+    for(const yy of [-S/6,S/6]){ const p=new THREE.Mesh(new THREE.BoxGeometry(S*1.01,1.1,S*1.01),groove); p.position.y=yy; g.add(p); }
+    g.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(S,S,S)), new THREE.LineBasicMaterial({color:0x39ffc9,transparent:true,opacity:0.9})));
+    const brk=new THREE.MeshStandardMaterial({color:0x39ffc9,emissive:0x39ffc9,emissiveIntensity:1.1,roughness:0.4,metalness:0.7});
+    const h=S/2-0.9; for(const sx of [-1,1])for(const sy of [-1,1])for(const sz of [-1,1]){ const b=new THREE.Mesh(new THREE.BoxGeometry(2,2,2),brk); b.position.set(sx*h,sy*h,sz*h); g.add(b); }
   }
   return g;
 }
@@ -10990,11 +10997,14 @@ function _grabItem(){
 }
 function _updateItemShots(dt){
   const A=window._itemShots; if(!A||!A.length)return;
-  for(let i=A.length-1;i>=0;i--){ const s=A[i]; s.vy-=320*dt; s.x+=s.vx*dt; s.z+=s.vz*dt; s.y+=s.vy*dt;
-    if(typeof ps!=='undefined'&&Math.random()<0.7){ const def=_ITEMDEF[s.type]||_ITEMDEF.nuke; const col=(s.kind==='crate')?new THREE.Color(0x9a6a3a):new THREE.Color(def.col); ps._spawn(s.x,s.y,s.z,rand(-8,8),rand(-8,8),rand(-8,8),col.r,col.g,col.b,0.3); }
+  for(let i=A.length-1;i>=0;i--){ const s=A[i];
+    if(!s.mesh){ s.mesh=_makePUModel(s.kind==='crate'?'crate':s.type); s.mesh.scale.setScalar(s.kind==='crate'?1.35:1.15); scene.add(s.mesh); s.spin={x:rand(-5,5),y:rand(-5,5),z:rand(-5,5)}; }
+    s.vy-=320*dt; s.x+=s.vx*dt; s.z+=s.vz*dt; s.y+=s.vy*dt;
+    if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z); s.mesh.rotation.x+=s.spin.x*dt; s.mesh.rotation.y+=s.spin.y*dt; s.mesh.rotation.z+=s.spin.z*dt; }
+    if(typeof ps!=='undefined'&&Math.random()<0.5){ const def=_ITEMDEF[s.type]||_ITEMDEF.nuke; const col=(s.kind==='crate')?new THREE.Color(0x9a6a3a):new THREE.Color(def.col); ps._spawn(s.x,s.y,s.z,rand(-6,6),rand(-6,6),rand(-6,6),col.r,col.g,col.b,0.3); }
     let hit=false;
     if(s.kind==='crate'&&typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&Math.abs(s.y-(e.py||0))<34&&Math.hypot(e.wx-s.x,e.wz-s.z)<22){ hit=true; break; } } }
-    if(s.y<=6||hit){ if(s.kind==='crate'){ _smashCrateAt(s.x,s.z); } else { _detonateItem(s.type,s.x,s.z,false); } A.splice(i,1); }
+    if(s.y<=6||hit){ if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } if(s.kind==='crate'){ _smashCrateAt(s.x,s.z); } else { _detonateItem(s.type,s.x,s.z,false); } A.splice(i,1); }
   }
 }
 function _ensureGrabHand(){
@@ -11024,6 +11034,7 @@ function _disposeBarrels(){
   for(const c of (window._crates||[])){ if(c.grp){scene.remove(c.grp);c.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} if(c.bar){scene.remove(c.bar);c.bar.traverse(o=>{if(o.geometry)o.geometry.dispose();});} }
   for(const p of (window._itemPU||[])){ if(p.grp){scene.remove(p.grp);p.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} }
   for(const d of (window._crateDebris||[])){ if(d.m){scene.remove(d.m); if(d.m.geometry)d.m.geometry.dispose();} }
+  for(const s of (window._itemShots||[])){ if(s.mesh){scene.remove(s.mesh); s.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});} }
   window._crates=[]; window._itemPU=[]; window._itemShots=[]; window._crateDebris=[];
   if(player){ if(player._carryPayload){ player._carryPayload=null; if(typeof player._disarmBomb==='function'&&player._bombMode==='item')player._disarmBomb(); } }
   window._nearOrb=null; window._nearCrate=null;
