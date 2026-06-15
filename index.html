@@ -14754,20 +14754,24 @@ function loop(ts){ requestAnimationFrame(loop);
           // Clear any flip state
           ud._flippingTimer=0; ud._flipToFloat=false; ud._flipToFloatT=0;
           if(ud._flipClipName&&ud.clips[ud._flipClipName]){ ud.clips[ud._flipClipName].stop(); ud.clips[ud._flipClipName].setEffectiveWeight(0); }
-          if(ud.clips['landing']){
+          const _hardFall=(ud._maxFallVy||0)<=-(window._ROLL_LAND_VY!=null?window._ROLL_LAND_VY:420);   // fast impact == big drop -> roll instead of soft land
+          const _landName=(_hardFall&&ud.clips['roll_landing'])?'roll_landing':'landing';
+          if(ud.clips[_landName]){
             Object.values(ud.clips).forEach(a=>a.fadeOut(0.18));
-            const land=ud.clips['landing'];
+            const land=ud.clips[_landName];
+            const _isRoll=(_landName==='roll_landing');
             const _full=(land._clip&&land._clip.duration)||0.4;
-            const _ts=Math.min((window._LAND_TRIM_START!=null?window._LAND_TRIM_START:0.08), _full*0.35);   // skip the windup frames off the START
-            const _te=Math.min((window._LAND_TRIM_END  !=null?window._LAND_TRIM_END  :0.12), _full*0.35);   // cut the settle tail off the END
-            const _ls=((window._LAND_SPEED!=null?window._LAND_SPEED:1.0))||1.0;                              // optional playback speed-up
+            const _ts=_isRoll?0:Math.min((window._LAND_TRIM_START!=null?window._LAND_TRIM_START:0.08), _full*0.35);   // skip the windup frames off the START (not for the roll)
+            const _te=_isRoll?0:Math.min((window._LAND_TRIM_END  !=null?window._LAND_TRIM_END  :0.12), _full*0.35);   // cut the settle tail off the END
+            const _ls=(_isRoll?(window._ROLL_LAND_SPEED!=null?window._ROLL_LAND_SPEED:1.0):(window._LAND_SPEED!=null?window._LAND_SPEED:1.0))||1.0;
             land.reset().setEffectiveWeight(1).setEffectiveTimeScale(_ls).setLoop(THREE.LoopOnce,1);
             if(_ts>0) land.time=_ts;
             land.clampWhenFinished=true;
-            land.fadeIn(0.12).play();
-            ud.currentClip='landing';
-            ud._landingTimer=Math.max(_full*0.25, _full-_ts-_te)/_ls;   // end early -> locomotion takes over before the padded tail
+            land.fadeIn(_isRoll?0.08:0.12).play();
+            ud.currentClip=_landName; ud._landClipName=_landName;
+            ud._landingTimer=Math.max(_full*(_isRoll?0.6:0.25), _full-_ts-_te)/_ls;   // roll holds longer so it reads as a full roll
           }
+          ud._maxFallVy=0;
         }
         // ── FLIP ON JUMP ──
         const justLeftGround=airborne&&ud._prevAirborne===false&&player.pvy>50;
@@ -14833,6 +14837,7 @@ function loop(ts){ requestAnimationFrame(loop);
           }
         }
 
+        if(airborne){ if(!ud._prevAirborne) ud._maxFallVy=0; ud._maxFallVy=Math.min(ud._maxFallVy||0, player.pvy||0); }   // remember the fastest downward speed -> proxy for drop height
         ud._prevAirborne=airborne;
 
         // Don't interrupt landing or roll animations with blend switch
@@ -14840,7 +14845,8 @@ function loop(ts){ requestAnimationFrame(loop);
           ud._landingTimer-=dt;
           if(ud._landingTimer<=0){
             ud._landingTimer=0;
-            ud.clips['landing']&&ud.clips['landing'].fadeOut(0.18);
+            const _ln=ud._landClipName||'landing';
+            ud.clips[_ln]&&ud.clips[_ln].fadeOut(0.18);
             ud.currentClip=null;
           }
         }
