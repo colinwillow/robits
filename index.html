@@ -14785,7 +14785,6 @@ function loop(ts){ requestAnimationFrame(loop);
           const _committed=(ud._meleeMax||0)-ud._meleeTimer;          // time elapsed in this swing
           // ── MELEE CONNECT — true swept collision off the blade (hand->weapon_direction), once per target per swing ──
           if(_committed>0.02){
-            if(typeof _deflectProjectiles==='function') _deflectProjectiles();   // PARRY incoming projectiles you time into the swing
             if(!ud._meleeHitSet) ud._meleeHitSet=new Set();
             const tier=player._meleeCombo||1;                      // tier still drives the slash visuals; damage/knock are now EQUAL
             const _MS=(window._MELEE_STATS&&(window._MELEE_STATS[player._meleeType||'sword']||window._MELEE_STATS.sword))||{dmg:5,reach:26,eForce:4,eLift:0.95,eAir:8,eStun:38,bMag:10,bLift:140,bStn:28};
@@ -14809,6 +14808,7 @@ function loop(ts){ requestAnimationFrame(loop);
             let kvx=pv?(bx-pv.x):0, kvz=pv?(bz-pv.z):0;
             const HIT_R=_MS.reach;   // per-weapon reach (spear long, sword short)
             const _seg=(px,py,pz)=>{ const dx=bx-ax2,dy=by-ay2,dz=bz-az2, L2=dx*dx+dy*dy+dz*dz||1; let t=((px-ax2)*dx+(py-ay2)*dy+(pz-az2)*dz)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(px-(ax2+dx*t),py-(ay2+dy*t),pz-(az2+dz*t)); };
+            if(typeof _deflectProjectiles==='function') _deflectProjectiles(_seg, HIT_R, kvx, kvz);   // PARRY: the blade must actually sweep through the projectile; bats it the way the blade is moving
             const _try=(e,kind)=>{
               if(!e||e.alive===false||e===player||ud._meleeHitSet.has(e))return false;     // (dummy has no .alive -> still allowed through)
               const ey=(e.mesh?e.mesh.position.y:(e.py||0))+10;
@@ -20383,7 +20383,7 @@ let _HAMMER_SCALE=1.7;                                // equipped world-size (ma
 let _MELEE_FLICK_HI=0.78;   // stick must snap past this to fire a melee
 let _MELEE_FLICK_LO=0.40;   // stick must ease back below this to re-arm the next flick (higher = easier fast chaining)
 let _MELEE_FLICK_VEL=0.16;  // min per-frame snap speed (separates a flick from a slow aim push)
-let _MELEE_SPEED=1.5;        // master swing-speed multiplier (~150%). per-weapon speed multiplies this. tune live: window._MELEE_SPEED
+let _MELEE_SPEED=2.0;        // master swing-speed multiplier (~200%). faster blade sweep = easier to contact a projectile. per-weapon speed multiplies this. tune live: window._MELEE_SPEED
 // ── per-weapon melee balance — keyed by player._meleeType. melee hits MUCH harder than bullets so it's worth closing in. ──
 window._MELEE_STATS = window._MELEE_STATS || {
   //        dmg  reach  speed   eForce eLift eAir eStun   bMag bLift bStn   + impact: hitStop(frames) trauma(shake) thud(sfx pitch) slow/slowH/zoom (heavy only)
@@ -20486,18 +20486,14 @@ function _buildAdditiveMelee(ud,name){
   ud._addMelee[name]=act;
   return act;
 }
-// ── MELEE PARRY — while a swing is active, bat away incoming projectiles you time correctly (NOT bullets). Sends them along your facing -> swipe toward the source to send it back. ──
-function _deflectProjectiles(){
-  if(!player) return false;
-  const PR=(window._PARRY_R!=null?window._PARRY_R:46), PR2=PR*PR;
-  const px=player.wx, pz=player.wz, py=(player.py||0)+14;
-  const aim=player.aim||0, aimx=Math.cos(aim), aimz=Math.sin(aim);
-  const SPD=(window._PARRY_SPEED!=null?window._PARRY_SPEED:540);
-  const _hit=(ox,oz,oy,vx,vz)=>{
-    const dx=ox-px, dz=oz-pz; if(dx*dx+dz*dz>PR2) return false;            // must be right next to you
-    if(Math.abs((oy||0)-py)>PR*1.3) return false;                          // and at roughly your height
-    return (vx*(px-ox)+vz*(pz-oz)) > -30;                                  // and still heading toward you (not already past)
-  };
+// ── MELEE PARRY — you must actually sweep the WEAPON BLADE through the projectile (true swept-segment contact, same as enemy hits). Bats it along the blade's travel direction. (NOT bullets.) ──
+function _deflectProjectiles(segFn, reach, batX, batZ){
+  if(!player||typeof segFn!=='function') return false;
+  const SPD=(window._PARRY_SPEED!=null?window._PARRY_SPEED:560);
+  const PAD=(window._PARRY_PAD!=null?window._PARRY_PAD:16);
+  let dx=batX||0, dz=batZ||0; const dl=Math.hypot(dx,dz);
+  if(dl<0.001){ const a=player.aim||0; dx=Math.cos(a); dz=Math.sin(a); } else { dx/=dl; dz/=dl; }
+  const _contact=(ox,oy,oz,size)=> segFn(ox,(oy||0),oz) < (reach+PAD+(size||8));
   const _fx=(x,y,z)=>{
     if(typeof ps!=='undefined'){ ps.ring(x,z,[0.55,1,0.85],15,160); ps.ring(x,z,[1,1,1],8,110); ps.burst(x,z,[0.8,1,1],22,170); }
     if(typeof grid!=='undefined'&&grid.shock)grid.shock(x,z,2.2);
@@ -20506,9 +20502,9 @@ function _deflectProjectiles(){
     if(typeof announce==='function')announce('PARRY!','#7dffd0');
   };
   let did=false;
-  if(typeof GS!=='undefined'&&GS.dropBombs){ for(const b of GS.dropBombs){ if(!b||b.dead||b._deflected)continue; if(_hit(b.wx,b.wz,b.y,b.vx||0,b.vz||0)){ b._deflected=true; b._fromCannon=false; b.vx=aimx*SPD; b.vz=aimz*SPD; b.vy=Math.max(b.vy||0,150); if(b.timer!=null)b.timer=Math.max(b.timer,1.4); did=true; _fx(b.wx,b.y,b.wz); } } }
-  if(typeof GS!=='undefined'&&GS.missiles){ for(const m of GS.missiles){ if(!m||m._deflected)continue; if(_hit(m.wx,m.wz,m.y,m.vx||0,m.vz||0)){ m._deflected=true; m._homePlayer=false; m._fromCannon=false; m.target=null; const s=Math.max(m.speed||280,320); m.vx=aimx*s; m.vz=aimz*s; m.vy=40; m.speed=s; did=true; _fx(m.wx,m.y,m.wz); } } }
-  if(window._itemShots){ for(const s of window._itemShots){ if(!s||s._deflected)continue; if(_hit(s.x,s.z,s.y,s.vx||0,s.vz||0)){ s._deflected=true; s.vx=aimx*SPD; s.vz=aimz*SPD; s.vy=Math.max(s.vy||0,170); did=true; _fx(s.x,s.y,s.z); } } }
+  if(typeof GS!=='undefined'&&GS.dropBombs){ for(const b of GS.dropBombs){ if(!b||b.dead||b._deflected)continue; if(_contact(b.wx,b.y,b.wz,8)){ b._deflected=true; b._fromCannon=false; b.vx=dx*SPD; b.vz=dz*SPD; b.vy=Math.max(b.vy||0,150); if(b.timer!=null)b.timer=Math.max(b.timer,1.4); did=true; _fx(b.wx,b.y,b.wz); } } }
+  if(typeof GS!=='undefined'&&GS.missiles){ for(const m of GS.missiles){ if(!m||m._deflected)continue; if(_contact(m.wx,m.y,m.wz,7)){ m._deflected=true; m._homePlayer=false; m._fromCannon=false; m.target=null; const s=Math.max(m.speed||280,340); m.vx=dx*s; m.vz=dz*s; m.vy=40; m.speed=s; did=true; _fx(m.wx,m.y,m.wz); } } }
+  if(window._itemShots){ for(const s of window._itemShots){ if(!s||s._deflected)continue; if(_contact(s.x,s.y,s.z,9)){ s._deflected=true; s.vx=dx*SPD; s.vz=dz*SPD; s.vy=Math.max(s.vy||0,170); did=true; _fx(s.x,s.y,s.z); } } }
   return did;
 }
 function _doMeleeFlick(ud, dirAngle, comboOverride){
