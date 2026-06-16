@@ -10967,8 +10967,42 @@ function _smashCrateAt(x,z){
   if(typeof Audio!=='undefined'){try{Audio.blip(90,0.22,'square',0.3,40);Audio.blip(220,0.12,'square',0.18,160);}catch(_){}}
   if(typeof addTrauma==='function')addTrauma(0.12);
   _bombBlastEnemies(x,12,z, 110, 0.7);   // EXACT bomb effect (spiders enterBall -> tumble), slightly lighter damage
-  const n=Math.random()<0.3?2:1;
-  for(let k=0;k<n;k++){ const type=_ITEM_TYPES[Math.floor(Math.random()*_ITEM_TYPES.length)]; const a=Math.random()*6.28; _spawnPU(x,16,z,type, Math.cos(a)*rand(20,55), rand(95,150), Math.sin(a)*rand(20,55)); }
+  // ── LOOT BURST: 2–3 balls roll out; gun/melee balls settle then unfold into a pad, throwables stay grab-&-throw ──
+  const guns=['rockets','plasma','flamethrower','grenade','boomerang','bow'];
+  const melee=['sword','hammer','axe','spear','scythe'];
+  const pick=a=>a[(Math.random()*a.length)|0];
+  const n=2+(Math.random()<0.5?1:0);
+  for(let k=0;k<n;k++){ const a=Math.random()*6.28, sp=rand(22,58), vx=Math.cos(a)*sp, vy=rand(95,150), vz=Math.sin(a)*sp; const roll=Math.random();
+    if(roll<0.40) _spawnLootBall(x,z,'gun',pick(guns),vx,vy,vz);
+    else if(roll<0.80) _spawnLootBall(x,z,'melee',pick(melee),vx,vy,vz);
+    else _spawnPU(x,16,z, _ITEM_TYPES[(Math.random()*_ITEM_TYPES.length)|0], vx,vy,vz);
+  }
+}
+// LOOT BALL — a coloured ball that rolls out of a crate; on settle it flattens and unfolds into the matching weapon pad.
+function _makeLootBall(kind){
+  const col = kind==='gun'?0x33e0ff : (kind==='melee'?0xff8a3a : 0xffd84a);
+  const g=new THREE.Group();
+  const ball=new THREE.Mesh(new THREE.SphereGeometry(8.5,18,14), new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.65,roughness:0.4,metalness:0.35}));
+  g.add(ball);
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(10.5,16,12), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.18,blending:THREE.AdditiveBlending,depthWrite:false})));
+  return {grp:g, cube:ball, col};
+}
+function _spawnLootBall(x,z,kind,weapon,vx,vy,vz){
+  const lb=_makeLootBall(kind);
+  const ring=new THREE.Mesh(new THREE.RingGeometry(18,22,40), new THREE.MeshBasicMaterial({color:lb.col,transparent:true,opacity:0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=-6.5; lb.grp.add(ring);
+  lb.grp.position.set(x,16,z); scene.add(lb.grp);
+  if(!window._itemPU)window._itemPU=[];
+  window._itemPU.push({grp:lb.grp, cube:lb.cube, ring, x, y:16, z, vx:vx||0, vy:vy||0, vz:vz||0, type:weapon, settled:false, t:Math.random()*6, _loot:{kind,weapon}});
+}
+function _unfoldLootBall(p){
+  const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1);
+  if(p.grp){ scene.remove(p.grp); p.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); }
+  try{
+    if(p._loot.kind==='gun' && typeof _spawnWeaponPad==='function') _spawnWeaponPad(p.x,p.z,p._loot.weapon);
+    else if(p._loot.kind==='melee' && typeof _spawnHammerStation==='function') _spawnHammerStation(p.x,p.z,p._loot.weapon);
+  }catch(e){ console.warn('loot unfold',e); }
+  if(typeof ps!=='undefined'){ ps.ring(p.x,p.z,[0.3,1,0.9],10,72); for(let k=0;k<10;k++){ const a=Math.random()*6.28,sp=rand(20,60); ps._spawn(p.x,8,p.z,Math.cos(a)*sp,rand(40,90),Math.sin(a)*sp,0.4,1,0.85,0.5); } }
+  if(typeof Audio!=='undefined'){try{Audio.blip(420,0.12,'sine',0.2,720);Audio.blip(720,0.09,'sine',0.14,1050);}catch(_){}}
 }
 function _smashCrate(c){
   const i=window._crates.indexOf(c); if(i>=0)window._crates.splice(i,1);
@@ -11053,8 +11087,15 @@ function _updatePU(dt){
   let near=null,nd=1e9;
   for(const p of A){ p.t+=dt;
     if(!p.settled){ p.vy-=360*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.z+=p.vz*dt; if(p.y<=7){ p.y=7; if(p.vy<-30){ p.vy*=-0.4; p.vx*=0.65; p.vz*=0.65; } else { p.vy=0; } p.vx*=0.82; p.vz*=0.82; if(Math.abs(p.vy)<14&&Math.hypot(p.vx,p.vz)<8){ p.settled=true; p.vx=p.vy=p.vz=0; p.y=7; } } p.grp.position.set(p.x,p.y,p.z); p.cube.rotation.x+=dt*4; p.cube.rotation.y+=dt*3; }
+    else if(p._loot){   // LOOT BALL settled -> flatten into a disc, then unfold into the pad (beam-up)
+      if(p._unfoldT==null) p._unfoldT=0.32;
+      p._unfoldT-=dt; const k=Math.max(0,p._unfoldT/0.32);
+      p.cube.scale.set(1+(1-k)*1.1, 0.12+k*0.88, 1+(1-k)*1.1); p.cube.rotation.y+=dt*6;
+      p.grp.position.set(p.x, 2+k*5, p.z);
+      if(p._unfoldT<=0){ _unfoldLootBall(p); continue; }
+    }
     else { p.grp.position.y=7+Math.sin(p.t*2.4)*1.4; p.cube.rotation.y+=dt*1.4; }
-    if(player&&!player._carryPayload&&p.settled){ const d=Math.hypot(player.wx-p.x,player.wz-p.z); if(d<40&&d<nd){nd=d;near=p;} }
+    if(player&&!player._carryPayload&&p.settled&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z); if(d<40&&d<nd){nd=d;near=p;} }
   }
   window._nearOrb=near;
   for(const p of A){ const on=(p===near); if(p.ring){ const tgt=on?(0.5+Math.sin(p.t*5)*0.3):0.0; p.ring.material.opacity+=(tgt-p.ring.material.opacity)*Math.min(1,dt*10); const sc=on?(1+Math.sin(p.t*5)*0.06):1; p.ring.scale.set(sc,sc,sc); } }
