@@ -14885,7 +14885,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(_drive&&_drive.active){ updateDrive(dt); renderer.render(scene,camera); return; }
     // ── JETPACK HOLD — airborne, no bomb ──
     if(IS_TOUCH&&jR._holdingForJet&&player&&!player.bombArmed&&!player._wallClimb){
-      const _air = player._inPlanetGravity ? !player._glGrounded : (player.py>8&&!player._onPlatform);
+      const _air = (GS.zone===-19 && typeof _cubeWalkOn==='function' && _cubeWalkOn(player)) ? true : (player._inPlanetGravity ? !player._glGrounded : (player.py>8&&!player._onPlatform));   // cube wall-walk: jet is eligible from ANY surface (it dislodges you), so don't gate it on being airborne
       if(!_air){ jR._jetLatch=false; jR._jetEligible=false; }
       else if(player.boostFuel>0){ jR._jetEligible=true; jR._jetLatch=true; player._jetting=true; }            // airborne + holding stick = jetpack (no center-dwell gate; fire while jetting)
       else { jR._jetLatch=false; jR._jetEligible=false; player._jetting=false; }                               // OUT OF FUEL -> cut the jet; release and press again to resume
@@ -17224,7 +17224,7 @@ let _cubeGroup=null;
 let _cubeSheets=[];
 const _CUBE={hx:560, hz:560, h:900, cham:130};
 function _disposeCubeSheets(){ if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets){ try{ const idx=GRID_SHEETS.indexOf(s); if(idx>=0)GRID_SHEETS.splice(idx,1); if(s.group){ scene.remove(s.group); s.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){} } } _cubeSheets=[]; }
-function _disposeCubeArena(){ if(typeof _showColliderMenu==='function')_showColliderMenu(false); if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
+function _disposeCubeArena(){ if(typeof _hideBallEdgeArrow==='function')_hideBallEdgeArrow(); if(typeof _showColliderMenu==='function')_showColliderMenu(false); if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
 // ════════ ROCKET-LEAGUE BALL — floaty sphere you knock around with the character collider (and melee) ════════
 let _cubeBall=null;
 function _disposeCubeBall(){ if(typeof _ballFX!=='undefined')_ballFX=[]; if(_cubeBall){ if(_cubeBall.grp){ scene.remove(_cubeBall.grp); _cubeBall.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } _cubeBall=null; } }
@@ -17313,6 +17313,8 @@ function _spawnCubeBall(){
   const aMat=new THREE.MeshBasicMaterial({color:GLOW, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false});
   const aCone=new THREE.Mesh(new THREE.ConeGeometry(R*0.36,R*0.6,5), aMat); aCone.rotation.x=Math.PI; arrow.add(aCone);   // tip points DOWN at the ball
   const aStem=new THREE.Mesh(new THREE.BoxGeometry(R*0.13,R*0.36,R*0.13), aMat); aStem.position.y=R*0.46; arrow.add(aStem);
+  const aRing=new THREE.Mesh(new THREE.TorusGeometry(R*0.44,R*0.05,8,22), aMat); aRing.rotation.x=Math.PI/2; aRing.position.y=R*0.02; arrow.add(aRing);   // glowing ring hugging the arrow base
+  for(let i=0;i<3;i++){ const ds=R*(0.15-i*0.038); const dot=new THREE.Mesh(new THREE.SphereGeometry(ds,10,8), aMat); dot.position.y=R*(0.72+i*0.34); arrow.add(dot); }   // dot trail above, shrinking as they rise
   arrow.traverse(o=>{ o.renderOrder=998; o.frustumCulled=false; });
   arrow.position.y=R*2.35; grp.add(arrow);
 
@@ -17463,9 +17465,45 @@ function _updateCubeBall(dt){
   } }
   _ballHitPlayer(b, dtc);
   b.grp.position.copy(b.pos);
+  if(typeof _updateBallLocator==='function') _updateBallLocator(b);
   b.wire.rotation.x+=b.spin.x*dtc; b.wire.rotation.y+=b.spin.y*dtc; b.wire.rotation.z+=b.spin.z*dtc;
 }
 window._resetBall=function(){ if(_cubeBall){ const C=window._CUBE||_CUBE; _cubeBall.pos.set(0,C.h*0.5,0); _cubeBall.vel.set(0,0,0); } };
+// ── BALL LOCATOR — Rocket-League style. NOT in ball cam: a 3D arrow hovers over the ball when it's ON screen (and settled);
+//    an edge arrow pins to the screen border pointing at it when it's OFF screen. In ball cam: nothing (you can see the ball). ──
+let _ballEdgeArrow=null;
+function _ensureBallEdgeArrow(){
+  if(_ballEdgeArrow) return _ballEdgeArrow;
+  if(typeof document==='undefined') return null;
+  const el=document.createElement('div'); el.id='ballEdgeArrow';
+  el.style.cssText='position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:55;display:none;'
+    +'border-top:15px solid transparent;border-bottom:15px solid transparent;border-left:26px solid #4cf0ff;'
+    +'filter:drop-shadow(0 0 7px #4cf0ff) drop-shadow(0 0 14px #4cf0ff);will-change:transform;';
+  try{ document.body.appendChild(el); }catch(_){ return null; }
+  _ballEdgeArrow=el; return el;
+}
+function _hideBallEdgeArrow(){ if(_ballEdgeArrow) _ballEdgeArrow.style.display='none'; }
+function _updateBallLocator(b){
+  const el=_ensureBallEdgeArrow();
+  const inBallCam=!!window._ballCam;
+  if(GS.zone!==-19 || inBallCam || !b || typeof camera==='undefined'){ if(b&&b.arrow)b.arrow.visible=false; if(el)el.style.display='none'; return; }
+  const cs=b.pos.clone().applyMatrix4(camera.matrixWorldInverse);
+  const behind=cs.z>0;                                  // three.js camera looks down -z; +z is behind
+  const ndc=b.pos.clone().project(camera);
+  const onScreen=!behind && Math.abs(ndc.x)<=0.95 && Math.abs(ndc.y)<=0.95;
+  const settled=b.vel.length() < (window._BALL_ARROW_SETTLE!=null?window._BALL_ARROW_SETTLE:60);
+  if(b.arrow) b.arrow.visible = onScreen && (window._BALL_ARROW_ALWAYS===true || settled);   // over-ball arrow: on-screen and (settled, or forced on)
+  if(!el) return;
+  if(onScreen){ el.style.display='none'; return; }
+  let sx=ndc.x, sy=ndc.y; if(behind){ sx=-sx; sy=-sy; }
+  const m=Math.max(Math.abs(sx),Math.abs(sy))||1; sx/=m; sy/=m;           // push direction out to the screen-square edge
+  const W=window.innerWidth||360, H=window.innerHeight||640, pad=(window._BALL_EDGE_PAD||48);
+  let px=(sx*0.5+0.5)*W, py=(1-(sy*0.5+0.5))*H;
+  px=Math.max(pad,Math.min(W-pad,px)); py=Math.max(pad,Math.min(H-pad,py));
+  const ang=Math.atan2(-sy,sx)*180/Math.PI;                               // screen angle toward the ball (CSS arrow base points right)
+  el.style.display='block';
+  el.style.transform='translate('+(px-13)+'px,'+(py-15)+'px) rotate('+ang+'deg)';
+}
 // PER-WEAPON melee collider — a debug box on the equipped melee weapon; while swinging it knocks the ball (harder than the body).
 function _ballHitAABB(b, center, size, vel, boost){
   if(b.hitCd>0) return false;
@@ -17716,7 +17754,7 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
   if(P.wx> hx){P.wx=hx;v.x=0;} if(P.wx<-hx){P.wx=-hx;v.x=0;}
   if(P.wz> hz){P.wz=hz;v.z=0;} if(P.wz<-hz){P.wz=-hz;v.z=0;}
   const _ceil=(C.h-RIDE); if(P.py> _ceil){ P.py=_ceil; if(v.y>0)v.y=0; }   // don't fly through the ceiling
-  if(P.py<=RIDE && !P._jetting){ P.py=RIDE; v.set(0,0,0); P._cwDislodge=false; if(typeof Audio!=='undefined')Audio.blip(150,0.14,'square',0.22,80); if(typeof ps!=='undefined')ps.ring(P.wx,P.wz,[0.4,1,0.85],8,64); if(typeof addTrauma==='function')addTrauma(0.08); }   // landed on the TRUE floor -> normal wall-walk resumes (sticks to the floor next frame); never land mid-jet
+  if(P.py<=RIDE && !P._jetting){ P.py=RIDE; v.set(0,0,0); P._cwDislodge=false; P._glGrounded=true; P._cwAir=0; if(typeof Audio!=='undefined')Audio.blip(150,0.14,'square',0.22,80); if(typeof ps!=='undefined')ps.ring(P.wx,P.wz,[0.4,1,0.85],8,64); if(typeof addTrauma==='function')addTrauma(0.08); }   // landed on the TRUE floor -> grounded state restored (clears the floating anim), normal wall-walk resumes next frame; never land mid-jet
   P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=Math.hypot(v.x,v.z); P._cubeUp=new THREE.Vector3(0,1,0);
   if(typeof _gN!=='undefined') _gN.set(0,1,0);
   if(P.model){ P.model.visible=true; P.model.position.set(P.wx,P.py-RIDE,P.wz);
@@ -17796,13 +17834,6 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
     if(P._jumpTapped){ P._jumpTapped=false; P._cwAir=0; P._cwDislodge=true; if(typeof Audio!=='undefined')Audio.blip(200,0.18,'sawtooth',0.16,90); return _cubeDislodgeFall(P,rawX,rawZ,dt); }   // 2nd jump mid-air -> dislodge, fall to the floor
     P._cwAir-=dt; P._glGrounded=false;
     v.addScaledVector(N,-GRAV*dt);                  // gravity toward the wall
-    if(P._jetting && P.boostFuel>0){                // ── JETPACK: thrust along N (off the wall, into the room) ──
-      v.addScaledVector(N,(window._CUBE_JET||1300)*dt);
-      P.boostFuel=Math.max(0,P.boostFuel-(window._CUBE_JET_DRAIN||55)*dt); P._cwAir=Math.max(P._cwAir,0.25); P._jetFlash=1;
-      if(typeof ps!=='undefined'&&Math.random()<0.8){ ps._spawn(P.wx-N.x*6,P.py-N.y*6,P.wz-N.z*6, -N.x*rand(40,100)+rand(-12,12), -N.y*rand(40,100)+rand(-12,12), -N.z*rand(40,100)+rand(-12,12), 0.7,0.6+rand(0.3),1,0.05+rand(0.03)); }
-      if(typeof Audio!=='undefined'&&(!P._jetSoundT||P._jetSoundT<=0)){ try{Audio.blip(220,0.08,'sawtooth',0.05,90);}catch(_){} P._jetSoundT=8; }
-      if(P.boostFuel<=0){ P._jetting=false; if(typeof announce==='function')announce('NO FUEL','#ff4400'); }
-    }
     if(P._jetSoundT>0)P._jetSoundT--;
     if(tanDir) v.addScaledVector(tanDir,320*Math.min(1,inMag)*dt);
     if(v.length()>920) v.setLength(920);
