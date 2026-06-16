@@ -8929,7 +8929,9 @@ class Player{
     if(this._crateCool>0) this._crateCool=Math.max(0,this._crateCool-dt);   // bomb reload cooldown
     if(this._allyCool>0) this._allyCool=Math.max(0,this._allyCool-dt);   // ally deploy cooldown
     if(GS.zone===-13){ _rlArenaMove(this,rawX,rawZ,avx,avz,dt); return; }
-    if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)){ _cubeWalkMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1); }   // cube arena: boots = walk walls/ceiling (movement), then fall through to the _inPlanetGravity aim/shoot branch below so the shoot stick works
+    if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)){ _cubeWalkMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1);
+      if(!window._ballCam){ const _am=Math.hypot(avx||0,avz||0); if(_am>0.25){ const ta=Math.atan2(avz,avx); let diff=((ta-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI; CAM.tyaw+=diff*Math.min(1,dt*4); } }   // right stick orients the world-up free cam
+    }   // cube arena: boots = walk walls/ceiling (movement), then fall through to the _inPlanetGravity aim/shoot branch below so the shoot stick works
     if(this.inv>0)this.inv--; if(this.shieldT>0)this.shieldT--;
     if(this.dashCD>0){this.dashCD--;if(this.dashCD<=0)this.dash=1;}
 
@@ -14814,6 +14816,7 @@ function loop(ts){ requestAnimationFrame(loop);
     const _dep=document.getElementById('ally-deploy'), _cyc=document.getElementById('ally-cycle');
     if(typeof _updateRobitStrip==='function') _updateRobitStrip(playing);
     if(typeof _updateBootsToggle==='function') _updateBootsToggle(playing);
+    if(typeof _updateBallCamBtn==='function') _updateBallCamBtn(playing);
     if(_dep&&_cyc&&player&&typeof Dex!=='undefined'){
       let _owned=[]; try{ _owned=_ownedSpecies(); }catch(e){}
       const _dds=playing?'flex':'none'; if(_dep.style.display!==_dds)_dep.style.display=_dds;   // always visible in play -> stable layout, even with an empty roster
@@ -17137,13 +17140,13 @@ function updateRLArena(dt){ /* camera+physics handled in player._rlArenaMove; pa
 // Piece 1: shell geometry + "stay inside" containment. Wall-run / boots / ball come next.
 let _cubeGroup=null;
 const _CUBE={hx:560, hz:560, h:900, cham:130};
-function _disposeCubeArena(){ if(typeof _disposeCubeBall==='function')_disposeCubeBall(); if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
+function _disposeCubeArena(){ if(typeof _disposeCubeBall==='function')_disposeCubeBall(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
 // ════════ ROCKET-LEAGUE BALL — floaty sphere you knock around with the character collider (and melee) ════════
 let _cubeBall=null;
 function _disposeCubeBall(){ if(_cubeBall){ if(_cubeBall.grp){ scene.remove(_cubeBall.grp); _cubeBall.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } _cubeBall=null; } }
 function _spawnCubeBall(){
   _disposeCubeBall();
-  const R=(window._BALL_R||52), C=window._CUBE||_CUBE;
+  const R=(window._BALL_R||26), C=window._CUBE||_CUBE;
   const grp=new THREE.Group();
   grp.add(new THREE.Mesh(new THREE.SphereGeometry(R,28,20), new THREE.MeshStandardMaterial({color:0x0b1c24,emissive:0x0c3a4a,emissiveIntensity:0.55,roughness:0.3,metalness:0.45,transparent:true,opacity:0.92})));
   const wire=new THREE.Mesh(new THREE.IcosahedronGeometry(R*1.02,1), new THREE.MeshBasicMaterial({color:0x39ffe0,wireframe:true,transparent:true,opacity:0.75,blending:THREE.AdditiveBlending,depthWrite:false})); grp.add(wire);
@@ -17163,10 +17166,10 @@ function _ballKnockFromBox(b, box, halfW, halfH, halfD, vBoxX, vBoxY, vBoxZ, boo
     nLocal=(px<=py&&px<=pz)?new THREE.Vector3(Math.sign(local.x)||1,0,0):(py<=pz)?new THREE.Vector3(0,Math.sign(local.y)||1,0):new THREE.Vector3(0,0,Math.sign(local.z)||1); dist=0; }
   const nWorld=nLocal.applyQuaternion(box.quaternion).normalize();
   b.pos.addScaledVector(nWorld,(b.R-dist)+1);
-  const pv=new THREE.Vector3(vBoxX||0,vBoxY||0,vBoxZ||0), pspeed=pv.length(), along=Math.max(0,pv.dot(nWorld));
-  const KN=(window._BALL_KNOCK||1.6)*(boost||1);
-  b.vel.addScaledVector(nWorld,(150+pspeed*0.9+along*0.7)*KN);
-  b.vel.addScaledVector(pv,0.45);
+  const pv=new THREE.Vector3(vBoxX||0,vBoxY||0,vBoxZ||0), along=Math.max(0,pv.dot(nWorld));   // closing speed into the ball
+  const KN=(window._BALL_KNOCK||1.0)*(boost||1);
+  b.vel.addScaledVector(nWorld,((window._BALL_BASE||22)+along*(window._BALL_VFAC||2.6))*KN);   // mostly velocity-driven
+  b.vel.addScaledVector(pv,0.5);
   if(b.vel.length()>2400)b.vel.setLength(2400);
   if(typeof ps!=='undefined'){ for(let k=0;k<10;k++){ const a=Math.random()*6.28,sp=rand(40,120); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(-30,80),Math.sin(a)*sp,0.2,1,0.9,0.4); } }
   if(typeof Audio!=='undefined'){try{Audio.blip(240,0.1,'square',0.22,120);}catch(_){}}
@@ -17188,21 +17191,80 @@ function _updateCubeBall(dt){
   b.vel.y-=GRAV*dtc;
   b.vel.multiplyScalar(Math.pow(DRAGr,dtc));     // floaty air drag (per-second retention)
   b.pos.addScaledVector(b.vel,dtc);
-  const d=_cubeSDF(b.pos.x,b.pos.y,b.pos.z);     // interior shell collision
-  if(d>-R){
-    const N=new THREE.Vector3(); _cubeGrad(b.pos.x,b.pos.y,b.pos.z,N);
-    b.pos.addScaledVector(N,-(d+R));
+  const R2=R; const d=_cubeSDF(b.pos.x,b.pos.y,b.pos.z);     // interior shell collision
+  const N=new THREE.Vector3(); _cubeGrad(b.pos.x,b.pos.y,b.pos.z,N);
+  if(d>-R2){
+    b.pos.addScaledVector(N,-(d+R2));
     const vn=b.vel.dot(N);
-    if(vn>0){ b.vel.addScaledVector(N,-(1+REST)*vn); b.vel.multiplyScalar(0.94);
+    if(vn>0){ b.vel.addScaledVector(N,-(1+REST)*vn);
       if(typeof Audio!=='undefined'&&Math.abs(vn)>140){try{Audio.blip(150,0.07,'sine',0.12,80);}catch(_){}}
       if(typeof ps!=='undefined'&&Math.abs(vn)>180){ for(let k=0;k<6;k++){ const a=Math.random()*6.28,sp=rand(20,70); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(0,50),Math.sin(a)*sp,0.2,0.9,1,0.35); } }
     }
+  }
+  if(d>-R2-(window._BALL_CONTACT||7)){   // ── ROLLING FRICTION while touching a surface -> comes to rest ──
+    const vnc=b.vel.dot(N), fr=Math.pow((window._BALL_GFRIC||0.45),dtc);
+    let tx=(b.vel.x-N.x*vnc)*fr, ty=(b.vel.y-N.y*vnc)*fr, tz=(b.vel.z-N.z*vnc)*fr;
+    if(Math.hypot(tx,ty,tz)<(window._BALL_STOP||10)){ tx=ty=tz=0; }   // settle
+    b.vel.set(tx+N.x*vnc, ty+N.y*vnc, tz+N.z*vnc);
   }
   _ballHitPlayer(b);
   b.grp.position.copy(b.pos);
   b.wire.rotation.x+=b.spin.x*dtc; b.wire.rotation.y+=b.spin.y*dtc; b.wire.rotation.z+=b.spin.z*dtc;
 }
 window._resetBall=function(){ if(_cubeBall){ const C=window._CUBE||_CUBE; _cubeBall.pos.set(0,C.h*0.5,0); _cubeBall.vel.set(0,0,0); } };
+// PER-WEAPON melee collider — a debug box on the equipped melee weapon; while swinging it knocks the ball (harder than the body).
+function _ballHitAABB(b, center, size, vel, boost){
+  if(b.hitCd>0) return false;
+  const hx=size.x*0.5, hy=size.y*0.5, hz=size.z*0.5;
+  const cx=Math.max(center.x-hx,Math.min(center.x+hx,b.pos.x)), cy=Math.max(center.y-hy,Math.min(center.y+hy,b.pos.y)), cz=Math.max(center.z-hz,Math.min(center.z+hz,b.pos.z));
+  const dx=b.pos.x-cx, dy=b.pos.y-cy, dz=b.pos.z-cz; let dist=Math.hypot(dx,dy,dz);
+  if(dist>=b.R) return false;
+  let n; if(dist>1e-4) n=new THREE.Vector3(dx/dist,dy/dist,dz/dist); else n=new THREE.Vector3(0,1,0);
+  b.pos.addScaledVector(n,(b.R-dist)+1);
+  const along=Math.max(0,vel.dot(n)), KN=(window._BALL_KNOCK||1.0)*(boost||1);
+  b.vel.addScaledVector(n,((window._BALL_BASE||22)+along*(window._BALL_VFAC||2.6))*KN); b.vel.addScaledVector(vel,0.4);
+  if(b.vel.length()>2800)b.vel.setLength(2800);
+  b.hitCd=0.14;
+  if(typeof ps!=='undefined'){ for(let k=0;k<12;k++){ const a=Math.random()*6.28,sp=rand(60,160); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(-20,100),Math.sin(a)*sp,1,0.8,0.2,0.5); } }
+  if(typeof Audio!=='undefined'){try{Audio.blip(320,0.12,'square',0.25,140);}catch(_){}}
+  if(typeof addTrauma==='function')addTrauma(0.1);
+  return true;
+}
+const _wpnBox3=new THREE.Box3(), _wpnCtr=new THREE.Vector3(), _wpnSz=new THREE.Vector3();
+function _meleeColBox(key, color, center, size, swinging, boost, dt){
+  if(!player['_mc_'+key]){ player['_mc_'+key]=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)), new THREE.LineBasicMaterial({color,depthTest:false,transparent:true,opacity:0.9})); player['_mc_'+key].renderOrder=999; player['_mc_'+key].frustumCulled=false; try{scene.add(player['_mc_'+key]);}catch(_){} }
+  const box=player['_mc_'+key]; box.visible=(window._showMeleeCollider!==false); box.position.copy(center); box.scale.set(Math.max(size.x,3),Math.max(size.y,3),Math.max(size.z,3));
+  const pk='_mcp_'+key, vk='_mcv_'+key;
+  if(player[pk]){ if(!player[vk])player[vk]=new THREE.Vector3(); player[vk].copy(center).sub(player[pk]).multiplyScalar(1/Math.max(dt,0.001)); } else player[vk]=new THREE.Vector3();
+  if(!player[pk])player[pk]=new THREE.Vector3(); player[pk].copy(center);
+  if(swinging && _cubeBall) _ballHitAABB(_cubeBall, center, size, player[vk], boost);
+}
+function _updateWeaponCollider(dt){
+  if(GS.zone!==-19 || !player || !player.model) return;
+  const ud=player.model.userData, swinging=!!(ud&&ud._meleeTimer&&ud._meleeTimer>0), bones=ud&&ud.bones;
+  // melee weapon box
+  const w=player._hammer;
+  if(w){ _wpnBox3.setFromObject(w); if(!_wpnBox3.isEmpty()){ _wpnBox3.getCenter(_wpnCtr); _wpnBox3.getSize(_wpnSz); _meleeColBox('wpn',0xffcc33,_wpnCtr,_wpnSz,swinging,(window._BALL_WPN_BOOST||3.0),dt); } }
+  else if(player['_mc_wpn']){ player['_mc_wpn'].visible=false; }
+  // both hands (so you can see the points / bump the ball bare-handed)
+  if(bones){ const HS=(window._HAND_COL||20);
+    for(const [k,nm] of [['lh','mixamorig_LeftHand'],['rh','mixamorig_RightHand']]){ const bn=bones[nm]; if(bn){ const wp=new THREE.Vector3(); bn.getWorldPosition(wp); _meleeColBox(k,0xff44cc,wp,new THREE.Vector3(HS,HS,HS),swinging,(window._BALL_HAND_BOOST||1.8),dt); } }
+  }
+}
+function _updateBallCamBtn(playing){
+  let btn=document.getElementById('ballcam-btn');
+  const show=playing && GS.zone===-19;
+  if(!show){ if(btn)btn.style.display='none'; return; }
+  if(!btn){
+    btn=document.createElement('button'); btn.id='ballcam-btn';
+    btn.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 116px);right:14px;z-index:13;padding:8px 12px;font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:2px;color:#33e0ff;background:rgba(8,20,28,0.72);border:1.5px solid #33e0ff77;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent';
+    btn.textContent='BALL CAM';
+    const flip=(e)=>{ e.preventDefault(); e.stopPropagation(); window._ballCam=!window._ballCam; btn.style.color=window._ballCam?'#06141a':'#33e0ff'; btn.style.background=window._ballCam?'rgba(51,224,255,0.9)':'rgba(8,20,28,0.72)'; if(typeof Audio!=='undefined')Audio.blip(window._ballCam?660:330,0.08,'square',0.14,800); };
+    btn.addEventListener('click',flip); btn.addEventListener('touchstart',flip,{passive:false});
+    document.body.appendChild(btn);
+  }
+  btn.style.display='block';
+}
 function buildCubeArena(){
   _disposeCubeArena();
   const C=Object.assign(_CUBE, window._CUBE||{}); window._CUBE=C;
@@ -17257,6 +17319,7 @@ function buildCubeArena(){
 function updateCubeArena(dt){
   if(GS.zone!==-19 || !player) return;
   if(typeof _updateCubeBall==='function') _updateCubeBall(dt);   // ball runs in BOTH normal & wall-walk modes
+  if(typeof _updateWeaponCollider==='function') _updateWeaponCollider(dt);   // melee weapon collider -> ball hits
   if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
   if(player._cwSetGrav){ player._inPlanetGravity=false; player._glGrounded=false; player._cwAir=0; player._cwSetGrav=false; }   // left wall-walk -> restore normal gravity/anim
   const C=window._CUBE||_CUBE; const pad=(window._CUBE_PAD!=null?window._CUBE_PAD:22); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9);
@@ -17296,7 +17359,7 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
     const up=new THREE.Vector3(0,1,0), xA=new THREE.Vector3().crossVectors(up,fwd).normalize();
     P.model.quaternion.slerp(new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,up,fwd)),0.18);
   }
-  _cubeWorldCam(new THREE.Vector3(P.wx,P.py,P.wz),dt);
+  _cubeCam(new THREE.Vector3(P.wx,P.py,P.wz),dt);
 }
 // Collider box — POSITION rides the hip bone (follows the body in every mode incl. wall-walk & flips), ROTATION = a quaternion.
 function _syncCollider(pl, quat){
@@ -17381,20 +17444,32 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
     P.model.quaternion.slerp(tq, grounded?0.22:0.12);
     if(window._CUBE_FACE_OFF) P.model.rotateY(window._CUBE_FACE_OFF);
   }
-  _cubeWorldCam(new THREE.Vector3(P.wx,P.py,P.wz), dt);
+  _cubeCam(new THREE.Vector3(P.wx,P.py,P.wz), dt);
   if(typeof _syncCollider==='function') _syncCollider(P, P.model?P.model.quaternion:null);   // keep the collider riding the hips in wall-walk (draw() bails here)
 }
-// WORLD-UP camera — stays parallel to the TRUE ground, never rolls. FIXED authoritative angle (front + above):
-// it does NOT orbit, so left stays left and front stays front. Same distance as on the ground (no zoom-out).
-// Head reads up on the floor, down on the ceiling, toward you on the back wall, away on the front wall.
+// WORLD-UP cameras for the cube. FREE cam orbits by CAM.yaw (steered by the right stick), BALL cam looks past you toward the ball.
+// Both stay parallel to the TRUE ground (never roll) -> on the ceiling you're plainly upside-down. Same distance as on the floor.
+function _cubeCam(P, dt){ if(window._ballCam) _ballCam(P,dt); else _cubeWorldCam(P,dt); }
 function _cubeWorldCam(P, dt){
   if(typeof camera==='undefined') return;
-  const D=(window._CUBE_CAM_DIST||320), H=(window._CUBE_CAM_H||240);
-  const eye=new THREE.Vector3(P.x, P.y+H, P.z+D);
-  camera.up.set(0,1,0);                 // LOCKED world-up
+  const yaw=(CAM&&CAM.yaw!=null)?CAM.yaw:0, D=(window._CUBE_CAM_DIST||320), H=(window._CUBE_CAM_H||240);
+  const eye=new THREE.Vector3(P.x+Math.cos(yaw)*D, P.y+H, P.z+Math.sin(yaw)*D);
+  camera.up.set(0,1,0);
   camera.position.lerp(eye, 0.12);
   camera.lookAt(P.x, P.y, P.z);
   if(CAM){ CAM.focus.set(P.x,P.y,P.z); CAM.tfocus.set(P.x,P.y,P.z); }
+}
+function _ballCam(P, dt){
+  if(typeof camera==='undefined') return;
+  const b=_cubeBall; if(!b){ _cubeWorldCam(P,dt); return; }
+  let dir=b.pos.clone().sub(P); dir.y=0; if(dir.lengthSq()<1)dir.set(0,0,1); dir.normalize();   // horizontal: player -> ball
+  const D=(window._BALLCAM_DIST||window._CUBE_CAM_DIST||340), H=(window._BALLCAM_H||window._CUBE_CAM_H||250);
+  const eye=P.clone().addScaledVector(dir,-D); eye.y+=H;                                          // sit behind the player, looking toward the ball
+  camera.up.set(0,1,0);
+  camera.position.lerp(eye, 0.12);
+  const look=P.clone().lerp(b.pos, 0.4);
+  camera.lookAt(look.x, look.y, look.z);
+  if(CAM){ CAM.focus.copy(look); CAM.tfocus.copy(look); }
 }
 function _cubeWalkOrient(P){   // surface-aligned model orientation (called from draw)
   if(!P.model||!P._cubeUp)return;
