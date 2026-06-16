@@ -9637,19 +9637,7 @@ class Player{
         if(k>=1) this._flip=null;
       }
     }
-    if(window._showCollider!==false && this.model){
-      const _mh=this._modelH||60, hipY=shipY+(this._flipPivotY||_mh*0.5);
-      if(!this._dbgBox || this._dbgBoxH!==_mh){
-        if(this._dbgBox){ scene.remove(this._dbgBox); if(this._dbgBox.geometry)this._dbgBox.geometry.dispose(); }
-        const H=window._COLLIDER_H||_mh, W=window._COLLIDER_W||H*(window._COLLIDER_WR||0.4), D=window._COLLIDER_D||H*(window._COLLIDER_DR||0.4);
-        const geo=new THREE.BoxGeometry(W,H,D);
-        this._dbgBox=new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:0x00ff88,depthTest:false,transparent:true,opacity:0.85}));
-        this._dbgBox.renderOrder=998; this._dbgBox.frustumCulled=false; this._dbgBoxH=_mh; try{scene.add(this._dbgBox);}catch(_){}
-      }
-      this._dbgBox.visible=true;
-      this._dbgBox.position.set(this.wx, hipY, this.wz);                    // centered on the hips
-      this._dbgBox.quaternion.copy(this.model.quaternion);                  // tumbles with the flip, around the hips
-    } else if(this._dbgBox){ this._dbgBox.visible=false; }
+    if(typeof _syncCollider==='function') _syncCollider(this, this.model?this.model.quaternion:null);
     if(this._respawnBlink>0){
       this._respawnBlink--;
       this.model.visible=true;   // no more blinking — show a stylized spawn-protection aura instead
@@ -17243,6 +17231,22 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
   }
   _cubeWorldCam(new THREE.Vector3(P.wx,P.py,P.wz),dt);
 }
+// Collider box — POSITION rides the hip bone (follows the body in every mode incl. wall-walk & flips), ROTATION = a quaternion.
+function _syncCollider(pl, quat){
+  if(window._showCollider===false || !pl.model){ if(pl._dbgBox)pl._dbgBox.visible=false; return; }
+  const _mh=pl._modelH||60;
+  if(!pl._dbgBox || pl._dbgBoxH!==_mh){
+    if(pl._dbgBox){ scene.remove(pl._dbgBox); if(pl._dbgBox.geometry)pl._dbgBox.geometry.dispose(); }
+    const H=window._COLLIDER_H||_mh, W=window._COLLIDER_W||H*(window._COLLIDER_WR||0.4), D=window._COLLIDER_D||H*(window._COLLIDER_DR||0.4);
+    pl._dbgBox=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(W,H,D)), new THREE.LineBasicMaterial({color:0x00ff88,depthTest:false,transparent:true,opacity:0.85}));
+    pl._dbgBox.renderOrder=998; pl._dbgBox.frustumCulled=false; pl._dbgBoxH=_mh; try{scene.add(pl._dbgBox);}catch(_){}
+  }
+  pl._dbgBox.visible=true;
+  if(pl._hipBone===undefined){ pl._hipBone=null; try{ pl.model.traverse(o=>{ if(!pl._hipBone && o.isBone && /Hips$/i.test(o.name||'')) pl._hipBone=o; }); }catch(_){} }
+  if(pl._hipBone){ pl._hipBone.getWorldPosition(pl._dbgBox.position); }
+  else { pl._dbgBox.position.set(pl.wx, (9+pl.py)+(pl._flipPivotY||_mh*0.5), pl.wz); }
+  pl._dbgBox.quaternion.copy(quat||pl.model.quaternion);
+}
 const _cwN=new THREE.Vector3();
 function _cubeWalkMove(P,rawX,rawZ,dt){
   dt=Math.min(dt,0.033);
@@ -17302,16 +17306,17 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
     if(window._CUBE_FACE_OFF) P.model.rotateY(window._CUBE_FACE_OFF);
   }
   _cubeWorldCam(new THREE.Vector3(P.wx,P.py,P.wz), dt);
+  if(typeof _syncCollider==='function') _syncCollider(P, P.model?P.model.quaternion:null);   // keep the collider riding the hips in wall-walk (draw() bails here)
 }
-// WORLD-UP camera — stays parallel to the TRUE ground, never rolls to the wall/ceiling normal.
-// On a wall you watch the robot cling sideways; on the ceiling it's plainly upside-down (same as the cube's underside).
+// WORLD-UP camera — stays parallel to the TRUE ground, never rolls. FIXED authoritative angle (front + above):
+// it does NOT orbit, so left stays left and front stays front. Same distance as on the ground (no zoom-out).
+// Head reads up on the floor, down on the ceiling, toward you on the back wall, away on the front wall.
 function _cubeWorldCam(P, dt){
   if(typeof camera==='undefined') return;
-  const yaw=(CAM&&CAM.yaw!=null)?CAM.yaw:0;
-  const dist=(window._CUBE_CAM_DIST||600), hgt=(window._CUBE_CAM_H||320);
-  const eye=new THREE.Vector3(P.x+Math.cos(yaw)*dist, P.y+hgt, P.z+Math.sin(yaw)*dist);
-  camera.up.set(0,1,0);                 // LOCKED world-up — the whole point
-  camera.position.lerp(eye, 0.10);
+  const D=(window._CUBE_CAM_DIST||320), H=(window._CUBE_CAM_H||240);
+  const eye=new THREE.Vector3(P.x, P.y+H, P.z+D);
+  camera.up.set(0,1,0);                 // LOCKED world-up
+  camera.position.lerp(eye, 0.12);
   camera.lookAt(P.x, P.y, P.z);
   if(CAM){ CAM.focus.set(P.x,P.y,P.z); CAM.tfocus.set(P.x,P.y,P.z); }
 }
