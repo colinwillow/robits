@@ -17413,19 +17413,20 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   let N=_cwN.clone().multiplyScalar(-1);          // UP = into the room (toward centre)
   const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   const ACC=(window._CUBE_ACC||950), MAXS=(window._CUBE_MAXS||340), GRAV=(window._CUBE_GRAV||720);
-  // ── INPUT → tangent dir using the LAB CUBE's basis: camera-RIGHT (stable & horizontal, never degenerates — even looking
-  //    straight at the ceiling) projected onto the surface, then forward = N × right. Consistent handedness on EVERY face,
-  //    so it never inverts on a wall or the ceiling (the screen-up projection used to collapse on the ceiling). ──
-  const inMag=Math.hypot(rawX,rawZ); let tanDir=null;
+  // ── INPUT. The incoming rawX/rawZ are ALREADY camera-transformed (rotInput applied CAM.yaw). UNDO that to recover the raw screen
+  //    stick, so the surface basis below (which re-applies the camera) doesn't double-rotate when you spin the camera. ──
+  const _cy=Math.cos(CAM.yaw), _sy=Math.sin(CAM.yaw);
+  const sx=_cy*rawX - _sy*rawZ, sz=_sy*rawX + _cy*rawZ;     // raw screen stick (x = screen-right, z = screen-down)
+  const inMag=Math.hypot(sx,sz); let tanDir=null;
   if(inMag>0.05){
-    const cr=new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));        // screen-right DERIVED FROM CAM.yaw -> always in sync with the orbit cam (camera.matrixWorld lags a frame and desyncs when you spin)
+    const cr=new THREE.Vector3(_cy,0,-_sy);                                     // screen-right from CAM.yaw -> always in sync with the orbit cam
     let prr=cr.addScaledVector(N,-cr.dot(N));                                   // right projected onto the surface plane
     if(prr.lengthSq()<1e-5){ prr.crossVectors(N, P._cwLastTN||new THREE.Vector3(0,0,1)); }
     prr.normalize();
     let pf=new THREE.Vector3().crossVectors(N,prr);                             // forward = N × right -> never flips on the underside/ceiling
     if(pf.lengthSq()<1e-5){ pf.copy(P._cwLastTN||new THREE.Vector3(0,0,1)); pf.addScaledVector(N,-pf.dot(N)); }
     pf.normalize();
-    tanDir=pf.clone().multiplyScalar(-rawZ).addScaledVector(prr,rawX);
+    tanDir=pf.clone().multiplyScalar(-sz).addScaledVector(prr,sx);
     if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); P._cwLastTN=pf.clone(); } else tanDir=null;
   }
   let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
