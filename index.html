@@ -8674,7 +8674,8 @@ class Player{
     if(!this._trajDots){ const g=new THREE.SphereGeometry(2,5,4); this._trajDots=[]; for(let i=0;i<28;i++){ const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0xff8800,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false})); scene.add(m); this._trajDots.push(m); } }
     // launch in the SURFACE frame: tangential part = where the stick points along the wall, plus a kick straight out along the normal
     const _isCube=(GS.zone===-19);
-    const tanSpeed=(window._BOMB_SURF_BASE||30)+Math.min(1,mag)*Math.min(1,mag)*(window._BOMB_SURF_SPAN||360), outSpeed=_isCube?(window._BOMB_CUBE_LOB||210):16;   // CUBE: distance scales from a low floor with how hard you push (quadratic) — matches the no-boots throw; pop off the surface for a real arc
+    const _m=Math.min(1,mag);
+    const tanSpeed=(window._BOMB_SURF_BASE||25)+_m*_m*(window._BOMB_SURF_SPAN||380), outSpeed=_isCube?((window._BOMB_CUBE_LOB_MIN||45)+_m*(window._BOMB_CUBE_LOB||185)):16;   // CUBE: BOTH horizontal distance AND the upward lob scale with how hard you push -> gentle push drops it close, hard push arcs it far (matches the no-boots throw feel)
     let lvx,lvy,lvz;
     if(td){ lvx=td.x*tanSpeed+N.x*outSpeed; lvy=td.y*tanSpeed+N.y*outSpeed; lvz=td.z*tanSpeed+N.z*outSpeed; }
     else if(_isCube){ lvx=N.x*outSpeed; lvy=N.y*outSpeed; lvz=N.z*outSpeed; }   // no aim in the cube -> still pop straight off the surface so it arcs back, not a dead drop
@@ -17338,9 +17339,9 @@ function _updateCubeBall(dt){
     if(b.runlights){ const fl=Math.min(1,hf*6); for(let i=0;i<b.runlights.length;i++){ const ph=(tt*2.2 - i*0.5); b.runlights[i].material.opacity=Math.min(1,0.45+0.5*(0.5+0.5*Math.sin(ph))+fl); } }
   }
   _updateBallFX(dtc);
-  const GRAV=(window._BALL_GRAV||580), DRAGr=(window._BALL_DRAG||0.55), REST=(window._BALL_REST||0.72);
+  const GRAV=(window._BALL_GRAV||520), DRAGr=(window._BALL_DRAG||0.93), REST=(window._BALL_REST||0.74);
   b.vel.y-=GRAV*dtc;
-  b.vel.multiplyScalar(Math.pow(DRAGr,dtc));     // floaty air drag (per-second retention)
+  b.vel.multiplyScalar(Math.pow(DRAGr,dtc));     // gentle air drag (per-second retention) -> carries momentum across the arena like an RL ball
   b.pos.addScaledVector(b.vel,dtc);
   const R2=R; const d=_cubeSDF(b.pos.x,b.pos.y,b.pos.z);     // interior shell collision
   const N=new THREE.Vector3(); _cubeGrad(b.pos.x,b.pos.y,b.pos.z,N);
@@ -17348,15 +17349,16 @@ function _updateCubeBall(dt){
     b.pos.addScaledVector(N,-(d+R2));
     const vn=b.vel.dot(N);
     if(vn>0){ b.vel.addScaledVector(N,-(1+REST)*vn);
+      { const _tg=(window._BALL_WALL_GRIP||0.97); const vn2=b.vel.dot(N); b.vel.set((b.vel.x-N.x*vn2)*_tg+N.x*vn2,(b.vel.y-N.y*vn2)*_tg+N.y*vn2,(b.vel.z-N.z*vn2)*_tg+N.z*vn2); }   // tiny tangential bite on a wall hit so bounces read as RL deflections, not frictionless mirror bounces
       if(typeof gridSheetsBlast==='function' && Math.abs(vn)>120){ try{ gridSheetsBlast(b.pos.x,b.pos.y,b.pos.z, Math.min(9,2+Math.abs(vn)/120), R+18); }catch(_){} }   // dent the deforming grid where the ball slams
       if(typeof Audio!=='undefined'&&Math.abs(vn)>140){try{Audio.blip(150,0.07,'sine',0.12,80);}catch(_){}}
       if(typeof ps!=='undefined'&&Math.abs(vn)>180){ for(let k=0;k<6;k++){ const a=Math.random()*6.28,sp=rand(20,70); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(0,50),Math.sin(a)*sp,0.2,0.9,1,0.35); } }
     }
   }
-  if(d>-R2-(window._BALL_CONTACT||7)){   // ── ROLLING FRICTION while touching a surface -> comes to rest ──
-    const vnc=b.vel.dot(N), fr=Math.pow((window._BALL_GFRIC||0.45),dtc);
+  if(d>-R2-(window._BALL_CONTACT||7)){   // ── ROLLING FRICTION while touching a surface -> rolls a long way, then settles ──
+    const vnc=b.vel.dot(N), fr=Math.pow((window._BALL_GFRIC||0.82),dtc);
     let tx=(b.vel.x-N.x*vnc)*fr, ty=(b.vel.y-N.y*vnc)*fr, tz=(b.vel.z-N.z*vnc)*fr;
-    if(Math.hypot(tx,ty,tz)<(window._BALL_STOP||10)){ tx=ty=tz=0; }   // settle
+    if(Math.hypot(tx,ty,tz)<(window._BALL_STOP||9)){ tx=ty=tz=0; }   // settle
     b.vel.set(tx+N.x*vnc, ty+N.y*vnc, tz+N.z*vnc);
   }
   // ── BULLETS knock the ball (light push, consumed on hit) ──
@@ -17494,7 +17496,7 @@ function buildCubeArena(){
   } else {
     // ── DEFORMING GRID FACES: each face = a live GridSheet (reacts to the player, bullets, rockets, the ball) ──
     _disposeCubeSheets();
-    const cell=(window._CUBE_GRID_CELL||56), pal=(window._CUBE_GRID_PAL||'blue'), sub=(IS_MOBILE?1:2);
+    const cell=(window._CUBE_GRID_CELL||56), pal=(window._CUBE_GRID_PAL||'cube'), sub=(IS_MOBILE?1:2);
     const cy=h/2, vyH=(iy1-iy0)/2;   // wall vertical center + half-height (between the fillets)
     const Q=(ax,ay,az,ang)=>new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(ax,ay,az),ang);
     const face=(pos,quat,uHalf,vHalf)=>{
@@ -17545,7 +17547,7 @@ function buildCubeArena(){
 }
 function updateCubeArena(dt){
   if(GS.zone!==-19 || !player) return;
-  if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets) s.update(dt); }   // deforming grid faces ripple/settle
+  if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets) s.update(dt); _cubeWallFade(dt); }   // deforming grid faces ripple/settle + fade any face between the camera and you
   if(typeof _updateCubeBall==='function') _updateCubeBall(dt);   // ball runs in BOTH normal & wall-walk modes
   if(typeof _updateWeaponCollider==='function') _updateWeaponCollider(dt);   // melee weapon collider -> ball hits
   if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
@@ -17752,7 +17754,7 @@ function _cubeCam(P, dt){
       const yaw=Math.atan2(dx,dz); CAM.yaw=yaw; CAM.tyaw=yaw; CAM.focus.set(P.x,P.y,P.z);
     }
     _cwAuthPrev=false; if(typeof CAM!=='undefined') CAM.tfocus.set(P.x,P.y,P.z);   // normal cam follows + orbits
-  } else { if(!_cwAuthPrev){ _cwCamBlend=0; _cwCamFrom.copy(camera.position); _cwAuthPrev=true; } _cubeWallCam(P,N,dt); }   // authoritative wall cam (seed a blend on entry)
+  } else { if(!_cwAuthPrev){ _cwCamBlend=0; _cwCamFrom.copy(camera.position); _cwLook=P.clone(); _cwAuthPrev=true; } _cubeWallCam(P,N,dt); }   // authoritative wall cam (seed a fresh blend + look target on entry so it eases instead of jumping)
 }
 function _cubeWallCam(P, N, dt){
   if(typeof camera==='undefined') return;
@@ -17766,10 +17768,33 @@ function _cubeWallCam(P, N, dt){
   eye.y=Math.max(C.y-CC.h*0.5+m,Math.min(C.y+CC.h*0.5-m,eye.y));
   if(!_cwLook) _cwLook=P.clone();
   _cwLook.lerp(P,0.12);
-  if(_cwCamBlend<1){ _cwCamBlend=Math.min(1,_cwCamBlend+dt/0.6); const e=_cwCamBlend<0.5?2*_cwCamBlend*_cwCamBlend:1-Math.pow(-2*_cwCamBlend+2,2)/2; camera.position.lerpVectors(_cwCamFrom,eye,e); }
+  if(_cwCamBlend<1){ _cwCamBlend=Math.min(1,_cwCamBlend+dt/(window._CUBE_CAM_BLEND||0.9)); const e=_cwCamBlend<0.5?2*_cwCamBlend*_cwCamBlend:1-Math.pow(-2*_cwCamBlend+2,2)/2; camera.position.lerpVectors(_cwCamFrom,eye,e); }
   else camera.position.lerp(eye,0.1);
   camera.lookAt(_cwLook.x,_cwLook.y,_cwLook.z);
   if(typeof CAM!=='undefined'){ CAM.focus.copy(_cwLook); CAM.tfocus.copy(_cwLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }
+}
+// ── fade any cube face that sits between the camera and the player so you can always see yourself ──
+const _cwfN=new THREE.Vector3(), _cwfHit=new THREE.Vector3(), _cwfCam=new THREE.Vector3(), _cwfPl=new THREE.Vector3();
+function _cubeWallFade(dt){
+  if(!_cubeSheets||!_cubeSheets.length||!player||typeof camera==='undefined') return;
+  _cwfCam.copy(camera.position); _cwfPl.set(player.wx,(player.py||0)+18,player.wz);
+  for(const s of _cubeSheets){
+    if(!s.group)continue;
+    _cwfN.set(0,1,0).applyQuaternion(s.group.quaternion).normalize();        // face inward normal in world
+    const Pw=s.group.position;
+    const sc=(_cwfCam.x-Pw.x)*_cwfN.x+(_cwfCam.y-Pw.y)*_cwfN.y+(_cwfCam.z-Pw.z)*_cwfN.z;
+    const sp=(_cwfPl.x-Pw.x)*_cwfN.x+(_cwfPl.y-Pw.y)*_cwfN.y+(_cwfPl.z-Pw.z)*_cwfN.z;
+    let occ=false;
+    if((sc>0)!==(sp>0) && Math.abs(sc-sp)>1){                                  // camera & player on opposite sides -> the face is between them
+      const t=sc/(sc-sp); _cwfHit.copy(_cwfCam).lerp(_cwfPl,t); s.group.worldToLocal(_cwfHit);
+      if(Math.abs(_cwfHit.x)<s.hw+24 && Math.abs(_cwfHit.z)<s.hd+24) occ=true;  // ...and the crossing is within the face
+    }
+    const tgt=occ?(window._CUBE_WALL_FADE||0.16):1;
+    s._fade=(s._fade==null?1:s._fade); s._fade+=(tgt-s._fade)*Math.min(1,dt*9);
+    if(s.lines)s.lines.material.opacity=s._fade;
+    if(s.glowLines)s.glowLines.material.opacity=0.7*s._fade;
+    if(s.fill){ s.fill.material.transparent=true; s.fill.material.opacity=Math.max(0,s._fade-0.1); }
+  }
 }
 function _cubeFaceCam(P, dt){   // (kept for reference) faithful copy of the normal updateCamera orbit
   if(typeof camera==='undefined') return;
@@ -19683,6 +19708,7 @@ const _GS_PAL={
   purple:[[150,70,255],[200,110,255],[255,90,210],[255,150,235]],
   blue:  [[0,40,160],[0,180,240],[150,120,255],[230,160,255]],
   neon:  [[60,255,205],[150,255,200],[200,255,140],[235,255,180]],   // turquoise -> light green (city buildings)
+  cube:  [[51,224,255],[120,240,255],[200,120,255],[255,80,180]],   // neon cyan -> magenta (matches the cube theme + the ground grid look)
 };
 class GridSheet{
   constructor(opts){
@@ -19751,8 +19777,9 @@ class GridSheet{
       const pu=_glV.x, pn=_glV.y, pv=_glV.z;
       if(Math.abs(pn)<this.cell*1.5 && Math.abs(pu)<this.hw+24 && Math.abs(pv)<this.hd+24){
         const spd=Math.hypot(player.vx||0,player.vz||0), tt=Math.min(spd/220,1), radius=100;
+        const _cw=this._cubeWall;
         for(let i=0;i<this.n;i++){ const dx=this.ru[i]-pu, dz=this.rv[i]-pv, d2=dx*dx+dz*dz;
-          if(d2<radius*radius&&d2>0.01){ const d=Math.sqrt(d2), fo=(1-d/radius)*(1-d/radius); this.vu[i]+=(dx/d)*fo*(0.15+tt*0.2); this.vv[i]+=(dz/d)*fo*(0.15+tt*0.2); this.vy[i]=0; } } } }
+          if(d2<radius*radius&&d2>0.01){ const d=Math.sqrt(d2), fo=(1-d/radius)*(1-d/radius); this.vu[i]+=(dx/d)*fo*(0.15+tt*0.2); this.vv[i]+=(dz/d)*fo*(0.15+tt*0.2); if(_cw){ this.vy[i]-=fo*(0.18+tt*0.5); } else { this.vy[i]=0; } } } } }   // cube faces: leave a springy depression under you (like the ground grid); other sheets stay flat
     for(let r=0;r<this.nz;r++) for(let c=0;c<this.nx;c++){ const i=r*this.nx+c, fixed=(r===0||r===this.nz-1||c===0||c===this.nx-1);
       if(fixed){ this.u[i]=this.ru[i]; this.v[i]=this.rv[i]; this.y[i]=this.ry[i]; this.vu[i]=0; this.vv[i]=0; this.vy[i]=0; continue; }
       this.vu[i]=(this.vu[i]+(this.ru[i]-this.u[i])*0.012)*0.92; this.vv[i]=(this.vv[i]+(this.rv[i]-this.v[i])*0.012)*0.92; this.vy[i]=(this.vy[i]+(this.ry[i]-this.y[i])*0.014)*0.91;
@@ -19784,7 +19811,7 @@ class GridSheet{
     this.posAttr.needsUpdate=true; this.colAttr.needsUpdate=true; this.glowPosAttr.needsUpdate=true; this.glowColAttr.needsUpdate=true;
   }
   impactLocal(lu,lv,power){   // localized blast = ground's landing formula, toned to ~0.6x ground
-    power*=0.6;
+    if(!this._cubeWall) power*=0.6;   // cube faces hit at FULL ground strength so the deform/shock reads
     this.shock(lu,lv,power);
     const rad=40+power*10;
     for(let i=0;i<this.n;i++){ const dx=this.ru[i]-lu, dz=this.rv[i]-lv, d2=dx*dx+dz*dz;
@@ -21482,7 +21509,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
     mname='air_to_ground_melee'; player._meleeStep=-1; player._airSlam=true;   // air slam -> plants on impact; ground sequence restarts at the front of the order after
   } else {
     if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }
-    else { const _seq=(window._MELEE_SEQ&&window._MELEE_SEQ.length)?window._MELEE_SEQ:[3,4,5,1,2];   // order swings fire in — melee_3 leads (trying it for cleaner parry read)
+    else { const _seq=(window._MELEE_SEQ&&window._MELEE_SEQ.length)?window._MELEE_SEQ:[1,2,3,4,5];   // melee_1 (the spin) leads — it reads cleanest against the ball
       if((player._meleeComboT||0)<=0) player._meleeStep=0; else player._meleeStep=((player._meleeStep||0)+1)%_seq.length;
       player._meleeCombo=_seq[player._meleeStep]; }
     mname='melee_'+player._meleeCombo;
