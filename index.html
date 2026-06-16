@@ -1027,7 +1027,7 @@ function addTrauma(t){ CAM.trauma=clamp(CAM.trauma+t,0,1); }
 function punchZoom(z){ CAM.tzoom=z; }
 function updateCamera(dt){
   if(player&&player._inPlanetGravity&&(GS.zone===-15||GS.zone===-16)) return;   // lab/city gravity cam owns the camera
-  if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player)){ _cubeWalkCamera(dt); return; }   // cube wall-walk owns the camera
+  if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player)){ return; }   // cube wall-walk sets the camera inside _cubeWalkMove (_glChaseCam)
   CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
   CAM.focus.lerp(CAM.tfocus,0.18);
@@ -9582,6 +9582,10 @@ class Player{
         if(ud.rim) ud.rim.material.emissive?.setHex(od?0xffe600:0x00ffc8);
         return;
       }
+      if(GS.zone===-19){   // cube interior wall-walk: _cubeWalkMove owns position/orientation/camera
+        if(ud.rim) ud.rim.material.emissive?.setHex(od?0xffe600:0x00ffc8);
+        return;
+      }
     }
     const targetFocY = (GS.zone===-10) ? (10+this.py*0.85) : (4+this.py*0.55+Math.max(0,this.py-50)*0.45);   // above 50u, track ~fully so a high fling never leaves frame
     this._camFocY=lerp(this._camFocY, targetFocY, (GS.zone===-10)?0.14:0.12);
@@ -9646,7 +9650,6 @@ class Player{
       this._dbgBox.position.set(this.wx, hipY, this.wz);                    // centered on the hips
       this._dbgBox.quaternion.copy(this.model.quaternion);                  // tumbles with the flip, around the hips
     } else if(this._dbgBox){ this._dbgBox.visible=false; }
-    if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)) _cubeWalkOrient(this);   // surface-align the model when walking the cube walls/ceiling
     if(this._respawnBlink>0){
       this._respawnBlink--;
       this.model.visible=true;   // no more blinking — show a stylized spawn-protection aura instead
@@ -11662,6 +11665,7 @@ function startGame(levelIdx){
   else if(GS.zone===0){ if(GS.survival) spawnWave(); else buildZone1Puzzle(); }
   else spawnWave();
   setupSpecialLevel(GS.zone);
+  if(GS.survival && typeof _survivalSeed==='function') _survivalSeed();   // drop a starter armory near spawn so all pickup types are immediately reachable
   if(IS_TOUCH){document.getElementById('joystick-left').style.display='block';document.getElementById('joystick-right').style.display='block';
     const BTN_SIZE=52;
     // Move buttons higher — joystick top + extra gap so they're well clear
@@ -13261,22 +13265,40 @@ function rewardKill(e){
 function _survivalDrops(){
   if(!GS.survival || !player || GS.state!=='playing') return;
   const R=(typeof ARENA_R!=='undefined'?ARENA_R:240)*0.55;
-  const pos=()=>{ const a=Math.random()*TAU, r=120+Math.random()*R; return {x:Math.cos(a)*r, z:Math.sin(a)*r}; };
+  const pos=()=>{ const a=Math.random()*TAU, r=80+Math.random()*R; return {x:Math.cos(a)*r, z:Math.sin(a)*r}; };
   const guns=['rockets','plasma','flamethrower','grenade','boomerang','bow'];
   const melee=['sword','hammer','axe','spear','scythe'];
   const throwables=['nuke','singularity','gridquake'];
+  const pups=['speed','shield','magnet'];
   const pick=a=>a[(Math.random()*a.length)|0];
-  const n=1+(Math.random()<0.5?1:0);   // 1–2 drops per wave (cadence tunable later)
+  const n=2+(Math.random()<0.5?1:0);   // 2–3 drops per wave
+  let log=[];
   for(let i=0;i<n;i++){
     const p=pos(), roll=Math.random();
     try{
-      if(roll<0.32){ if(typeof _spawnWeaponPad==='function')_spawnWeaponPad(p.x,p.z,pick(guns)); }          // gun
-      else if(roll<0.56){ if(typeof _spawnHammerStation==='function')_spawnHammerStation(p.x,p.z,pick(melee)); } // melee
-      else if(roll<0.78){ if(typeof _spawnPU==='function')_spawnPU(p.x,9,p.z,pick(throwables),0,0,0); }       // throwable
-      else if(roll<0.93){ if(typeof _spawnCrate==='function')_spawnCrate(p.x,p.z); }                          // capture crate
-      else { if(typeof _spawnBootStation==='function' && !window._bootStation)_spawnBootStation(p.x,p.z); }   // boots (rare)
+      if(roll<0.26){ if(typeof _spawnWeaponPad==='function'){ const g=pick(guns); _spawnWeaponPad(p.x,p.z,g); log.push(g);} }            // gun
+      else if(roll<0.48){ if(typeof _spawnHammerStation==='function'){ const mw=pick(melee); _spawnHammerStation(p.x,p.z,mw); log.push(mw);} } // melee
+      else if(roll<0.66){ if(typeof _spawnPU==='function'){ const t=pick(throwables); _spawnPU(p.x,9,p.z,t,0,0,0); log.push(t);} }       // throwable
+      else if(roll<0.80){ if(typeof _spawnCrate==='function'){ _spawnCrate(p.x,p.z); log.push('crate');} }                             // capture crate
+      else if(roll<0.94){ if(typeof Powerup==='function'){ GS_powerups.push(new Powerup(p.x,p.z,pick(pups))); log.push('pu');} }       // little powerup
+      else { if(typeof _spawnBootStation==='function' && !window._bootStation){ _spawnBootStation(p.x,p.z); log.push('boots');} }       // boots (rare)
     }catch(e){ console.warn('survival drop',e); }
   }
+  if(log.length) console.log('[survival] wave '+GS.waveInZone+' drops:', log.join(', '));
+}
+// Starter armory — seeded once at survival start so you immediately have one of each thing to grab near spawn.
+function _survivalSeed(){
+  if(!GS.survival || !player) return;
+  const cz=(GS.zone===-5)?150:0;   // player spawns at (0,150) in the onslaught zone
+  try{
+    if(typeof _spawnWeaponPad==='function'){ _spawnWeaponPad(-80,cz-30,'rockets'); _spawnWeaponPad(80,cz-30,'grenade'); }
+    if(typeof _spawnHammerStation==='function'){ _spawnHammerStation(-45,cz-60,'sword'); _spawnHammerStation(45,cz-60,'hammer'); }
+    if(typeof _spawnPU==='function'){ _spawnPU(0,9,cz-70,'nuke',0,0,0); }
+    if(typeof _spawnCrate==='function'){ _spawnCrate(-110,cz); _spawnCrate(110,cz); }
+    if(typeof _spawnBootStation==='function' && !window._bootStation) _spawnBootStation(0,cz+55);
+    if(typeof Powerup==='function'){ const pk=['speed','shield','magnet']; for(let i=0;i<3;i++){ const a=(i/3)*TAU, r=70; GS_powerups.push(new Powerup(Math.cos(a)*r, cz+Math.sin(a)*r, pk[i])); } }
+    console.log('[survival] starter armory seeded near spawn');
+  }catch(e){ console.warn('survival seed',e); }
 }
 function spawnWave(){
   // In multiplayer, only host spawns enemies
@@ -17162,42 +17184,60 @@ function _cubeGrad(x,y,z,out){ const e=1.5, d=_cubeSDF(x,y,z); out.set(_cubeSDF(
 const _cwN=new THREE.Vector3(), _cwUp=new THREE.Vector3(), _cwF=new THREE.Vector3(), _cwR=new THREE.Vector3(), _cwV=new THREE.Vector3();
 function _cubeWalkMove(P,rawX,rawZ,dt){
   dt=Math.min(dt,0.033);
-  // Reuse the planet-gravity grounded path: this makes the anim picker show run/idle (not 'floating') and routes taps into _jumpTapped.
   P._inPlanetGravity=true; P._cwSetGrav=true; P._onPlatform=false;
-  _cubeGrad(P.wx,P.py,P.wz,_cwN); _cwUp.copy(_cwN).multiplyScalar(-1);   // up = into the room
-  // camera-relative tangent frame
-  _cwF.set(Math.cos(CAM.yaw||0),0,Math.sin(CAM.yaw||0)); _cwF.addScaledVector(_cwUp,-_cwF.dot(_cwUp));
-  if(_cwF.lengthSq()<1e-4){ _cwF.set(0,0,1).addScaledVector(_cwUp,-_cwUp.z); } _cwF.normalize();
-  _cwR.crossVectors(_cwUp,_cwF).normalize();
-  _cwV.set(P.vx||0,P.pvy||0,P.vz||0);
-  const inMag=Math.hypot(rawX,rawZ), ACC=(window._CUBE_ACC||1200), MAXS=(window._CUBE_MAXS||470);
+  _cubeGrad(P.wx,P.py,P.wz,_cwN);                 // outward (toward wall)
+  let N=_cwN.clone().multiplyScalar(-1);          // UP = into the room (toward centre)
   const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
-  // ── JUMP: tap launches off the surface along its up; air timer suspends the stick so you arc ──
-  if(P._jumpTapped && (P._cwAir||0)<=0){ P._jumpTapped=false; _cwV.addScaledVector(_cwUp,(window._CUBE_JUMP||300)); P._cwAir=(window._CUBE_AIRT||0.85); if(typeof Audio!=='undefined')Audio.blip(520,0.06,'square',0.12,720); }
-  if((P._cwAir||0)>0){                                   // ── AIRBORNE: gravity pulls back toward the surface, tangent air-control ──
-    P._cwAir-=dt; P._glGrounded=false;
-    _cwV.addScaledVector(_cwN,(window._CUBE_GRAV||560)*dt);   // gravity = toward the surface (along outward normal)
-    if(inMag>0.06){ const dx=_cwR.x*rawX-_cwF.x*rawZ, dy=_cwR.y*rawX-_cwF.y*rawZ, dz=_cwR.z*rawX-_cwF.z*rawZ, dl=Math.hypot(dx,dy,dz);
-      if(dl>1e-4){ _cwV.x+=dx/dl*ACC*0.5*Math.min(1,inMag)*dt; _cwV.y+=dy/dl*ACC*0.5*Math.min(1,inMag)*dt; _cwV.z+=dz/dl*ACC*0.5*Math.min(1,inMag)*dt; P._cwFace=Math.atan2(dz,dx); P._cwFaceV=new THREE.Vector3(dx/dl,dy/dl,dz/dl); } }
-    if(_cwV.length()>MAXS*1.4)_cwV.setLength(MAXS*1.4);
-    P.wx+=_cwV.x*dt; P.py+=_cwV.y*dt; P.wz+=_cwV.z*dt;
-    const d=_cubeSDF(P.wx,P.py,P.wz);
-    P.vx=_cwV.x; P.pvy=_cwV.y; P.vz=_cwV.z; P._galSpeed=_cwV.length(); P._cubeUp=_cwN.clone().multiplyScalar(-1);
-    if(d>=-RIDE && _cwV.dot(_cwN)>=0){ P._cwAir=0; }   // came back down to ride height while descending -> land (fall through to grounded snap)
-    else return;
+  const ACC=(window._CUBE_ACC||950), MAXS=(window._CUBE_MAXS||340), GRAV=(window._CUBE_GRAV||720);
+  // ── INPUT → tangent dir, handedness-stable (forward = N × camera-right) so controls NEVER invert on a wall/ceiling ──
+  const inMag=Math.hypot(rawX,rawZ); let tanDir=null;
+  if(inMag>0.05){
+    const cr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);   // camera RIGHT (stable, horizontal)
+    let prr=cr.addScaledVector(N,-cr.dot(N)); if(prr.lengthSq()<1e-5){ prr.crossVectors(N, P._cwLastF||new THREE.Vector3(0,0,1)); } prr.normalize();
+    let pf=new THREE.Vector3().crossVectors(N,prr); if(pf.lengthSq()<1e-5){ pf.set(0,0,1).addScaledVector(N,-N.z); } pf.normalize();   // forward = N × right -> consistent handedness on the underside
+    tanDir=pf.clone().multiplyScalar(-rawZ).addScaledVector(prr,rawX);
+    if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); P._cwLastF=pf.clone(); } else tanDir=null;
   }
-  // ── GROUNDED: stick to the surface ──
+  let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
+  const grounded=(P._cwAir||0)<=0;
+  // ── JUMP: tap launches toward the room (along N); gravity pulls back to the wall ──
+  if(grounded && P._jumpTapped){ P._jumpTapped=false; v.addScaledVector(N,(window._CUBE_JUMP||300)); P._cwAir=(window._CUBE_AIRT||0.85); if(typeof Audio!=='undefined')Audio.blip(300,0.3,'sine',0.12,500); }
+  if((P._cwAir||0)>0){                              // ── AIRBORNE ──
+    P._cwAir-=dt; P._glGrounded=false;
+    v.addScaledVector(N,-GRAV*dt);                  // gravity toward the wall
+    if(tanDir) v.addScaledVector(tanDir,320*Math.min(1,inMag)*dt);
+    if(v.length()>920) v.setLength(920);
+    P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
+    const d=_cubeSDF(P.wx,P.py,P.wz);
+    if(d>=-RIDE && v.dot(_cwN)>=0){ P._cwAir=0; }   // descended back to ride height -> land (fall through to grounded snap)
+    else { P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); _cubeWalkRender(P,N,tanDir,dt,false); return; }
+  }
+  // ── GROUNDED: stick to the wall (friction ONLY when no input -> momentum doesn't die) ──
   P._glGrounded=true;
-  _cwV.addScaledVector(_cwN,-_cwV.dot(_cwN));   // keep velocity tangent
-  if(inMag>0.06){ const dx=_cwR.x*rawX-_cwF.x*rawZ, dy=_cwR.y*rawX-_cwF.y*rawZ, dz=_cwR.z*rawX-_cwF.z*rawZ, dl=Math.hypot(dx,dy,dz);
-    if(dl>1e-4){ _cwV.x+=dx/dl*ACC*Math.min(1,inMag)*dt; _cwV.y+=dy/dl*ACC*Math.min(1,inMag)*dt; _cwV.z+=dz/dl*ACC*Math.min(1,inMag)*dt; P._cwFace=Math.atan2(dz,dx); P._cwFaceV=new THREE.Vector3(dx/dl,dy/dl,dz/dl); } }
-  _cwV.multiplyScalar(Math.pow(0.84,dt*60));
-  if(_cwV.length()>MAXS)_cwV.setLength(MAXS);
-  P.wx+=_cwV.x*dt; P.py+=_cwV.y*dt; P.wz+=_cwV.z*dt;
-  _cubeGrad(P.wx,P.py,P.wz,_cwN); const d2=_cubeSDF(P.wx,P.py,P.wz), corr=d2+RIDE;
+  if(tanDir) v.addScaledVector(tanDir, ACC*Math.min(1,inMag)*dt);
+  v.addScaledVector(N,-v.dot(N));                   // keep velocity tangent
+  if(!tanDir) v.multiplyScalar(0.80);               // damp only when stick released
+  if(v.length()>MAXS) v.setLength(MAXS);
+  P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
+  _cubeGrad(P.wx,P.py,P.wz,_cwN); const d2=_cubeSDF(P.wx,P.py,P.wz), corr=d2+RIDE;   // re-snap to ride height
   P.wx-=_cwN.x*corr; P.py-=_cwN.y*corr; P.wz-=_cwN.z*corr;
-  P.vx=_cwV.x; P.pvy=_cwV.y; P.vz=_cwV.z; P._galSpeed=_cwV.length();
-  P._cubeUp=_cwN.clone().multiplyScalar(-1);
+  N=_cwN.clone().multiplyScalar(-1);
+  P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone();
+  _cubeWalkRender(P,N,tanDir,dt,grounded);
+}
+// Orientation + reoriented chase camera — owned here (like updateLabGravity), so draw() bails and nothing fights it.
+function _cubeWalkRender(P,N,tanDir,dt,grounded){
+  const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
+  let fwd=tanDir?tanDir.clone():(P._cwLastF?P._cwLastF.clone():new THREE.Vector3(1,0,0));
+  fwd.addScaledVector(N,-fwd.dot(N)); if(fwd.lengthSq()<1e-4) fwd.set(1,0,0); fwd.normalize();
+  if(P.model){
+    const xA=new THREE.Vector3().crossVectors(N,fwd).normalize();
+    const tq=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,N,fwd));
+    P.model.visible=true; P.model.position.set(P.wx-N.x*RIDE, P.py-N.y*RIDE, P.wz-N.z*RIDE);
+    P.model.quaternion.slerp(tq, grounded?0.22:0.12);
+    if(window._CUBE_FACE_OFF) P.model.rotateY(window._CUBE_FACE_OFF);
+  }
+  if(typeof _glChaseCam==='function'){ _glCamBlend=1; _glChaseCam(new THREE.Vector3(P.wx,P.py,P.wz), N, fwd, dt); }
 }
 function _cubeWalkOrient(P){   // surface-aligned model orientation (called from draw)
   if(!P.model||!P._cubeUp)return;
