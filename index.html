@@ -17496,24 +17496,26 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
 // WORLD-UP cameras for the cube. FREE cam orbits by CAM.yaw (steered by the right stick), BALL cam looks past you toward the ball.
 // Both stay parallel to the TRUE ground (never roll) -> on the ceiling you're plainly upside-down. Same distance as on the floor.
 function _cubeCam(P, dt){ if(window._ballCam) _ballCam(P,dt); else _cubeFaceCam(P,dt); }
-// INTERIOR edge cam — lives INSIDE the room so a wall can never occlude it. Sits between the player and the room centre,
-// lifted by world-up, looking back out at the player on the wall (the perspective gives the 3/4 edge framing). World-up = never
-// rolls, so the floor reads upright and the ceiling reads upside-down (the inversion we accepted). Eye is clamped inside the box.
+// INTERIOR follow cam — behaves like the NORMAL gameplay camera: world-up, ground-oriented, trails BEHIND the player (by CAM.yaw)
+// and lifted, looking at the player. It does NOT reorient to the wall — it just follows the player's world position as they climb,
+// so the ground plane never changes. Eye is clamped inside the box so a wall can't occlude it. (On the ceiling you look UP at the
+// player => up/down reads inverted there, which is inherent to a ground-locked camera.)
 let _cwEye=null, _cwLook=null;
 function _cubeFaceCam(P, dt){
   if(typeof camera==='undefined') return;
   camera.up.set(0,1,0);
   const CC=(window._CUBE||_CUBE), C=new THREE.Vector3(0,CC.h*0.5,0);
+  const yaw=(CAM&&CAM.yaw!=null)?CAM.yaw:0;
+  const D=(window._CUBE_CAM_DIST||330), H=(window._CUBE_CAM_H||230), LOOKUP=(window._CUBE_CAM_LOOKUP||30);
   const Pv=new THREE.Vector3(P.wx,P.py,P.wz);
-  let toC=C.clone().sub(Pv); if(toC.lengthSq()<1) toC.set(0,1,0); toC.normalize();   // player -> room centre
-  const D=(window._CUBE_CAM_DIST||300), LIFT=(window._CUBE_CAM_H||120), m=90;
-  let eye=Pv.clone().addScaledVector(toC, D); eye.y += LIFT;
-  eye.x=Math.max(-CC.hx+m, Math.min(CC.hx-m, eye.x));                                 // keep the eye safely inside the box
-  eye.z=Math.max(-CC.hz+m, Math.min(CC.hz-m, eye.z));
-  eye.y=Math.max(C.y-CC.h*0.5+m, Math.min(C.y+CC.h*0.5-m, eye.y));
+  let eye=new THREE.Vector3(Pv.x - Math.cos(yaw)*D, Pv.y + H, Pv.z - Math.sin(yaw)*D);   // behind + above (normal-style)
+  const m=70;                                                                            // keep the eye inside the box
+  eye.x=Math.max(-CC.hx+m,Math.min(CC.hx-m,eye.x));
+  eye.z=Math.max(-CC.hz+m,Math.min(CC.hz-m,eye.z));
+  eye.y=Math.max(C.y-CC.h*0.5+m,Math.min(C.y+CC.h*0.5-m,eye.y));
   if(!_cwEye){ _cwEye=eye.clone(); _cwLook=Pv.clone(); }
-  const k=1-Math.pow(0.0009, Math.min(dt,0.05));
-  _cwEye.lerp(eye,k); _cwLook.lerp(Pv,k);
+  const k=1-Math.pow(0.0008, Math.min(dt,0.05));
+  _cwEye.lerp(eye,k); _cwLook.lerp(new THREE.Vector3(Pv.x,Pv.y+LOOKUP,Pv.z),k);
   camera.position.copy(_cwEye); camera.lookAt(_cwLook.x,_cwLook.y,_cwLook.z);
   CAM.focus.copy(_cwLook); CAM.tfocus.copy(_cwLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
 }
