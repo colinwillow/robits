@@ -1027,7 +1027,7 @@ function addTrauma(t){ CAM.trauma=clamp(CAM.trauma+t,0,1); }
 function punchZoom(z){ CAM.tzoom=z; }
 function updateCamera(dt){
   if(player&&player._inPlanetGravity&&(GS.zone===-15||GS.zone===-16)) return;   // lab/city gravity cam owns the camera
-  if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player) && window._ballCam){ return; }   // only BALL cam owns the camera; the regular cube cam uses this normal path unchanged
+  if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player) && (window._ballCam || player._cubeCamAuth)){ return; }   // BALL cam or the AUTHORITATIVE wall cam owns it; the FLOOR uses this normal path
   CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
   CAM.focus.lerp(CAM.tfocus,0.18);
@@ -8949,9 +8949,9 @@ class Player{
         if(sMag>0.08 && typeof camera!=='undefined'){
           // aim in the surface tangent plane, mapped to the camera's screen axes (same as movement) -> works on any face/wall
           const N=_gN;
-          const crr = window._ballCam
+          const crr = (window._ballCam || (player&&player._cubeCamAuth))
             ? new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0)
-            : new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));      // screen-right (actual cam in ball mode, CAM.yaw otherwise) — same frame movement uses
+            : new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));      // actual cam when ball/wall-authoritative, CAM.yaw on the floor — same frame movement uses
           let ar=crr.addScaledVector(N,-crr.dot(N)); if(ar.lengthSq()<1e-5) ar.crossVectors(N,new THREE.Vector3(0,0,1)); ar.normalize();
           let af=new THREE.Vector3().crossVectors(N,ar); if(af.lengthSq()<1e-5){ af.set(0,0,1).addScaledVector(N,-N.z); } af.normalize();   // forward = N × right (matches movement so aim+move agree)
           const aim=af.multiplyScalar(-shootIn.y).addScaledVector(ar,shootIn.x);
@@ -17421,9 +17421,9 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   const sx=_cy*rawX - _sy*rawZ, sz=_sy*rawX + _cy*rawZ;     // raw screen stick (x = screen-right, z = screen-down)
   const inMag=Math.hypot(sx,sz); let tanDir=null;
   if(inMag>0.05){
-    const cr = window._ballCam
-      ? new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0)             // BALL cam: actual camera right (ball cam doesn't drive CAM.yaw)
-      : new THREE.Vector3(_cy,0,-_sy);                                            // regular cam: screen-right from CAM.yaw (in sync, no lag)
+    const cr = (window._ballCam || (player&&player._cubeCamAuth))
+      ? new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0)             // BALL/WALL cam: actual camera right (authoritative — not driven by CAM.yaw)
+      : new THREE.Vector3(_cy,0,-_sy);                                            // FLOOR (normal cam): screen-right from CAM.yaw
     let prr=cr.addScaledVector(N,-cr.dot(N));                                   // right projected onto the surface plane
     if(prr.lengthSq()<1e-5){ prr.crossVectors(N, P._cwLastTN||new THREE.Vector3(0,0,1)); }
     prr.normalize();
@@ -17494,28 +17494,46 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
 }
 // WORLD-UP cameras for the cube. FREE cam orbits by CAM.yaw (steered by the right stick), BALL cam looks past you toward the ball.
 // Both stay parallel to the TRUE ground (never roll) -> on the ceiling you're plainly upside-down. Same distance as on the floor.
-function _cubeCam(P, dt){ if(window._ballCam) _ballCam(P,dt); else if(typeof CAM!=='undefined'){ CAM.tfocus.set(P.x,P.y,P.z); } }   // regular cam: hand the camera back to the NORMAL updateCamera (identical to pre-boots) — just feed it the player's 3D position
-// REGULAR cube cam = the NORMAL gameplay camera (updateCamera), fed the player's FULL 3D position so it rises as you climb a wall.
-// World-up (always parallel to the ground, never rolls), orbits CAM.focus by CAM.yaw, and the right stick drives CAM.tyaw (wired in
-// player.update). Controls are camera-relative (N×right) so left stays left across edges => continuous. Ceiling reads inverted (inherent).
-// Eye is clamped inside the box so a wall can't occlude it.
-function _cubeFaceCam(P, dt){
+// HYBRID cube cam:
+//  • FLOOR  -> hand off to the NORMAL updateCamera (rotatable, shoot spins it = normal gameplay).
+//  • WALL/CEILING -> AUTHORITATIVE cam (inverted lab cube): sits INSIDE the room pulled toward centre from the player, world-up,
+//    looking outward at the player on the wall. Dictated by position, so the right stick shoots/swipes WITHOUT spinning the view.
+let _cwLook=null, _cwCamBlend=1, _cwCamFrom=new THREE.Vector3(), _cwAuthPrev=false;
+function _cubeCam(P, dt){
+  if(window._ballCam){ _ballCam(P,dt); if(player)player._cubeCamAuth=false; _cwAuthPrev=false; return; }
+  const Fout=new THREE.Vector3(); _cubeGrad(P.x,P.y,P.z,Fout); Fout.normalize();
+  const N=Fout.clone().multiplyScalar(-1);                 // player up = toward the room centre
+  const onFloor = N.y>0.55;                                // up points mostly +Y -> floor
+  if(player) player._cubeCamAuth = !onFloor;
+  if(onFloor){ _cwAuthPrev=false; if(typeof CAM!=='undefined') CAM.tfocus.set(P.x,P.y,P.z); }   // normal cam follows + orbits
+  else { if(!_cwAuthPrev){ _cwCamBlend=0; _cwCamFrom.copy(camera.position); _cwAuthPrev=true; } _cubeWallCam(P,N,dt); }   // authoritative wall cam (seed a blend on entry)
+}
+function _cubeWallCam(P, N, dt){
   if(typeof camera==='undefined') return;
   camera.up.set(0,1,0);
-  CAM.tfocus.set(P.x, P.y, P.z);                       // follow the player's actual 3D position (incl. height up walls)
-  CAM.yaw=lerp(CAM.yaw, CAM.tyaw, 0.045);              // ease yaw toward the right-stick target — exactly like updateCamera
+  const CC=(window._CUBE||_CUBE), C=new THREE.Vector3(0,CC.h*0.5,0);
+  const D=(window._CUBE_CAM_D||360), LIFT=(window._CUBE_CAM_LIFT||50), m=60;
+  const toC=C.clone().sub(P); if(toC.lengthSq()<1) toC.set(0,1,0); toC.normalize();   // player -> centre (radial)
+  const eye=P.clone().addScaledVector(toC,D); eye.y+=LIFT;                            // pull toward centre + small world-up lift
+  eye.x=Math.max(-CC.hx+m,Math.min(CC.hx-m,eye.x));                                   // keep inside the box
+  eye.z=Math.max(-CC.hz+m,Math.min(CC.hz-m,eye.z));
+  eye.y=Math.max(C.y-CC.h*0.5+m,Math.min(C.y+CC.h*0.5-m,eye.y));
+  if(!_cwLook) _cwLook=P.clone();
+  _cwLook.lerp(P,0.12);
+  if(_cwCamBlend<1){ _cwCamBlend=Math.min(1,_cwCamBlend+dt/0.6); const e=_cwCamBlend<0.5?2*_cwCamBlend*_cwCamBlend:1-Math.pow(-2*_cwCamBlend+2,2)/2; camera.position.lerpVectors(_cwCamFrom,eye,e); }
+  else camera.position.lerp(eye,0.1);
+  camera.lookAt(_cwLook.x,_cwLook.y,_cwLook.z);
+  if(typeof CAM!=='undefined'){ CAM.focus.copy(_cwLook); CAM.tfocus.copy(_cwLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }
+}
+function _cubeFaceCam(P, dt){   // (kept for reference) faithful copy of the normal updateCamera orbit
+  if(typeof camera==='undefined') return;
+  camera.up.set(0,1,0);
+  CAM.tfocus.set(P.x, P.y, P.z);
+  CAM.yaw=lerp(CAM.yaw, CAM.tyaw, 0.045);
   CAM.focus.lerp(CAM.tfocus, 0.18);
   const d=(window._CUBE_CAM_DIST||340), H=(window._CUBE_CAM_H||220);
-  let cx=CAM.focus.x+Math.sin(CAM.yaw)*d;
-  let cz=CAM.focus.z+Math.cos(CAM.yaw)*d;
-  let cy=CAM.focus.y+H;
-  const CC=(window._CUBE||_CUBE), Cy=CC.h*0.5, m=70;   // keep the eye inside the box (no wall occlusion)
-  cx=Math.max(-CC.hx+m,Math.min(CC.hx-m,cx));
-  cz=Math.max(-CC.hz+m,Math.min(CC.hz-m,cz));
-  cy=Math.max(Cy-CC.h*0.5+m,Math.min(Cy+CC.h*0.5-m,cy));
-  camera.position.set(cx,cy,cz);
-  camera.lookAt(CAM.focus.x,CAM.focus.y,CAM.focus.z);
-  CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
+  let cx=CAM.focus.x+Math.sin(CAM.yaw)*d, cz=CAM.focus.z+Math.cos(CAM.yaw)*d, cy=CAM.focus.y+H;
+  camera.position.set(cx,cy,cz); camera.lookAt(CAM.focus.x,CAM.focus.y,CAM.focus.z);
 }
 function _cubeFaceCam_LAB(P, dt){   // (kept for reference) outside-looking-in mirror of _glFaceCam — occludes if walls aren't see-through
   if(typeof camera==='undefined') return;
