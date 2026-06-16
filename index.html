@@ -9141,6 +9141,7 @@ class Player{
 
     // Jetpack force — continuous upward push when held airborne
     if(this._jetting&&this.py>4&&!this._onPlatform){
+      if(this._airSlam){ this._airSlam=false; if(this.model&&this.model.userData)this.model.userData._slamHold=false; }   // jetting cancels a slam -> release the held pose
       if(this.boostFuel>0){
         this.pvy+=JET_FORCE*dt;
         this.boostFuel=Math.max(0,this.boostFuel-JET_DRAIN*dt);
@@ -9184,7 +9185,8 @@ class Player{
 
     if(typeof _cityLedgeHangPlayer==='function') _cityLedgeHangPlayer(this,dt);   // city ledge grab/hang (no boots needed)
     if(this._hang){ this.pvy=0; }                                                 // hanging: position pinned by the handler, no gravity
-    else { this.pvy -= GRAV*dt; this.py += this.pvy*dt; }
+    else { let _g=GRAV; if(this._airSlam){ _g*=(window._SLAM_FALL_MULT!=null?window._SLAM_FALL_MULT:1.8); if(this.pvy>0)this.pvy*=0.5; }   // air slam: accelerate the dive so he really smashes down
+      this.pvy -= _g*dt; this.py += this.pvy*dt; }
     // Track peak height while airborne for landing impact scaling
     if(this.py>0) this._peakPy=Math.max(this._peakPy||0, this.py);
     const wasAirborne=this._wasAirborne||false;
@@ -15130,7 +15132,8 @@ function loop(ts){ requestAnimationFrame(loop);
             if(typeof GS_bots!=='undefined') GS_bots.forEach(b=>_try(b,'bot'));
             if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _try(GS_trainingDummy,'dummy');
           }
-          if(ud._meleeTimer<=0 && !ud._swActive){ ud._meleeTimer=0; player._swingAction=null; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; if(player._meleeAdditive){ player._meleeAdditive.fadeOut(0.12); player._meleeAdditive=null; } else { ud.currentClip=null; } player._rollAimLock=false; if(player._meleeBuf){ const _b=player._meleeBuf; player._meleeBuf=null; if(_b.tap){ _doMeleeTap(); } else { _doMeleeFlick(ud,(typeof _b.dir==='number'?_b.dir:null),_b.combo); } } }   // release -> upper-body swing fades arms back to locomotion; full-body re-picks idle/run
+          const _slamHolding = !!player._airSlam && !(player.py<=8 || player._onPlatform || (player._inPlanetGravity&&player._glGrounded));
+          if(ud._meleeTimer<=0 && !ud._swActive && !_slamHolding){ ud._meleeTimer=0; player._swingAction=null; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; if(player._meleeAdditive){ player._meleeAdditive.fadeOut(0.12); player._meleeAdditive=null; } else { ud.currentClip=null; } player._rollAimLock=false; if(player._meleeBuf){ const _b=player._meleeBuf; player._meleeBuf=null; if(_b.tap){ _doMeleeTap(); } else { _doMeleeFlick(ud,(typeof _b.dir==='number'?_b.dir:null),_b.combo); } } }   // release -> upper-body swing fades arms back to locomotion; full-body re-picks idle/run; an air-slam HOLDS its last frame until landing
         }
         if(player._meleeComboT>0){ player._meleeComboT-=dt; if(player._meleeComboT<0) player._meleeComboT=0; }
         // MELEE TARGET indicator — pulse a ring under the nearest in-range enemy so you can see who a tap will hit
@@ -15146,14 +15149,16 @@ function loop(ts){ requestAnimationFrame(loop);
           // Clear any flip state
           ud._flippingTimer=0; ud._flipToFloat=false; ud._flipToFloatT=0;
           if(ud._flipClipName&&ud.clips[ud._flipClipName]){ ud.clips[ud._flipClipName].stop(); ud.clips[ud._flipClipName].setEffectiveWeight(0); }
-          const _slam=!!player._airSlam; player._airSlam=false;
+          const _slam=!!player._airSlam; player._airSlam=false; ud._slamHold=false; player._swingAction=null;
           if(_slam && window._AIR_SLAM_STOP!==false){ player.vx=0; player.vz=0; player._dashDir=null; player._dashRamp=0;
             // ── HEFTY SLAM SHOCKWAVE on ground impact ──
             if(typeof grid!=='undefined'){ if(grid.push)grid.push(player.wx,player.wz,-(window._SLAM_GRID_DEPTH!=null?window._SLAM_GRID_DEPTH:16),(window._SLAM_GRID_R!=null?window._SLAM_GRID_R:230)); if(grid.shock)grid.shock(player.wx,player.wz,(window._SLAM_GRID_SHOCK!=null?window._SLAM_GRID_SHOCK:10)); if(grid.pulse)grid.pulse(0.5); }
-            if(typeof GRID_SHEETS!=='undefined'&&GRID_SHEETS.length&&typeof gridSheetsBlast==='function'){ try{ gridSheetsBlast(player.wx,player.py||0,player.wz,12,230); }catch(_){} }
-            if(typeof ps!=='undefined'){ ps.ring(player.wx,player.wz,[0.55,0.95,1],30,210); ps.ring(player.wx,player.wz,[1,1,1],16,140); ps.burst(player.wx,player.wz,[0.7,0.92,1],40,190); }
-            if(typeof addTrauma==='function')addTrauma(0.32); if(typeof hitStop==='function')hitStop(6);
-            if(typeof Audio!=='undefined'){ try{ Audio.blip(64,0.5,'sawtooth',0.45,28); if(Audio.noise)Audio.noise(0.4,0.35,520); }catch(_){} }
+            if(typeof GRID_SHEETS!=='undefined'&&GRID_SHEETS.length&&typeof gridSheetsBlast==='function'){ try{ gridSheetsBlast(player.wx,player.py||0,player.wz,14,300); }catch(_){} }
+            // expanding ground ripple — concentric rings + radial particle spray
+            if(typeof ps!=='undefined'){ ps.ring(player.wx,player.wz,[0.55,0.95,1],30,210); ps.ring(player.wx,player.wz,[1,1,1],16,140); ps.ring(player.wx,player.wz,[0.4,0.85,1],52,300); ps.burst(player.wx,player.wz,[0.7,0.92,1],46,210);
+              for(let k=0;k<26;k++){ const a=k/26*Math.PI*2, sp=rand(160,360); ps._spawn(player.wx,(player.py||0)+2,player.wz, Math.cos(a)*sp, rand(40,160), Math.sin(a)*sp, 0.55,0.92,1, 0.5); } }   // low outward shockwave debris
+            if(typeof addTrauma==='function')addTrauma(0.36); if(typeof hitStop==='function')hitStop(7);
+            if(typeof Audio!=='undefined'){ try{ Audio.blip(58,0.55,'sawtooth',0.5,26); if(Audio.noise)Audio.noise(0.45,0.4,520); }catch(_){} }
             if(window._SLAM_AOE!==false && typeof _bombBlastEnemies==='function') _bombBlastEnemies(player.wx,player.py||0,player.wz,(window._SLAM_AOE_R!=null?window._SLAM_AOE_R:135),(window._SLAM_AOE_DMG!=null?window._SLAM_AOE_DMG:0.6));   // shockwave knocks/tumbles nearby enemies (bomb-style)
           }
           const _hardFall=!_slam && (ud._maxFallVy||0)<=-(window._ROLL_LAND_VY!=null?window._ROLL_LAND_VY:420);   // fast impact == big drop -> roll instead of soft land; never roll out of a slam
@@ -15299,7 +15304,7 @@ function loop(ts){ requestAnimationFrame(loop);
         }
 
         // Skip blend switch while roll, landing, climbing, or flipping
-        if(!ud._rollingTimer&&!ud._landingTimer&&!player._wallClimb&&!player._hang&&!player._crestSeq&&!ud._flippingTimer&&!ud._voidTumble&&(window._meleeUpperBody||!ud._meleeTimer)){
+        if(!ud._rollingTimer&&!ud._landingTimer&&!ud._slamHold&&!player._wallClimb&&!player._hang&&!player._crestSeq&&!ud._flippingTimer&&!ud._voidTumble&&(window._meleeUpperBody||!ud._meleeTimer)){
           let targetClip='idle';
           let _skateAnim=false;
           if(GS.zone===-8||GS.zone===-10){
@@ -21617,8 +21622,9 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   { const _og=(player.py<=4)||player._onPlatform||(player._inPlanetGravity&&player._glGrounded); _airMelee = player._inPlanetGravity ? !player._glGrounded : (!_og && player.py>8); }
   let mname;
   if(_airMelee && ud.clips['air_to_ground_melee']){
-    mname='air_to_ground_melee'; player._meleeStep=-1; player._airSlam=true;   // air slam -> plants on impact; ground sequence restarts at the front of the order after
+    mname='air_to_ground_melee'; player._meleeStep=-1; player._airSlam=true; ud._slamHold=true; if((player.pvy||0)>0)player.pvy*=0.2;   // air slam -> the last frame HOLDS until he lands; commit downward so he dives
   } else {
+    ud._slamHold=false;
     if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }
     else { const _seq=(window._MELEE_SEQ&&window._MELEE_SEQ.length)?window._MELEE_SEQ:[1,2,3,4,5];
       if((player._meleeComboT||0)<=0){
@@ -21653,7 +21659,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   const trimE=Math.min(_tE||0, fullDur*0.3);
   const mdur=Math.max(fullDur*0.4, fullDur-trimS-trimE)/spd;   // swing window = full (sped-up) clip when trims are 0 -> the whole animation plays before locomotion resumes
   let usedAdditive=false;
-  if(window._meleeUpperBody){
+  if(window._meleeUpperBody && !_airMelee){   // air slam uses FULL-BODY so the entire pose freezes on the last frame (additive would only hold the arms)
     const add=_buildAdditiveMelee(ud,mname);
     if(add){
       if(player._meleeAdditive && player._meleeAdditive!==add) player._meleeAdditive.stop();   // don't stack swings
