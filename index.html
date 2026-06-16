@@ -1031,6 +1031,8 @@ function addTrauma(t){ CAM.trauma=clamp(CAM.trauma+t,0,1); }
 function punchZoom(z){ CAM.tzoom=z; }
 function updateCamera(dt){
   if(player&&player._inPlanetGravity&&(GS.zone===-15||GS.zone===-16)) return;   // lab/city gravity cam owns the camera
+  // BALL CAM works in the cube whether or not boots are equipped (without boots the wall-walk render path that normally dispatches it never runs)
+  if(window._ballCam && GS.zone===-19 && player && typeof _ballCam==='function' && !(typeof _cubeWalkOn==='function' && _cubeWalkOn(player))){ _ballCam(new THREE.Vector3(player.wx,player.py,player.wz), dt); player._cubeCamAuth=false; return; }
   if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player) && (window._ballCam || player._cubeCamAuth)){ return; }   // BALL cam or the AUTHORITATIVE wall cam owns it; the FLOOR uses this normal path
   CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
@@ -14276,8 +14278,8 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
                 const _fcy=Math.cos(CAM.yaw), _fsy=Math.sin(CAM.yaw);
                 const _fwx=svx*_fcy+svy*_fsy, _fwz=-svx*_fsy+svy*_fcy, _dl=Math.hypot(_fwx,_fwz)||1;
                 const _ax=Math.abs(svx),_ay=Math.abs(svy);
-                player._flipAnimName=(_ay>=_ax)?(svy<0?'flip_forward':'flip_backward'):(svx<0?'flip_left':'flip_right');   // flick up=fwd, down=back, left/right=side flip
-                const _ft=(player._flipAnimName==='flip_left'||player._flipAnimName==='flip_right')?(window._FLIP_DUR_SIDE||0.9):(window._FLIP_DUR_FB||1.0);
+                player._flipAnimName='flip_forward';   // ALWAYS the front flip for every flick direction — the stick turns the character, so a sideways/back flip reads wrong; a forward flip + drift in the flick direction always looks right
+                const _ft=(window._FLIP_DUR_FB||1.0);
                 player._diveRollDir=[_fwx/_dl,_fwz/_dl];   // triggers the flip clip
                 player._flipNoTurn=true;                    // flick must NOT reorient the character (set NOW so the very next render holds facing)
                 setTimeout(()=>{ if(player)player._flipNoTurn=false; }, 2500);   // safety only — the flip's completion poll normally clears this exactly when the clip finishes
@@ -17229,7 +17231,7 @@ function _spawnCubeBall(){
 
   // ── glossy white shell ──
   core.add(new THREE.Mesh(new THREE.SphereGeometry(R,44,30),
-    new THREE.MeshStandardMaterial({color:0xeef3f6, metalness:0.55, roughness:0.26, emissive:0x1f5066, emissiveIntensity:0.55})));
+    new THREE.MeshStandardMaterial({color:0xeef3f6, metalness:0.55, roughness:0.26, emissive:0x2a6f8a, emissiveIntensity:0.85})));
 
   // ── panel grooves: metallic great-circle seams + faint division lines ──
   const seamMat=new THREE.MeshStandardMaterial({color:0xa9bcc8, metalness:0.75, roughness:0.38, emissive:0x0c1a22, emissiveIntensity:0.3});
@@ -17246,7 +17248,7 @@ function _spawnCubeBall(){
   const runlights=[];
   for(let i=0;i<14;i++){ const a=i/14*Math.PI*2; const dot=new THREE.Mesh(new THREE.SphereGeometry(R*0.05,10,8), new THREE.MeshBasicMaterial({color:GLOW,blending:THREE.AdditiveBlending,transparent:true,opacity:0.95,depthWrite:false})); dot.position.set(Math.cos(a)*R*1.01,0,Math.sin(a)*R*1.01); core.add(dot); runlights.push(dot); }
   // point light so the ball lights its surroundings and reads as a glowing object
-  const ballLight=new THREE.PointLight(GLOW, 2.0, R*12, 2); grp.add(ballLight);
+  const ballLight=new THREE.PointLight(GLOW, 2.8, R*15, 2); grp.add(ballLight);
 
   // ── glowing lens module (bezel + ring + bright center + halo + spokes), oriented to face `dir` ──
   const lens=(dir,scale)=>{
@@ -17299,9 +17301,19 @@ function _spawnCubeBall(){
   // rim halo — glowing silhouette so the ball reads from across the arena
   grp.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.14,32,24), new THREE.MeshBasicMaterial({color:GLOW, transparent:true, opacity:0.18, blending:THREE.AdditiveBlending, side:THREE.BackSide, depthWrite:false})));
 
+  // ── overall soft glow shell so the WHOLE ball reads as a glowing object (pulses) ──
+  const glowShell=new THREE.Mesh(new THREE.SphereGeometry(R*1.5,28,20), new THREE.MeshBasicMaterial({color:GLOW, transparent:true, opacity:0.12, blending:THREE.AdditiveBlending, side:THREE.BackSide, depthWrite:false})); grp.add(glowShell);
+  // ── downward LOCATOR arrow hovering above the ball (world-up; bobs + pulses) so you can always find the ball ──
+  const arrow=new THREE.Group();
+  const aMat=new THREE.MeshBasicMaterial({color:GLOW, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false});
+  const aCone=new THREE.Mesh(new THREE.ConeGeometry(R*0.36,R*0.6,5), aMat); aCone.rotation.x=Math.PI; arrow.add(aCone);   // tip points DOWN at the ball
+  const aStem=new THREE.Mesh(new THREE.BoxGeometry(R*0.13,R*0.36,R*0.13), aMat); aStem.position.y=R*0.46; arrow.add(aStem);
+  arrow.traverse(o=>{ o.renderOrder=998; o.frustumCulled=false; });
+  arrow.position.y=R*2.35; grp.add(arrow);
+
   grp.position.set(0,C.h*0.5,0); scene.add(grp);
   const dbgSphere=new THREE.Mesh(new THREE.SphereGeometry(R,18,12), new THREE.MeshBasicMaterial({color:0x00ff88,wireframe:true,depthTest:false,transparent:true,opacity:0.5})); dbgSphere.visible=false; dbgSphere.renderOrder=999; grp.add(dbgSphere);
-  _cubeBall={ grp, wire:core, R, dbg:dbgSphere, runlights, light:ballLight, pos:new THREE.Vector3(0,C.h*0.5,0), vel:new THREE.Vector3(0,0,0), spin:new THREE.Vector3(rand(-0.7,0.7),rand(-0.7,0.7),rand(-0.7,0.7)), hitCd:0 };
+  _cubeBall={ grp, wire:core, R, dbg:dbgSphere, runlights, light:ballLight, arrow, glowShell, pos:new THREE.Vector3(0,C.h*0.5,0), vel:new THREE.Vector3(0,0,0), spin:new THREE.Vector3(rand(-0.7,0.7),rand(-0.7,0.7),rand(-0.7,0.7)), hitCd:0 };
 }
 function _ballKnockFromBox(b, box, halfW, halfH, halfD, vBoxX, vBoxY, vBoxZ, boost){
   const inv=box.quaternion.clone().invert();
@@ -17391,6 +17403,11 @@ function _updateCubeBall(dt){
     if(b.runlights){ const fl=Math.min(1,hf*6); for(let i=0;i<b.runlights.length;i++){ const ph=(tt*2.2 - i*0.5); b.runlights[i].material.opacity=Math.min(1,0.45+0.5*(0.5+0.5*Math.sin(ph))+fl); } }
   }
   if(b.dbg)b.dbg.visible=(window._showBallCollider===true);
+  // locator arrow bob + pulse, and overall glow-shell breathe
+  { const t=(typeof performance!=='undefined'?performance.now():Date.now())*0.001;
+    if(b.arrow){ b.arrow.position.y=b.R*2.35+Math.sin(t*4)*b.R*0.4; const o=0.55+0.45*(0.5+0.5*Math.sin(t*6.2)); b.arrow.children.forEach(c=>{ if(c.material)c.material.opacity=o; }); }
+    if(b.glowShell){ b.glowShell.material.opacity=0.10+0.07*(0.5+0.5*Math.sin(t*3)); b.glowShell.scale.setScalar(1+0.05*Math.sin(t*3)); }
+  }
   _updateBallFX(dtc);
   const GRAV=(window._BALL_GRAV||520), DRAGr=(window._BALL_DRAG||0.93), REST=(window._BALL_REST||0.74);
   b.vel.y-=GRAV*dtc;
@@ -17569,6 +17586,7 @@ function buildCubeArena(){
     const face=(pos,quat,uHalf,vHalf)=>{
       const cols=Math.max(4,Math.round(uHalf*2/cell)+1), rows=Math.max(4,Math.round(vHalf*2/cell)+1);
       let s; try{ s=new GridSheet({cols,rows,cell,position:pos,quaternion:quat,palette:pal,fill:true,subdiv:sub,bright:1.15}); }catch(e){ console.warn('cube sheet:',e); return; }
+      if(s.fill){ s.fill.material.depthWrite=false; s.fill.renderOrder=-2; }   // the solid black fill was depth-occluding rockets/bullets flying low over the floor — stop it writing depth so projectiles read on top
       s._cityWall=true; s._cubeWall=true;   // bullets DEFORM but don't die on it; the universal wall bounce still handles them
       _cubeSheets.push(s);
     };
