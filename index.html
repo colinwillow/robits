@@ -1027,6 +1027,7 @@ function addTrauma(t){ CAM.trauma=clamp(CAM.trauma+t,0,1); }
 function punchZoom(z){ CAM.tzoom=z; }
 function updateCamera(dt){
   if(player&&player._inPlanetGravity&&(GS.zone===-15||GS.zone===-16)) return;   // lab/city gravity cam owns the camera
+  if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player)){ _cubeWalkCamera(dt); return; }   // cube wall-walk owns the camera
   CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
   CAM.focus.lerp(CAM.tfocus,0.18);
@@ -8928,6 +8929,7 @@ class Player{
     if(this._crateCool>0) this._crateCool=Math.max(0,this._crateCool-dt);   // bomb reload cooldown
     if(this._allyCool>0) this._allyCool=Math.max(0,this._allyCool-dt);   // ally deploy cooldown
     if(GS.zone===-13){ _rlArenaMove(this,rawX,rawZ,avx,avz,dt); return; }
+    if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)){ _cubeWalkMove(this,rawX,rawZ,dt); return; }   // cube arena: boots = walk the walls/ceiling
     if(this.inv>0)this.inv--; if(this.shieldT>0)this.shieldT--;
     if(this.dashCD>0){this.dashCD--;if(this.dashCD<=0)this.dash=1;}
 
@@ -9644,6 +9646,7 @@ class Player{
       this._dbgBox.position.set(this.wx, hipY, this.wz);                    // centered on the hips
       this._dbgBox.quaternion.copy(this.model.quaternion);                  // tumbles with the flip, around the hips
     } else if(this._dbgBox){ this._dbgBox.visible=false; }
+    if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)) _cubeWalkOrient(this);   // surface-align the model when walking the cube walls/ceiling
     if(this._respawnBlink>0){
       this._respawnBlink--;
       this.model.visible=true;   // no more blinking — show a stylized spawn-protection aura instead
@@ -17137,6 +17140,7 @@ function buildCubeArena(){
 }
 function updateCubeArena(dt){
   if(GS.zone!==-19 || !player) return;
+  if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
   const C=window._CUBE||_CUBE; const pad=(window._CUBE_PAD!=null?window._CUBE_PAD:22); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9);
   // rounded-rectangle clamp in XZ (rounds the 4 vertical corners with radius ch)
   const ixr=C.hx-ch, izr=C.hz-ch;
@@ -17144,6 +17148,55 @@ function updateCubeArena(dt){
   const dx=player.wx-cx, dz=player.wz-cz, dd=Math.hypot(dx,dz), maxd=Math.max(1,ch-pad);
   if(dd>maxd){ const s=maxd/dd; player.wx=cx+dx*s; player.wz=cz+dz*s; const nx=dx/dd, nz=dz/dd, vn=player.vx*nx+player.vz*nz; if(vn>0){ player.vx-=nx*vn; player.vz-=nz*vn; } }
   if(player.py> C.h-pad){ player.py=C.h-pad; if(player.pvy>0)player.pvy=0; }   // ceiling
+}
+// ════════ CUBE WALL-WALK (boots) — stick to the rounded interior shell, run up walls onto the ceiling ════════
+function _cubeWalkOn(P){ return GS.zone===-19 && P && P._hasBoots && P._bootsEquipped; }
+function _cubeSDF(x,y,z){   // signed distance to the rounded interior shell (negative inside)
+  const C=window._CUBE||_CUBE, hx=C.hx, hz=C.hz, h=C.h, r=Math.min(C.cham,hx*0.9,hz*0.9,h*0.45);
+  const px=x, py=y-h*0.5, pz=z;
+  const qx=Math.abs(px)-(hx-r), qy=Math.abs(py)-(h*0.5-r), qz=Math.abs(pz)-(hz-r);
+  return Math.hypot(Math.max(qx,0),Math.max(qy,0),Math.max(qz,0)) + Math.min(Math.max(qx,Math.max(qy,qz)),0) - r;
+}
+function _cubeGrad(x,y,z,out){ const e=1.5, d=_cubeSDF(x,y,z); out.set(_cubeSDF(x+e,y,z)-d,_cubeSDF(x,y+e,z)-d,_cubeSDF(x,y,z+e)-d); if(out.lengthSq()<1e-9)out.set(0,-1,0); out.normalize(); return out; }   // outward normal (toward the nearest surface)
+const _cwN=new THREE.Vector3(), _cwUp=new THREE.Vector3(), _cwF=new THREE.Vector3(), _cwR=new THREE.Vector3(), _cwV=new THREE.Vector3();
+function _cubeWalkMove(P,rawX,rawZ,dt){
+  dt=Math.min(dt,0.033);
+  _cubeGrad(P.wx,P.py,P.wz,_cwN); _cwUp.copy(_cwN).multiplyScalar(-1);   // up = into the room
+  // camera-relative tangent frame
+  _cwF.set(Math.cos(CAM.yaw||0),0,Math.sin(CAM.yaw||0)); _cwF.addScaledVector(_cwUp,-_cwF.dot(_cwUp));
+  if(_cwF.lengthSq()<1e-4){ _cwF.set(0,0,1).addScaledVector(_cwUp,-_cwUp.z); } _cwF.normalize();
+  _cwR.crossVectors(_cwUp,_cwF).normalize();
+  _cwV.set(P.vx||0,P.pvy||0,P.vz||0); _cwV.addScaledVector(_cwN,-_cwV.dot(_cwN));   // keep velocity tangent
+  const inMag=Math.hypot(rawX,rawZ), ACC=(window._CUBE_ACC||1200), MAXS=(window._CUBE_MAXS||470);
+  if(inMag>0.06){ const dx=_cwR.x*rawX-_cwF.x*rawZ, dy=_cwR.y*rawX-_cwF.y*rawZ, dz=_cwR.z*rawX-_cwF.z*rawZ; const dl=Math.hypot(dx,dy,dz);
+    if(dl>1e-4){ _cwV.x+=dx/dl*ACC*Math.min(1,inMag)*dt; _cwV.y+=dy/dl*ACC*Math.min(1,inMag)*dt; _cwV.z+=dz/dl*ACC*Math.min(1,inMag)*dt; P._cwFace=Math.atan2(dz,dx); P._cwFaceV=new THREE.Vector3(dx/dl,dy/dl,dz/dl); } }
+  _cwV.multiplyScalar(Math.pow(0.84,dt*60));
+  if(_cwV.length()>MAXS)_cwV.setLength(MAXS);
+  P.wx+=_cwV.x*dt; P.py+=_cwV.y*dt; P.wz+=_cwV.z*dt;
+  // snap to surface ride-height
+  _cubeGrad(P.wx,P.py,P.wz,_cwN); const d=_cubeSDF(P.wx,P.py,P.wz), RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14), corr=d+RIDE;
+  P.wx-=_cwN.x*corr; P.py-=_cwN.y*corr; P.wz-=_cwN.z*corr;
+  P.vx=_cwV.x; P.pvy=_cwV.y; P.vz=_cwV.z; P._galSpeed=_cwV.length(); P._glGrounded=true;
+  P._cubeUp=_cwN.clone().multiplyScalar(-1);
+}
+function _cubeWalkOrient(P){   // surface-aligned model orientation (called from draw)
+  if(!P.model||!P._cubeUp)return;
+  const up=P._cubeUp.clone(); let fwd=(P._cwFaceV?P._cwFaceV.clone():new THREE.Vector3(Math.cos(P._cwFace||0),0,Math.sin(P._cwFace||0)));
+  fwd.addScaledVector(up,-fwd.dot(up)); if(fwd.lengthSq()<1e-4){ fwd.set(0,0,1).addScaledVector(up,-up.z); } fwd.normalize();
+  const right=new THREE.Vector3().crossVectors(up,fwd).normalize();
+  const m=new THREE.Matrix4().makeBasis(right,up,fwd);
+  P.model.quaternion.setFromRotationMatrix(m);
+  if(window._CUBE_FACE_OFF) P.model.rotateY(window._CUBE_FACE_OFF);
+  P.model.position.set(P.wx,P.py,P.wz);
+}
+function _cubeWalkCamera(dt){
+  const P=player; if(!P||!P._cubeUp)return;
+  const up=P._cubeUp.clone(); let fwd=(P._cwFaceV?P._cwFaceV.clone():new THREE.Vector3(Math.cos(P._cwFace||0),0,Math.sin(P._cwFace||0)));
+  fwd.addScaledVector(up,-fwd.dot(up)); if(fwd.lengthSq()<1e-4)fwd.set(1,0,0); fwd.normalize();
+  const pos=new THREE.Vector3(P.wx,P.py,P.wz);
+  const eye=pos.clone().addScaledVector(up,(window._CUBE_CAM_UP||150)).addScaledVector(fwd,-(window._CUBE_CAM_BACK||240));
+  camera.position.lerp(eye,0.12); camera.up.lerp(up,0.12); camera.up.normalize();
+  camera.lookAt(pos.x+up.x*20, pos.y+up.y*20, pos.z+up.z*20);
 }
 // ════════════════════════════ ROPE SWING — real zone (-14): normal arena + 2 blocks + grabbable rope ════════════════════════════
 let _ropeZGroup=null, _ropeZ=null;
