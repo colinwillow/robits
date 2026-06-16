@@ -17162,11 +17162,13 @@ function updateRLArena(dt){ /* camera+physics handled in player._rlArenaMove; pa
 // Interior cube room with chamfered (beveled) edges. Robot uses NORMAL controls (flips/melee/parry all work).
 // Piece 1: shell geometry + "stay inside" containment. Wall-run / boots / ball come next.
 let _cubeGroup=null;
+let _cubeSheets=[];
 const _CUBE={hx:560, hz:560, h:900, cham:130};
-function _disposeCubeArena(){ if(typeof _disposeCubeBall==='function')_disposeCubeBall(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
+function _disposeCubeSheets(){ if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets){ try{ const idx=GRID_SHEETS.indexOf(s); if(idx>=0)GRID_SHEETS.splice(idx,1); if(s.group){ scene.remove(s.group); s.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){} } } _cubeSheets=[]; }
+function _disposeCubeArena(){ if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
 // ════════ ROCKET-LEAGUE BALL — floaty sphere you knock around with the character collider (and melee) ════════
 let _cubeBall=null;
-function _disposeCubeBall(){ if(_cubeBall){ if(_cubeBall.grp){ scene.remove(_cubeBall.grp); _cubeBall.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } _cubeBall=null; } }
+function _disposeCubeBall(){ if(typeof _ballFX!=='undefined')_ballFX=[]; if(_cubeBall){ if(_cubeBall.grp){ scene.remove(_cubeBall.grp); _cubeBall.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } _cubeBall=null; } }
 function _spawnCubeBall(){
   _disposeCubeBall();
   const R=(window._BALL_R||26), C=window._CUBE||_CUBE, GLOW=(window._BALL_GLOW||0x4cf0ff);
@@ -17275,16 +17277,39 @@ function _ballHitPlayer(b, dt){
   const ud=player.model&&player.model.userData, melee=!!(ud&&ud._meleeTimer&&ud._meleeTimer>0);
   if(_ballKnockFromBox(b, player._dbgBox, W/2,H/2,D/2, vx, vy, vz, melee?(window._BALL_MELEE_BOOST||2.0):1)){ b.hitCd=0.12; }
 }
+// ── ball impact FX: an expanding neon ring + flash that sticks to the ball surface at the hit point ──
+let _ballFX=[];
+function _ballImpact(b, outN, col, big){
+  if(typeof scene==='undefined'||!b||!b.grp)return;
+  const c=(col!=null?col:(window._BALL_GLOW||0x4cf0ff)), R=b.R;
+  const nrm=outN.clone(); if(nrm.lengthSq()<1e-4)nrm.set(0,1,0); nrm.normalize();
+  const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),nrm);
+  const ring=new THREE.Mesh(new THREE.RingGeometry(R*0.14,R*0.34,22), new THREE.MeshBasicMaterial({color:c,blending:THREE.AdditiveBlending,transparent:true,opacity:0.95,depthWrite:false,side:THREE.DoubleSide}));
+  ring.quaternion.copy(q); ring.position.copy(nrm).multiplyScalar(R*1.02); b.grp.add(ring);
+  const disc=new THREE.Mesh(new THREE.CircleGeometry(R*0.2,18), new THREE.MeshBasicMaterial({color:0xffffff,blending:THREE.AdditiveBlending,transparent:true,opacity:0.95,depthWrite:false}));
+  disc.quaternion.copy(q); disc.position.copy(nrm).multiplyScalar(R*1.03); b.grp.add(disc);
+  _ballFX.push({ring,disc,age:0,life:(big?0.42:0.3),scale:(big?5.5:3.4)});
+  b._hitFlash=Math.max(b._hitFlash||0, big?0.22:0.14);   // whole-ball glow pop
+}
+function _updateBallFX(dt){
+  for(let i=_ballFX.length-1;i>=0;i--){ const f=_ballFX[i]; f.age+=dt; const k=f.age/f.life;
+    if(k>=1 || !f.ring.parent){ if(f.ring.parent)f.ring.parent.remove(f.ring); if(f.disc.parent)f.disc.parent.remove(f.disc); f.ring.geometry.dispose(); f.ring.material.dispose(); f.disc.geometry.dispose(); f.disc.material.dispose(); _ballFX.splice(i,1); continue; }
+    f.ring.scale.setScalar(1+k*f.scale); f.ring.material.opacity=0.95*(1-k);
+    f.disc.scale.setScalar(1+k*0.6); f.disc.material.opacity=0.95*(1-k)*(1-k);
+  }
+}
 function _updateCubeBall(dt){
   if(GS.zone!==-19) return;
   if(!_cubeBall){ _spawnCubeBall(); return; }
   const b=_cubeBall, R=b.R, dtc=Math.min(dt,0.033);
   if(b.hitCd>0)b.hitCd-=dtc;
-  // ── glow life: pulse the rim light, chase the running lights, flare brighter the faster it's moving ──
-  { const tt=performance.now()*0.001, spd=b.vel.length();
-    if(b.light){ b.light.intensity=1.2+0.4*Math.sin(tt*3)+Math.min(1.6,spd/600); }
-    if(b.runlights){ for(let i=0;i<b.runlights.length;i++){ const ph=(tt*2.2 - i*0.5); b.runlights[i].material.opacity=0.45+0.5*(0.5+0.5*Math.sin(ph)); } }
+  // ── glow life: pulse the rim light, chase the running lights, flare brighter the faster it's moving + on a hit ──
+  { if(b._hitFlash>0)b._hitFlash-=dtc; const hf=Math.max(0,b._hitFlash||0);
+    const tt=performance.now()*0.001, spd=b.vel.length();
+    if(b.light){ b.light.intensity=1.2+0.4*Math.sin(tt*3)+Math.min(1.6,spd/600)+hf*22; }
+    if(b.runlights){ const fl=Math.min(1,hf*6); for(let i=0;i<b.runlights.length;i++){ const ph=(tt*2.2 - i*0.5); b.runlights[i].material.opacity=Math.min(1,0.45+0.5*(0.5+0.5*Math.sin(ph))+fl); } }
   }
+  _updateBallFX(dtc);
   const GRAV=(window._BALL_GRAV||580), DRAGr=(window._BALL_DRAG||0.55), REST=(window._BALL_REST||0.72);
   b.vel.y-=GRAV*dtc;
   b.vel.multiplyScalar(Math.pow(DRAGr,dtc));     // floaty air drag (per-second retention)
@@ -17295,6 +17320,7 @@ function _updateCubeBall(dt){
     b.pos.addScaledVector(N,-(d+R2));
     const vn=b.vel.dot(N);
     if(vn>0){ b.vel.addScaledVector(N,-(1+REST)*vn);
+      if(typeof gridSheetsBlast==='function' && Math.abs(vn)>120){ try{ gridSheetsBlast(b.pos.x,b.pos.y,b.pos.z, Math.min(9,2+Math.abs(vn)/120), R+18); }catch(_){} }   // dent the deforming grid where the ball slams
       if(typeof Audio!=='undefined'&&Math.abs(vn)>140){try{Audio.blip(150,0.07,'sine',0.12,80);}catch(_){}}
       if(typeof ps!=='undefined'&&Math.abs(vn)>180){ for(let k=0;k<6;k++){ const a=Math.random()*6.28,sp=rand(20,70); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(0,50),Math.sin(a)*sp,0.2,0.9,1,0.35); } }
     }
@@ -17312,7 +17338,9 @@ function _updateCubeBall(dt){
       const n=new THREE.Vector3(-dx,-dy,-dz); if(n.lengthSq()<1e-4)n.set(0,1,0); n.normalize();
       b.vel.addScaledVector(n,(window._BALL_BULLET_KN||34)); if(b.vel.length()>2800)b.vel.setLength(2800);
       bl.life=0;
-      if(typeof ps!=='undefined'){ for(let k=0;k<5;k++){ const a=Math.random()*6.28,sp=rand(30,80); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(0,40),Math.sin(a)*sp,0.2,0.6,1,0.3); } }
+      _ballImpact(b, n.clone().multiplyScalar(-1), (bl.kind==='laser'?0x66f0ff:(window._BALL_GLOW||0x4cf0ff)), false);   // expanding ring + flash on the ball surface so the hit READS
+      if(typeof ps!=='undefined'){ for(let k=0;k<8;k++){ const a=Math.random()*6.28,sp=rand(50,130); ps._spawn(b.pos.x-n.x*R,b.pos.y-n.y*R,b.pos.z-n.z*R,Math.cos(a)*sp-n.x*60,rand(0,50)-n.y*60,Math.sin(a)*sp-n.z*60,0.3,0.8,1,0.3); } }
+      if(typeof Audio!=='undefined'){try{Audio.blip(540,0.05,'square',0.12,260);}catch(_){}}
     }
   } }
   // ── MISSILES knock the ball HARD (explode on hit) ──
@@ -17322,6 +17350,7 @@ function _updateCubeBall(dt){
       const n=new THREE.Vector3(-dx,-dy,-dz); if(n.lengthSq()<1e-4)n.set(0,1,0); n.normalize();
       b.vel.addScaledVector(n,(window._BALL_ROCKET_KN||140)); if(b.vel.length()>2800)b.vel.setLength(2800);
       ms.life=0;
+      _ballImpact(b, n.clone().multiplyScalar(-1), 0xffaa44, true);
       if(typeof addTrauma==='function')addTrauma(0.18);
       if(typeof ps!=='undefined'){ for(let k=0;k<16;k++){ const a=Math.random()*6.28,sp=rand(80,200); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(-30,120),Math.sin(a)*sp,1,0.6,0.1,0.6); } }
       if(typeof Audio!=='undefined'){try{Audio.blip(90,0.2,'sawtooth',0.3,40);}catch(_){}}
@@ -17389,6 +17418,7 @@ function _updateWeaponCollider(dt){
           _cubeBall.pos.addScaledVector(n, Math.max(0,_cubeBall.R+(window._BALL_TIP_R||12)-dd));
           _cubeBall.vel.set(0,0,0).addScaledVector(n,force);                            // SET (not add) so repeated swings don't stack into the cap
           _cubeBall.hitCd=0.14;
+          if(typeof _ballImpact==='function')_ballImpact(_cubeBall, n.clone().multiplyScalar(-1), (window._BALL_GLOW||0x4cf0ff), true);
           if(typeof ps!=='undefined'){ for(let k=0;k<14;k++){ const a=Math.random()*6.28,sp=rand(70,180); ps._spawn(_cubeBall.pos.x,_cubeBall.pos.y,_cubeBall.pos.z,Math.cos(a)*sp,rand(-20,120),Math.sin(a)*sp,1,0.85,0.25,0.5); } }
           if(typeof Audio!=='undefined'){try{Audio.blip(360,0.12,'square',0.28,150);}catch(_){}}
           if(typeof addTrauma==='function')addTrauma(0.12);
@@ -17426,11 +17456,32 @@ function buildCubeArena(){
   const V=(x,y,z)=>new THREE.Vector3(x,y,z);
   // ── flat face grids, inset by ch (so they meet the rounded fillets) ──
   const ix=hx-ch, iz=hz-ch, iy0=ch, iy1=h-ch, gN=9;
-  for(const fy of [0,h]){ for(let i=-gN;i<=gN;i++){ const x=i/gN*ix; L(x,fy,-iz,x,fy,iz);} for(let k=-gN;k<=gN;k++){ const z=k/gN*iz; L(-ix,fy,z,ix,fy,z);} }
-  for(const sx of [-hx,hx]){ for(let k=-gN;k<=gN;k++){ const z=k/gN*iz; L(sx,iy0,z,sx,iy1,z);} for(let yy=0;yy<=gN;yy++){ const y=iy0+(iy1-iy0)*yy/gN; L(sx,y,-iz,sx,y,iz);} }
-  for(const sz of [-hz,hz]){ for(let i=-gN;i<=gN;i++){ const x=i/gN*ix; L(x,iy0,sz,x,iy1,sz);} for(let yy=0;yy<=gN;yy++){ const y=iy0+(iy1-iy0)*yy/gN; L(-ix,y,sz,ix,y,sz);} }
-  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(seg),3));
-  grp.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({color:NEON,transparent:true,opacity:0.15,blending:THREE.AdditiveBlending,depthWrite:false})));
+  const _USE_SHEETS=(window._CUBE_GRID_FACES!==false);
+  if(!_USE_SHEETS){
+    for(const fy of [0,h]){ for(let i=-gN;i<=gN;i++){ const x=i/gN*ix; L(x,fy,-iz,x,fy,iz);} for(let k=-gN;k<=gN;k++){ const z=k/gN*iz; L(-ix,fy,z,ix,fy,z);} }
+    for(const sx of [-hx,hx]){ for(let k=-gN;k<=gN;k++){ const z=k/gN*iz; L(sx,iy0,z,sx,iy1,z);} for(let yy=0;yy<=gN;yy++){ const y=iy0+(iy1-iy0)*yy/gN; L(sx,y,-iz,sx,y,iz);} }
+    for(const sz of [-hz,hz]){ for(let i=-gN;i<=gN;i++){ const x=i/gN*ix; L(x,iy0,sz,x,iy1,sz);} for(let yy=0;yy<=gN;yy++){ const y=iy0+(iy1-iy0)*yy/gN; L(-ix,y,sz,ix,y,sz);} }
+    const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(seg),3));
+    grp.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({color:NEON,transparent:true,opacity:0.15,blending:THREE.AdditiveBlending,depthWrite:false})));
+  } else {
+    // ── DEFORMING GRID FACES: each face = a live GridSheet (reacts to the player, bullets, rockets, the ball) ──
+    _disposeCubeSheets();
+    const cell=(window._CUBE_GRID_CELL||56), pal=(window._CUBE_GRID_PAL||'blue'), sub=(IS_MOBILE?1:2);
+    const cy=h/2, vyH=(iy1-iy0)/2;   // wall vertical center + half-height (between the fillets)
+    const Q=(ax,ay,az,ang)=>new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(ax,ay,az),ang);
+    const face=(pos,quat,uHalf,vHalf)=>{
+      const cols=Math.max(4,Math.round(uHalf*2/cell)+1), rows=Math.max(4,Math.round(vHalf*2/cell)+1);
+      let s; try{ s=new GridSheet({cols,rows,cell,position:pos,quaternion:quat,palette:pal,fill:true,subdiv:sub,bright:1.15}); }catch(e){ console.warn('cube sheet:',e); return; }
+      s._cityWall=true; s._cubeWall=true;   // bullets DEFORM but don't die on it; the universal wall bounce still handles them
+      _cubeSheets.push(s);
+    };
+    face(new THREE.Vector3(0,0,0),        Q(1,0,0,0),         ix, iz);          // FLOOR  (normal +Y)
+    face(new THREE.Vector3(0,h,0),        Q(1,0,0,Math.PI),   ix, iz);          // CEILING(normal -Y)
+    face(new THREE.Vector3(hx,cy,0),      Q(0,0,1, Math.PI/2),vyH, iz);         // WALL +X (normal -X)
+    face(new THREE.Vector3(-hx,cy,0),     Q(0,0,1,-Math.PI/2),vyH, iz);         // WALL -X (normal +X)
+    face(new THREE.Vector3(0,cy,hz),      Q(1,0,0,-Math.PI/2),ix, vyH);         // WALL +Z (normal -Z)
+    face(new THREE.Vector3(0,cy,-hz),     Q(1,0,0, Math.PI/2),ix, vyH);         // WALL -Z (normal +Z)
+  }
   // ── ROUNDED EDGES: each of the 12 cube edges = a quarter-circle fillet (radius ch) between its two faces ──
   // edge def: sharp point P, direction*length e, inward normals n1/n2 of the two faces. arc(a)=P + ch*n1 + ch*n2 - ch*n1*cos(a) - ch*n2*sin(a)
   const Y=V(0,1,0), nY=V(0,-1,0), Xp=V(1,0,0), Xn=V(-1,0,0), Zp=V(0,0,1), Zn=V(0,0,1);
@@ -17466,6 +17517,7 @@ function buildCubeArena(){
 }
 function updateCubeArena(dt){
   if(GS.zone!==-19 || !player) return;
+  if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets) s.update(dt); }   // deforming grid faces ripple/settle
   if(typeof _updateCubeBall==='function') _updateCubeBall(dt);   // ball runs in BOTH normal & wall-walk modes
   if(typeof _updateWeaponCollider==='function') _updateWeaponCollider(dt);   // melee weapon collider -> ball hits
   if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
