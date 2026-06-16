@@ -8929,7 +8929,7 @@ class Player{
     if(this._crateCool>0) this._crateCool=Math.max(0,this._crateCool-dt);   // bomb reload cooldown
     if(this._allyCool>0) this._allyCool=Math.max(0,this._allyCool-dt);   // ally deploy cooldown
     if(GS.zone===-13){ _rlArenaMove(this,rawX,rawZ,avx,avz,dt); return; }
-    if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)){ _cubeWalkMove(this,rawX,rawZ,dt); return; }   // cube arena: boots = walk the walls/ceiling
+    if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)){ _cubeWalkMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1); }   // cube arena: boots = walk walls/ceiling (movement), then fall through to the _inPlanetGravity aim/shoot branch below so the shoot stick works
     if(this.inv>0)this.inv--; if(this.shieldT>0)this.shieldT--;
     if(this.dashCD>0){this.dashCD--;if(this.dashCD<=0)this.dash=1;}
 
@@ -17224,6 +17224,7 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
   if(P.wz> hz){P.wz=hz;v.z=0;} if(P.wz<-hz){P.wz=-hz;v.z=0;}
   if(P.py<=RIDE){ P.py=RIDE; v.set(0,0,0); P._cwDislodge=false; if(typeof Audio!=='undefined')Audio.blip(150,0.14,'square',0.22,80); if(typeof ps!=='undefined')ps.ring(P.wx,P.wz,[0.4,1,0.85],8,64); if(typeof addTrauma==='function')addTrauma(0.08); }   // landed -> normal wall-walk resumes (sticks to the floor next frame)
   P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=Math.hypot(v.x,v.z); P._cubeUp=new THREE.Vector3(0,1,0);
+  if(typeof _gN!=='undefined') _gN.set(0,1,0);
   if(P.model){ P.model.visible=true; P.model.position.set(P.wx,P.py-RIDE,P.wz);
     let fwd=P._cwLastF?P._cwLastF.clone():new THREE.Vector3(0,0,1); fwd.y=0; if(fwd.lengthSq()<1e-4)fwd.set(0,0,1); fwd.normalize();
     const up=new THREE.Vector3(0,1,0), xA=new THREE.Vector3().crossVectors(up,fwd).normalize();
@@ -17243,9 +17244,17 @@ function _syncCollider(pl, quat){
   }
   pl._dbgBox.visible=true;
   if(pl._hipBone===undefined){ pl._hipBone=null; try{ pl.model.traverse(o=>{ if(!pl._hipBone && o.isBone && /Hips$/i.test(o.name||'')) pl._hipBone=o; }); }catch(_){} }
-  if(pl._hipBone){ pl._hipBone.getWorldPosition(pl._dbgBox.position); }
-  else { pl._dbgBox.position.set(pl.wx, (9+pl.py)+(pl._flipPivotY||_mh*0.5), pl.wz); }
-  pl._dbgBox.quaternion.copy(quat||pl.model.quaternion);
+  if(pl._hipBone){
+    pl._hipBone.getWorldPosition(pl._dbgBox.position);
+    if(window._COLLIDER_USE_HIP!==false){
+      pl._hipBone.getWorldQuaternion(pl._dbgBox.quaternion);   // baked-animation hip rotation (e.g. the jump flip) drives the box
+      const o=window._COLLIDER_HIP_OFF;                        // optional [rx,ry,rz] degrees to correct the bind-pose tilt
+      if(o){ pl._dbgBox.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(o[0]*Math.PI/180,o[1]*Math.PI/180,o[2]*Math.PI/180))); }
+    } else { pl._dbgBox.quaternion.copy(quat||pl.model.quaternion); }
+  } else {
+    pl._dbgBox.position.set(pl.wx, (9+pl.py)+(pl._flipPivotY||_mh*0.5), pl.wz);
+    pl._dbgBox.quaternion.copy(quat||pl.model.quaternion);
+  }
 }
 const _cwN=new THREE.Vector3();
 function _cubeWalkMove(P,rawX,rawZ,dt){
@@ -17295,6 +17304,7 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
 }
 // Orientation + reoriented chase camera — owned here (like updateLabGravity), so draw() bails and nothing fights it.
 function _cubeWalkRender(P,N,tanDir,dt,grounded){
+  if(typeof _gN!=='undefined') _gN.copy(N);   // aim/shoot branch reads _gN as the surface normal -> bullets fire in the wall plane
   const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   let fwd=tanDir?tanDir.clone():(P._cwLastF?P._cwLastF.clone():new THREE.Vector3(1,0,0));
   fwd.addScaledVector(N,-fwd.dot(N)); if(fwd.lengthSq()<1e-4) fwd.set(1,0,0); fwd.normalize();
