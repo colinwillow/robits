@@ -1027,7 +1027,7 @@ function addTrauma(t){ CAM.trauma=clamp(CAM.trauma+t,0,1); }
 function punchZoom(z){ CAM.tzoom=z; }
 function updateCamera(dt){
   if(player&&player._inPlanetGravity&&(GS.zone===-15||GS.zone===-16)) return;   // lab/city gravity cam owns the camera
-  if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player)){ return; }   // cube wall-walk sets the camera inside _cubeWalkMove (_glChaseCam)
+  if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player) && window._ballCam){ return; }   // only BALL cam owns the camera; the regular cube cam uses this normal path unchanged
   CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
   CAM.focus.lerp(CAM.tfocus,0.18);
@@ -17443,16 +17443,11 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
     if(d>=-RIDE && v.dot(_cwN)>=0){ P._cwAir=0; }   // descended back to ride height -> land (fall through to grounded snap)
     else { P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); _cubeWalkRender(P,N,tanDir,dt,false); return; }
   }
-  // ── GROUNDED: GRIP model — velocity steers toward the input (crisp, not additive-sliding); strong friction (not slippery) ──
+  // ── GROUNDED: DIRECT movement (no momentum/coast for now) — velocity = input dir × speed, hard stop on release ──
   P._glGrounded=true;
-  v.addScaledVector(N,-v.dot(N));                                      // keep velocity tangent
-  const TOP=(window._CUBE_MAXS||340);
-  if(tanDir){
-    const tgt=tanDir.clone().multiplyScalar(TOP*Math.min(1,inMag));
-    v.lerp(tgt, Math.min(1,(window._CUBE_GRIP||7)*dt));               // GRIP: align velocity to input direction quickly
-  } else {
-    v.multiplyScalar(Math.pow((window._CUBE_COAST||0.12),dt));        // strong ground friction -> stops fast, not slippery
-  }
+  const TOP=(window._CUBE_MAXS||300);
+  if(tanDir){ v.copy(tanDir).multiplyScalar(TOP*Math.min(1,inMag)); }   // move straight in the input direction
+  else { v.set(0,0,0); }                                                // release -> stop
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
   _cubeGrad(P.wx,P.py,P.wz,_cwN); const d2=_cubeSDF(P.wx,P.py,P.wz), corr=d2+RIDE;   // re-snap to ride height
   P.wx-=_cwN.x*corr; P.py-=_cwN.y*corr; P.wz-=_cwN.z*corr;
@@ -17494,7 +17489,7 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
 }
 // WORLD-UP cameras for the cube. FREE cam orbits by CAM.yaw (steered by the right stick), BALL cam looks past you toward the ball.
 // Both stay parallel to the TRUE ground (never roll) -> on the ceiling you're plainly upside-down. Same distance as on the floor.
-function _cubeCam(P, dt){ if(window._ballCam) _ballCam(P,dt); else _cubeFaceCam(P,dt); }
+function _cubeCam(P, dt){ if(window._ballCam) _ballCam(P,dt); else if(typeof CAM!=='undefined'){ CAM.tfocus.set(P.x,P.y,P.z); } }   // regular cam: hand the camera back to the NORMAL updateCamera (identical to pre-boots) — just feed it the player's 3D position
 // REGULAR cube cam = the NORMAL gameplay camera (updateCamera), fed the player's FULL 3D position so it rises as you climb a wall.
 // World-up (always parallel to the ground, never rolls), orbits CAM.focus by CAM.yaw, and the right stick drives CAM.tyaw (wired in
 // player.update). Controls are camera-relative (N×right) so left stays left across edges => continuous. Ceiling reads inverted (inherent).
