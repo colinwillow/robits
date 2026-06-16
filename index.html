@@ -14280,7 +14280,7 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
                 const _ft=(player._flipAnimName==='flip_left'||player._flipAnimName==='flip_right')?(window._FLIP_DUR_SIDE||0.9):(window._FLIP_DUR_FB||0.5);
                 player._diveRollDir=[_fwx/_dl,_fwz/_dl];   // triggers the flip clip
                 player._flipNoTurn=true;                    // flick must NOT reorient the character (set NOW so the very next render holds facing)
-                { const _ftc=_ft; setTimeout(()=>{ if(player)player._flipNoTurn=false; }, _ftc*1000); }
+                setTimeout(()=>{ if(player)player._flipNoTurn=false; }, 2500);   // safety only — the flip's completion poll normally clears this exactly when the clip finishes
                 player._flipFacingHold=player._cwLastF?player._cwLastF.clone():null;
                 // GENTLE directional drift over the flip duration — no teleport-dash, no character turn
                 const _drift=(window._FLIP_DRIFT_DIST||70);
@@ -14928,6 +14928,13 @@ function loop(ts){ requestAnimationFrame(loop);
       if(scene._robotLight) scene._robotLight.position.set(player.wx,player.py+20,player.wz);
       let spd=Math.hypot(player.vx,player.vz);
       player._mixer.update(dt);
+      // ── GUARANTEED speed-up: the per-action timeScale wasn't sticking on this rig, so we advance one-shot/swing clips' .time ourselves ──
+      { const _u=player.model&&player.model.userData;
+        if(_u){
+          if(_u._oneShotAct&&_u._oneShotSpeed>1){ const _a=_u._oneShotAct,_d=(_a._clip&&_a._clip.duration)||0.5; if((_a.time||0)<_d) _a.time=Math.min(_d,(_a.time||0)+dt*(_u._oneShotSpeed-1)); }
+          if(player._swingAction&&player._swingSpeed>1){ const _a=player._swingAction,_d=(_a._clip&&_a._clip.duration)||0.5; if((_a.time||0)<_d) _a.time=Math.min(_d,(_a.time||0)+dt*(player._swingSpeed-1)); }
+        }
+      }
 
       // ── Procedural arm IK — runs after mixer so it overrides bone rotations ──
       const ud2=player.model.userData;
@@ -14987,32 +14994,19 @@ function loop(ts){ requestAnimationFrame(loop);
               ? ((_flipName==='flip_left'||_flipName==='flip_right')?(window._FLIP_DUR_SIDE||0.9):(window._FLIP_DUR_FB||0.5))
               : (_glbDur/1.4);
             const _ts = _isFlip ? Math.max(0.05, _glbDur/_tgt) : 1.4;
-            const rollDur=_tgt;
-            if(player._flipDiag!==rollName){ player._flipDiag=rollName; console.log('[Robits]',rollName,'GLB dur',_glbDur.toFixed(2),'s -> play',_tgt,'s @ timeScale',_ts.toFixed(2)); }
-            setTimeout(()=>{ if(player){ player._rollAimLock=false; player._flipNoTurn=false; } }, rollDur*1000);
+            if(player._flipDiag!==rollName){ player._flipDiag=rollName; console.log('[Robits]',rollName,'GLB dur',_glbDur.toFixed(2),'s -> target',_tgt,'s @ timeScale',_ts.toFixed(2)); }
             // Play roll at full weight FIRST, then stop others — never a zero-weight frame
             rollClip.reset();
             rollClip.setEffectiveWeight(1);
-            rollClip.setEffectiveTimeScale(_ts);
+            rollClip.setEffectiveTimeScale(1); rollClip.timeScale=1;   // mixer advances at 1x; we drive the speed-up by manually advancing .time (the action timeScale wasn't sticking)
             rollClip.setLoop(THREE.LoopOnce,1);
             rollClip.clampWhenFinished=true;
             rollClip.play();
             Object.values(ud.clips).forEach(a=>{ if(a!==rollClip){ a.stop(); a.setEffectiveWeight(0); } });
             ud.currentClip=rollName;
-            // Lock blend system for the full roll duration
-            ud._rollingTimer=rollDur;
-            setTimeout(()=>{
-              if(!player||!ud.clips)return;
-              ud._rollingTimer=0;
-              // Set sentinel so blend switch fires even if target is 'idle'
-              ud.currentClip='_post_roll';
-              const back=ud.clips['idle']||Object.values(ud.clips)[0];
-              if(back){
-                Object.values(ud.clips).forEach(a=>a.fadeOut(0.12));
-                if(!back.isRunning()) back.reset();
-                back.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.12).play();
-              }
-            },rollDur*1000);
+            // ── COMPLETION-DRIVEN END: the flip ends when the CLIP actually finishes, not at a fixed timer — so it always plays its FULL arc ──
+            ud._oneShotAct=rollClip; ud._oneShotClearFlags=true; ud._oneShotSpeed=_ts;   // _oneShotSpeed drives the manual advance after mixer.update
+            ud._rollingTimer=_glbDur+0.6;   // safety only; the poll ends it the instant the clip completes
           } else {
             if(!ud._loggedClips){
               console.log('[Robits] Available clips:', Object.keys(ud.clips).join(', '));
@@ -15042,10 +15036,26 @@ function loop(ts){ requestAnimationFrame(loop);
         if(ud._rollingTimer>0){
           ud._rollingTimer-=dt;
           if(ud._rollingTimer<0) ud._rollingTimer=0; // never go negative
+          // ── one-shot completion poll: end the flip/roll the instant the CLIP finishes (robust to timeScale), instead of cutting at a fixed timer ──
+          if(ud._oneShotAct){
+            const _a=ud._oneShotAct, _d=(_a._clip&&_a._clip.duration)||0.5;
+            const _elapsed=_d - (_a.time||0);
+            const _done=(_a.time>0 && (!_a.isRunning() || _a.time>=_d-0.02)) || ud._rollingTimer<=0;
+            if(_done){
+              ud._oneShotAct=null; ud._rollingTimer=0;
+              if(ud._oneShotClearFlags){ player._rollAimLock=false; player._flipNoTurn=false; ud._oneShotClearFlags=false; }
+              ud.currentClip='_post_roll';
+              const back=ud.clips&&(ud.clips['idle']||Object.values(ud.clips)[0]);
+              if(back){ Object.values(ud.clips).forEach(a=>a.fadeOut(0.12)); if(!back.isRunning())back.reset(); back.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.12).play(); }
+            }
+          }
         }
-        // Tick melee one-shot (blocks locomotion) + combo chain window
-        if(ud._meleeTimer>0){
-          ud._meleeTimer-=dt;
+        // Tick melee one-shot (blocks locomotion) + combo chain window.
+        // The hit/swing window now follows the ACTUAL swing animation, not just the timer — so the blade plays its FULL arc
+        // even when the clip's real playback is longer than the timer (the "neutered end" bug). _swActive = the swing clip is still running.
+        { const _swAct=player._swingAction; ud._swActive=!!(_swAct&&_swAct.isRunning&&_swAct.isRunning()&&_swAct._clip&&_swAct.time<_swAct._clip.duration-0.02); }
+        if(ud._meleeTimer>0 || ud._swActive){
+          if(ud._meleeTimer>0){ ud._meleeTimer-=dt; if(ud._meleeTimer<0)ud._meleeTimer=0; }
           if(player._meleeLungeT>0) player._meleeLungeT-=dt;
           if(window._meleeLandLock) player._jumpTapped=false;        // land-lock (opt-in): block jump during the swing
           const _committed=(ud._meleeMax||0)-ud._meleeTimer;          // time elapsed in this swing
@@ -15118,7 +15128,7 @@ function loop(ts){ requestAnimationFrame(loop);
             if(typeof GS_bots!=='undefined') GS_bots.forEach(b=>_try(b,'bot'));
             if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _try(GS_trainingDummy,'dummy');
           }
-          if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; if(player._meleeAdditive){ player._meleeAdditive.fadeOut(0.12); player._meleeAdditive=null; } else { ud.currentClip=null; } player._rollAimLock=false; if(player._meleeBuf){ const _b=player._meleeBuf; player._meleeBuf=null; if(_b.tap){ _doMeleeTap(); } else { _doMeleeFlick(ud,(typeof _b.dir==='number'?_b.dir:null),_b.combo); } } }   // release -> upper-body swing fades arms back to locomotion; full-body re-picks idle/run
+          if(ud._meleeTimer<=0 && !ud._swActive){ ud._meleeTimer=0; player._swingAction=null; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; if(player._meleeAdditive){ player._meleeAdditive.fadeOut(0.12); player._meleeAdditive=null; } else { ud.currentClip=null; } player._rollAimLock=false; if(player._meleeBuf){ const _b=player._meleeBuf; player._meleeBuf=null; if(_b.tap){ _doMeleeTap(); } else { _doMeleeFlick(ud,(typeof _b.dir==='number'?_b.dir:null),_b.combo); } } }   // release -> upper-body swing fades arms back to locomotion; full-body re-picks idle/run
         }
         if(player._meleeComboT>0){ player._meleeComboT-=dt; if(player._meleeComboT<0) player._meleeComboT=0; }
         // MELEE TARGET indicator — pulse a ring under the nearest in-range enemy so you can see who a tap will hit
@@ -17463,7 +17473,10 @@ function _meleeColBox(key, color, center, size, swinging, boost, dt){
 }
 function _updateWeaponCollider(dt){
   if(GS.zone!==-19 || !player || !player.model) return;
-  const ud=player.model.userData, swinging=!!(ud&&ud._meleeTimer&&ud._meleeTimer>0), bones=ud&&ud.bones;
+  const ud=player.model.userData, bones=ud&&ud.bones;
+  // swing window: the timer OR the actual playing swing action — so the blade-tip hit stays live for the WHOLE visible swing, even if the timer expires before the animation's follow-through reaches the ball
+  let swinging=!!(ud&&ud._meleeTimer&&ud._meleeTimer>0);
+  if(player._swingAction){ const _sa=player._swingAction; const _cl=(_sa.getClip?_sa.getClip():_sa._clip); if(_sa.isRunning&&_sa.isRunning()&&_cl&&_sa.time<_cl.duration-0.015) swinging=true; else if(!_sa.isRunning||!_sa.isRunning()||(_cl&&_sa.time>=_cl.duration-0.015)) player._swingAction=null; }
   // melee weapon box
   const w=player._hammer;
   if(w){ _wpnBox3.setFromObject(w); if(!_wpnBox3.isEmpty()){ _wpnBox3.getCenter(_wpnCtr); _wpnBox3.getSize(_wpnSz); _meleeColBox('wpn',0xffcc33,_wpnCtr,_wpnSz,swinging,(window._BALL_WPN_BOOST||3.0),dt); } }
@@ -17472,28 +17485,32 @@ function _updateWeaponCollider(dt){
   if(bones){ const HS=(window._HAND_COL||20);
     for(const [k,nm] of [['lh','mixamorig_LeftHand'],['rh','mixamorig_RightHand']]){ const bn=bones[nm]; if(bn){ const wp=new THREE.Vector3(); bn.getWorldPosition(wp); _meleeColBox(k,0xff44cc,wp,new THREE.Vector3(HS,HS,HS),swinging,(window._BALL_HAND_BOOST||1.8),dt); } }
   }
-  // ── BLADE-TIP SWEPT ball hit — only knock the ball when the actual weapon TIP sweeps through it (matches the visible swing, no early hit) ──
+  // ── DEBUG MARKER: always track the LIVE blade tip while weapon-debug is on (never freezes between swings) ──
+  if(window._showWeaponCollider===true && _cubeBall && typeof _slashBladePoints==='function'){
+    const _mbp=_slashBladePoints();
+    if(_mbp){
+      if(!player._tipDbg){ player._tipDbg=new THREE.Mesh(new THREE.SphereGeometry(1,12,8), new THREE.MeshBasicMaterial({color:0xffcc33,wireframe:true,depthTest:false,transparent:true,opacity:0.9})); player._tipDbg.renderOrder=999; player._tipDbg.frustumCulled=false; try{scene.add(player._tipDbg);}catch(_){} }
+      player._tipDbg.visible=true; player._tipDbg.position.copy(_mbp[1]); player._tipDbg.scale.setScalar(window._BALL_TIP_R||18);   // small sphere at the tip — when it touches the ball, it hits
+    }
+  } else if(player._tipDbg){ player._tipDbg.visible=false; }
+
+  // ── BLADE-TIP SWEPT ball hit — knock the ball when the weapon TIP sweeps through it, for the WHOLE swing ──
   if(swinging && _cubeBall && typeof _slashBladePoints==='function'){
     const bp=_slashBladePoints();
     if(bp){ const tip=bp[1];
-      // debug marker: a wireframe sphere at the blade tip sized to the actual hit radius
-      if(window._showWeaponCollider===true){
-        if(!player._tipDbg){ player._tipDbg=new THREE.Mesh(new THREE.SphereGeometry(1,12,8), new THREE.MeshBasicMaterial({color:0xffcc33,wireframe:true,depthTest:false,transparent:true,opacity:0.9})); player._tipDbg.renderOrder=999; player._tipDbg.frustumCulled=false; try{scene.add(player._tipDbg);}catch(_){} }
-        player._tipDbg.visible=true; player._tipDbg.position.copy(tip); player._tipDbg.scale.setScalar(_cubeBall.R+(window._BALL_TIP_R||12));
-      } else if(player._tipDbg){ player._tipDbg.visible=false; }
       if(player._prevTip){
         const seg=tip.clone().sub(player._prevTip), segLen2=Math.max(seg.lengthSq(),1e-4);
         const toBall=_cubeBall.pos.clone().sub(player._prevTip);
         const tproj=Math.max(0,Math.min(1,toBall.dot(seg)/segLen2));
         const closest=player._prevTip.clone().addScaledVector(seg,tproj);
         const dd=closest.distanceTo(_cubeBall.pos);
-        if(dd < _cubeBall.R+(window._BALL_TIP_R||12) && _cubeBall.hitCd<=0){
+        if(dd < _cubeBall.R+(window._BALL_TIP_R||18) && _cubeBall.hitCd<=0){
           const tipVel=seg.clone().multiplyScalar(1/Math.max(dt,0.001));               // swept tip velocity gives direction; speed is only a mild factor
           let n=_cubeBall.pos.clone().sub(closest); if(n.lengthSq()<1e-4)n.copy(tipVel); n.normalize();
           const along=Math.max(0,tipVel.dot(n));
           let force=((window._BALL_WPN_BASE||440)+along*(window._BALL_TIP_VFAC||0.22))*(window._BALL_KNOCK||1.0)*(window._BALL_WPN_BOOST||1.0);
           force=Math.min(force, window._BALL_WPN_MAX||1150);                             // hard cap so a fast tip doesn't launch it at the 2800 ceiling
-          _cubeBall.pos.addScaledVector(n, Math.max(0,_cubeBall.R+(window._BALL_TIP_R||12)-dd));
+          _cubeBall.pos.addScaledVector(n, Math.max(0,_cubeBall.R+(window._BALL_TIP_R||18)-dd));
           _cubeBall.vel.set(0,0,0).addScaledVector(n,force);                            // SET (not add) so repeated swings don't stack into the cap
           _cubeBall.hitCd=0.14;
           if(typeof _ballImpact==='function')_ballImpact(_cubeBall, n.clone().multiplyScalar(-1), (window._BALL_GLOW||0x4cf0ff), true);
@@ -21612,7 +21629,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
     const add=_buildAdditiveMelee(ud,mname);
     if(add){
       if(player._meleeAdditive && player._meleeAdditive!==add) player._meleeAdditive.stop();   // don't stack swings
-      add.reset().setEffectiveTimeScale(spd).setLoop(THREE.LoopOnce,1);
+      add.reset().setEffectiveTimeScale(1).setLoop(THREE.LoopOnce,1);
       if(trimS>0) add.time=trimS;                                  // skip the windup frames
       add.clampWhenFinished=true; add.setEffectiveWeight(1); add.fadeIn(window._MELEE_FADE_IN!=null?window._MELEE_FADE_IN:0.03).play();
       player._meleeAdditive=add; usedAdditive=true;                // legs keep running; currentClip left to locomotion
@@ -21621,7 +21638,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   if(!usedAdditive){
     // full-body fallback (original): blend FROM the current pose INTO the swing, fade the rest out
     const prev=(ud.currentClip && ud.clips[ud.currentClip] && ud.clips[ud.currentClip]!==mc) ? ud.clips[ud.currentClip] : null;
-    mc.reset().setEffectiveTimeScale(spd).setLoop(THREE.LoopOnce,1);
+    mc.reset().setEffectiveTimeScale(1).setLoop(THREE.LoopOnce,1);
     if(trimS>0) mc.time=trimS;
     mc.clampWhenFinished=true; mc.setEffectiveWeight(1); mc.play();
     if(prev){ if(!prev.isRunning()) prev.play(); prev.setEffectiveWeight(1); prev.fadeOut(window._MELEE_FADE_IN!=null?window._MELEE_FADE_IN:0.05); }
@@ -21629,6 +21646,8 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
     ud.currentClip=mname;
   }
   ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false; ud._meleeFXdone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; player._parryArmT=(window._PARRY_SWING_WIN!=null?window._PARRY_SWING_WIN:0.34); player._parryAimDir=(player.aim||0);   // arm a parry window + remember the angle you swung at (launch direction)
+  player._swingAction=usedAdditive?player._meleeAdditive:mc;   // remember the actual playing action so the ball-hit window can follow the FULL swing even if the timer/anim speeds drift
+  player._swingSpeed=spd;   // drives the manual time-advance after mixer.update (deterministic speed-up)
   player._meleeComboT=mdur+(window._MELEE_COMBO_GAP!=null?window._MELEE_COMBO_GAP:1.0);   // ~1s grace after the swing to chain; wait longer -> sequence restarts at melee_1
   player._flickCooldown=8;
   player._rollAimLock=true;
