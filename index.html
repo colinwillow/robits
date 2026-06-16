@@ -15355,13 +15355,17 @@ function loop(ts){ requestAnimationFrame(loop);
         const _now=performance.now();
         if(player._flickPending){                                   // a snap-out is in progress — did it come back in time?
           if(_now-(player._flickPendT||0) > _MELEE_FLICK_WINDOW_MS){ player._flickPending=false; }            // stayed out -> it's a HOLD (aim/fire)
-          else if(_fmag < _MELEE_FLICK_LO){ player._flickPending=false; _doMeleeFlick(player.model&&player.model.userData, (player._flickDir!=null?player._flickDir:null), undefined); }   // came back -> FACE the swipe direction + CYCLE melee_1->2->3
+          else if(_fmag < _MELEE_FLICK_LO){ player._flickPending=false;
+            if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player) && ((player._cwAir||0)>0 || player._cwDislodge) && typeof _doCubeFlip==='function'){ _doCubeFlip(player._flickAx||0, player._flickAy||0); }   // AIR flick in the cube = FLIP (momentum carries)
+            else _doMeleeFlick(player.model&&player.model.userData, (player._flickDir!=null?player._flickDir:null), undefined);   // came back -> FACE the swipe direction + CYCLE melee_1->2->3
+          }
         }
         if(_fmag<_MELEE_FLICK_LO){ player._flickArmed=true; player._preFlickAim=player.aim; }   // re-arm + remember resting facing
         if(player._flickArmed && _fmag>_MELEE_FLICK_HI && !player._flickPending){   // snapped out -> watch for a quick return
           player._flickArmed=false; player._flickPending=true; player._flickPendT=_now;
           const _ws=rotInput(shootIn.x,shootIn.y); player._flickDir=Math.atan2(_ws.z,_ws.x);
           const _ax=shootIn.x, _ay=shootIn.y;                                          // screen-relative flick -> which melee (up=-y)
+          player._flickAx=_ax; player._flickAy=_ay;   // remembered for the cube AIR-flick = FLIP
           player._flickCombo=(Math.abs(_ay)>=Math.abs(_ax))?((_ay<0)?1:2):3;           // up=melee_1, down=melee_2, left/right=melee_3
         }
       }
@@ -17337,6 +17341,17 @@ function updateCubeArena(dt){
 }
 // ════════ CUBE WALL-WALK (boots) — stick to the rounded interior shell, run up walls onto the ceiling ════════
 function _cubeWalkOn(P){ return GS.zone===-19 && P && P._hasBoots && P._bootsEquipped; }
+// AIR flick in the cube = a Rocket-League flip. Direction picks the axis; velocity carries (the flip is purely visual rotation).
+function _doCubeFlip(ax, ay){
+  if(!player||!player.alive) return;
+  const PS=(window._FLIP_PITCH_SIGN!=null?window._FLIP_PITCH_SIGN:1), RS=(window._FLIP_ROLL_SIGN!=null?window._FLIP_ROLL_SIGN:1);
+  const aax=Math.abs(ax), aay=Math.abs(ay); let axis, turns;
+  if(aay>=aax){ axis=new THREE.Vector3(1,0,0); turns=(ay<0?1:-1)*PS; }   // up = front somersault, down = backflip
+  else { axis=new THREE.Vector3(0,0,1); turns=(ax<0?1:-1)*RS; }          // left / right = barrel roll
+  player._flip={axis, turns, t:0, dur:(window._FLIP_DUR||0.5)};
+  if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(440,0.08,'square',0.12,760);
+  if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0,1,0.6],10,70,(player.py||0)+10);
+}
 function _cubeSDF(x,y,z){   // signed distance to the rounded interior shell (negative inside)
   const C=window._CUBE||_CUBE, hx=C.hx, hz=C.hz, h=C.h, r=Math.min(C.cham,hx*0.9,hz*0.9,h*0.45);
   const px=x, py=y-h*0.5, pz=z;
@@ -17399,19 +17414,20 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   let N=_cwN.clone().multiplyScalar(-1);          // UP = into the room (toward centre)
   const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   const ACC=(window._CUBE_ACC||950), MAXS=(window._CUBE_MAXS||340), GRAV=(window._CUBE_GRAV||720);
-  // ── INPUT → tangent dir from the camera's ACTUAL screen axes projected onto the surface (forward = into screen, right = screen-right).
-  //    Unambiguous on any surface/camera, so it never inverts whether you're inside the cube on a wall or the ceiling. ──
+  // ── INPUT → tangent dir from the camera's SCREEN axes projected onto the surface.
+  //    forward = screen-UP (so "up on the stick" = up the wall / into the distance on the floor), right = screen-RIGHT.
+  //    Using screen-up (not the view direction) is what stops the inversion on walls (the cam looks DOWN, so its view dir points down a wall). ──
   const inMag=Math.hypot(rawX,rawZ); let tanDir=null;
   if(inMag>0.05){
-    const cv=new THREE.Vector3(); camera.getWorldDirection(cv);                 // where the camera looks
-    let pf=cv.clone().addScaledVector(N,-cv.dot(N));                            // forward = view projected onto surface
-    const cr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);     // camera screen-right (world)
-    let prr=cr.clone().addScaledVector(N,-cr.dot(N));                           // right = screen-right projected onto surface
-    if(pf.lengthSq()<0.02){ pf.crossVectors(prr.clone().normalize(),N); }       // camera ~along the normal (e.g. straight down at the ceiling) -> derive forward
+    const su=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);     // camera screen-UP (world)
+    const sr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);     // camera screen-RIGHT (world)
+    let pf=su.clone().addScaledVector(N,-su.dot(N));                            // forward = screen-up projected onto surface
+    let prr=sr.clone().addScaledVector(N,-sr.dot(N));                           // right = screen-right projected onto surface
+    if(pf.lengthSq()<0.02){ pf.crossVectors(prr.clone().normalize(),N); }
     if(prr.lengthSq()<0.02){ prr.crossVectors(N,pf.clone().normalize()); }
     pf.normalize(); prr.normalize();
     tanDir=pf.clone().multiplyScalar(-rawZ).addScaledVector(prr,rawX);
-    if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); P._cwLastF=pf.clone(); } else tanDir=null;
+    if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); } else tanDir=null;
   }
   let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
   const grounded=(P._cwAir||0)<=0;
@@ -17428,15 +17444,16 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
     if(d>=-RIDE && v.dot(_cwN)>=0){ P._cwAir=0; }   // descended back to ride height -> land (fall through to grounded snap)
     else { P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); _cubeWalkRender(P,N,tanDir,dt,false); return; }
   }
-  // ── GROUNDED: SPEED-BUILD + trailing momentum ──
+  // ── GROUNDED: GRIP model — velocity steers toward the input (crisp, not additive-sliding); strong friction (not slippery) ──
   P._glGrounded=true;
-  const RAMP=(window._CUBE_RAMP||1.6), baseS=(window._CUBE_BASES||170), peakS=(window._CUBE_MAXS||640);
-  if(tanDir) P._cwThr=Math.min(1,(P._cwThr||0)+dt/RAMP);                 // throttle builds while you hold a direction (slow -> peak)
-  else       P._cwThr=Math.max(0,(P._cwThr||0)-dt/(RAMP*1.7));          // bleeds slowly when released (so brief releases don't reset the build)
-  const topS=baseS+(peakS-baseS)*(P._cwThr||0);
-  v.addScaledVector(N,-v.dot(N));                                       // keep velocity tangent
-  if(tanDir){ v.addScaledVector(tanDir, ACC*Math.min(1,inMag)*dt); if(v.length()>topS) v.setLength(topS); }   // cap ONLY while accelerating
-  else { v.multiplyScalar(Math.pow((window._CUBE_COAST||0.6),dt)); }    // COAST: light friction -> momentum trails after you release the stick
+  v.addScaledVector(N,-v.dot(N));                                      // keep velocity tangent
+  const TOP=(window._CUBE_MAXS||340);
+  if(tanDir){
+    const tgt=tanDir.clone().multiplyScalar(TOP*Math.min(1,inMag));
+    v.lerp(tgt, Math.min(1,(window._CUBE_GRIP||7)*dt));               // GRIP: align velocity to input direction quickly
+  } else {
+    v.multiplyScalar(Math.pow((window._CUBE_COAST||0.12),dt));        // strong ground friction -> stops fast, not slippery
+  }
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
   _cubeGrad(P.wx,P.py,P.wz,_cwN); const d2=_cubeSDF(P.wx,P.py,P.wz), corr=d2+RIDE;   // re-snap to ride height
   P.wx-=_cwN.x*corr; P.py-=_cwN.y*corr; P.wz-=_cwN.z*corr;
@@ -17448,14 +17465,30 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
 function _cubeWalkRender(P,N,tanDir,dt,grounded){
   if(typeof _gN!=='undefined') _gN.copy(N);   // aim/shoot branch reads _gN as the surface normal -> bullets fire in the wall plane
   const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
-  let fwd=tanDir?tanDir.clone():(P._cwLastF?P._cwLastF.clone():new THREE.Vector3(1,0,0));
+  // Facing: prefer the actual MOTION direction (so coasting faces where you glide, not toward the camera); then input; then last.
+  let fwd; const vt=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0); vt.addScaledVector(N,-vt.dot(N));
+  if(vt.lengthSq()>900) fwd=vt;
+  else if(tanDir) fwd=tanDir.clone();
+  else fwd=(P._cwLastF?P._cwLastF.clone():new THREE.Vector3(1,0,0));
   fwd.addScaledVector(N,-fwd.dot(N)); if(fwd.lengthSq()<1e-4) fwd.set(1,0,0); fwd.normalize();
+  P._cwLastF=fwd.clone();
   if(P.model){
     const xA=new THREE.Vector3().crossVectors(N,fwd).normalize();
     const tq=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,N,fwd));
     P.model.visible=true; P.model.position.set(P.wx-N.x*RIDE, P.py-N.y*RIDE, P.wz-N.z*RIDE);
     P.model.quaternion.slerp(tq, grounded?0.22:0.12);
     if(window._CUBE_FACE_OFF) P.model.rotateY(window._CUBE_FACE_OFF);
+    if(P._flip){   // FLIP composed on top of the surface orientation, pivoting around the hips (draw() bails here, so advance it ourselves)
+      const f=P._flip; f.t+=dt;
+      const k=Math.min(1,f.t/f.dur), e=k*k*(3-2*k), ang=f.turns*Math.PI*2*e;
+      const qBase=P.model.quaternion.clone();
+      if(!P._flipQ)P._flipQ=new THREE.Quaternion();
+      P._flipQ.setFromAxisAngle(f.axis, ang); P.model.quaternion.multiply(P._flipQ);
+      const pv=new THREE.Vector3(0,(P._flipPivotY||(P._modelH||42)*0.5),0);
+      const _a=pv.clone().applyQuaternion(qBase), _b=pv.clone().applyQuaternion(P.model.quaternion);
+      P.model.position.add(_a.sub(_b));
+      if(k>=1) P._flip=null;
+    }
   }
   _cubeCam(new THREE.Vector3(P.wx,P.py,P.wz), dt);
   if(typeof _syncCollider==='function') _syncCollider(P, P.model?P.model.quaternion:null);   // keep the collider riding the hips in wall-walk (draw() bails here)
