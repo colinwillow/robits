@@ -17702,12 +17702,21 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
   const C=window._CUBE||_CUBE, RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
   v.y-=(window._CUBE_FALLG||1100)*dt;               // world-down gravity
+  if(P._jetting && P.boostFuel>0){                  // JETPACK in free flight -> push straight toward TRUE-world up
+    v.y += (window._CUBE_JET_WORLD!=null?window._CUBE_JET_WORLD:1900)*dt;
+    P.boostFuel=Math.max(0,P.boostFuel-(window._CUBE_JET_DRAIN||55)*dt); P._jetFlash=1;
+    if(typeof ps!=='undefined'&&Math.random()<0.85){ ps._spawn(P.wx+rand(-3,3),P.py-6,P.wz+rand(-3,3), rand(-16,16),-rand(70,150),rand(-16,16), 0.7,0.6+rand(0.3),1,0.05+rand(0.03)); }
+    if(typeof Audio!=='undefined'&&(!P._jetSoundT||P._jetSoundT<=0)){ try{Audio.blip(220,0.08,'sawtooth',0.05,90);}catch(_){} P._jetSoundT=8; }
+    if(P.boostFuel<=0){ P._jetting=false; if(typeof announce==='function')announce('NO FUEL','#ff4400'); }
+  }
+  if(P._jetSoundT>0)P._jetSoundT--;
   if(Math.hypot(rawX,rawZ)>0.05){ const yaw=CAM.yaw||0; const fx=Math.cos(yaw),fz=Math.sin(yaw); v.x+=( -fz*rawX + fx*-rawZ )*260*dt; v.z+=( fx*rawX + fz*-rawZ )*260*dt; }   // mild air steer
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
   const hx=C.hx-RIDE, hz=C.hz-RIDE;                 // stay inside the walls while falling
   if(P.wx> hx){P.wx=hx;v.x=0;} if(P.wx<-hx){P.wx=-hx;v.x=0;}
   if(P.wz> hz){P.wz=hz;v.z=0;} if(P.wz<-hz){P.wz=-hz;v.z=0;}
-  if(P.py<=RIDE){ P.py=RIDE; v.set(0,0,0); P._cwDislodge=false; if(typeof Audio!=='undefined')Audio.blip(150,0.14,'square',0.22,80); if(typeof ps!=='undefined')ps.ring(P.wx,P.wz,[0.4,1,0.85],8,64); if(typeof addTrauma==='function')addTrauma(0.08); }   // landed -> normal wall-walk resumes (sticks to the floor next frame)
+  const _ceil=(C.h-RIDE); if(P.py> _ceil){ P.py=_ceil; if(v.y>0)v.y=0; }   // don't fly through the ceiling
+  if(P.py<=RIDE && !P._jetting){ P.py=RIDE; v.set(0,0,0); P._cwDislodge=false; if(typeof Audio!=='undefined')Audio.blip(150,0.14,'square',0.22,80); if(typeof ps!=='undefined')ps.ring(P.wx,P.wz,[0.4,1,0.85],8,64); if(typeof addTrauma==='function')addTrauma(0.08); }   // landed on the TRUE floor -> normal wall-walk resumes (sticks to the floor next frame); never land mid-jet
   P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=Math.hypot(v.x,v.z); P._cubeUp=new THREE.Vector3(0,1,0);
   if(typeof _gN!=='undefined') _gN.set(0,1,0);
   if(P.model){ P.model.visible=true; P.model.position.set(P.wx,P.py-RIDE,P.wz);
@@ -17782,7 +17791,7 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   const grounded=(P._cwAir||0)<=0;
   // ── JUMP: tap launches toward the room (along N); gravity pulls back to the wall ──
   if(grounded && P._jumpTapped){ P._jumpTapped=false; v.addScaledVector(N,(window._CUBE_JUMP||300)); P._cwAir=(window._CUBE_AIRT||0.85); if(typeof Audio!=='undefined')Audio.blip(300,0.3,'sine',0.12,500); }
-  if(P._jetting && P.boostFuel>0 && (P._cwAir||0)<=0){ P._cwAir=0.3; }   // JET lift-off: holding jet peels you off the surface into the air
+  if(P._jetting && P.boostFuel>0){ P._cwAir=0; P._cwDislodge=true; if(typeof Audio!=='undefined')Audio.blip(240,0.14,'sawtooth',0.12,120); return _cubeDislodgeFall(P,rawX,rawZ,dt); }   // JETPACK -> break off the surface into FREE FLIGHT; thrust is toward TRUE-world up (handled in the fall controller), not "off the wall"
   if((P._cwAir||0)>0){                              // ── AIRBORNE ──
     if(P._jumpTapped){ P._jumpTapped=false; P._cwAir=0; P._cwDislodge=true; if(typeof Audio!=='undefined')Audio.blip(200,0.18,'sawtooth',0.16,90); return _cubeDislodgeFall(P,rawX,rawZ,dt); }   // 2nd jump mid-air -> dislodge, fall to the floor
     P._cwAir-=dt; P._glGrounded=false;
@@ -21627,13 +21636,15 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
     ud._slamHold=false;
     if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }
     else { const _seq=(window._MELEE_SEQ&&window._MELEE_SEQ.length)?window._MELEE_SEQ:[1,2,3,4,5];
-      if((player._meleeComboT||0)<=0){
-        // FRESH combo -> the right-stick flick DIRECTION picks where in the sequence we start
+      const _fresh=(player._meleeComboT||0)<=0;
+      const _dirChanged=(player._flickStartMelee!=null)&&(player._flickStartMelee!==player._comboAnchor);   // flicked a DIFFERENT direction -> jump straight to that direction's attack
+      if(_fresh || _dirChanged){
         let _ss=0;
         if(player._flickStartMelee!=null){ const _i=_seq.indexOf(player._flickStartMelee); if(_i>=0)_ss=_i; }
         player._meleeStep=_ss;
+        player._comboAnchor=(player._flickStartMelee!=null?player._flickStartMelee:_seq[_ss]);   // remember which direction owns this chain
       } else {
-        player._meleeStep=((player._meleeStep||0)+1)%_seq.length;   // chaining within the window -> continue forward, wrapping back to the start of the order
+        player._meleeStep=((player._meleeStep||0)+1)%_seq.length;   // SAME direction within the window -> continue forward, wrapping
       }
       player._flickStartMelee=null;   // consume so a later tap/cycle doesn't inherit a stale direction
       player._meleeCombo=_seq[player._meleeStep]; }
