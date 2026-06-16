@@ -17137,7 +17137,72 @@ function updateRLArena(dt){ /* camera+physics handled in player._rlArenaMove; pa
 // Piece 1: shell geometry + "stay inside" containment. Wall-run / boots / ball come next.
 let _cubeGroup=null;
 const _CUBE={hx:560, hz:560, h:900, cham:130};
-function _disposeCubeArena(){ if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
+function _disposeCubeArena(){ if(typeof _disposeCubeBall==='function')_disposeCubeBall(); if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
+// ════════ ROCKET-LEAGUE BALL — floaty sphere you knock around with the character collider (and melee) ════════
+let _cubeBall=null;
+function _disposeCubeBall(){ if(_cubeBall){ if(_cubeBall.grp){ scene.remove(_cubeBall.grp); _cubeBall.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } _cubeBall=null; } }
+function _spawnCubeBall(){
+  _disposeCubeBall();
+  const R=(window._BALL_R||52), C=window._CUBE||_CUBE;
+  const grp=new THREE.Group();
+  grp.add(new THREE.Mesh(new THREE.SphereGeometry(R,28,20), new THREE.MeshStandardMaterial({color:0x0b1c24,emissive:0x0c3a4a,emissiveIntensity:0.55,roughness:0.3,metalness:0.45,transparent:true,opacity:0.92})));
+  const wire=new THREE.Mesh(new THREE.IcosahedronGeometry(R*1.02,1), new THREE.MeshBasicMaterial({color:0x39ffe0,wireframe:true,transparent:true,opacity:0.75,blending:THREE.AdditiveBlending,depthWrite:false})); grp.add(wire);
+  grp.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.2,18,14), new THREE.MeshBasicMaterial({color:0x33e0ff,transparent:true,opacity:0.12,blending:THREE.AdditiveBlending,depthWrite:false})));
+  grp.position.set(0,C.h*0.5,0); scene.add(grp);
+  _cubeBall={ grp, wire, R, pos:new THREE.Vector3(0,C.h*0.5,0), vel:new THREE.Vector3(0,0,0), spin:new THREE.Vector3(rand(-1.5,1.5),rand(-1.5,1.5),rand(-1.5,1.5)), hitCd:0 };
+}
+function _ballKnockFromBox(b, box, halfW, halfH, halfD, vBoxX, vBoxY, vBoxZ, boost){
+  const inv=box.quaternion.clone().invert();
+  const local=b.pos.clone().sub(box.position).applyQuaternion(inv);
+  const cl=new THREE.Vector3(Math.max(-halfW,Math.min(halfW,local.x)),Math.max(-halfH,Math.min(halfH,local.y)),Math.max(-halfD,Math.min(halfD,local.z)));
+  const delta=local.clone().sub(cl); let dist=delta.length();
+  if(dist>=b.R) return false;
+  let nLocal;
+  if(dist>1e-4){ nLocal=delta.multiplyScalar(1/dist); }
+  else { const px=halfW-Math.abs(local.x),py=halfH-Math.abs(local.y),pz=halfD-Math.abs(local.z);
+    nLocal=(px<=py&&px<=pz)?new THREE.Vector3(Math.sign(local.x)||1,0,0):(py<=pz)?new THREE.Vector3(0,Math.sign(local.y)||1,0):new THREE.Vector3(0,0,Math.sign(local.z)||1); dist=0; }
+  const nWorld=nLocal.applyQuaternion(box.quaternion).normalize();
+  b.pos.addScaledVector(nWorld,(b.R-dist)+1);
+  const pv=new THREE.Vector3(vBoxX||0,vBoxY||0,vBoxZ||0), pspeed=pv.length(), along=Math.max(0,pv.dot(nWorld));
+  const KN=(window._BALL_KNOCK||1.6)*(boost||1);
+  b.vel.addScaledVector(nWorld,(150+pspeed*0.9+along*0.7)*KN);
+  b.vel.addScaledVector(pv,0.45);
+  if(b.vel.length()>2400)b.vel.setLength(2400);
+  if(typeof ps!=='undefined'){ for(let k=0;k<10;k++){ const a=Math.random()*6.28,sp=rand(40,120); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(-30,80),Math.sin(a)*sp,0.2,1,0.9,0.4); } }
+  if(typeof Audio!=='undefined'){try{Audio.blip(240,0.1,'square',0.22,120);}catch(_){}}
+  if(typeof addTrauma==='function')addTrauma(0.06);
+  return true;
+}
+function _ballHitPlayer(b){
+  if(!player||!player._dbgBox||b.hitCd>0) return;
+  const _mh=player._modelH||60, W=window._COLLIDER_W||_mh*(window._COLLIDER_WR||0.4), H=window._COLLIDER_H||_mh, D=window._COLLIDER_D||_mh*(window._COLLIDER_DR||0.4);
+  const ud=player.model&&player.model.userData, melee=!!(ud&&ud._meleeTimer&&ud._meleeTimer>0);
+  if(_ballKnockFromBox(b, player._dbgBox, W/2,H/2,D/2, player.vx, player.pvy, player.vz, melee?(window._BALL_MELEE_BOOST||2.4):1)){ b.hitCd=0.12; }
+}
+function _updateCubeBall(dt){
+  if(GS.zone!==-19) return;
+  if(!_cubeBall){ _spawnCubeBall(); return; }
+  const b=_cubeBall, R=b.R, dtc=Math.min(dt,0.033);
+  if(b.hitCd>0)b.hitCd-=dtc;
+  const GRAV=(window._BALL_GRAV||520), DRAGr=(window._BALL_DRAG||0.55), REST=(window._BALL_REST||0.72);
+  b.vel.y-=GRAV*dtc;
+  b.vel.multiplyScalar(Math.pow(DRAGr,dtc));     // floaty air drag (per-second retention)
+  b.pos.addScaledVector(b.vel,dtc);
+  const d=_cubeSDF(b.pos.x,b.pos.y,b.pos.z);     // interior shell collision
+  if(d>-R){
+    const N=new THREE.Vector3(); _cubeGrad(b.pos.x,b.pos.y,b.pos.z,N);
+    b.pos.addScaledVector(N,-(d+R));
+    const vn=b.vel.dot(N);
+    if(vn>0){ b.vel.addScaledVector(N,-(1+REST)*vn); b.vel.multiplyScalar(0.94);
+      if(typeof Audio!=='undefined'&&Math.abs(vn)>140){try{Audio.blip(150,0.07,'sine',0.12,80);}catch(_){}}
+      if(typeof ps!=='undefined'&&Math.abs(vn)>180){ for(let k=0;k<6;k++){ const a=Math.random()*6.28,sp=rand(20,70); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(0,50),Math.sin(a)*sp,0.2,0.9,1,0.35); } }
+    }
+  }
+  _ballHitPlayer(b);
+  b.grp.position.copy(b.pos);
+  b.wire.rotation.x+=b.spin.x*dtc; b.wire.rotation.y+=b.spin.y*dtc; b.wire.rotation.z+=b.spin.z*dtc;
+}
+window._resetBall=function(){ if(_cubeBall){ const C=window._CUBE||_CUBE; _cubeBall.pos.set(0,C.h*0.5,0); _cubeBall.vel.set(0,0,0); } };
 function buildCubeArena(){
   _disposeCubeArena();
   const C=Object.assign(_CUBE, window._CUBE||{}); window._CUBE=C;
@@ -17191,6 +17256,7 @@ function buildCubeArena(){
 }
 function updateCubeArena(dt){
   if(GS.zone!==-19 || !player) return;
+  if(typeof _updateCubeBall==='function') _updateCubeBall(dt);   // ball runs in BOTH normal & wall-walk modes
   if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
   if(player._cwSetGrav){ player._inPlanetGravity=false; player._glGrounded=false; player._cwAir=0; player._cwSetGrav=false; }   // left wall-walk -> restore normal gravity/anim
   const C=window._CUBE||_CUBE; const pad=(window._CUBE_PAD!=null?window._CUBE_PAD:22); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9);
