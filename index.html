@@ -2337,7 +2337,7 @@ function _applyRobotModel(player, gltf, skinGltf){
     const name=raw.split('|').pop().split(':').pop();   // strip "Armature|idle" / "rig:idle" -> "idle"
     if(raw==='CINEMA_4D_Main'||name.toLowerCase()==='main') return; // skip default/NLA take
     const action=mixer.clipAction(isAlien?_filterClipToScene(clip,robotScene):clip);
-    const isOneShot=['landing','dive_roll','roll','dash','dive'].some(n=>name.includes(n));
+    const isOneShot=['landing','dive_roll','roll','dash','dive','flip_','throw_bomb','throw','roll_landing'].some(n=>name.includes(n));
     if(isOneShot){
       action.setLoop(THREE.LoopOnce,1);
       action.clampWhenFinished=true;
@@ -8553,6 +8553,7 @@ class Player{
 
   _throwBomb(dirX,dirZ,power){
     if(!this.bombArmed)return;
+    this._throwAnimPending=true;   // play the throw_bomb clip (covers bombs, items, allies, crates — all route through here)
     if(this._inPlanetGravity && this._bombLaunchVel){          // ON A BUILDING: launch in the surface frame (down-stick = down the wall), not world axes
       const v=this._bombLaunchVel, sp=this._bombSpawn||{x:this.wx,y:this.py+40,z:this.wz};
       const thrown=!!this._stickWasPushed;
@@ -14275,7 +14276,8 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
                 const _fwx=svx*_fcy+svy*_fsy, _fwz=-svx*_fsy+svy*_fcy, _dl=Math.hypot(_fwx,_fwz)||1;
                 if(player._inPlanetGravity){ player._wallDashRaw=[svx,svy]; player._cwDashT=(window._CUBE_DASH_T||0.18); }
                 player._dashDir=[_fwx/_dl,_fwz/_dl]; player._dashRamp=10; player._dashPeak=MOVE.topSpeed*3.4;
-                player._diveRollDir=[_fwx/_dl,_fwz/_dl];   // play the dive-roll animation clip with the dash
+                player._diveRollDir=[_fwx/_dl,_fwz/_dl];   // play the flip/dive-roll animation clip with the dash
+                { const _ax=Math.abs(svx),_ay=Math.abs(svy); player._flipAnimName=(_ay>=_ax)?(svy<0?'flip_forward':'flip_backward'):(svx<0?'flip_left':'flip_right'); }   // flick up=fwd, down=back, left/right=side flip
                 if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0,0.85,1],10,80); if(typeof grid!=='undefined')grid.push(player.wx,player.wz,-2,50);
                 if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(440,0.08,'sine',0.15,880);
               }
@@ -14962,7 +14964,8 @@ function loop(ts){ requestAnimationFrame(loop);
           player._diveRollDir=null;
           // Force aim to dash direction so roll faces correctly on desktop too
           player.aim=Math.atan2(dir[1],dir[0]);
-          const rollClip=ud.clips['dive_roll']||ud.clips['roll']||ud.clips['dash']||ud.clips['dive']
+          const _flipName=player._flipAnimName; player._flipAnimName=null;
+          const rollClip=(_flipName&&ud.clips[_flipName])||ud.clips['dive_roll']||ud.clips['roll']||ud.clips['dash']||ud.clips['dive']
             ||ud.clips['strafe_roll']||ud.clips['dodge'];
           if(rollClip){
             const rollName=Object.keys(ud.clips).find(k=>ud.clips[k]===rollClip)||'roll';
@@ -14999,6 +15002,23 @@ function loop(ts){ requestAnimationFrame(loop);
               console.log('[Robits] Available clips:', Object.keys(ud.clips).join(', '));
               ud._loggedClips=true;
             }
+          }
+        }
+
+        // ── THROW BOMB / ITEM animation — quick full-body one-shot, fades back to locomotion ──
+        if(player._throwAnimPending && ud.clips){
+          player._throwAnimPending=false;
+          const tc=ud.clips['throw_bomb']||ud.clips['throw'];
+          if(tc && !(ud._rollingTimer>0)){
+            const tname=Object.keys(ud.clips).find(k=>ud.clips[k]===tc)||'throw_bomb';
+            const tdur=((tc._clip&&tc._clip.duration)||0.5)/1.15;
+            tc.reset(); tc.setEffectiveWeight(1); tc.setEffectiveTimeScale(1.15); tc.setLoop(THREE.LoopOnce,1); tc.clampWhenFinished=true; tc.play();
+            Object.values(ud.clips).forEach(a=>{ if(a!==tc){ a.stop(); a.setEffectiveWeight(0); } });
+            ud.currentClip=tname; ud._rollingTimer=tdur;
+            setTimeout(()=>{ if(!player||!ud.clips)return; ud._rollingTimer=0; ud.currentClip='_post_throw';
+              const back=ud.clips['idle']||Object.values(ud.clips)[0];
+              if(back){ Object.values(ud.clips).forEach(a=>a.fadeOut(0.12)); if(!back.isRunning())back.reset(); back.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.12).play(); }
+            }, tdur*1000);
           }
         }
 
