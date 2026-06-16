@@ -9617,7 +9617,7 @@ class Player{
     }
     // ── FLIP RIG (Rocket League): code-driven somersaults / barrel rolls. Rotates around the HIPS (not the feet origin) so flips stay balanced; the box collider shares that pivot + spans the whole body. ──
     if(this.model){
-      const _mh=(window._MODEL_H!=null?window._MODEL_H:72); this._modelH=_mh;   // fixed sane height (bbox auto-measure picked up an attached far object and blew the box up to level-size); tune via window._MODEL_H
+      const _mh=(window._MODEL_H!=null?window._MODEL_H:42); this._modelH=_mh;   // fixed sane height (bbox auto-measure picked up an attached far object and blew the box up to level-size); tune via window._MODEL_H
       this._flipPivotY=_mh*(window._FLIP_PIVOT_FRAC!=null?window._FLIP_PIVOT_FRAC:0.5);   // hip height above the feet origin
       if(this._flip){
         const f=this._flip; f.t+=0.016;
@@ -9637,7 +9637,7 @@ class Player{
       const _mh=this._modelH||60, hipY=shipY+(this._flipPivotY||_mh*0.5);
       if(!this._dbgBox || this._dbgBoxH!==_mh){
         if(this._dbgBox){ scene.remove(this._dbgBox); if(this._dbgBox.geometry)this._dbgBox.geometry.dispose(); }
-        const H=window._COLLIDER_H||_mh, W=window._COLLIDER_W||H*(window._COLLIDER_WR||0.45), D=window._COLLIDER_D||H*(window._COLLIDER_DR||0.45);
+        const H=window._COLLIDER_H||_mh, W=window._COLLIDER_W||H*(window._COLLIDER_WR||0.4), D=window._COLLIDER_D||H*(window._COLLIDER_DR||0.4);
         const geo=new THREE.BoxGeometry(W,H,D);
         this._dbgBox=new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:0x00ff88,depthTest:false,transparent:true,opacity:0.85}));
         this._dbgBox.renderOrder=998; this._dbgBox.frustumCulled=false; this._dbgBoxH=_mh; try{scene.add(this._dbgBox);}catch(_){}
@@ -17141,6 +17141,7 @@ function buildCubeArena(){
 function updateCubeArena(dt){
   if(GS.zone!==-19 || !player) return;
   if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
+  if(player._cwSetGrav){ player._inPlanetGravity=false; player._glGrounded=false; player._cwAir=0; player._cwSetGrav=false; }   // left wall-walk -> restore normal gravity/anim
   const C=window._CUBE||_CUBE; const pad=(window._CUBE_PAD!=null?window._CUBE_PAD:22); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9);
   // rounded-rectangle clamp in XZ (rounds the 4 vertical corners with radius ch)
   const ixr=C.hx-ch, izr=C.hz-ch;
@@ -17161,22 +17162,41 @@ function _cubeGrad(x,y,z,out){ const e=1.5, d=_cubeSDF(x,y,z); out.set(_cubeSDF(
 const _cwN=new THREE.Vector3(), _cwUp=new THREE.Vector3(), _cwF=new THREE.Vector3(), _cwR=new THREE.Vector3(), _cwV=new THREE.Vector3();
 function _cubeWalkMove(P,rawX,rawZ,dt){
   dt=Math.min(dt,0.033);
+  // Reuse the planet-gravity grounded path: this makes the anim picker show run/idle (not 'floating') and routes taps into _jumpTapped.
+  P._inPlanetGravity=true; P._cwSetGrav=true; P._onPlatform=false;
   _cubeGrad(P.wx,P.py,P.wz,_cwN); _cwUp.copy(_cwN).multiplyScalar(-1);   // up = into the room
   // camera-relative tangent frame
   _cwF.set(Math.cos(CAM.yaw||0),0,Math.sin(CAM.yaw||0)); _cwF.addScaledVector(_cwUp,-_cwF.dot(_cwUp));
   if(_cwF.lengthSq()<1e-4){ _cwF.set(0,0,1).addScaledVector(_cwUp,-_cwUp.z); } _cwF.normalize();
   _cwR.crossVectors(_cwUp,_cwF).normalize();
-  _cwV.set(P.vx||0,P.pvy||0,P.vz||0); _cwV.addScaledVector(_cwN,-_cwV.dot(_cwN));   // keep velocity tangent
+  _cwV.set(P.vx||0,P.pvy||0,P.vz||0);
   const inMag=Math.hypot(rawX,rawZ), ACC=(window._CUBE_ACC||1200), MAXS=(window._CUBE_MAXS||470);
-  if(inMag>0.06){ const dx=_cwR.x*rawX-_cwF.x*rawZ, dy=_cwR.y*rawX-_cwF.y*rawZ, dz=_cwR.z*rawX-_cwF.z*rawZ; const dl=Math.hypot(dx,dy,dz);
+  const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
+  // ── JUMP: tap launches off the surface along its up; air timer suspends the stick so you arc ──
+  if(P._jumpTapped && (P._cwAir||0)<=0){ P._jumpTapped=false; _cwV.addScaledVector(_cwUp,(window._CUBE_JUMP||300)); P._cwAir=(window._CUBE_AIRT||0.85); if(typeof Audio!=='undefined')Audio.blip(520,0.06,'square',0.12,720); }
+  if((P._cwAir||0)>0){                                   // ── AIRBORNE: gravity pulls back toward the surface, tangent air-control ──
+    P._cwAir-=dt; P._glGrounded=false;
+    _cwV.addScaledVector(_cwN,(window._CUBE_GRAV||560)*dt);   // gravity = toward the surface (along outward normal)
+    if(inMag>0.06){ const dx=_cwR.x*rawX-_cwF.x*rawZ, dy=_cwR.y*rawX-_cwF.y*rawZ, dz=_cwR.z*rawX-_cwF.z*rawZ, dl=Math.hypot(dx,dy,dz);
+      if(dl>1e-4){ _cwV.x+=dx/dl*ACC*0.5*Math.min(1,inMag)*dt; _cwV.y+=dy/dl*ACC*0.5*Math.min(1,inMag)*dt; _cwV.z+=dz/dl*ACC*0.5*Math.min(1,inMag)*dt; P._cwFace=Math.atan2(dz,dx); P._cwFaceV=new THREE.Vector3(dx/dl,dy/dl,dz/dl); } }
+    if(_cwV.length()>MAXS*1.4)_cwV.setLength(MAXS*1.4);
+    P.wx+=_cwV.x*dt; P.py+=_cwV.y*dt; P.wz+=_cwV.z*dt;
+    const d=_cubeSDF(P.wx,P.py,P.wz);
+    P.vx=_cwV.x; P.pvy=_cwV.y; P.vz=_cwV.z; P._galSpeed=_cwV.length(); P._cubeUp=_cwN.clone().multiplyScalar(-1);
+    if(d>=-RIDE && _cwV.dot(_cwN)>=0){ P._cwAir=0; }   // came back down to ride height while descending -> land (fall through to grounded snap)
+    else return;
+  }
+  // ── GROUNDED: stick to the surface ──
+  P._glGrounded=true;
+  _cwV.addScaledVector(_cwN,-_cwV.dot(_cwN));   // keep velocity tangent
+  if(inMag>0.06){ const dx=_cwR.x*rawX-_cwF.x*rawZ, dy=_cwR.y*rawX-_cwF.y*rawZ, dz=_cwR.z*rawX-_cwF.z*rawZ, dl=Math.hypot(dx,dy,dz);
     if(dl>1e-4){ _cwV.x+=dx/dl*ACC*Math.min(1,inMag)*dt; _cwV.y+=dy/dl*ACC*Math.min(1,inMag)*dt; _cwV.z+=dz/dl*ACC*Math.min(1,inMag)*dt; P._cwFace=Math.atan2(dz,dx); P._cwFaceV=new THREE.Vector3(dx/dl,dy/dl,dz/dl); } }
   _cwV.multiplyScalar(Math.pow(0.84,dt*60));
   if(_cwV.length()>MAXS)_cwV.setLength(MAXS);
   P.wx+=_cwV.x*dt; P.py+=_cwV.y*dt; P.wz+=_cwV.z*dt;
-  // snap to surface ride-height
-  _cubeGrad(P.wx,P.py,P.wz,_cwN); const d=_cubeSDF(P.wx,P.py,P.wz), RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14), corr=d+RIDE;
+  _cubeGrad(P.wx,P.py,P.wz,_cwN); const d2=_cubeSDF(P.wx,P.py,P.wz), corr=d2+RIDE;
   P.wx-=_cwN.x*corr; P.py-=_cwN.y*corr; P.wz-=_cwN.z*corr;
-  P.vx=_cwV.x; P.pvy=_cwV.y; P.vz=_cwV.z; P._galSpeed=_cwV.length(); P._glGrounded=true;
+  P.vx=_cwV.x; P.pvy=_cwV.y; P.vz=_cwV.z; P._galSpeed=_cwV.length();
   P._cubeUp=_cwN.clone().multiplyScalar(-1);
 }
 function _cubeWalkOrient(P){   // surface-aligned model orientation (called from draw)
@@ -17187,7 +17207,8 @@ function _cubeWalkOrient(P){   // surface-aligned model orientation (called from
   const m=new THREE.Matrix4().makeBasis(right,up,fwd);
   P.model.quaternion.setFromRotationMatrix(m);
   if(window._CUBE_FACE_OFF) P.model.rotateY(window._CUBE_FACE_OFF);
-  P.model.position.set(P.wx,P.py,P.wz);
+  const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
+  P.model.position.set(P.wx-up.x*RIDE, P.py-up.y*RIDE, P.wz-up.z*RIDE);   // drop feet from body-center down onto the surface
 }
 function _cubeWalkCamera(dt){
   const P=player; if(!P||!P._cubeUp)return;
