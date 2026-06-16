@@ -8674,7 +8674,7 @@ class Player{
     if(!this._trajDots){ const g=new THREE.SphereGeometry(2,5,4); this._trajDots=[]; for(let i=0;i<28;i++){ const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0xff8800,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false})); scene.add(m); this._trajDots.push(m); } }
     // launch in the SURFACE frame: tangential part = where the stick points along the wall, plus a kick straight out along the normal
     const _isCube=(GS.zone===-19);
-    const tanSpeed=90+Math.min(1,mag)*250, outSpeed=_isCube?(window._BOMB_CUBE_LOB||210):16;   // CUBE: big pop off the surface -> real arc; city keeps the small kick that hugs the wall orbit
+    const tanSpeed=(window._BOMB_SURF_BASE||30)+Math.min(1,mag)*Math.min(1,mag)*(window._BOMB_SURF_SPAN||360), outSpeed=_isCube?(window._BOMB_CUBE_LOB||210):16;   // CUBE: distance scales from a low floor with how hard you push (quadratic) — matches the no-boots throw; pop off the surface for a real arc
     let lvx,lvy,lvz;
     if(td){ lvx=td.x*tanSpeed+N.x*outSpeed; lvy=td.y*tanSpeed+N.y*outSpeed; lvz=td.z*tanSpeed+N.z*outSpeed; }
     else if(_isCube){ lvx=N.x*outSpeed; lvy=N.y*outSpeed; lvz=N.z*outSpeed; }   // no aim in the cube -> still pop straight off the surface so it arcs back, not a dead drop
@@ -17177,7 +17177,7 @@ function _spawnCubeBall(){
 
   // ── glossy white shell ──
   core.add(new THREE.Mesh(new THREE.SphereGeometry(R,44,30),
-    new THREE.MeshStandardMaterial({color:0xeef3f6, metalness:0.55, roughness:0.26, emissive:0x16313c, emissiveIntensity:0.35})));
+    new THREE.MeshStandardMaterial({color:0xeef3f6, metalness:0.55, roughness:0.26, emissive:0x1f5066, emissiveIntensity:0.55})));
 
   // ── panel grooves: metallic great-circle seams + faint division lines ──
   const seamMat=new THREE.MeshStandardMaterial({color:0xa9bcc8, metalness:0.75, roughness:0.38, emissive:0x0c1a22, emissiveIntensity:0.3});
@@ -17194,7 +17194,7 @@ function _spawnCubeBall(){
   const runlights=[];
   for(let i=0;i<14;i++){ const a=i/14*Math.PI*2; const dot=new THREE.Mesh(new THREE.SphereGeometry(R*0.05,10,8), new THREE.MeshBasicMaterial({color:GLOW,blending:THREE.AdditiveBlending,transparent:true,opacity:0.95,depthWrite:false})); dot.position.set(Math.cos(a)*R*1.01,0,Math.sin(a)*R*1.01); core.add(dot); runlights.push(dot); }
   // point light so the ball lights its surroundings and reads as a glowing object
-  const ballLight=new THREE.PointLight(GLOW, 1.4, R*10, 2); grp.add(ballLight);
+  const ballLight=new THREE.PointLight(GLOW, 2.0, R*12, 2); grp.add(ballLight);
 
   // ── glowing lens module (bezel + ring + bright center + halo + spokes), oriented to face `dir` ──
   const lens=(dir,scale)=>{
@@ -17220,6 +17220,32 @@ function _spawnCubeBall(){
   // a couple of accent pips
   for(const pd of [new THREE.Vector3(-0.8,0.3,0.5), new THREE.Vector3(0.2,-0.9,0.3)]){ const n=pd.normalize();
     const pip=new THREE.Mesh(new THREE.SphereGeometry(R*0.05,12,8), new THREE.MeshBasicMaterial({color:GLOW,blending:THREE.AdditiveBlending,transparent:true,opacity:0.9,depthWrite:false})); pip.position.copy(n).multiplyScalar(R*0.97); core.add(pip); }
+
+  // ════ EXTRA MACHINERY — bolt rings, raised panel plates w/ glowing trim, antennae, a 3rd lens, and a rim halo so it READS ════
+  const greebMat=new THREE.MeshStandardMaterial({color:0x8fa6b4, metalness:0.85, roughness:0.34, emissive:0x0c1c26, emissiveIntensity:0.5});
+  const glowStrip=new THREE.MeshBasicMaterial({color:GLOW, blending:THREE.AdditiveBlending, transparent:true, opacity:0.95, depthWrite:false});
+  const _UP=new THREE.Vector3(0,1,0), _FWD=new THREE.Vector3(0,0,1);
+  // bolt rings hugging three seams
+  for(const ax of [new THREE.Vector3(0,1,0), new THREE.Vector3(1,0,0), new THREE.Vector3(0.5,0.3,1).normalize()]){
+    const q=new THREE.Quaternion().setFromUnitVectors(_UP,ax);
+    for(let i=0;i<12;i++){ const a=i/12*Math.PI*2; const bolt=new THREE.Mesh(new THREE.CylinderGeometry(R*0.022,R*0.022,R*0.06,6), greebMat);
+      bolt.position.set(Math.cos(a)*R*0.99,0,Math.sin(a)*R*0.99).applyQuaternion(q);
+      bolt.quaternion.copy(q); bolt.rotateX(Math.PI/2); core.add(bolt); } }
+  // raised panel plates with glowing edge trim scattered over the shell
+  for(const pd of [[0.6,0.7,0.4],[-0.5,0.4,-0.7],[0.2,-0.7,0.6],[-0.7,-0.3,0.5],[0.85,-0.15,-0.4],[-0.3,0.8,0.5]]){
+    const n=new THREE.Vector3(pd[0],pd[1],pd[2]).normalize(), q=new THREE.Quaternion().setFromUnitVectors(_FWD,n);
+    const plate=new THREE.Mesh(new THREE.BoxGeometry(R*0.34,R*0.24,R*0.05), greebMat); plate.quaternion.copy(q); plate.position.copy(n).multiplyScalar(R*0.95); core.add(plate);
+    const trim=new THREE.Mesh(new THREE.RingGeometry(R*0.14,R*0.175,4), glowStrip); trim.quaternion.copy(q); trim.rotateZ(Math.PI/4); trim.position.copy(n).multiplyScalar(R*0.99); core.add(trim); }
+  // glowing vent slats sweeping off a side
+  { const vd=new THREE.Vector3(0.9,0.2,-0.35).normalize(), q=new THREE.Quaternion().setFromUnitVectors(_FWD,vd);
+    for(let i=0;i<4;i++){ const slat=new THREE.Mesh(new THREE.BoxGeometry(R*0.4-i*R*0.06,R*0.03,R*0.08), glowStrip); slat.quaternion.copy(q); slat.position.copy(vd).multiplyScalar(R*0.97); slat.translateY(-R*0.14+i*R*0.095); core.add(slat); } }
+  // stubby antennae with glowing tips
+  for(const ad of [[0.3,0.95,0.1],[-0.2,0.88,-0.4]]){ const n=new THREE.Vector3(ad[0],ad[1],ad[2]).normalize(), q=new THREE.Quaternion().setFromUnitVectors(_UP,n);
+    const ant=new THREE.Mesh(new THREE.CylinderGeometry(R*0.014,R*0.03,R*0.42,6), greebMat); ant.quaternion.copy(q); ant.position.copy(n).multiplyScalar(R*1.12); core.add(ant);
+    const tip=new THREE.Mesh(new THREE.SphereGeometry(R*0.055,10,8), glowStrip); tip.position.copy(n).multiplyScalar(R*1.34); core.add(tip); runlights.push(tip); }
+  lens(new THREE.Vector3(-0.55,-0.2,-0.9), 0.5);   // third lens eye on the back
+  // rim halo — glowing silhouette so the ball reads from across the arena
+  grp.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.14,32,24), new THREE.MeshBasicMaterial({color:GLOW, transparent:true, opacity:0.18, blending:THREE.AdditiveBlending, side:THREE.BackSide, depthWrite:false})));
 
   grp.position.set(0,C.h*0.5,0); scene.add(grp);
   _cubeBall={ grp, wire:core, R, runlights, light:ballLight, pos:new THREE.Vector3(0,C.h*0.5,0), vel:new THREE.Vector3(0,0,0), spin:new THREE.Vector3(rand(-0.7,0.7),rand(-0.7,0.7),rand(-0.7,0.7)), hitCd:0 };
@@ -17248,6 +17274,8 @@ function _ballKnockFromBox(b, box, halfW, halfH, halfD, vBoxX, vBoxY, vBoxZ, boo
 }
 function _ballHitPlayer(b, dt){
   if(!player||b.hitCd>0) return;
+  // While a MELEE swing is playing, switch the body collider OFF so the blade TIP lands the hit instead of the body bumping the ball away first.
+  { const _ud=player.model&&player.model.userData; if(_ud && _ud._meleeTimer>0 && window._BALL_BODY_DURING_MELEE!==true) return; }
   // ROBUST body-vs-ball (sphere on the player's ACTUAL position+velocity) so simply RUNNING into the ball knocks it — not only mid-animation.
   const up=player._cubeUp||new THREE.Vector3(0,1,0);
   const bodyC=new THREE.Vector3(player.wx,player.py,player.wz).addScaledVector(up,(window._BALL_BODY_UP||18));
@@ -17306,7 +17334,7 @@ function _updateCubeBall(dt){
   // ── glow life: pulse the rim light, chase the running lights, flare brighter the faster it's moving + on a hit ──
   { if(b._hitFlash>0)b._hitFlash-=dtc; const hf=Math.max(0,b._hitFlash||0);
     const tt=performance.now()*0.001, spd=b.vel.length();
-    if(b.light){ b.light.intensity=1.2+0.4*Math.sin(tt*3)+Math.min(1.6,spd/600)+hf*22; }
+    if(b.light){ b.light.intensity=1.9+0.5*Math.sin(tt*3)+Math.min(1.8,spd/600)+hf*22; }
     if(b.runlights){ const fl=Math.min(1,hf*6); for(let i=0;i<b.runlights.length;i++){ const ph=(tt*2.2 - i*0.5); b.runlights[i].material.opacity=Math.min(1,0.45+0.5*(0.5+0.5*Math.sin(ph))+fl); } }
   }
   _updateBallFX(dtc);
@@ -17413,8 +17441,8 @@ function _updateWeaponCollider(dt){
           const tipVel=seg.clone().multiplyScalar(1/Math.max(dt,0.001));               // swept tip velocity gives direction; speed is only a mild factor
           let n=_cubeBall.pos.clone().sub(closest); if(n.lengthSq()<1e-4)n.copy(tipVel); n.normalize();
           const along=Math.max(0,tipVel.dot(n));
-          let force=((window._BALL_WPN_BASE||300)+along*(window._BALL_TIP_VFAC||0.18))*(window._BALL_KNOCK||1.0)*(window._BALL_WPN_BOOST||1.0);
-          force=Math.min(force, window._BALL_WPN_MAX||820);                             // hard cap so a fast tip doesn't launch it at the 2800 ceiling
+          let force=((window._BALL_WPN_BASE||440)+along*(window._BALL_TIP_VFAC||0.22))*(window._BALL_KNOCK||1.0)*(window._BALL_WPN_BOOST||1.0);
+          force=Math.min(force, window._BALL_WPN_MAX||1150);                             // hard cap so a fast tip doesn't launch it at the 2800 ceiling
           _cubeBall.pos.addScaledVector(n, Math.max(0,_cubeBall.R+(window._BALL_TIP_R||12)-dd));
           _cubeBall.vel.set(0,0,0).addScaledVector(n,force);                            // SET (not add) so repeated swings don't stack into the cap
           _cubeBall.hitCd=0.14;
