@@ -573,6 +573,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
     <button onclick="window._cityMode='grid';startGameAtLevel(-16)" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#39ffc9;background:rgba(57,255,201,0.06);border:1.5px solid #39ffc955;border-radius:8px;cursor:pointer">CITY MAP — street-grid layout (perf test)</button>
     <button onclick="window._cityGoto&&window._cityGoto()" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#ffd24a;background:rgba(255,210,74,0.06);border:1.5px solid #ffd24a55;border-radius:8px;cursor:pointer">CITY FROM MAP — real OSM footprints (live web)</button>
     <button onclick="startGameAtLevel(-17)" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#ff7df0;background:rgba(255,125,240,0.06);border:1.5px solid #ff7df055;border-radius:8px;cursor:pointer">SOUND REACTIVE — music visualizer sandbox</button>
+    <button onclick="startGameAtLevel(-19)" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#ff7a3a;background:rgba(255,122,58,0.06);border:1.5px solid #ff7a3a55;border-radius:8px;cursor:pointer">CUBE ARENA — Rocket League sandbox</button>
     </div><!-- /ls-vault -->
     <button onclick="window._showScreen('character')" style="margin-top:20px;font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:4px;color:#ffffff33;background:none;border:none;cursor:pointer"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:7px"><path d="M15 5 8 12l7 7"/></svg>BACK</button>
   </div>
@@ -9610,6 +9611,28 @@ class Player{
       this.model.rotation.y=-this.aim+Math.PI/2;
       this.model.rotation.z=clamp(-this.pvy*0.0016,-0.35,0.35);
     }
+    // ── FLIP RIG (Rocket League style): code-driven somersaults / barrel rolls from left-stick flicks. The whole oriented body (and its debug box collider) tumbles; a full 360 ends upright. ──
+    if(this._flip){
+      const f=this._flip; f.t+=0.016;
+      const k=Math.min(1,f.t/f.dur), e=k*k*(3-2*k);            // smoothstep ease
+      const ang=f.turns*Math.PI*2*e;
+      if(!this._flipQ) this._flipQ=new THREE.Quaternion();
+      this._flipQ.setFromAxisAngle(f.axis, ang);
+      this.model.quaternion.multiply(this._flipQ);             // local-space flip on top of facing
+      if(k>=1) this._flip=null;                                // done -> back to upright next frame
+    }
+    if(window._showCollider!==false && this.model){
+      const shipY2=9+this.py+((this.model.userData.isRobot||this.py>1)?0:Math.sin(performance.now()*0.003)*1.5);
+      if(!this._dbgBox){
+        const w=window._COLLIDER_W||22, h=window._COLLIDER_H||14, d=window._COLLIDER_D||30;
+        const geo=new THREE.BoxGeometry(w,h,d);
+        this._dbgBox=new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:0x00ff88,depthTest:false,transparent:true,opacity:0.85}));
+        this._dbgBox.renderOrder=998; this._dbgBox.frustumCulled=false; try{scene.add(this._dbgBox);}catch(_){}
+      }
+      this._dbgBox.visible=true;
+      this._dbgBox.position.set(this.wx, shipY2+(window._COLLIDER_YOFF||8), this.wz);
+      this._dbgBox.quaternion.copy(this.model.quaternion);     // collider tumbles with the flip
+    } else if(this._dbgBox){ this._dbgBox.visible=false; }
     if(this._respawnBlink>0){
       this._respawnBlink--;
       this.model.visible=true;   // no more blinking — show a stylized spawn-protection aura instead
@@ -11597,7 +11620,7 @@ function startGame(levelIdx){
   // Build puzzle level for zone 0
   GS._puzzlePassed=false; GS._puzzleGate=null;
   { const _sv=(GS.zone===-13)?'flex':'none'; ['rl-boost-btn','rl-cam-btn'].forEach(id=>{const e=document.getElementById(id); if(e)e.style.display=_sv;}); }
-  _disposeRLArena(); _disposeRopeZone(); if(typeof _disposeCustomLevel==='function')_disposeCustomLevel(); if(typeof _disposeBarrels==='function')_disposeBarrels();
+  _disposeRLArena(); _disposeRopeZone(); if(typeof _disposeCubeArena==="function")_disposeCubeArena(); if(typeof _disposeCustomLevel==='function')_disposeCustomLevel(); if(typeof _disposeBarrels==='function')_disposeBarrels();
   if(GS.zone===-1){ buildTutorial(); }
   else if(GS.zone===-2){ buildTrainingRoom(); }
   else if(GS.zone===-3){ buildPuzzleLab(); }
@@ -11616,6 +11639,7 @@ function startGame(levelIdx){
   else if(GS.zone===-16){ buildCityTest(); }
   else if(GS.zone===-17){ buildSoundRoom(); }
   else if(GS.zone===-18){ buildCustomLevel(); }
+  else if(GS.zone===-19){ buildCubeArena(); }
   else if(GS.zone===0){ if(GS.survival) spawnWave(); else buildZone1Puzzle(); }
   else spawnWave();
   setupSpecialLevel(GS.zone);
@@ -14127,6 +14151,19 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
                 _doMeleeFlick(player.model&&player.model.userData, Math.atan2(_fwz,_fwx), undefined);
                 jL._tapMoved=true;
               }
+            } else if(window._flipOnLeftStick!==false){
+              // ── LEFT-STICK FLICK FLIP (Rocket League style) — up=front somersault, down=back, left/right=barrel roll ──
+              if(player.alive&&GS.state==='playing'){
+                const ax=Math.abs(svx), ay=Math.abs(svy);
+                const PS=(window._FLIP_PITCH_SIGN!=null?window._FLIP_PITCH_SIGN:1), RS=(window._FLIP_ROLL_SIGN!=null?window._FLIP_ROLL_SIGN:1);
+                let axis, turns;
+                if(ay>=ax){ axis=new THREE.Vector3(1,0,0); turns=(svy<0?1:-1)*PS; }   // up = forward somersault, down = backward
+                else { axis=new THREE.Vector3(0,0,1); turns=(svx<0?1:-1)*RS; }          // left / right barrel roll
+                player._flip={axis, turns, t:0, dur:(window._FLIP_DUR||0.5)};
+                if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(440,0.08,'square',0.12,760);
+                if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0,1,0.6],10,80,(player.py||0)+10);
+              }
+              jL._tapMoved=true;
             } else {
             const cy=Math.cos(CAM.yaw), sy=Math.sin(CAM.yaw);
             const wx=svx*cy+svy*sy, wz=-svx*sy+svy*cy;
@@ -16022,6 +16059,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-11){ updateAssetRoom(dt); }
       if(GS.zone===-12){ updatePlasmaCore(dt); }
       if(GS.zone===-13){ updateRLArena(dt); }
+      if(GS.zone===-19){ updateCubeArena(dt); }
       if(GS.zone===-14){ updateRopeZone(dt); }
       if(GS.zone===-15){ updateGridLab(dt); }
       if(GS.zone===-16){ if(window._cityPlanet){ _cityUpdatePlanet(dt); } else { window._planetOwns=false; } updateCityGravity(dt); }
@@ -17002,6 +17040,58 @@ function _rlaDeform(R,rp,dt){
   B.mat.color.setHSL(0.6 - sup*0.13, 0.95, 0.52+sup*0.26);
 }
 function updateRLArena(dt){ /* camera+physics handled in player._rlArenaMove; pads animated there */ }
+
+// ════════════════════════════ CUBE ARENA — Rocket League sandbox (zone -19) ════════════════════════════
+// Interior cube room with chamfered (beveled) edges. Robot uses NORMAL controls (flips/melee/parry all work).
+// Piece 1: shell geometry + "stay inside" containment. Wall-run / boots / ball come next.
+let _cubeGroup=null;
+const _CUBE={hx:560, hz:560, h:900, cham:130};
+function _disposeCubeArena(){ if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } }
+function buildCubeArena(){
+  _disposeCubeArena();
+  const C=Object.assign(_CUBE, window._CUBE||{}); window._CUBE=C;
+  const hx=C.hx, hz=C.hz, h=C.h, ch=C.cham;
+  if(grid){ [grid.lines,grid.glowLines,grid.dots,grid.perimeter,grid.disc,grid.glow].forEach(m=>{ if(m&&m.material) m.material.opacity=0; }); }
+  const grp=new THREE.Group(); scene.add(grp); _cubeGroup=grp;
+  const NEON=0x33e0ff, EDGE=0xff3aa8;
+  // ── face grids (Tron look on floor / ceiling / 4 walls) ──
+  const seg=[]; const L=(ax,ay,az,bx,by,bz)=>{ seg.push(ax,ay,az,bx,by,bz); };
+  const gN=10, gY=9;
+  for(const fy of [0,h]){ for(let i=-gN;i<=gN;i++){ const x=i/gN*hx; L(x,fy,-hz,x,fy,hz);} for(let k=-gN;k<=gN;k++){ const z=k/gN*hz; L(-hx,fy,z,hx,fy,z);} }
+  for(const sx of [-hx,hx]){ for(let k=-gN;k<=gN;k++){ const z=k/gN*hz; L(sx,0,z,sx,h,z);} for(let yy=0;yy<=gY;yy++){ const y=yy/gY*h; L(sx,y,-hz,sx,y,hz);} }
+  for(const sz of [-hz,hz]){ for(let i=-gN;i<=gN;i++){ const x=i/gN*hx; L(x,0,sz,x,h,sz);} for(let yy=0;yy<=gY;yy++){ const y=yy/gY*h; L(-hx,y,sz,hx,y,sz);} }
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(seg),3));
+  grp.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({color:NEON,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false})));
+  // ── chamfered edge frame: each cube edge drawn as a beveled DOUBLE line, offset inward by `ch`, with little 45° corner cuts ──
+  const ed=[]; const E=(a,b)=>{ ed.push(a.x,a.y,a.z,b.x,b.y,b.z); };
+  const V=(x,y,z)=>new THREE.Vector3(x,y,z);
+  const cs=[V(-hx,0,-hz),V(hx,0,-hz),V(hx,0,hz),V(-hx,0,hz),V(-hx,h,-hz),V(hx,h,-hz),V(hx,h,hz),V(-hx,h,hz)];
+  const E12=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+  for(const [a,b] of E12){ const A=cs[a],B=cs[b]; const dir=B.clone().sub(A).normalize();
+    // inward offset direction = toward cube center, per the two faces this edge borders (approx: toward 0 in the two non-edge axes)
+    const inward=V(A.x>0?-1:1, 0, A.z>0?-1:1); if(Math.abs(dir.y)>0.5){ inward.y=0; } else { inward.y=(A.y>0?-1:1); inward.x=(A.x>0?-1:1); inward.z=(A.z>0?-1:1); }
+    inward.multiply(dir.clone().set(Math.abs(dir.x)<0.5?1:0,Math.abs(dir.y)<0.5?1:0,Math.abs(dir.z)<0.5?1:0)).normalize();
+    const off=inward.multiplyScalar(ch);
+    E(A.clone().add(off), B.clone().add(off));         // the chamfer seam line
+    // corner cut at each end (45°)
+    E(A, A.clone().add(off)); E(B, B.clone().add(off));
+  }
+  const eg=new THREE.BufferGeometry(); eg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(ed),3));
+  grp.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({color:EDGE,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})));
+  // ── spawn robot at center floor, normal controls ──
+  player.wx=0; player.wz=0; player.py=0; player.pvy=0; player.vx=0; player.vz=0; player._inPlanetGravity=false; if(player.model)player.model.visible=true;
+  try{ if(CAM){ CAM.tyaw=0; CAM.yaw=0; if(CAM.tfocus)CAM.tfocus.set(0,40,0); if(CAM.focus)CAM.focus.set(0,40,0); } }catch(_){}
+  setTimeout(()=>{ try{ announce('CUBE ARENA — RL SANDBOX · run the walls','#33e0ff'); }catch(e){} },400);
+}
+function updateCubeArena(dt){
+  if(GS.zone!==-19 || !player) return;
+  const C=window._CUBE||_CUBE; const r=(window._CUBE_PAD!=null?window._CUBE_PAD:22);
+  if(player.wx> C.hx-r){ player.wx=C.hx-r; if(player.vx>0)player.vx=0; }
+  else if(player.wx< -C.hx+r){ player.wx=-C.hx+r; if(player.vx<0)player.vx=0; }
+  if(player.wz> C.hz-r){ player.wz=C.hz-r; if(player.vz>0)player.vz=0; }
+  else if(player.wz< -C.hz+r){ player.wz=-C.hz+r; if(player.vz<0)player.vz=0; }
+  if(player.py> C.h-r){ player.py=C.h-r; if(player.pvy>0)player.pvy=0; }   // ceiling
+}
 // ════════════════════════════ ROPE SWING — real zone (-14): normal arena + 2 blocks + grabbable rope ════════════════════════════
 let _ropeZGroup=null, _ropeZ=null;
 function _disposeRopeZone(){
@@ -20584,7 +20674,7 @@ function _parryDeflect(obj, kind, tier){
   if(kind==='missile'){ obj._deflected=true; obj._homePlayer=false; obj._fromCannon=false; const sp=Math.min(820,Math.max(160,srcDist*1.5)); obj.vx=dirx*sp; obj.vz=dirz*sp; obj.vy=30; obj.speed=sp;
     if(hasSrc && aimAtSrc){ obj._homeBack=true; obj._homeBackTarget={wx:obj._srcX, wz:obj._srcZ, py:14}; } else { obj._homeBack=false; obj.target=null; } }   // aim back at them -> heat-seek the shooter; else fly where aimed
   else if(kind==='item'){ obj._deflected=true; const sp=Math.min(820,Math.max(140,srcDist*1.3)); obj.vx=dirx*sp; obj.vz=dirz*sp; obj.vy=Math.max(obj.vy||0,140); }
-  else if(kind==='bomb'){ obj._deflected=true; obj._fromCannon=false; if(obj.maxBounces!=null)obj.maxBounces=0; const g=320, vy=Math.min(300,90+srcDist*0.34), tf=2*vy/g, sp=Math.min(900,srcDist/tf); obj.vx=dirx*sp; obj.vz=dirz*sp; obj.vy=vy; if(obj.timer!=null)obj.timer=Math.max(obj.timer,tf+0.4); }   // arcs off along your aim, lands ~srcDist out, no bounce overshoot
+  else if(kind==='bomb'){ obj._deflected=true; obj._fromCannon=false; obj._orbitLock=false; const g=320, vy=Math.min(300,90+srcDist*0.34), tf=2*vy/g, sp=Math.min(900,srcDist/tf); obj.vx=dirx*sp; obj.vz=dirz*sp; obj.vy=vy; if(obj.timer!=null)obj.timer=Math.max(obj.timer,tf+0.4); }   // arcs off along your aim; bounces normally (maxBounces left alone so it never freezes mid-air on a grid sheet)
   else { obj._deflected=true; const s=Math.min(800,Math.max(150,srcDist*1.2)); obj.vx=dirx*s; obj.vz=dirz*s; }
   // FX (extra flourish when you nailed it back at the attacker)
   const perfect=aimAtSrc;
