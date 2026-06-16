@@ -14974,7 +14974,7 @@ function loop(ts){ requestAnimationFrame(loop);
             angleDiff = si.x>0 ? Math.PI/2 : -Math.PI/2;
           }
         }
-        const onGround=player.py<=4||player._onPlatform;
+        const onGround=player.py<=4||player._onPlatform||(player._inPlanetGravity&&player._glGrounded);   // planet/wall-walk: grounded means stuck to a surface, not py<=4
         const airborne = player._inPlanetGravity ? !player._glGrounded : (!onGround&&player.py>8);   // on the planet: off the surface => 'floating' in-air pose
 
         // ── DIVE ROLL — triggered by left stick flick dash ──
@@ -15181,6 +15181,8 @@ function loop(ts){ requestAnimationFrame(loop);
           }
           ud._maxFallVy=0;
         }
+        // SLAM SAFETY — a fast slam can skip the debounced landing above; never let the flags stay set once we're on a surface
+        if(player._airSlam && onGround){ player._airSlam=false; ud._slamHold=false; player._swingAction=null; }
         // ── FLIP ON JUMP ──
         const justLeftGround=airborne&&ud._prevAirborne===false&&player.pvy>50;
         if(justLeftGround&&ud.clips&&!ud._flippingTimer){
@@ -17544,7 +17546,7 @@ function _updateWeaponCollider(dt){
   const w=player._hammer;
   if(player['_mc_wpn']) player['_mc_wpn'].visible=false;
   // both hands (so you can see the points / bump the ball bare-handed)
-  if(bones){ const HS=(window._HAND_COL||20);
+  if(bones){ const HS=(window._HAND_COL||16);   // a touch smaller — still big enough to bump the ball bare-handed
     for(const [k,nm] of [['lh','mixamorig_LeftHand'],['rh','mixamorig_RightHand']]){ const bn=bones[nm]; if(bn){ const wp=new THREE.Vector3(); bn.getWorldPosition(wp); _meleeColBox(k,0xff44cc,wp,new THREE.Vector3(HS,HS,HS),swinging,(window._BALL_HAND_BOOST||1.8),dt); } }
   }
   // ── DEBUG: a thin CAPSULE hugging the actual blade axis (base->tip), radius = the real hit radius ──
@@ -17763,7 +17765,18 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
   if(P.wx> hx){P.wx=hx;v.x=0;} if(P.wx<-hx){P.wx=-hx;v.x=0;}
   if(P.wz> hz){P.wz=hz;v.z=0;} if(P.wz<-hz){P.wz=-hz;v.z=0;}
   const _ceil=(C.h-RIDE); if(P.py> _ceil){ P.py=_ceil; if(v.y>0)v.y=0; }   // don't fly through the ceiling
-  if(P.py<=RIDE && !P._jetting){ P.py=RIDE; v.set(0,0,0); P._cwDislodge=false; P._glGrounded=true; P._cwAir=0; if(typeof Audio!=='undefined')Audio.blip(150,0.14,'square',0.22,80); if(typeof ps!=='undefined')ps.ring(P.wx,P.wz,[0.4,1,0.85],8,64); if(typeof addTrauma==='function')addTrauma(0.08); }   // landed on the TRUE floor -> grounded state restored (clears the floating anim), normal wall-walk resumes next frame; never land mid-jet
+  // ── CATCH: in freefall (not jetting), if you're close to ANY surface, get pulled in and stick to it (jetpack up, let go near the ceiling/wall -> stick) ──
+  if(!P._jetting){
+    const _sd=_cubeSDF(P.wx,P.py,P.wz);
+    const _catch=(window._CUBE_CATCH!=null?window._CUBE_CATCH:60);   // distance from a surface's ride-height within which it grabs you
+    if(_sd > -(RIDE+_catch)){
+      _cubeGrad(P.wx,P.py,P.wz,_cwN);                                // outward normal toward the nearest surface
+      const _corr=_sd+RIDE; P.wx-=_cwN.x*_corr; P.py-=_cwN.y*_corr; P.wz-=_cwN.z*_corr;   // snap to ride height on that surface
+      P._cwDislodge=false; P._glGrounded=true; P._cwAir=0; P.vx=0; P.pvy=0; P.vz=0; P._cubeUp=_cwN.clone().multiplyScalar(-1);
+      if(typeof Audio!=='undefined')Audio.blip(170,0.13,'square',0.2,90); if(typeof ps!=='undefined')ps.ring(P.wx,P.wz,[0.4,1,0.85],8,64); if(typeof addTrauma==='function')addTrauma(0.07);
+      return;
+    }
+  }
   P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=Math.hypot(v.x,v.z); P._cubeUp=new THREE.Vector3(0,1,0);
   if(typeof _gN!=='undefined') _gN.set(0,1,0);
   if(P.model){ P.model.visible=true; P.model.position.set(P.wx,P.py-RIDE,P.wz);
@@ -21879,7 +21892,7 @@ function _makeRoboScythe(){
   const btip=new THREE.Mesh(new THREE.ConeGeometry(0.7,2.6,5),METAL); btip.position.set(-8.0+8.0*Math.cos(arc),8.0*Math.sin(arc),0); btip.rotation.z=arc; bg.add(btip);
   const btipGlow=new THREE.Mesh(new THREE.SphereGeometry(1.2,10,8),GLOW); btipGlow.position.copy(btip.position); bg.add(btipGlow);   // bright spark at the reaping tip
   const bladeLight=new THREE.PointLight(0xb070ff, 1.4, 70, 2); bladeLight.position.set(-8.0,0,0); bg.add(bladeLight);   // the crescent self-illuminates so it reads in dark arenas
-  g.userData._baseX=0; g.userData._baseY=15.5; g.userData._tipX=-8.5; g.userData._tipY=13.0;   // trail sweeps across the crescent
+  g.userData._baseX=0; g.userData._baseY=16.3; g.userData._tipX=-12.9; g.userData._tipY=25.6;   // collider/trail span the REAL crescent: arc start (handle top) -> reaping tip (derived from the torus arc + the bg z-rotation)
   g.traverse(o=>{ o.frustumCulled=false; });
   return g;
 }
