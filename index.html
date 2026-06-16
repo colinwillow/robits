@@ -17242,7 +17242,7 @@ function _ballHitAABB(b, center, size, vel, boost){
 const _wpnBox3=new THREE.Box3(), _wpnCtr=new THREE.Vector3(), _wpnSz=new THREE.Vector3();
 function _meleeColBox(key, color, center, size, swinging, boost, dt){
   if(!player['_mc_'+key]){ player['_mc_'+key]=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)), new THREE.LineBasicMaterial({color,depthTest:false,transparent:true,opacity:0.9})); player['_mc_'+key].renderOrder=999; player['_mc_'+key].frustumCulled=false; try{scene.add(player['_mc_'+key]);}catch(_){} }
-  const box=player['_mc_'+key]; box.visible=(window._showMeleeCollider!==false); box.position.copy(center); box.scale.set(Math.max(size.x,3),Math.max(size.y,3),Math.max(size.z,3));
+  const box=player['_mc_'+key]; box.visible=(window._showMeleeCollider===true); box.position.copy(center); box.scale.set(Math.max(size.x,3),Math.max(size.y,3),Math.max(size.z,3));
   const pk='_mcp_'+key, vk='_mcv_'+key;
   if(player[pk]){ if(!player[vk])player[vk]=new THREE.Vector3(); player[vk].copy(center).sub(player[pk]).multiplyScalar(1/Math.max(dt,0.001)); } else player[vk]=new THREE.Vector3();
   if(!player[pk])player[pk]=new THREE.Vector3(); player[pk].copy(center);
@@ -17383,7 +17383,7 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
 }
 // Collider box — POSITION rides the hip bone (follows the body in every mode incl. wall-walk & flips), ROTATION = a quaternion.
 function _syncCollider(pl, quat){
-  if(window._showCollider===false || !pl.model){ if(pl._dbgBox)pl._dbgBox.visible=false; return; }
+  if(window._showCollider!==true || !pl.model){ if(pl._dbgBox)pl._dbgBox.visible=false; return; }
   const _mh=pl._modelH||60;
   if(!pl._dbgBox || pl._dbgBoxH!==_mh){
     if(pl._dbgBox){ scene.remove(pl._dbgBox); if(pl._dbgBox.geometry)pl._dbgBox.geometry.dispose(); }
@@ -17414,20 +17414,20 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   let N=_cwN.clone().multiplyScalar(-1);          // UP = into the room (toward centre)
   const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   const ACC=(window._CUBE_ACC||950), MAXS=(window._CUBE_MAXS||340), GRAV=(window._CUBE_GRAV||720);
-  // ── INPUT → tangent dir from the camera's SCREEN axes projected onto the surface.
-  //    forward = screen-UP (so "up on the stick" = up the wall / into the distance on the floor), right = screen-RIGHT.
-  //    Using screen-up (not the view direction) is what stops the inversion on walls (the cam looks DOWN, so its view dir points down a wall). ──
+  // ── INPUT → tangent dir using the LAB CUBE's basis: camera-RIGHT (stable & horizontal, never degenerates — even looking
+  //    straight at the ceiling) projected onto the surface, then forward = N × right. Consistent handedness on EVERY face,
+  //    so it never inverts on a wall or the ceiling (the screen-up projection used to collapse on the ceiling). ──
   const inMag=Math.hypot(rawX,rawZ); let tanDir=null;
   if(inMag>0.05){
-    const su=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);     // camera screen-UP (world)
-    const sr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);     // camera screen-RIGHT (world)
-    let pf=su.clone().addScaledVector(N,-su.dot(N));                            // forward = screen-up projected onto surface
-    let prr=sr.clone().addScaledVector(N,-sr.dot(N));                           // right = screen-right projected onto surface
-    if(pf.lengthSq()<0.02){ pf.crossVectors(prr.clone().normalize(),N); }
-    if(prr.lengthSq()<0.02){ prr.crossVectors(N,pf.clone().normalize()); }
-    pf.normalize(); prr.normalize();
+    const cr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);     // camera RIGHT (world)
+    let prr=cr.clone().addScaledVector(N,-cr.dot(N));                           // right projected onto the surface plane
+    if(prr.lengthSq()<1e-5){ prr.crossVectors(N, P._cwLastTN||new THREE.Vector3(0,0,1)); }
+    prr.normalize();
+    let pf=new THREE.Vector3().crossVectors(N,prr);                             // forward = N × right -> never flips on the underside/ceiling
+    if(pf.lengthSq()<1e-5){ pf.copy(P._cwLastTN||new THREE.Vector3(0,0,1)); pf.addScaledVector(N,-pf.dot(N)); }
+    pf.normalize();
     tanDir=pf.clone().multiplyScalar(-rawZ).addScaledVector(prr,rawX);
-    if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); } else tanDir=null;
+    if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); P._cwLastTN=pf.clone(); } else tanDir=null;
   }
   let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
   const grounded=(P._cwAir||0)<=0;
@@ -17495,7 +17495,18 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
 }
 // WORLD-UP cameras for the cube. FREE cam orbits by CAM.yaw (steered by the right stick), BALL cam looks past you toward the ball.
 // Both stay parallel to the TRUE ground (never roll) -> on the ceiling you're plainly upside-down. Same distance as on the floor.
-function _cubeCam(P, dt){ if(window._ballCam) _ballCam(P,dt); else _cubeWorldCam(P,dt); }
+function _cubeCam(P, dt){ if(window._ballCam) _ballCam(P,dt); else _cubeFaceCam(P,dt); }
+// Mirror the LAB cube's edge-anchored camera (_glFaceCam) for the interior: the grid walls are see-through, so the camera sits
+// OUTSIDE along the player's edge direction and looks in through the wall — same 3/4 edge framing, eased, world-up. Inverted = the
+// "face" we hand it is the OUTWARD wall normal (toward the wall the player stands on). Floor here frames like the cube's top, ceiling like its bottom.
+function _cubeFaceCam(P, dt){
+  if(typeof camera==='undefined') return;
+  const CC=(window._CUBE||_CUBE), C=new THREE.Vector3(0,CC.h*0.5,0);
+  const Fout=new THREE.Vector3(); _cubeGrad(P.wx,P.py,P.wz,Fout);   // outward — toward the wall the player is on
+  if(Fout.lengthSq()<1e-6) Fout.set(0,-1,0); Fout.normalize();
+  _glCamBlend=1;   // steady-state framing (skip the lab's one-time entry blend)
+  _glFaceCam(C, Fout, (window._CUBE_CAM_EXT||520), new THREE.Vector3(P.wx,P.py,P.wz), dt);
+}
 function _cubeWorldCam(P, dt){
   if(typeof camera==='undefined') return;
   const yaw=(CAM&&CAM.yaw!=null)?CAM.yaw:0, D=(window._CUBE_CAM_DIST||320), H=(window._CUBE_CAM_H||240);
