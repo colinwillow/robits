@@ -17496,28 +17496,27 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
 // WORLD-UP cameras for the cube. FREE cam orbits by CAM.yaw (steered by the right stick), BALL cam looks past you toward the ball.
 // Both stay parallel to the TRUE ground (never roll) -> on the ceiling you're plainly upside-down. Same distance as on the floor.
 function _cubeCam(P, dt){ if(window._ballCam) _ballCam(P,dt); else _cubeFaceCam(P,dt); }
-// INTERIOR follow cam — behaves like the NORMAL gameplay camera: world-up, ground-oriented, trails BEHIND the player (by CAM.yaw)
-// and lifted, looking at the player. It does NOT reorient to the wall — it just follows the player's world position as they climb,
-// so the ground plane never changes. Eye is clamped inside the box so a wall can't occlude it. (On the ceiling you look UP at the
-// player => up/down reads inverted there, which is inherent to a ground-locked camera.)
-let _cwEye=null, _cwLook=null;
+// REGULAR cube cam = the NORMAL gameplay camera (updateCamera), fed the player's FULL 3D position so it rises as you climb a wall.
+// World-up (always parallel to the ground, never rolls), orbits CAM.focus by CAM.yaw, and the right stick drives CAM.tyaw (wired in
+// player.update). Controls are camera-relative (N×right) so left stays left across edges => continuous. Ceiling reads inverted (inherent).
+// Eye is clamped inside the box so a wall can't occlude it.
 function _cubeFaceCam(P, dt){
   if(typeof camera==='undefined') return;
   camera.up.set(0,1,0);
-  const CC=(window._CUBE||_CUBE), C=new THREE.Vector3(0,CC.h*0.5,0);
-  const yaw=(CAM&&CAM.yaw!=null)?CAM.yaw:0;
-  const D=(window._CUBE_CAM_DIST||330), H=(window._CUBE_CAM_H||230), LOOKUP=(window._CUBE_CAM_LOOKUP||30);
-  const Pv=new THREE.Vector3(P.x,P.y,P.z);
-  let eye=new THREE.Vector3(Pv.x - Math.cos(yaw)*D, Pv.y + H, Pv.z - Math.sin(yaw)*D);   // behind + above (normal-style)
-  const m=70;                                                                            // keep the eye inside the box
-  eye.x=Math.max(-CC.hx+m,Math.min(CC.hx-m,eye.x));
-  eye.z=Math.max(-CC.hz+m,Math.min(CC.hz-m,eye.z));
-  eye.y=Math.max(C.y-CC.h*0.5+m,Math.min(C.y+CC.h*0.5-m,eye.y));
-  if(!_cwEye){ _cwEye=eye.clone(); _cwLook=Pv.clone(); }
-  const k=1-Math.pow(0.0008, Math.min(dt,0.05));
-  _cwEye.lerp(eye,k); _cwLook.lerp(new THREE.Vector3(Pv.x,Pv.y+LOOKUP,Pv.z),k);
-  camera.position.copy(_cwEye); camera.lookAt(_cwLook.x,_cwLook.y,_cwLook.z);
-  CAM.focus.copy(_cwLook); CAM.tfocus.copy(_cwLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
+  CAM.tfocus.set(P.x, P.y, P.z);                       // follow the player's actual 3D position (incl. height up walls)
+  CAM.yaw=lerp(CAM.yaw, CAM.tyaw, 0.045);              // ease yaw toward the right-stick target — exactly like updateCamera
+  CAM.focus.lerp(CAM.tfocus, 0.18);
+  const d=(window._CUBE_CAM_DIST||340), H=(window._CUBE_CAM_H||220);
+  let cx=CAM.focus.x+Math.sin(CAM.yaw)*d;
+  let cz=CAM.focus.z+Math.cos(CAM.yaw)*d;
+  let cy=CAM.focus.y+H;
+  const CC=(window._CUBE||_CUBE), Cy=CC.h*0.5, m=70;   // keep the eye inside the box (no wall occlusion)
+  cx=Math.max(-CC.hx+m,Math.min(CC.hx-m,cx));
+  cz=Math.max(-CC.hz+m,Math.min(CC.hz-m,cz));
+  cy=Math.max(Cy-CC.h*0.5+m,Math.min(Cy+CC.h*0.5-m,cy));
+  camera.position.set(cx,cy,cz);
+  camera.lookAt(CAM.focus.x,CAM.focus.y,CAM.focus.z);
+  CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
 }
 function _cubeFaceCam_LAB(P, dt){   // (kept for reference) outside-looking-in mirror of _glFaceCam — occludes if walls aren't see-through
   if(typeof camera==='undefined') return;
