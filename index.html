@@ -15150,6 +15150,7 @@ function loop(ts){ requestAnimationFrame(loop);
           ud._flippingTimer=0; ud._flipToFloat=false; ud._flipToFloatT=0;
           if(ud._flipClipName&&ud.clips[ud._flipClipName]){ ud.clips[ud._flipClipName].stop(); ud.clips[ud._flipClipName].setEffectiveWeight(0); }
           const _slam=!!player._airSlam; player._airSlam=false; ud._slamHold=false; player._swingAction=null;
+          if(_slam){ ud._meleeTimer=0; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; player._rollAimLock=false; player._meleeBuf=null; if(player._meleeAdditive){ try{player._meleeAdditive.stop();}catch(_){} player._meleeAdditive=null; } ud.currentClip=null; }   // air slam skipped the normal swing-end cleanup (it was held) -> clear it now so running/idle resume after the landing clip
           if(_slam && window._AIR_SLAM_STOP!==false){ player.vx=0; player.vz=0; player._dashDir=null; player._dashRamp=0;
             // ── HEFTY SLAM SHOCKWAVE on ground impact ──
             if(typeof grid!=='undefined'){ if(grid.push)grid.push(player.wx,player.wz,-(window._SLAM_GRID_DEPTH!=null?window._SLAM_GRID_DEPTH:16),(window._SLAM_GRID_R!=null?window._SLAM_GRID_R:230)); if(grid.shock)grid.shock(player.wx,player.wz,(window._SLAM_GRID_SHOCK!=null?window._SLAM_GRID_SHOCK:10)); if(grid.pulse)grid.pulse(0.5); }
@@ -17539,47 +17540,55 @@ function _updateWeaponCollider(dt){
   // swing window: the timer OR the actual playing swing action — so the blade-tip hit stays live for the WHOLE visible swing, even if the timer expires before the animation's follow-through reaches the ball
   let swinging=!!(ud&&ud._meleeTimer&&ud._meleeTimer>0);
   if(player._swingAction){ const _sa=player._swingAction; const _cl=(_sa.getClip?_sa.getClip():_sa._clip); if(_sa.isRunning&&_sa.isRunning()&&_cl&&_sa.time<_cl.duration-0.015) swinging=true; else if(!_sa.isRunning||!_sa.isRunning()||(_cl&&_sa.time>=_cl.duration-0.015)) player._swingAction=null; }
-  // melee weapon box
+  // melee weapon — the box is gone; the blade CAPSULE below (along the real base->tip axis) is the collider
   const w=player._hammer;
-  if(w){ _wpnBox3.setFromObject(w); if(!_wpnBox3.isEmpty()){ _wpnBox3.getCenter(_wpnCtr); _wpnBox3.getSize(_wpnSz); _meleeColBox('wpn',0xffcc33,_wpnCtr,_wpnSz,swinging,(window._BALL_WPN_BOOST||3.0),dt); } }
-  else if(player['_mc_wpn']){ player['_mc_wpn'].visible=false; }
+  if(player['_mc_wpn']) player['_mc_wpn'].visible=false;
   // both hands (so you can see the points / bump the ball bare-handed)
   if(bones){ const HS=(window._HAND_COL||20);
     for(const [k,nm] of [['lh','mixamorig_LeftHand'],['rh','mixamorig_RightHand']]){ const bn=bones[nm]; if(bn){ const wp=new THREE.Vector3(); bn.getWorldPosition(wp); _meleeColBox(k,0xff44cc,wp,new THREE.Vector3(HS,HS,HS),swinging,(window._BALL_HAND_BOOST||1.8),dt); } }
   }
-  // ── DEBUG MARKER: always track the LIVE blade tip while weapon-debug is on (never freezes between swings) ──
+  // ── DEBUG: a thin CAPSULE hugging the actual blade axis (base->tip), radius = the real hit radius ──
   if(window._showWeaponCollider===true && _cubeBall && typeof _slashBladePoints==='function'){
     const _mbp=_slashBladePoints();
-    if(_mbp){
-      if(!player._tipDbg){ player._tipDbg=new THREE.Mesh(new THREE.SphereGeometry(1,12,8), new THREE.MeshBasicMaterial({color:0xffcc33,wireframe:true,depthTest:false,transparent:true,opacity:0.9})); player._tipDbg.renderOrder=999; player._tipDbg.frustumCulled=false; try{scene.add(player._tipDbg);}catch(_){} }
-      player._tipDbg.visible=true; player._tipDbg.position.copy(_mbp[1]); player._tipDbg.scale.setScalar(window._BALL_TIP_R||18);   // small sphere at the tip — when it touches the ball, it hits
+    if(_mbp){ const _base=_mbp[0], _tip=_mbp[1], _R=(window._BLADE_R!=null?window._BLADE_R:(window._BALL_TIP_R||12));
+      if(!player._bladeDbg){ const _m=new THREE.MeshBasicMaterial({color:0xffcc33,wireframe:true,depthTest:false,transparent:true,opacity:0.8});
+        player._bladeDbg=new THREE.Mesh(new THREE.CylinderGeometry(1,1,1,10,1,true), _m); player._bladeDbg.renderOrder=999; player._bladeDbg.frustumCulled=false; try{scene.add(player._bladeDbg);}catch(_){}
+        player._bladeCap=new THREE.Mesh(new THREE.SphereGeometry(1,10,8), _m); player._bladeCap.renderOrder=999; player._bladeCap.frustumCulled=false; try{scene.add(player._bladeCap);}catch(_){} }
+      const _dir=_tip.clone().sub(_base), _len=Math.max(_dir.length(),1); _dir.multiplyScalar(1/_len);
+      player._bladeDbg.visible=true; player._bladeDbg.position.copy(_base).addScaledVector(_dir,_len*0.5); player._bladeDbg.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),_dir); player._bladeDbg.scale.set(_R,_len,_R);
+      player._bladeCap.visible=true; player._bladeCap.position.copy(_tip); player._bladeCap.scale.setScalar(_R);
     }
-  } else if(player._tipDbg){ player._tipDbg.visible=false; }
+  } else { if(player._bladeDbg)player._bladeDbg.visible=false; if(player._bladeCap)player._bladeCap.visible=false; }
 
   // ── BLADE-TIP SWEPT ball hit — knock the ball when the weapon TIP sweeps through it, for the WHOLE swing ──
   if(swinging && _cubeBall && typeof _slashBladePoints==='function'){
     const bp=_slashBladePoints();
-    if(bp){ const tip=bp[1];
+    if(bp){ const base=bp[0], tip=bp[1], R=(window._BLADE_R!=null?window._BLADE_R:(window._BALL_TIP_R||12));
+      // closest point on the CURRENT blade segment (base->tip) to the ball -> the WHOLE blade hits, not just the tip
+      const seg=tip.clone().sub(base), segLen2=Math.max(seg.lengthSq(),1e-4);
+      let tp=Math.max(0,Math.min(1,_cubeBall.pos.clone().sub(base).dot(seg)/segLen2));
+      let closest=base.clone().addScaledVector(seg,tp);
+      let dd=closest.distanceTo(_cubeBall.pos);
+      // ALSO sweep the tip between frames so a fast swing can't tunnel past the ball
+      const tipVel = player._prevTip ? tip.clone().sub(player._prevTip).multiplyScalar(1/Math.max(dt,0.001)) : seg.clone();
       if(player._prevTip){
-        const seg=tip.clone().sub(player._prevTip), segLen2=Math.max(seg.lengthSq(),1e-4);
-        const toBall=_cubeBall.pos.clone().sub(player._prevTip);
-        const tproj=Math.max(0,Math.min(1,toBall.dot(seg)/segLen2));
-        const closest=player._prevTip.clone().addScaledVector(seg,tproj);
-        const dd=closest.distanceTo(_cubeBall.pos);
-        if(dd < _cubeBall.R+(window._BALL_TIP_R||18) && _cubeBall.hitCd<=0){
-          const tipVel=seg.clone().multiplyScalar(1/Math.max(dt,0.001));               // swept tip velocity gives direction; speed is only a mild factor
-          let n=_cubeBall.pos.clone().sub(closest); if(n.lengthSq()<1e-4)n.copy(tipVel); n.normalize();
-          const along=Math.max(0,tipVel.dot(n));
-          let force=((window._BALL_WPN_BASE||440)+along*(window._BALL_TIP_VFAC||0.22))*(window._BALL_KNOCK||1.0)*(window._BALL_WPN_BOOST||1.0);
-          force=Math.min(force, window._BALL_WPN_MAX||1150);                             // hard cap so a fast tip doesn't launch it at the 2800 ceiling
-          _cubeBall.pos.addScaledVector(n, Math.max(0,_cubeBall.R+(window._BALL_TIP_R||18)-dd));
-          _cubeBall.vel.set(0,0,0).addScaledVector(n,force);                            // SET (not add) so repeated swings don't stack into the cap
-          _cubeBall.hitCd=0.14;
-          if(typeof _ballImpact==='function')_ballImpact(_cubeBall, n.clone().multiplyScalar(-1), (window._BALL_GLOW||0x4cf0ff), true);
-          if(typeof ps!=='undefined'){ for(let k=0;k<14;k++){ const a=Math.random()*6.28,sp=rand(70,180); ps._spawn(_cubeBall.pos.x,_cubeBall.pos.y,_cubeBall.pos.z,Math.cos(a)*sp,rand(-20,120),Math.sin(a)*sp,1,0.85,0.25,0.5); } }
-          if(typeof Audio!=='undefined'){try{Audio.blip(360,0.12,'square',0.28,150);}catch(_){}}
-          if(typeof addTrauma==='function')addTrauma(0.12);
-        }
+        const sw=tip.clone().sub(player._prevTip), sl2=Math.max(sw.lengthSq(),1e-4);
+        const stp=Math.max(0,Math.min(1,_cubeBall.pos.clone().sub(player._prevTip).dot(sw)/sl2));
+        const scl=player._prevTip.clone().addScaledVector(sw,stp); const sdd=scl.distanceTo(_cubeBall.pos);
+        if(sdd<dd){ dd=sdd; closest=scl; }
+      }
+      if(dd < _cubeBall.R+R && _cubeBall.hitCd<=0){
+        let n=_cubeBall.pos.clone().sub(closest); if(n.lengthSq()<1e-4)n.copy(tipVel); n.normalize();
+        const along=Math.max(0,tipVel.dot(n));
+        let force=((window._BALL_WPN_BASE||440)+along*(window._BALL_TIP_VFAC||0.22))*(window._BALL_KNOCK||1.0)*(window._BALL_WPN_BOOST||1.0);
+        force=Math.min(force, window._BALL_WPN_MAX||1150);                             // hard cap so a fast tip doesn't launch it at the 2800 ceiling
+        _cubeBall.pos.addScaledVector(n, Math.max(0,_cubeBall.R+R-dd));
+        _cubeBall.vel.set(0,0,0).addScaledVector(n,force);                            // SET (not add) so repeated swings don't stack into the cap
+        _cubeBall.hitCd=0.14;
+        if(typeof _ballImpact==='function')_ballImpact(_cubeBall, n.clone().multiplyScalar(-1), (window._BALL_GLOW||0x4cf0ff), true);
+        if(typeof ps!=='undefined'){ for(let k=0;k<14;k++){ const a=Math.random()*6.28,sp=rand(70,180); ps._spawn(_cubeBall.pos.x,_cubeBall.pos.y,_cubeBall.pos.z,Math.cos(a)*sp,rand(-20,120),Math.sin(a)*sp,1,0.85,0.25,0.5); } }
+        if(typeof Audio!=='undefined'){try{Audio.blip(360,0.12,'square',0.28,150);}catch(_){}}
+        if(typeof addTrauma==='function')addTrauma(0.12);
       }
       if(!player._prevTip)player._prevTip=new THREE.Vector3();
       player._prevTip.copy(tip);
