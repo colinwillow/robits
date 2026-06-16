@@ -8043,7 +8043,8 @@ class Missile{
     this.vx=dirx/ns*this.speed; this.vy=diry/ns*this.speed; this.vz=dirz/ns*this.speed;
     this.wx+=this.vx*dt; this.y+=this.vy*dt; this.wz+=this.vz*dt;
     const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 20, 52, dt) : false;   // CITY: orbit walls (reach wall-crawling spiders); owns vertical motion at the ground->wall corner
-    if(!_cf && GS.zone!==-15 && this.y<2){ this.y=2; this.vy=Math.max(0,this.vy); }   // floor clamp only when NOT riding a building
+    const _minY=(window._MISSILE_MIN_Y!=null?window._MISSILE_MIN_Y:7);
+    if(!_cf && GS.zone!==-15 && this.y<_minY){ this.y=_minY; this.vy=Math.max(0,this.vy); }   // floor clamp (raised: body radius ~2.5 was sinking below y=0 → looked like it clipped behind the ground). only when NOT riding a building
     { const ot=!!_cf;   // riding a building -> render the rocket ON TOP so the opaque wall fill can't swallow it (the additive body was getting depth-occluded; the trail line peeks past the edge -> "trail right, rocket gone")
       if(this.body) this.body.material.depthTest=!ot;
       if(this.nose) this.nose.material.depthTest=!ot;
@@ -14276,8 +14277,11 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
                 const _fwx=svx*_fcy+svy*_fsy, _fwz=-svx*_fsy+svy*_fcy, _dl=Math.hypot(_fwx,_fwz)||1;
                 const _ax=Math.abs(svx),_ay=Math.abs(svy);
                 player._flipAnimName=(_ay>=_ax)?(svy<0?'flip_forward':'flip_backward'):(svx<0?'flip_left':'flip_right');   // flick up=fwd, down=back, left/right=side flip
-                const _ft=(player._flipAnimName==='flip_left'||player._flipAnimName==='flip_right')?(window._FLIP_DUR_SIDE||1.8):(window._FLIP_DUR_FB||1.0);
+                const _ft=(player._flipAnimName==='flip_left'||player._flipAnimName==='flip_right')?(window._FLIP_DUR_SIDE||0.9):(window._FLIP_DUR_FB||0.5);
                 player._diveRollDir=[_fwx/_dl,_fwz/_dl];   // triggers the flip clip
+                player._flipNoTurn=true;                    // flick must NOT reorient the character (set NOW so the very next render holds facing)
+                { const _ftc=_ft; setTimeout(()=>{ if(player)player._flipNoTurn=false; }, _ftc*1000); }
+                player._flipFacingHold=player._cwLastF?player._cwLastF.clone():null;
                 // GENTLE directional drift over the flip duration — no teleport-dash, no character turn
                 const _drift=(window._FLIP_DRIFT_DIST||70);
                 if(player._inPlanetGravity){ player._wallDashRaw=[svx,svy]; player._cwDashT=_ft; player._cwDashSpd=_drift/_ft; }
@@ -14980,7 +14984,7 @@ function loop(ts){ requestAnimationFrame(loop);
             // Play at the AUTHORED real-time: target = the duration you timed (fwd/back 1.0s, side 1.8s), timeScale corrects whatever the GLB exported.
             const _glbDur=(rollClip._clip&&rollClip._clip.duration)||0.45;
             const _tgt = _isFlip
-              ? ((_flipName==='flip_left'||_flipName==='flip_right')?(window._FLIP_DUR_SIDE||1.8):(window._FLIP_DUR_FB||1.0))
+              ? ((_flipName==='flip_left'||_flipName==='flip_right')?(window._FLIP_DUR_SIDE||0.9):(window._FLIP_DUR_FB||0.5))
               : (_glbDur/1.4);
             const _ts = _isFlip ? Math.max(0.05, _glbDur/_tgt) : 1.4;
             const rollDur=_tgt;
@@ -15456,14 +15460,19 @@ function loop(ts){ requestAnimationFrame(loop);
         // Right stick = twin-stick aim + fire. FIRE LATCHES: drag past the engage ring and it keeps firing until you lift your
         // finger, even as you pull back toward center — so you can start far/flat and pull in to steepen the dive toward your feet.
         const stickMag=Math.hypot(shootIn.x,shootIn.y);
+        // ── FLICK GUARD: if the stick is snapping fast, it's a flick (melee) — suppress firing for a short window so a rocket/bullet can't sneak out before the flick is recognized ──
+        { const _svx=shootIn.x-(player._psx||0), _svy=shootIn.y-(player._psy||0), _sv=Math.hypot(_svx,_svy);
+          player._psx=shootIn.x; player._psy=shootIn.y;
+          if(_sv > (window._FIRE_FLICK_VEL!=null?window._FIRE_FLICK_VEL:0.13)) player._fireSuppressT=performance.now()+(window._FIRE_FLICK_HOLD||150); }
+        const _flickGuard = (player._fireSuppressT && performance.now()<player._fireSuppressT) || player._flickPending;
         const held=(typeof jR!=='undefined')?jR.isHeld:(stickMag>0.05);
         if(!held){ player._fireLatched=false; }
-        else if(stickMag>0.38){ player._fireLatched=true; }                                    // dragged out far enough -> latch ON
+        else if(stickMag>0.38 && !_flickGuard){ player._fireLatched=true; }                                    // dragged out far enough -> latch ON (not while a flick is snapping)
         if(player._fireLatched){
           if(stickMag>0.05){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; }     // direction + magnitude track the stick (small mag => steep / close)
           else { avx=Math.cos(player.aim)*0.04; avz=Math.sin(player.aim)*0.04; }               // dead center -> keep last direction, minimal mag = steepest dive at your feet
           aiming=true;
-          firing=!flickActive&&!nearWallStick&&!player._wallClimb;
+          firing=!flickActive&&!nearWallStick&&!player._wallClimb&&!_flickGuard;
         }
       }
       if(IS_TOUCH&&grenadeActive&&stickAim&&!CAM.aimMode){
@@ -17198,7 +17207,7 @@ let _cubeGroup=null;
 let _cubeSheets=[];
 const _CUBE={hx:560, hz:560, h:900, cham:130};
 function _disposeCubeSheets(){ if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets){ try{ const idx=GRID_SHEETS.indexOf(s); if(idx>=0)GRID_SHEETS.splice(idx,1); if(s.group){ scene.remove(s.group); s.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){} } } _cubeSheets=[]; }
-function _disposeCubeArena(){ if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
+function _disposeCubeArena(){ if(typeof _showColliderMenu==='function')_showColliderMenu(false); if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
 // ════════ ROCKET-LEAGUE BALL — floaty sphere you knock around with the character collider (and melee) ════════
 let _cubeBall=null;
 function _disposeCubeBall(){ if(typeof _ballFX!=='undefined')_ballFX=[]; if(_cubeBall){ if(_cubeBall.grp){ scene.remove(_cubeBall.grp); _cubeBall.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } _cubeBall=null; } }
@@ -17281,7 +17290,8 @@ function _spawnCubeBall(){
   grp.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.14,32,24), new THREE.MeshBasicMaterial({color:GLOW, transparent:true, opacity:0.18, blending:THREE.AdditiveBlending, side:THREE.BackSide, depthWrite:false})));
 
   grp.position.set(0,C.h*0.5,0); scene.add(grp);
-  _cubeBall={ grp, wire:core, R, runlights, light:ballLight, pos:new THREE.Vector3(0,C.h*0.5,0), vel:new THREE.Vector3(0,0,0), spin:new THREE.Vector3(rand(-0.7,0.7),rand(-0.7,0.7),rand(-0.7,0.7)), hitCd:0 };
+  const dbgSphere=new THREE.Mesh(new THREE.SphereGeometry(R,18,12), new THREE.MeshBasicMaterial({color:0x00ff88,wireframe:true,depthTest:false,transparent:true,opacity:0.5})); dbgSphere.visible=false; dbgSphere.renderOrder=999; grp.add(dbgSphere);
+  _cubeBall={ grp, wire:core, R, dbg:dbgSphere, runlights, light:ballLight, pos:new THREE.Vector3(0,C.h*0.5,0), vel:new THREE.Vector3(0,0,0), spin:new THREE.Vector3(rand(-0.7,0.7),rand(-0.7,0.7),rand(-0.7,0.7)), hitCd:0 };
 }
 function _ballKnockFromBox(b, box, halfW, halfH, halfD, vBoxX, vBoxY, vBoxZ, boost){
   const inv=box.quaternion.clone().invert();
@@ -17370,6 +17380,7 @@ function _updateCubeBall(dt){
     if(b.light){ b.light.intensity=1.9+0.5*Math.sin(tt*3)+Math.min(1.8,spd/600)+hf*22; }
     if(b.runlights){ const fl=Math.min(1,hf*6); for(let i=0;i<b.runlights.length;i++){ const ph=(tt*2.2 - i*0.5); b.runlights[i].material.opacity=Math.min(1,0.45+0.5*(0.5+0.5*Math.sin(ph))+fl); } }
   }
+  if(b.dbg)b.dbg.visible=(window._showBallCollider===true);
   _updateBallFX(dtc);
   const GRAV=(window._BALL_GRAV||520), DRAGr=(window._BALL_DRAG||0.93), REST=(window._BALL_REST||0.74);
   b.vel.y-=GRAV*dtc;
@@ -17444,7 +17455,7 @@ function _ballHitAABB(b, center, size, vel, boost){
 const _wpnBox3=new THREE.Box3(), _wpnCtr=new THREE.Vector3(), _wpnSz=new THREE.Vector3();
 function _meleeColBox(key, color, center, size, swinging, boost, dt){
   if(!player['_mc_'+key]){ player['_mc_'+key]=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)), new THREE.LineBasicMaterial({color,depthTest:false,transparent:true,opacity:0.9})); player['_mc_'+key].renderOrder=999; player['_mc_'+key].frustumCulled=false; try{scene.add(player['_mc_'+key]);}catch(_){} }
-  const box=player['_mc_'+key]; box.visible=(window._showMeleeCollider===true); box.position.copy(center); box.scale.set(Math.max(size.x,3),Math.max(size.y,3),Math.max(size.z,3));
+  const box=player['_mc_'+key]; const _vis=(key==='wpn')?(window._showWeaponCollider===true||window._showMeleeCollider===true):(window._showHandsCollider===true||window._showMeleeCollider===true); box.visible=_vis; box.position.copy(center); box.scale.set(Math.max(size.x,3),Math.max(size.y,3),Math.max(size.z,3));
   const pk='_mcp_'+key, vk='_mcv_'+key;
   if(player[pk]){ if(!player[vk])player[vk]=new THREE.Vector3(); player[vk].copy(center).sub(player[pk]).multiplyScalar(1/Math.max(dt,0.001)); } else player[vk]=new THREE.Vector3();
   if(!player[pk])player[pk]=new THREE.Vector3(); player[pk].copy(center);
@@ -17465,6 +17476,11 @@ function _updateWeaponCollider(dt){
   if(swinging && _cubeBall && typeof _slashBladePoints==='function'){
     const bp=_slashBladePoints();
     if(bp){ const tip=bp[1];
+      // debug marker: a wireframe sphere at the blade tip sized to the actual hit radius
+      if(window._showWeaponCollider===true){
+        if(!player._tipDbg){ player._tipDbg=new THREE.Mesh(new THREE.SphereGeometry(1,12,8), new THREE.MeshBasicMaterial({color:0xffcc33,wireframe:true,depthTest:false,transparent:true,opacity:0.9})); player._tipDbg.renderOrder=999; player._tipDbg.frustumCulled=false; try{scene.add(player._tipDbg);}catch(_){} }
+        player._tipDbg.visible=true; player._tipDbg.position.copy(tip); player._tipDbg.scale.setScalar(_cubeBall.R+(window._BALL_TIP_R||12));
+      } else if(player._tipDbg){ player._tipDbg.visible=false; }
       if(player._prevTip){
         const seg=tip.clone().sub(player._prevTip), segLen2=Math.max(seg.lengthSq(),1e-4);
         const toBall=_cubeBall.pos.clone().sub(player._prevTip);
@@ -17577,8 +17593,33 @@ function buildCubeArena(){
   try{ if(CAM){ CAM.tyaw=0; CAM.yaw=0; if(CAM.tfocus)CAM.tfocus.set(0,40,0); if(CAM.focus)CAM.focus.set(0,40,0); } }catch(_){}
   setTimeout(()=>{ try{ announce('CUBE ARENA — RL SANDBOX · grab the boots','#33e0ff'); }catch(e){} },400);
 }
+// ── DEBUG COLLIDER MENU — a button that pops a panel to toggle each collision visualizer ──
+function _ensureColliderMenu(){
+  if(document.getElementById('dbg-col-btn')) return;
+  const btn=document.createElement('div');
+  btn.id='dbg-col-btn'; btn.textContent='⬡ COLLIDERS';
+  btn.style.cssText='position:fixed;left:12px;top:120px;z-index:100000;background:rgba(8,16,22,0.82);border:1px solid #33e0ff88;color:#33e0ff;font:bold 10px monospace;letter-spacing:1px;padding:7px 10px;border-radius:7px;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;';
+  const pop=document.createElement('div');
+  pop.id='dbg-col-pop';
+  pop.style.cssText='position:fixed;left:12px;top:150px;z-index:100001;background:rgba(6,12,18,0.96);border:1px solid #33e0ff88;border-radius:8px;padding:8px;display:none;min-width:172px;font:11px monospace;';
+  pop.innerHTML='<div style="color:#9fe8ff;letter-spacing:1px;margin-bottom:6px;border-bottom:1px solid #33e0ff44;padding-bottom:4px;">DEBUG COLLIDERS</div>';
+  const rows=[['Body','_showCollider'],['Weapon (tip + box)','_showWeaponCollider'],['Hands','_showHandsCollider'],['Ball radius','_showBallCollider']];
+  for(const [label,flag] of rows){
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;justify-content:space-between;align-items:center;padding:5px 2px;cursor:pointer;';
+    const tag=document.createElement('span'); tag.style.color='#cfe'; tag.textContent=label;
+    const sw=document.createElement('span'); sw.style.cssText='font-weight:bold;padding:2px 8px;border-radius:4px;';
+    const paint=()=>{ const on=window[flag]===true; sw.textContent=on?'ON':'OFF'; sw.style.background=on?'#33e0ff':'#1b2630'; sw.style.color=on?'#001018':'#6b8390'; };
+    paint(); row.onclick=()=>{ window[flag]=!(window[flag]===true); paint(); };
+    row.appendChild(tag); row.appendChild(sw); pop.appendChild(row);
+  }
+  btn.onclick=()=>{ pop.style.display=(pop.style.display==='none'?'block':'none'); };
+  document.body.appendChild(btn); document.body.appendChild(pop);
+}
+function _showColliderMenu(show){ _ensureColliderMenu(); const b=document.getElementById('dbg-col-btn'); if(b)b.style.display=show?'block':'none'; if(!show){ const p=document.getElementById('dbg-col-pop'); if(p)p.style.display='none'; } }
 function updateCubeArena(dt){
   if(GS.zone!==-19 || !player) return;
+  _showColliderMenu(true);
   if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets) s.update(dt); _cubeWallFade(dt); }   // deforming grid faces ripple/settle + fade any face between the camera and you
   if(typeof _updateCubeBall==='function') _updateCubeBall(dt);   // ball runs in BOTH normal & wall-walk modes
   if(typeof _updateWeaponCollider==='function') _updateWeaponCollider(dt);   // melee weapon collider -> ball hits
@@ -17739,7 +17780,7 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
   const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   // Facing: AIM when aiming (so the character faces where the bullets go), else the actual MOTION direction (coasting faces the glide), else input, else last.
   let fwd;
-  if(P._flipNoTurn && P._cwLastF){ fwd=P._cwLastF.clone(); }                       // mid-flip: hold facing so the directional drift doesn't rotate the character
+  if(P._flipNoTurn){ fwd=(P._flipFacingHold||P._cwLastF||new THREE.Vector3(0,0,1)).clone(); }   // mid-flip: hold the facing captured at flick time so the directional drift never rotates the character
   else if(P._aim3DActive && P._aim3D && P._aim3D.lengthSq()>1e-4){ fwd=P._aim3D.clone(); }
   else { const vt=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0); vt.addScaledVector(N,-vt.dot(N));
     if(vt.lengthSq()>900) fwd=vt; else if(tanDir) fwd=tanDir.clone(); else fwd=(P._cwLastF?P._cwLastF.clone():new THREE.Vector3(1,0,0)); }
@@ -21716,11 +21757,12 @@ function _makeRoboSpear(){
 }
 function _makeRoboScythe(){
   const g=new THREE.Group();
-  const METAL=new THREE.MeshStandardMaterial({color:0xbfefff,metalness:0.85,roughness:0.18,emissive:0x6a30c0,emissiveIntensity:0.6});
-  const DARK =new THREE.MeshStandardMaterial({color:0x1a1233,metalness:0.7,roughness:0.42,emissive:0x130a2a,emissiveIntensity:0.45});
-  const GLOW =new THREE.MeshBasicMaterial({color:0xc080ff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  const METAL=new THREE.MeshStandardMaterial({color:0xd8f4ff,metalness:0.85,roughness:0.16,emissive:0xa861ff,emissiveIntensity:1.5});
+  const DARK =new THREE.MeshStandardMaterial({color:0x241a44,metalness:0.7,roughness:0.4,emissive:0x4a2a9c,emissiveIntensity:0.7});
+  const GLOW =new THREE.MeshBasicMaterial({color:0xd6a8ff,transparent:true,opacity:1.0,blending:THREE.AdditiveBlending,depthWrite:false});
+  const HALO =new THREE.MeshBasicMaterial({color:0xc890ff,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false});
   const shaft=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.6,18,10),DARK); shaft.position.y=8; g.add(shaft);
-  for(const sx of [-1,1]){ const strip=new THREE.Mesh(new THREE.BoxGeometry(0.14,16,0.14),GLOW); strip.position.set(sx*0.5,8,0); g.add(strip); }
+  for(const sx of [-1,1]){ const strip=new THREE.Mesh(new THREE.BoxGeometry(0.16,16,0.16),GLOW); strip.position.set(sx*0.5,8,0); g.add(strip); }
   const pommel=new THREE.Mesh(new THREE.OctahedronGeometry(0.85,0),GLOW); pommel.position.y=-1.4; g.add(pommel);
   const knob=new THREE.Mesh(new THREE.SphereGeometry(0.9,8,6),METAL); knob.position.y=16.6; g.add(knob);
   // curved crescent blade (partial torus) sweeping out to -X from the top
@@ -21728,8 +21770,11 @@ function _makeRoboScythe(){
   const arc=Math.PI*0.92;
   const bladeGeo=new THREE.TorusGeometry(8.0,0.55,6,22,arc);
   const blade=new THREE.Mesh(bladeGeo,METAL); blade.position.set(-8.0,0,0); bg.add(blade);
-  const edge=new THREE.Mesh(new THREE.TorusGeometry(8.0,0.24,6,22,arc),GLOW); edge.position.set(-8.0,0,0); bg.add(edge);
+  const edge=new THREE.Mesh(new THREE.TorusGeometry(8.0,0.30,8,24,arc),GLOW); edge.position.set(-8.0,0,0); bg.add(edge);
+  const halo=new THREE.Mesh(new THREE.TorusGeometry(8.0,0.85,8,24,arc),HALO); halo.position.set(-8.0,0,0); bg.add(halo);   // soft bloom shell around the crescent
   const btip=new THREE.Mesh(new THREE.ConeGeometry(0.7,2.6,5),METAL); btip.position.set(-8.0+8.0*Math.cos(arc),8.0*Math.sin(arc),0); btip.rotation.z=arc; bg.add(btip);
+  const btipGlow=new THREE.Mesh(new THREE.SphereGeometry(1.2,10,8),GLOW); btipGlow.position.copy(btip.position); bg.add(btipGlow);   // bright spark at the reaping tip
+  const bladeLight=new THREE.PointLight(0xb070ff, 1.4, 70, 2); bladeLight.position.set(-8.0,0,0); bg.add(bladeLight);   // the crescent self-illuminates so it reads in dark arenas
   g.userData._baseX=0; g.userData._baseY=15.5; g.userData._tipX=-8.5; g.userData._tipY=13.0;   // trail sweeps across the crescent
   g.traverse(o=>{ o.frustumCulled=false; });
   return g;
