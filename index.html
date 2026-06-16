@@ -6320,6 +6320,14 @@ class DropBomb{
     grid.push(this.wx,this.wz,-8,180);
     grid.pulse(0.6); _physTextBlast(this.wx,this.wz,BLAST_R*0.5);
     if(GRID_SHEETS.length) gridSheetsBlast(this.wx,this.y,this.wz,12,BLAST_R||150);
+    // ── ROBIT BALL: blast launches the ball in full 3D, proportional to proximity (+ upward pop) ──
+    try{ if(GS.zone===-19 && typeof _cubeBall!=='undefined' && _cubeBall){
+      const bx=_cubeBall.pos.x-this.wx, by=_cubeBall.pos.y-(this.y||0), bz=_cubeBall.pos.z-this.wz, bd=Math.hypot(bx,by,bz)||1, BR=(window._BALL_BOMB_R||180);
+      if(bd<BR){ const s=Math.max(0,1-bd/BR), pw=(window._BALL_BOMB_KN||1100)*s;
+        _cubeBall.vel.x+=(bx/bd)*pw; _cubeBall.vel.y+=(by/bd)*pw+s*240; _cubeBall.vel.z+=(bz/bd)*pw;
+        if(_cubeBall.vel.length()>2800)_cubeBall.vel.setLength(2800); _cubeBall.hitCd=0.1;
+      }
+    } }catch(_e){}
     Audio.blip(60,0.9,'sawtooth',0.5,20);
     Audio.blip(120,0.5,'sine',0.3,40);
     Audio.noise(0.5,0.4,600);
@@ -8022,7 +8030,7 @@ class Missile{
     this._findTarget(enemies);
     if(this._homePlayer && player && player.alive!==false){ this.target=player; }   // cannon rocket: lock onto the player so it flies at you to be deflected
     if(this._homeBack && this._homeBackTarget){ this.target=this._homeBackTarget; }   // deflected rocket: heat-seek back at whoever shot it
-    if(GS.zone===-19 && typeof _cubeBall!=='undefined' && _cubeBall && !this.target){ this.target={wx:_cubeBall.pos.x, wz:_cubeBall.pos.z, mesh:{position:{y:_cubeBall.pos.y}}}; }   // CUBE: heat-seek the ball when no enemy is locked
+    if(GS.zone===-19 && typeof _cubeBall!=='undefined' && _cubeBall && !this.target){ const _bd=Math.hypot(_cubeBall.pos.x-this.wx,_cubeBall.pos.y-this.y,_cubeBall.pos.z-this.wz); if(_bd<(window._BALL_SEEK_R||120)){ this.target={wx:_cubeBall.pos.x, wz:_cubeBall.pos.z, mesh:{position:{y:_cubeBall.pos.y}}}; } }   // CUBE: only lock the ball if the rocket passes CLOSE to it (tight seek radius), like enemy acquisition
     let dirx=this.vx, diry=this.vy, dirz=this.vz;
     const cs=Math.hypot(this.vx,this.vy,this.vz)||1; dirx/=cs; diry/=cs; dirz/=cs;
     if(this.target){
@@ -8665,12 +8673,21 @@ class Player{
     if(this._aimerLines) this._aimerLines.visible=false;
     if(!this._trajDots){ const g=new THREE.SphereGeometry(2,5,4); this._trajDots=[]; for(let i=0;i<28;i++){ const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0xff8800,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false})); scene.add(m); this._trajDots.push(m); } }
     // launch in the SURFACE frame: tangential part = where the stick points along the wall, plus a kick straight out along the normal
-    const tanSpeed=90+Math.min(1,mag)*250, outSpeed=16;   // small outward kick -> stays inside the building's orbit band and curves WITH the wall (player's surface frame), instead of flinging clear and dropping under world gravity
+    const _isCube=(GS.zone===-19);
+    const tanSpeed=90+Math.min(1,mag)*250, outSpeed=_isCube?(window._BOMB_CUBE_LOB||210):16;   // CUBE: big pop off the surface -> real arc; city keeps the small kick that hugs the wall orbit
     let lvx,lvy,lvz;
     if(td){ lvx=td.x*tanSpeed+N.x*outSpeed; lvy=td.y*tanSpeed+N.y*outSpeed; lvz=td.z*tanSpeed+N.z*outSpeed; }
+    else if(_isCube){ lvx=N.x*outSpeed; lvy=N.y*outSpeed; lvz=N.z*outSpeed; }   // no aim in the cube -> still pop straight off the surface so it arcs back, not a dead drop
     else { lvx=0; lvy=0; lvz=0; }                            // no aim -> just drop: rest on the surface (no pop off the normal)
     this._bombLaunchVel={x:lvx,y:lvy,z:lvz};
-    const sX=this.wx+N.x*20, sY=this.py+N.y*20, sZ=this.wz+N.z*20;   // just off the wall (inside the orbit band) so it's captured immediately
+    // Hold the bomb at the actual HANDS (not a fixed py offset) — boots seat the robot lower, so a py-relative hold drifts down to the chest/head. The hands stay correct either way.
+    let sX,sY,sZ;
+    const _bb=this.model&&this.model.userData&&this.model.userData.bones, _lh=_bb&&_bb['mixamorig_LeftHand'], _rh=_bb&&_bb['mixamorig_RightHand'];
+    if(_lh||_rh){ const hp=new THREE.Vector3(), tmp=new THREE.Vector3(); let cnt=0;
+      if(_lh){ _lh.getWorldPosition(tmp); hp.add(tmp); cnt++; } if(_rh){ _rh.getWorldPosition(tmp); hp.add(tmp); cnt++; }
+      hp.multiplyScalar(1/Math.max(1,cnt)).addScaledVector(N,(window._BOMB_HAND_OUT||10));   // a touch out along the normal so it sits in front of the palms
+      sX=hp.x; sY=hp.y; sZ=hp.z;
+    } else { sX=this.wx+N.x*20; sY=this.py+N.y*20; sZ=this.wz+N.z*20; }   // fallback: just off the wall
     this._bombSpawn={x:sX,y:sY,z:sZ};
     if(this._bombMesh){
       const t=performance.now()*0.001;
@@ -8684,7 +8701,7 @@ class Player{
     let px=sX,py=sY,pz=sZ, vx=lvx,vy=lvy,vz=lvz, lock=false; const DT=0.045, GRAV=320;
     for(let i=0;i<this._trajDots.length;i++){
       if(!lock) vy-=GRAV*DT; px+=vx*DT; py+=vy*DT; pz+=vz*DT;
-      if(typeof _cityProjOrbit==='function'){ const fk={wx:px,wz:pz,y:py,vx,vy,vz}; lock=_cityProjOrbit(fk,12,46,DT); px=fk.wx; pz=fk.wz; py=fk.y; vx=fk.vx; vy=fk.vy; vz=fk.vz; }
+      if(!_isCube && typeof _cityProjOrbit==='function'){ const fk={wx:px,wz:pz,y:py,vx,vy,vz}; lock=_cityProjOrbit(fk,12,46,DT); px=fk.wx; pz=fk.wz; py=fk.y; vx=fk.vx; vy=fk.vy; vz=fk.vz; }   // cube: plain world-gravity arc (no building orbit)
       if(!lock && py<=9){ py=9; vy=Math.abs(vy)*0.4; vx*=0.7; vz*=0.7; }
       const frac=1-(i/this._trajDots.length)*0.7, m=this._trajDots[i];
       m.position.set(px,py,pz); m.material.opacity=(i%2===0)?frac*0.7:0; m.material.depthTest=false;
@@ -14257,6 +14274,7 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
                 const _fwx=svx*_fcy+svy*_fsy, _fwz=-svx*_fsy+svy*_fcy, _dl=Math.hypot(_fwx,_fwz)||1;
                 if(player._inPlanetGravity){ player._wallDashRaw=[svx,svy]; player._cwDashT=(window._CUBE_DASH_T||0.18); }
                 player._dashDir=[_fwx/_dl,_fwz/_dl]; player._dashRamp=10; player._dashPeak=MOVE.topSpeed*3.4;
+                player._diveRollDir=[_fwx/_dl,_fwz/_dl];   // play the dive-roll animation clip with the dash
                 if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0,0.85,1],10,80); if(typeof grid!=='undefined')grid.push(player.wx,player.wz,-2,50);
                 if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(440,0.08,'sine',0.15,880);
               }
@@ -17166,6 +17184,16 @@ function _spawnCubeBall(){
   core.add(new THREE.Mesh(new THREE.IcosahedronGeometry(R*1.006,1),
     new THREE.MeshBasicMaterial({color:0x6f8a9a,wireframe:true,transparent:true,opacity:0.22,depthWrite:false})));
 
+  // ── NEON glowing edges: bright additive rings riding the metallic seams + an equator light-band with running lights ──
+  const glowMat=new THREE.MeshBasicMaterial({color:GLOW, blending:THREE.AdditiveBlending, transparent:true, opacity:0.9, depthWrite:false});
+  const glowSeam=(rx,ry,rz)=>{ const t=new THREE.Mesh(new THREE.TorusGeometry(R*1.0,R*0.02,8,84),glowMat); t.rotation.set(rx,ry,rz); core.add(t); };
+  glowSeam(Math.PI/2,0,0); glowSeam(0,0,0); glowSeam(Math.PI/2,0,Math.PI/2.4); glowSeam(Math.PI/3,Math.PI/4,0);
+  const band=new THREE.Mesh(new THREE.TorusGeometry(R*1.01,R*0.045,12,96), new THREE.MeshBasicMaterial({color:GLOW,blending:THREE.AdditiveBlending,transparent:true,opacity:0.45,depthWrite:false})); band.rotation.x=Math.PI/2; core.add(band);
+  const runlights=[];
+  for(let i=0;i<14;i++){ const a=i/14*Math.PI*2; const dot=new THREE.Mesh(new THREE.SphereGeometry(R*0.05,10,8), new THREE.MeshBasicMaterial({color:GLOW,blending:THREE.AdditiveBlending,transparent:true,opacity:0.95,depthWrite:false})); dot.position.set(Math.cos(a)*R*1.01,0,Math.sin(a)*R*1.01); core.add(dot); runlights.push(dot); }
+  // point light so the ball lights its surroundings and reads as a glowing object
+  const ballLight=new THREE.PointLight(GLOW, 1.4, R*10, 2); grp.add(ballLight);
+
   // ── glowing lens module (bezel + ring + bright center + halo + spokes), oriented to face `dir` ──
   const lens=(dir,scale)=>{
     const g=new THREE.Group(), s=scale;
@@ -17192,7 +17220,7 @@ function _spawnCubeBall(){
     const pip=new THREE.Mesh(new THREE.SphereGeometry(R*0.05,12,8), new THREE.MeshBasicMaterial({color:GLOW,blending:THREE.AdditiveBlending,transparent:true,opacity:0.9,depthWrite:false})); pip.position.copy(n).multiplyScalar(R*0.97); core.add(pip); }
 
   grp.position.set(0,C.h*0.5,0); scene.add(grp);
-  _cubeBall={ grp, wire:core, R, pos:new THREE.Vector3(0,C.h*0.5,0), vel:new THREE.Vector3(0,0,0), spin:new THREE.Vector3(rand(-0.7,0.7),rand(-0.7,0.7),rand(-0.7,0.7)), hitCd:0 };
+  _cubeBall={ grp, wire:core, R, runlights, light:ballLight, pos:new THREE.Vector3(0,C.h*0.5,0), vel:new THREE.Vector3(0,0,0), spin:new THREE.Vector3(rand(-0.7,0.7),rand(-0.7,0.7),rand(-0.7,0.7)), hitCd:0 };
 }
 function _ballKnockFromBox(b, box, halfW, halfH, halfD, vBoxX, vBoxY, vBoxZ, boost){
   const inv=box.quaternion.clone().invert();
@@ -17252,6 +17280,11 @@ function _updateCubeBall(dt){
   if(!_cubeBall){ _spawnCubeBall(); return; }
   const b=_cubeBall, R=b.R, dtc=Math.min(dt,0.033);
   if(b.hitCd>0)b.hitCd-=dtc;
+  // ── glow life: pulse the rim light, chase the running lights, flare brighter the faster it's moving ──
+  { const tt=performance.now()*0.001, spd=b.vel.length();
+    if(b.light){ b.light.intensity=1.2+0.4*Math.sin(tt*3)+Math.min(1.6,spd/600); }
+    if(b.runlights){ for(let i=0;i<b.runlights.length;i++){ const ph=(tt*2.2 - i*0.5); b.runlights[i].material.opacity=0.45+0.5*(0.5+0.5*Math.sin(ph)); } }
+  }
   const GRAV=(window._BALL_GRAV||580), DRAGr=(window._BALL_DRAG||0.55), REST=(window._BALL_REST||0.72);
   b.vel.y-=GRAV*dtc;
   b.vel.multiplyScalar(Math.pow(DRAGr,dtc));     // floaty air drag (per-second retention)
@@ -17348,12 +17381,13 @@ function _updateWeaponCollider(dt){
         const closest=player._prevTip.clone().addScaledVector(seg,tproj);
         const dd=closest.distanceTo(_cubeBall.pos);
         if(dd < _cubeBall.R+(window._BALL_TIP_R||12) && _cubeBall.hitCd<=0){
-          const tipVel=seg.clone().multiplyScalar(1/Math.max(dt,0.001));               // swept tip velocity drives the knock
+          const tipVel=seg.clone().multiplyScalar(1/Math.max(dt,0.001));               // swept tip velocity gives direction; speed is only a mild factor
           let n=_cubeBall.pos.clone().sub(closest); if(n.lengthSq()<1e-4)n.copy(tipVel); n.normalize();
-          const along=Math.max(0,tipVel.dot(n)), KN=(window._BALL_KNOCK||1.0)*(window._BALL_WPN_BOOST||3.0);
+          const along=Math.max(0,tipVel.dot(n));
+          let force=((window._BALL_WPN_BASE||300)+along*(window._BALL_TIP_VFAC||0.18))*(window._BALL_KNOCK||1.0)*(window._BALL_WPN_BOOST||1.0);
+          force=Math.min(force, window._BALL_WPN_MAX||820);                             // hard cap so a fast tip doesn't launch it at the 2800 ceiling
           _cubeBall.pos.addScaledVector(n, Math.max(0,_cubeBall.R+(window._BALL_TIP_R||12)-dd));
-          _cubeBall.vel.addScaledVector(n,((window._BALL_BASE||8)+along*(window._BALL_VFAC||1.2))*KN);
-          if(_cubeBall.vel.length()>2800)_cubeBall.vel.setLength(2800);
+          _cubeBall.vel.set(0,0,0).addScaledVector(n,force);                            // SET (not add) so repeated swings don't stack into the cap
           _cubeBall.hitCd=0.14;
           if(typeof ps!=='undefined'){ for(let k=0;k<14;k++){ const a=Math.random()*6.28,sp=rand(70,180); ps._spawn(_cubeBall.pos.x,_cubeBall.pos.y,_cubeBall.pos.z,Math.cos(a)*sp,rand(-20,120),Math.sin(a)*sp,1,0.85,0.25,0.5); } }
           if(typeof Audio!=='undefined'){try{Audio.blip(360,0.12,'square',0.28,150);}catch(_){}}
@@ -21596,7 +21630,7 @@ window._reorientHammer=function(){ _orientHammer(); };
 // ════════ HAND ROCKET LAUNCHERS — visual loadout that rides the hands when rockets are equipped ════════
 const _LAUNCHER_SCALE=1.15;   // world size of the hand launcher (tunable)
 // reusable scratch math (no per-frame allocations in the shoulder/hand hot paths)
-const _shAim=new THREE.Vector3(), _shUp=new THREE.Vector3(0,1,0), _shRight=new THREE.Vector3(), _shUp2=new THREE.Vector3(), _shBp=new THREE.Vector3(), _shMat=new THREE.Matrix4(), _shQ=new THREE.Quaternion(), _shTPos=new THREE.Vector3(), _shTQ=new THREE.Quaternion(), _shHP=new THREE.Vector3(), _shFlipAxis=new THREE.Vector3(), _HANDX=new THREE.Vector3(1,0,0), _shScratchBp=new THREE.Vector3();
+const _shAim=new THREE.Vector3(), _shUp=new THREE.Vector3(0,1,0), _shRight=new THREE.Vector3(), _shUp2=new THREE.Vector3(), _shBp=new THREE.Vector3(), _shMat=new THREE.Matrix4(), _shQ=new THREE.Quaternion(), _shTPos=new THREE.Vector3(), _shTQ=new THREE.Quaternion(), _shHP=new THREE.Vector3(), _shFlipAxis=new THREE.Vector3(), _HANDX=new THREE.Vector3(1,0,0), _shScratchBp=new THREE.Vector3(), _shTravel=new THREE.Vector3(), _shTravelQ=new THREE.Quaternion();
 function _makeHandLauncher(side){
   const g=new THREE.Group();
   const METAL=new THREE.MeshStandardMaterial({color:0x3c4f72,metalness:0.6,roughness:0.32,emissive:0xff6a1a,emissiveIntensity:0.42});   // lighter, orange-glow body
@@ -21726,13 +21760,22 @@ function _meleeTwoHanded(){ const t=player&&player._meleeType, st=t&&window._MEL
 // ── shoulder launcher with rocket-style fly-up homing: detaches at the hand, flips, eases onto the shoulder; flies back on stow ──
 function _shoulderTargetTransform(anchor, side, outPos, outQuat){
   if(!anchor) return false;
-  const a=player.aim||0; _shAim.set(Math.cos(a),0,Math.sin(a));
-  _shRight.crossVectors(_shUp,_shAim); if(_shRight.lengthSq()<1e-6)_shRight.set(1,0,0); _shRight.normalize();
+  const inCube=(GS.zone===-19 && player._cubeUp);
+  let upV, aimV;
+  if(inCube){
+    upV=player._cubeUp.clone();                                              // robot's up = surface normal (so the gun tilts WITH the wall-mounted robot)
+    aimV=(player._aim3DActive&&player._aim3D)?player._aim3D.clone():(player._cwLastF?player._cwLastF.clone():new THREE.Vector3(Math.cos(player.aim||0),0,Math.sin(player.aim||0)));
+    aimV.addScaledVector(upV,-aimV.dot(upV)); if(aimV.lengthSq()<1e-5)aimV.set(1,0,0); aimV.normalize();   // aim projected into the surface plane
+  } else {
+    upV=_shUp; const a=player.aim||0; aimV=_shAim.set(Math.cos(a),0,Math.sin(a)).clone();
+  }
+  _shAim.copy(aimV);
+  _shRight.crossVectors(upV,_shAim); if(_shRight.lengthSq()<1e-6)_shRight.set(1,0,0); _shRight.normalize();
   _shUp2.crossVectors(_shAim,_shRight).normalize();
   outQuat.setFromRotationMatrix(_shMat.makeBasis(_shRight,_shUp2,_shAim));   // barrel(+Z) -> aim
   anchor.getWorldPosition(_shBp);
   const lift=(window._SH_LIFT!=null?window._SH_LIFT:6), out=(window._SH_OUT!=null?window._SH_OUT:7)*(side==='R'?-1:1), back=(window._SH_BACK!=null?window._SH_BACK:-8);
-  outPos.copy(_shBp).addScaledVector(_shUp,lift).addScaledVector(_shRight,out).addScaledVector(_shAim,back);   // R arm -> R shoulder, nudged headward
+  outPos.copy(_shBp).addScaledVector(upV,lift).addScaledVector(_shRight,out).addScaledVector(_shAim,back);   // R arm -> R shoulder, nudged headward
   return true;
 }
 function _handWorld(bones,side,outPos){ const b=bones[side==='R'?'mixamorig_RightHand':'mixamorig_LeftHand']; if(!b)return false; b.getWorldPosition(outPos); return true; }
@@ -21792,12 +21835,17 @@ function _shoulderRig(side, want, weapon, bones, dt){
     R.v.y -= (window._SH_GRAV!=null?window._SH_GRAV:240)*dts;           // gravity on the toss
     R.p.addScaledVector(R.v, dts*(1-hw));                              // ballistic pop, fades as homing takes over
     R.p.lerp(gx, k*hw);                                               // homing pull onto the shoulder
-    const _prog=Math.min(1, (R.flyT)/((window._SH_POP_HOLD!=null?window._SH_POP_HOLD:0.14)+(window._SH_HOME_RAMP!=null?window._SH_HOME_RAMP:0.5)));
-    const _ease=2*_prog-_prog*_prog;                                  // easeOut: whips around fast, eases into the dock
-    const _dir=((R.spin||1)<0)?-1:1;                                  // sign of R.spin -> front vs back flip
-    const _turns=(R._flipTurns!=null?R._flipTurns:1);
-    const _fa=player.aim||0; _shFlipAxis.set(Math.sin(_fa),0,-Math.cos(_fa));
-    R.q.copy(gq).premultiply(_shQ.setFromAxisAngle(_shFlipAxis, 2*Math.PI*_turns*_ease*_dir));   // ONE clean full flip (0->2pi) that lands EXACTLY on the docked pose — no slerp fighting it
+    // FACE THE DIRECTION OF TRAVEL while flying, then ease into the docked aim as homing takes over
+    _shTravel.subVectors(gx, R.p);                                    // heading toward the goal (the shoulder)
+    if(_shTravel.lengthSq()<4 && R.v) _shTravel.copy(R.v);            // basically arrived -> use velocity
+    if(_shTravel.lengthSq()>1e-4){
+      _shTravel.normalize();
+      const _upT=(GS.zone===-19 && player._cubeUp)?player._cubeUp:_shUp;
+      _shRight.crossVectors(_upT,_shTravel); if(_shRight.lengthSq()<1e-6)_shRight.set(1,0,0); _shRight.normalize();
+      _shUp2.crossVectors(_shTravel,_shRight).normalize();
+      _shTravelQ.setFromRotationMatrix(_shMat.makeBasis(_shRight,_shUp2,_shTravel));   // barrel(+Z) -> direction of travel
+      R.q.copy(_shTravelQ).slerp(gq, hw*hw);                          // travel-facing during the toss, eases into the docked pose as homing ramps (hw 0->1)
+    } else { R.q.copy(gq); }
     m.position.copy(R.p); m.quaternion.copy(R.q);
     if(typeof ps!=='undefined' && Math.random()<0.75){ ps._spawn(R.p.x,R.p.y,R.p.z, (Math.random()-0.5)*26,(Math.random()-0.5)*26-12,(Math.random()-0.5)*26, 1,0.66,0.3, 0.02+Math.random()*0.02); }
     if(hw>0.8 && R.p.distanceTo(gx)<(window._SH_DOCK!=null?window._SH_DOCK:3.5)){ R.state='docked'; if(typeof ps!=='undefined')ps.ring(R.p.x,R.p.z,[0.5,0.95,1],11,90); if(typeof Audio!=='undefined'){ try{ Audio.blip(520,0.05,'square',0.12,1000); }catch(_){ } } }   // touchdown
