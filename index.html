@@ -9611,27 +9611,37 @@ class Player{
       this.model.rotation.y=-this.aim+Math.PI/2;
       this.model.rotation.z=clamp(-this.pvy*0.0016,-0.35,0.35);
     }
-    // ── FLIP RIG (Rocket League style): code-driven somersaults / barrel rolls from left-stick flicks. The whole oriented body (and its debug box collider) tumbles; a full 360 ends upright. ──
-    if(this._flip){
-      const f=this._flip; f.t+=0.016;
-      const k=Math.min(1,f.t/f.dur), e=k*k*(3-2*k);            // smoothstep ease
-      const ang=f.turns*Math.PI*2*e;
-      if(!this._flipQ) this._flipQ=new THREE.Quaternion();
-      this._flipQ.setFromAxisAngle(f.axis, ang);
-      this.model.quaternion.multiply(this._flipQ);             // local-space flip on top of facing
-      if(k>=1) this._flip=null;                                // done -> back to upright next frame
+    // ── FLIP RIG (Rocket League): code-driven somersaults / barrel rolls. Rotates around the HIPS (not the feet origin) so flips stay balanced; the box collider shares that pivot + spans the whole body. ──
+    if(this.model){
+      if(this._modelH===undefined || this._modelH<5){ try{ const _bx=new THREE.Box3().setFromObject(this.model); const _hh=_bx.max.y-_bx.min.y; if(_hh>5) this._modelH=_hh; }catch(_){} }
+      const _mh=this._modelH||60;
+      this._flipPivotY=_mh*(window._FLIP_PIVOT_FRAC!=null?window._FLIP_PIVOT_FRAC:0.5);   // hip height above the feet origin
+      if(this._flip){
+        const f=this._flip; f.t+=0.016;
+        const k=Math.min(1,f.t/f.dur), e=k*k*(3-2*k);
+        const ang=f.turns*Math.PI*2*e;
+        const qBase=this.model.quaternion.clone();
+        if(!this._flipQ) this._flipQ=new THREE.Quaternion();
+        this._flipQ.setFromAxisAngle(f.axis, ang);
+        this.model.quaternion.multiply(this._flipQ);                       // local-space flip on top of facing
+        const pv=new THREE.Vector3(0,this._flipPivotY,0);
+        const _a=pv.clone().applyQuaternion(qBase), _b=pv.clone().applyQuaternion(this.model.quaternion);
+        this.model.position.add(_a.sub(_b));                               // hold the hips fixed -> body rotates AROUND the hips (balanced flips)
+        if(k>=1) this._flip=null;
+      }
     }
     if(window._showCollider!==false && this.model){
-      const shipY2=9+this.py+((this.model.userData.isRobot||this.py>1)?0:Math.sin(performance.now()*0.003)*1.5);
-      if(!this._dbgBox){
-        const w=window._COLLIDER_W||22, h=window._COLLIDER_H||14, d=window._COLLIDER_D||30;
-        const geo=new THREE.BoxGeometry(w,h,d);
+      const _mh=this._modelH||60, hipY=shipY+(this._flipPivotY||_mh*0.5);
+      if(!this._dbgBox || this._dbgBoxH!==_mh){
+        if(this._dbgBox){ scene.remove(this._dbgBox); if(this._dbgBox.geometry)this._dbgBox.geometry.dispose(); }
+        const H=window._COLLIDER_H||_mh, W=window._COLLIDER_W||H*(window._COLLIDER_WR||0.45), D=window._COLLIDER_D||H*(window._COLLIDER_DR||0.45);
+        const geo=new THREE.BoxGeometry(W,H,D);
         this._dbgBox=new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:0x00ff88,depthTest:false,transparent:true,opacity:0.85}));
-        this._dbgBox.renderOrder=998; this._dbgBox.frustumCulled=false; try{scene.add(this._dbgBox);}catch(_){}
+        this._dbgBox.renderOrder=998; this._dbgBox.frustumCulled=false; this._dbgBoxH=_mh; try{scene.add(this._dbgBox);}catch(_){}
       }
       this._dbgBox.visible=true;
-      this._dbgBox.position.set(this.wx, shipY2+(window._COLLIDER_YOFF||8), this.wz);
-      this._dbgBox.quaternion.copy(this.model.quaternion);     // collider tumbles with the flip
+      this._dbgBox.position.set(this.wx, hipY, this.wz);                    // centered on the hips
+      this._dbgBox.quaternion.copy(this.model.quaternion);                  // tumbles with the flip, around the hips
     } else if(this._dbgBox){ this._dbgBox.visible=false; }
     if(this._respawnBlink>0){
       this._respawnBlink--;
