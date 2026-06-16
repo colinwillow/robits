@@ -17222,10 +17222,32 @@ function _cubeSDF(x,y,z){   // signed distance to the rounded interior shell (ne
   return Math.hypot(Math.max(qx,0),Math.max(qy,0),Math.max(qz,0)) + Math.min(Math.max(qx,Math.max(qy,qz)),0) - r;
 }
 function _cubeGrad(x,y,z,out){ const e=1.5, d=_cubeSDF(x,y,z); out.set(_cubeSDF(x+e,y,z)-d,_cubeSDF(x,y+e,z)-d,_cubeSDF(x,y,z+e)-d); if(out.lengthSq()<1e-9)out.set(0,-1,0); out.normalize(); return out; }   // outward normal (toward the nearest surface)
-const _cwN=new THREE.Vector3(), _cwUp=new THREE.Vector3(), _cwF=new THREE.Vector3(), _cwR=new THREE.Vector3(), _cwV=new THREE.Vector3();
+// DISLODGED — a 2nd jump in the air drops you off the surface; you fall under TRUE-world gravity to the floor, upright.
+function _cubeDislodgeFall(P,rawX,rawZ,dt){
+  dt=Math.min(dt,0.033);
+  P._glGrounded=false; P._inPlanetGravity=true;
+  const C=window._CUBE||_CUBE, RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
+  let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
+  v.y-=(window._CUBE_FALLG||1100)*dt;               // world-down gravity
+  if(Math.hypot(rawX,rawZ)>0.05){ const yaw=CAM.yaw||0; const fx=Math.cos(yaw),fz=Math.sin(yaw); v.x+=( -fz*rawX + fx*-rawZ )*260*dt; v.z+=( fx*rawX + fz*-rawZ )*260*dt; }   // mild air steer
+  P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
+  const hx=C.hx-RIDE, hz=C.hz-RIDE;                 // stay inside the walls while falling
+  if(P.wx> hx){P.wx=hx;v.x=0;} if(P.wx<-hx){P.wx=-hx;v.x=0;}
+  if(P.wz> hz){P.wz=hz;v.z=0;} if(P.wz<-hz){P.wz=-hz;v.z=0;}
+  if(P.py<=RIDE){ P.py=RIDE; v.set(0,0,0); P._cwDislodge=false; if(typeof Audio!=='undefined')Audio.blip(150,0.14,'square',0.22,80); if(typeof ps!=='undefined')ps.ring(P.wx,P.wz,[0.4,1,0.85],8,64); if(typeof addTrauma==='function')addTrauma(0.08); }   // landed -> normal wall-walk resumes (sticks to the floor next frame)
+  P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=Math.hypot(v.x,v.z); P._cubeUp=new THREE.Vector3(0,1,0);
+  if(P.model){ P.model.visible=true; P.model.position.set(P.wx,P.py-RIDE,P.wz);
+    let fwd=P._cwLastF?P._cwLastF.clone():new THREE.Vector3(0,0,1); fwd.y=0; if(fwd.lengthSq()<1e-4)fwd.set(0,0,1); fwd.normalize();
+    const up=new THREE.Vector3(0,1,0), xA=new THREE.Vector3().crossVectors(up,fwd).normalize();
+    P.model.quaternion.slerp(new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,up,fwd)),0.18);
+  }
+  _cubeWorldCam(new THREE.Vector3(P.wx,P.py,P.wz),dt);
+}
+const _cwN2=new THREE.Vector3();
 function _cubeWalkMove(P,rawX,rawZ,dt){
   dt=Math.min(dt,0.033);
   P._inPlanetGravity=true; P._cwSetGrav=true; P._onPlatform=false;
+  if(P._cwDislodge){ return _cubeDislodgeFall(P,rawX,rawZ,dt); }   // dropped off a wall/ceiling -> fall to the floor
   _cubeGrad(P.wx,P.py,P.wz,_cwN);                 // outward (toward wall)
   let N=_cwN.clone().multiplyScalar(-1);          // UP = into the room (toward centre)
   const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
@@ -17244,6 +17266,7 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   // ── JUMP: tap launches toward the room (along N); gravity pulls back to the wall ──
   if(grounded && P._jumpTapped){ P._jumpTapped=false; v.addScaledVector(N,(window._CUBE_JUMP||300)); P._cwAir=(window._CUBE_AIRT||0.85); if(typeof Audio!=='undefined')Audio.blip(300,0.3,'sine',0.12,500); }
   if((P._cwAir||0)>0){                              // ── AIRBORNE ──
+    if(P._jumpTapped){ P._jumpTapped=false; P._cwAir=0; P._cwDislodge=true; if(typeof Audio!=='undefined')Audio.blip(200,0.18,'sawtooth',0.16,90); return _cubeDislodgeFall(P,rawX,rawZ,dt); }   // 2nd jump mid-air -> dislodge, fall to the floor
     P._cwAir-=dt; P._glGrounded=false;
     v.addScaledVector(N,-GRAV*dt);                  // gravity toward the wall
     if(tanDir) v.addScaledVector(tanDir,320*Math.min(1,inMag)*dt);
@@ -17278,7 +17301,19 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
     P.model.quaternion.slerp(tq, grounded?0.22:0.12);
     if(window._CUBE_FACE_OFF) P.model.rotateY(window._CUBE_FACE_OFF);
   }
-  if(typeof _glChaseCam==='function'){ _glCamBlend=1; _glChaseCam(new THREE.Vector3(P.wx,P.py,P.wz), N, fwd, dt); }
+  _cubeWorldCam(new THREE.Vector3(P.wx,P.py,P.wz), dt);
+}
+// WORLD-UP camera — stays parallel to the TRUE ground, never rolls to the wall/ceiling normal.
+// On a wall you watch the robot cling sideways; on the ceiling it's plainly upside-down (same as the cube's underside).
+function _cubeWorldCam(P, dt){
+  if(typeof camera==='undefined') return;
+  const yaw=(CAM&&CAM.yaw!=null)?CAM.yaw:0;
+  const dist=(window._CUBE_CAM_DIST||600), hgt=(window._CUBE_CAM_H||320);
+  const eye=new THREE.Vector3(P.x+Math.cos(yaw)*dist, P.y+hgt, P.z+Math.sin(yaw)*dist);
+  camera.up.set(0,1,0);                 // LOCKED world-up — the whole point
+  camera.position.lerp(eye, 0.10);
+  camera.lookAt(P.x, P.y, P.z);
+  if(CAM){ CAM.focus.set(P.x,P.y,P.z); CAM.tfocus.set(P.x,P.y,P.z); }
 }
 function _cubeWalkOrient(P){   // surface-aligned model orientation (called from draw)
   if(!P.model||!P._cubeUp)return;
