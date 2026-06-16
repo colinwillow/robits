@@ -17168,26 +17168,31 @@ function _ballKnockFromBox(b, box, halfW, halfH, halfD, vBoxX, vBoxY, vBoxZ, boo
   b.pos.addScaledVector(nWorld,(b.R-dist)+1);
   const pv=new THREE.Vector3(vBoxX||0,vBoxY||0,vBoxZ||0), along=Math.max(0,pv.dot(nWorld));   // closing speed into the ball
   const KN=(window._BALL_KNOCK||1.0)*(boost||1);
-  b.vel.addScaledVector(nWorld,((window._BALL_BASE||22)+along*(window._BALL_VFAC||2.6))*KN);   // mostly velocity-driven
-  b.vel.addScaledVector(pv,0.5);
+  b.vel.addScaledVector(nWorld,((window._BALL_BASE||8)+along*(window._BALL_VFAC||1.2))*KN);   // heavier: mostly closing-speed driven
+  b.vel.addScaledVector(pv,0.3);
   if(b.vel.length()>2400)b.vel.setLength(2400);
   if(typeof ps!=='undefined'){ for(let k=0;k<10;k++){ const a=Math.random()*6.28,sp=rand(40,120); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(-30,80),Math.sin(a)*sp,0.2,1,0.9,0.4); } }
   if(typeof Audio!=='undefined'){try{Audio.blip(240,0.1,'square',0.22,120);}catch(_){}}
   if(typeof addTrauma==='function')addTrauma(0.06);
   return true;
 }
-function _ballHitPlayer(b){
+function _ballHitPlayer(b, dt){
   if(!player||!player._dbgBox||b.hitCd>0) return;
   const _mh=player._modelH||60, W=window._COLLIDER_W||_mh*(window._COLLIDER_WR||0.4), H=window._COLLIDER_H||_mh, D=window._COLLIDER_D||_mh*(window._COLLIDER_DR||0.4);
+  const cpos=player._dbgBox.position;   // swept velocity of the collider box -> flips/rotation/translation all impart force
+  if(player._colPrev){ if(!player._colVel)player._colVel=new THREE.Vector3(); player._colVel.copy(cpos).sub(player._colPrev).multiplyScalar(1/Math.max(dt||0.016,0.001)); } else player._colVel=new THREE.Vector3();
+  if(!player._colPrev)player._colPrev=new THREE.Vector3(); player._colPrev.copy(cpos);
+  const bvx=player.vx||0,bvy=player.pvy||0,bvz=player.vz||0, useColl=(player._colVel.lengthSq()>(bvx*bvx+bvy*bvy+bvz*bvz));
+  const vx=useColl?player._colVel.x:bvx, vy=useColl?player._colVel.y:bvy, vz=useColl?player._colVel.z:bvz;
   const ud=player.model&&player.model.userData, melee=!!(ud&&ud._meleeTimer&&ud._meleeTimer>0);
-  if(_ballKnockFromBox(b, player._dbgBox, W/2,H/2,D/2, player.vx, player.pvy, player.vz, melee?(window._BALL_MELEE_BOOST||2.4):1)){ b.hitCd=0.12; }
+  if(_ballKnockFromBox(b, player._dbgBox, W/2,H/2,D/2, vx, vy, vz, melee?(window._BALL_MELEE_BOOST||2.0):1)){ b.hitCd=0.12; }
 }
 function _updateCubeBall(dt){
   if(GS.zone!==-19) return;
   if(!_cubeBall){ _spawnCubeBall(); return; }
   const b=_cubeBall, R=b.R, dtc=Math.min(dt,0.033);
   if(b.hitCd>0)b.hitCd-=dtc;
-  const GRAV=(window._BALL_GRAV||520), DRAGr=(window._BALL_DRAG||0.55), REST=(window._BALL_REST||0.72);
+  const GRAV=(window._BALL_GRAV||580), DRAGr=(window._BALL_DRAG||0.55), REST=(window._BALL_REST||0.72);
   b.vel.y-=GRAV*dtc;
   b.vel.multiplyScalar(Math.pow(DRAGr,dtc));     // floaty air drag (per-second retention)
   b.pos.addScaledVector(b.vel,dtc);
@@ -17207,7 +17212,7 @@ function _updateCubeBall(dt){
     if(Math.hypot(tx,ty,tz)<(window._BALL_STOP||10)){ tx=ty=tz=0; }   // settle
     b.vel.set(tx+N.x*vnc, ty+N.y*vnc, tz+N.z*vnc);
   }
-  _ballHitPlayer(b);
+  _ballHitPlayer(b, dtc);
   b.grp.position.copy(b.pos);
   b.wire.rotation.x+=b.spin.x*dtc; b.wire.rotation.y+=b.spin.y*dtc; b.wire.rotation.z+=b.spin.z*dtc;
 }
@@ -17222,7 +17227,7 @@ function _ballHitAABB(b, center, size, vel, boost){
   let n; if(dist>1e-4) n=new THREE.Vector3(dx/dist,dy/dist,dz/dist); else n=new THREE.Vector3(0,1,0);
   b.pos.addScaledVector(n,(b.R-dist)+1);
   const along=Math.max(0,vel.dot(n)), KN=(window._BALL_KNOCK||1.0)*(boost||1);
-  b.vel.addScaledVector(n,((window._BALL_BASE||22)+along*(window._BALL_VFAC||2.6))*KN); b.vel.addScaledVector(vel,0.4);
+  b.vel.addScaledVector(n,((window._BALL_BASE||8)+along*(window._BALL_VFAC||1.2))*KN); b.vel.addScaledVector(vel,0.3);
   if(b.vel.length()>2800)b.vel.setLength(2800);
   b.hitCd=0.14;
   if(typeof ps!=='undefined'){ for(let k=0;k<12;k++){ const a=Math.random()*6.28,sp=rand(60,160); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(-20,100),Math.sin(a)*sp,1,0.8,0.2,0.5); } }
@@ -17394,12 +17399,17 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   let N=_cwN.clone().multiplyScalar(-1);          // UP = into the room (toward centre)
   const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   const ACC=(window._CUBE_ACC||950), MAXS=(window._CUBE_MAXS||340), GRAV=(window._CUBE_GRAV||720);
-  // ── INPUT → tangent dir, handedness-stable (forward = N × camera-right) so controls NEVER invert on a wall/ceiling ──
+  // ── INPUT → tangent dir from the camera's ACTUAL screen axes projected onto the surface (forward = into screen, right = screen-right).
+  //    Unambiguous on any surface/camera, so it never inverts whether you're inside the cube on a wall or the ceiling. ──
   const inMag=Math.hypot(rawX,rawZ); let tanDir=null;
   if(inMag>0.05){
-    const cr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);   // camera RIGHT (stable, horizontal)
-    let prr=cr.addScaledVector(N,-cr.dot(N)); if(prr.lengthSq()<1e-5){ prr.crossVectors(N, P._cwLastF||new THREE.Vector3(0,0,1)); } prr.normalize();
-    let pf=new THREE.Vector3().crossVectors(N,prr); if(pf.lengthSq()<1e-5){ pf.set(0,0,1).addScaledVector(N,-N.z); } pf.normalize();   // forward = N × right -> consistent handedness on the underside
+    const cv=new THREE.Vector3(); camera.getWorldDirection(cv);                 // where the camera looks
+    let pf=cv.clone().addScaledVector(N,-cv.dot(N));                            // forward = view projected onto surface
+    const cr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);     // camera screen-right (world)
+    let prr=cr.clone().addScaledVector(N,-cr.dot(N));                           // right = screen-right projected onto surface
+    if(pf.lengthSq()<0.02){ pf.crossVectors(prr.clone().normalize(),N); }       // camera ~along the normal (e.g. straight down at the ceiling) -> derive forward
+    if(prr.lengthSq()<0.02){ prr.crossVectors(N,pf.clone().normalize()); }
+    pf.normalize(); prr.normalize();
     tanDir=pf.clone().multiplyScalar(-rawZ).addScaledVector(prr,rawX);
     if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); P._cwLastF=pf.clone(); } else tanDir=null;
   }
@@ -17418,17 +17428,20 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
     if(d>=-RIDE && v.dot(_cwN)>=0){ P._cwAir=0; }   // descended back to ride height -> land (fall through to grounded snap)
     else { P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); _cubeWalkRender(P,N,tanDir,dt,false); return; }
   }
-  // ── GROUNDED: stick to the wall (friction ONLY when no input -> momentum doesn't die) ──
+  // ── GROUNDED: SPEED-BUILD + trailing momentum ──
   P._glGrounded=true;
-  if(tanDir) v.addScaledVector(tanDir, ACC*Math.min(1,inMag)*dt);
-  v.addScaledVector(N,-v.dot(N));                   // keep velocity tangent
-  if(!tanDir) v.multiplyScalar(0.80);               // damp only when stick released
-  if(v.length()>MAXS) v.setLength(MAXS);
+  const RAMP=(window._CUBE_RAMP||1.6), baseS=(window._CUBE_BASES||170), peakS=(window._CUBE_MAXS||640);
+  if(tanDir) P._cwThr=Math.min(1,(P._cwThr||0)+dt/RAMP);                 // throttle builds while you hold a direction (slow -> peak)
+  else       P._cwThr=Math.max(0,(P._cwThr||0)-dt/(RAMP*1.7));          // bleeds slowly when released (so brief releases don't reset the build)
+  const topS=baseS+(peakS-baseS)*(P._cwThr||0);
+  v.addScaledVector(N,-v.dot(N));                                       // keep velocity tangent
+  if(tanDir){ v.addScaledVector(tanDir, ACC*Math.min(1,inMag)*dt); if(v.length()>topS) v.setLength(topS); }   // cap ONLY while accelerating
+  else { v.multiplyScalar(Math.pow((window._CUBE_COAST||0.6),dt)); }    // COAST: light friction -> momentum trails after you release the stick
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
   _cubeGrad(P.wx,P.py,P.wz,_cwN); const d2=_cubeSDF(P.wx,P.py,P.wz), corr=d2+RIDE;   // re-snap to ride height
   P.wx-=_cwN.x*corr; P.py-=_cwN.y*corr; P.wz-=_cwN.z*corr;
   N=_cwN.clone().multiplyScalar(-1);
-  P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone();
+  P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); window._cwSpeed=Math.round(v.length());
   _cubeWalkRender(P,N,tanDir,dt,grounded);
 }
 // Orientation + reoriented chase camera — owned here (like updateLabGravity), so draw() bails and nothing fights it.
