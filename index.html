@@ -15434,7 +15434,7 @@ function loop(ts){ requestAnimationFrame(loop);
           const _ws=rotInput(shootIn.x,shootIn.y); player._flickDir=Math.atan2(_ws.z,_ws.x);
           const _ax=shootIn.x, _ay=shootIn.y;                                          // screen-relative flick -> which melee (up=-y)
           player._flickAx=_ax; player._flickAy=_ay;   // remembered for the cube AIR-flick = FLIP
-          player._flickCombo=(Math.abs(_ay)>=Math.abs(_ax))?((_ay<0)?1:2):3;           // up=melee_1, down=melee_2, left/right=melee_3
+          player._flickStartMelee=(Math.abs(_ay)>=Math.abs(_ax))?((_ay<0)?4:3):1;       // flick UP=start at melee_4, DOWN=melee_3 (uppercut), LEFT/RIGHT=melee_1 (side twirl) — the combo then continues forward from there, wrapping
         }
       }
 
@@ -21620,8 +21620,16 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
     mname='air_to_ground_melee'; player._meleeStep=-1; player._airSlam=true;   // air slam -> plants on impact; ground sequence restarts at the front of the order after
   } else {
     if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }
-    else { const _seq=(window._MELEE_SEQ&&window._MELEE_SEQ.length)?window._MELEE_SEQ:[1,2,3,4,5];   // melee_1 (the spin) leads — it reads cleanest against the ball
-      if((player._meleeComboT||0)<=0) player._meleeStep=0; else player._meleeStep=((player._meleeStep||0)+1)%_seq.length;
+    else { const _seq=(window._MELEE_SEQ&&window._MELEE_SEQ.length)?window._MELEE_SEQ:[1,2,3,4,5];
+      if((player._meleeComboT||0)<=0){
+        // FRESH combo -> the right-stick flick DIRECTION picks where in the sequence we start
+        let _ss=0;
+        if(player._flickStartMelee!=null){ const _i=_seq.indexOf(player._flickStartMelee); if(_i>=0)_ss=_i; }
+        player._meleeStep=_ss;
+      } else {
+        player._meleeStep=((player._meleeStep||0)+1)%_seq.length;   // chaining within the window -> continue forward, wrapping back to the start of the order
+      }
+      player._flickStartMelee=null;   // consume so a later tap/cycle doesn't inherit a stale direction
       player._meleeCombo=_seq[player._meleeStep]; }
     mname='melee_'+player._meleeCombo;
   }
