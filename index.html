@@ -14274,10 +14274,14 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
               if(player.alive&&GS.state==='playing'){
                 const _fcy=Math.cos(CAM.yaw), _fsy=Math.sin(CAM.yaw);
                 const _fwx=svx*_fcy+svy*_fsy, _fwz=-svx*_fsy+svy*_fcy, _dl=Math.hypot(_fwx,_fwz)||1;
-                if(player._inPlanetGravity){ player._wallDashRaw=[svx,svy]; player._cwDashT=(window._CUBE_DASH_T||0.18); }
-                player._dashDir=[_fwx/_dl,_fwz/_dl]; player._dashRamp=10; player._dashPeak=MOVE.topSpeed*3.4;
-                player._diveRollDir=[_fwx/_dl,_fwz/_dl];   // play the flip/dive-roll animation clip with the dash
-                { const _ax=Math.abs(svx),_ay=Math.abs(svy); player._flipAnimName=(_ay>=_ax)?(svy<0?'flip_forward':'flip_backward'):(svx<0?'flip_left':'flip_right'); }   // flick up=fwd, down=back, left/right=side flip
+                const _ax=Math.abs(svx),_ay=Math.abs(svy);
+                player._flipAnimName=(_ay>=_ax)?(svy<0?'flip_forward':'flip_backward'):(svx<0?'flip_left':'flip_right');   // flick up=fwd, down=back, left/right=side flip
+                const _ft=(player._flipAnimName==='flip_left'||player._flipAnimName==='flip_right')?(window._FLIP_DUR_SIDE||1.8):(window._FLIP_DUR_FB||1.0);
+                player._diveRollDir=[_fwx/_dl,_fwz/_dl];   // triggers the flip clip
+                // GENTLE directional drift over the flip duration — no teleport-dash, no character turn
+                const _drift=(window._FLIP_DRIFT_DIST||70);
+                if(player._inPlanetGravity){ player._wallDashRaw=[svx,svy]; player._cwDashT=_ft; player._cwDashSpd=_drift/_ft; }
+                else { player._dashDir=[_fwx/_dl,_fwz/_dl]; player._dashRamp=Math.max(6,Math.round(_ft*60)); player._dashPeak=_drift/_ft*1.8; }
                 if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0,0.85,1],10,80); if(typeof grid!=='undefined')grid.push(player.wx,player.wz,-2,50);
                 if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(440,0.08,'sine',0.15,880);
               }
@@ -14969,15 +14973,23 @@ function loop(ts){ requestAnimationFrame(loop);
             ||ud.clips['strafe_roll']||ud.clips['dodge'];
           if(rollClip){
             const rollName=Object.keys(ud.clips).find(k=>ud.clips[k]===rollClip)||'roll';
-            // Lock aim to dash direction for roll duration
-            player.aim=Math.atan2(dir[1],dir[0]);
-            player._rollAimLock=true;
-            const rollDur=(rollClip._clip?.duration||0.45)/1.4;
-            setTimeout(()=>{ if(player) player._rollAimLock=false; }, rollDur*1000);
+            const _isFlip=!!_flipName;
+            // FLIPS are directional clips authored in the character's own frame -> DON'T turn the character. Legacy roll still faces the dash dir.
+            if(_isFlip){ player._flipNoTurn=true; }
+            else { player.aim=Math.atan2(dir[1],dir[0]); player._rollAimLock=true; }
+            // Play at the AUTHORED real-time: target = the duration you timed (fwd/back 1.0s, side 1.8s), timeScale corrects whatever the GLB exported.
+            const _glbDur=(rollClip._clip&&rollClip._clip.duration)||0.45;
+            const _tgt = _isFlip
+              ? ((_flipName==='flip_left'||_flipName==='flip_right')?(window._FLIP_DUR_SIDE||1.8):(window._FLIP_DUR_FB||1.0))
+              : (_glbDur/1.4);
+            const _ts = _isFlip ? Math.max(0.05, _glbDur/_tgt) : 1.4;
+            const rollDur=_tgt;
+            if(player._flipDiag!==rollName){ player._flipDiag=rollName; console.log('[Robits]',rollName,'GLB dur',_glbDur.toFixed(2),'s -> play',_tgt,'s @ timeScale',_ts.toFixed(2)); }
+            setTimeout(()=>{ if(player){ player._rollAimLock=false; player._flipNoTurn=false; } }, rollDur*1000);
             // Play roll at full weight FIRST, then stop others — never a zero-weight frame
             rollClip.reset();
             rollClip.setEffectiveWeight(1);
-            rollClip.setEffectiveTimeScale(1.4);
+            rollClip.setEffectiveTimeScale(_ts);
             rollClip.setLoop(THREE.LoopOnce,1);
             rollClip.clampWhenFinished=true;
             rollClip.play();
@@ -17711,7 +17723,7 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   P._glGrounded=true;
   P.boostFuel=Math.min(P.boostMax||100, (P.boostFuel||0)+(window._CUBE_JET_RECHARGE||40)*dt);   // refill jet fuel while standing on a surface
   const TOP=(window._CUBE_MAXS||300);
-  if(dashDir){ v.copy(dashDir).multiplyScalar(window._CUBE_DASH_SPD||820); P._cwDashing=true; }   // DASH burst — overrides normal movement, even with the stick released
+  if(dashDir){ v.copy(dashDir).multiplyScalar(P._cwDashSpd||(window._CUBE_DASH_SPD||820)); P._cwDashing=true; }   // gentle flip drift (or legacy dash speed if _cwDashSpd unset)
   else if(tanDir){ v.copy(tanDir).multiplyScalar(TOP*Math.min(1,inMag)); P._cwDashing=false; }   // move straight in the input direction
   else { v.set(0,0,0); P._cwDashing=false; }                            // release -> stop
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
@@ -17727,7 +17739,8 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
   const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   // Facing: AIM when aiming (so the character faces where the bullets go), else the actual MOTION direction (coasting faces the glide), else input, else last.
   let fwd;
-  if(P._aim3DActive && P._aim3D && P._aim3D.lengthSq()>1e-4){ fwd=P._aim3D.clone(); }
+  if(P._flipNoTurn && P._cwLastF){ fwd=P._cwLastF.clone(); }                       // mid-flip: hold facing so the directional drift doesn't rotate the character
+  else if(P._aim3DActive && P._aim3D && P._aim3D.lengthSq()>1e-4){ fwd=P._aim3D.clone(); }
   else { const vt=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0); vt.addScaledVector(N,-vt.dot(N));
     if(vt.lengthSq()>900) fwd=vt; else if(tanDir) fwd=tanDir.clone(); else fwd=(P._cwLastF?P._cwLastF.clone():new THREE.Vector3(1,0,0)); }
   fwd.addScaledVector(N,-fwd.dot(N)); if(fwd.lengthSq()<1e-4) fwd.set(1,0,0); fwd.normalize();
@@ -21336,7 +21349,7 @@ let _HAMMER_SCALE=1.7;                                // equipped world-size (ma
 let _MELEE_FLICK_HI=0.78;   // stick must snap past this to fire a melee
 let _MELEE_FLICK_LO=0.40;   // stick must ease back below this to re-arm the next flick (higher = easier fast chaining)
 let _MELEE_FLICK_VEL=0.16;  // min per-frame snap speed (separates a flick from a slow aim push)
-let _MELEE_SPEED=1.5;        // master swing-speed multiplier. quick but slow enough that the FULL clip (windup+follow-through) reads — too high + the start/end blends eat the swing. per-weapon speed multiplies this. tune live: window._MELEE_SPEED
+let _MELEE_SPEED=3.0;        // master swing-speed multiplier (2x the old 1.5 — the spin reads snappy). per-weapon speed multiplies this. tune live: window._MELEE_SPEED
 // ── per-weapon melee balance — keyed by player._meleeType. melee hits MUCH harder than bullets so it's worth closing in. ──
 window._MELEE_STATS = window._MELEE_STATS || {
   //        dmg  reach  speed   eForce eLift eAir eStun   bMag bLift bStn   + impact: hitStop(frames) trauma(shake) thud(sfx pitch) slow/slowH/zoom (heavy only)
