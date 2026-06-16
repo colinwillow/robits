@@ -8018,6 +8018,7 @@ class Missile{
     this._findTarget(enemies);
     if(this._homePlayer && player && player.alive!==false){ this.target=player; }   // cannon rocket: lock onto the player so it flies at you to be deflected
     if(this._homeBack && this._homeBackTarget){ this.target=this._homeBackTarget; }   // deflected rocket: heat-seek back at whoever shot it
+    if(GS.zone===-19 && typeof _cubeBall!=='undefined' && _cubeBall && !this.target){ this.target={wx:_cubeBall.pos.x, wz:_cubeBall.pos.z, mesh:{position:{y:_cubeBall.pos.y}}}; }   // CUBE: heat-seek the ball when no enemy is locked
     let dirx=this.vx, diry=this.vy, dirz=this.vz;
     const cs=Math.hypot(this.vx,this.vy,this.vz)||1; dirx/=cs; diry/=cs; dirz/=cs;
     if(this.target){
@@ -17182,9 +17183,29 @@ function _ballKnockFromBox(b, box, halfW, halfH, halfD, vBoxX, vBoxY, vBoxZ, boo
   return true;
 }
 function _ballHitPlayer(b, dt){
-  if(!player||!player._dbgBox||b.hitCd>0) return;
+  if(!player||b.hitCd>0) return;
+  // ROBUST body-vs-ball (sphere on the player's ACTUAL position+velocity) so simply RUNNING into the ball knocks it — not only mid-animation.
+  const up=player._cubeUp||new THREE.Vector3(0,1,0);
+  const bodyC=new THREE.Vector3(player.wx,player.py,player.wz).addScaledVector(up,(window._BALL_BODY_UP||18));
+  const PR=(window._BALL_BODY_R||32);
+  const dxx=b.pos.x-bodyC.x, dyy=b.pos.y-bodyC.y, dzz=b.pos.z-bodyC.z, bd=Math.hypot(dxx,dyy,dzz);
+  if(bd < PR+b.R){
+    const n=bd>1e-4?new THREE.Vector3(dxx/bd,dyy/bd,dzz/bd):new THREE.Vector3(0,1,0);
+    b.pos.copy(bodyC).addScaledVector(n,PR+b.R+1);
+    const pv=new THREE.Vector3(player.vx||0,player.pvy||0,player.vz||0), along=Math.max(0,pv.dot(n));
+    const ud0=player.model&&player.model.userData, melee0=!!(ud0&&ud0._meleeTimer&&ud0._meleeTimer>0);
+    const KN=(window._BALL_KNOCK||1.0)*(melee0?(window._BALL_MELEE_BOOST||2.0):1);
+    b.vel.addScaledVector(n,((window._BALL_BASE||8)+along*(window._BALL_VFAC||1.2))*KN); b.vel.addScaledVector(pv,0.3);
+    if(b.vel.length()>2400)b.vel.setLength(2400);
+    b.hitCd=0.1;
+    if(typeof ps!=='undefined'){ for(let k=0;k<8;k++){ const a=Math.random()*6.28,sp=rand(40,120); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(-30,80),Math.sin(a)*sp,0.2,1,0.9,0.4); } }
+    if(typeof Audio!=='undefined'){try{Audio.blip(240,0.1,'square',0.22,120);}catch(_){}}
+    if(typeof addTrauma==='function')addTrauma(0.05);
+    return;
+  }
+  if(!player._dbgBox) return;
   const _mh=player._modelH||60, W=window._COLLIDER_W||_mh*(window._COLLIDER_WR||0.4), H=window._COLLIDER_H||_mh, D=window._COLLIDER_D||_mh*(window._COLLIDER_DR||0.4);
-  const cpos=player._dbgBox.position;   // swept velocity of the collider box -> flips/rotation/translation all impart force
+  const cpos=player._dbgBox.position;   // swept velocity of the collider box -> flips/rotation/translation all impart EXTRA force
   if(player._colPrev){ if(!player._colVel)player._colVel=new THREE.Vector3(); player._colVel.copy(cpos).sub(player._colPrev).multiplyScalar(1/Math.max(dt||0.016,0.001)); } else player._colVel=new THREE.Vector3();
   if(!player._colPrev)player._colPrev=new THREE.Vector3(); player._colPrev.copy(cpos);
   const bvx=player.vx||0,bvy=player.pvy||0,bvz=player.vz||0, useColl=(player._colVel.lengthSq()>(bvx*bvx+bvy*bvy+bvz*bvz));
@@ -17217,6 +17238,28 @@ function _updateCubeBall(dt){
     if(Math.hypot(tx,ty,tz)<(window._BALL_STOP||10)){ tx=ty=tz=0; }   // settle
     b.vel.set(tx+N.x*vnc, ty+N.y*vnc, tz+N.z*vnc);
   }
+  // ── BULLETS knock the ball (light push, consumed on hit) ──
+  if(GS.bullets&&GS.bullets.length){ for(const bl of GS.bullets){ if(!bl||bl.life<=0)continue;
+    const dx=bl.wx-b.pos.x, dy=(bl.y||0)-b.pos.y, dz=bl.wz-b.pos.z, dd=Math.hypot(dx,dy,dz);
+    if(dd < R+(window._BALL_BULLET_R||8)){
+      const n=new THREE.Vector3(-dx,-dy,-dz); if(n.lengthSq()<1e-4)n.set(0,1,0); n.normalize();
+      b.vel.addScaledVector(n,(window._BALL_BULLET_KN||34)); if(b.vel.length()>2800)b.vel.setLength(2800);
+      bl.life=0;
+      if(typeof ps!=='undefined'){ for(let k=0;k<5;k++){ const a=Math.random()*6.28,sp=rand(30,80); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(0,40),Math.sin(a)*sp,0.2,0.6,1,0.3); } }
+    }
+  } }
+  // ── MISSILES knock the ball HARD (explode on hit) ──
+  if(GS.missiles&&GS.missiles.length){ for(const ms of GS.missiles){ if(!ms||ms.life<=0)continue;
+    const dx=ms.wx-b.pos.x, dy=(ms.y||0)-b.pos.y, dz=ms.wz-b.pos.z, dd=Math.hypot(dx,dy,dz);
+    if(dd < R+(window._BALL_ROCKET_R||16)){
+      const n=new THREE.Vector3(-dx,-dy,-dz); if(n.lengthSq()<1e-4)n.set(0,1,0); n.normalize();
+      b.vel.addScaledVector(n,(window._BALL_ROCKET_KN||140)); if(b.vel.length()>2800)b.vel.setLength(2800);
+      ms.life=0;
+      if(typeof addTrauma==='function')addTrauma(0.18);
+      if(typeof ps!=='undefined'){ for(let k=0;k<16;k++){ const a=Math.random()*6.28,sp=rand(80,200); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(-30,120),Math.sin(a)*sp,1,0.6,0.1,0.6); } }
+      if(typeof Audio!=='undefined'){try{Audio.blip(90,0.2,'sawtooth',0.3,40);}catch(_){}}
+    }
+  } }
   _ballHitPlayer(b, dtc);
   b.grp.position.copy(b.pos);
   b.wire.rotation.x+=b.spin.x*dtc; b.wire.rotation.y+=b.spin.y*dtc; b.wire.rotation.z+=b.spin.z*dtc;
@@ -17503,10 +17546,17 @@ function _cubeCam(P, dt){
   if(window._ballCam){ _ballCam(P,dt); if(player)player._cubeCamAuth=false; _cwAuthPrev=false; return; }
   const Fout=new THREE.Vector3(); _cubeGrad(P.x,P.y,P.z,Fout); Fout.normalize();
   const N=Fout.clone().multiplyScalar(-1);                 // player up = toward the room centre
-  const onFloor = N.y>0.55;                                // up points mostly +Y -> floor
+  // HYSTERESIS: hold the current mode through the chamfer so floor<->wall doesn't flicker (which made the cam thrash on the way down).
+  const wasAuth = player && player._cubeCamAuth;
+  const onFloor = wasAuth ? (N.y > 0.80) : (N.y > 0.42);   // on a wall -> become floor only when clearly flat; on floor -> become wall only when clearly steep
   if(player) player._cubeCamAuth = !onFloor;
-  if(onFloor){ _cwAuthPrev=false; if(typeof CAM!=='undefined') CAM.tfocus.set(P.x,P.y,P.z); }   // normal cam follows + orbits
-  else { if(!_cwAuthPrev){ _cwCamBlend=0; _cwCamFrom.copy(camera.position); _cwAuthPrev=true; } _cubeWallCam(P,N,dt); }   // authoritative wall cam (seed a blend on entry)
+  if(onFloor){
+    if(_cwAuthPrev && typeof CAM!=='undefined'){            // wall -> floor: seed the normal cam from the CURRENT camera angle so it eases (no snap/thrash)
+      const dx=camera.position.x-P.x, dz=camera.position.z-P.z;
+      const yaw=Math.atan2(dx,dz); CAM.yaw=yaw; CAM.tyaw=yaw; CAM.focus.set(P.x,P.y,P.z);
+    }
+    _cwAuthPrev=false; if(typeof CAM!=='undefined') CAM.tfocus.set(P.x,P.y,P.z);   // normal cam follows + orbits
+  } else { if(!_cwAuthPrev){ _cwCamBlend=0; _cwCamFrom.copy(camera.position); _cwAuthPrev=true; } _cubeWallCam(P,N,dt); }   // authoritative wall cam (seed a blend on entry)
 }
 function _cubeWallCam(P, N, dt){
   if(typeof camera==='undefined') return;
