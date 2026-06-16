@@ -8949,10 +8949,9 @@ class Player{
         if(sMag>0.08 && typeof camera!=='undefined'){
           // aim in the surface tangent plane, mapped to the camera's screen axes (same as movement) -> works on any face/wall
           const N=_gN;
-          const cu=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);   // camera screen-up
-          const crr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);  // camera screen-right
-          let af=cu.addScaledVector(N,-cu.dot(N)); if(af.lengthSq()<1e-5){ af.set(0,0,1).addScaledVector(N,-N.z); } af.normalize();
-          let ar=crr.addScaledVector(N,-crr.dot(N)); if(ar.lengthSq()<1e-5) ar.crossVectors(af,N); ar.normalize();
+          const crr=new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));      // screen-right from CAM.yaw (same frame movement uses)
+          let ar=crr.addScaledVector(N,-crr.dot(N)); if(ar.lengthSq()<1e-5) ar.crossVectors(N,new THREE.Vector3(0,0,1)); ar.normalize();
+          let af=new THREE.Vector3().crossVectors(N,ar); if(af.lengthSq()<1e-5){ af.set(0,0,1).addScaledVector(N,-N.z); } af.normalize();   // forward = N × right (matches movement so aim+move agree)
           const aim=af.multiplyScalar(-shootIn.y).addScaledVector(ar,shootIn.x);
           if(aim.lengthSq()>1e-4){ aim.normalize(); this._aim3D=this._aim3D||new THREE.Vector3(); this._aim3D.copy(aim); this._aim3DActive=true; this.aim=Math.atan2(aim.z,aim.x); }
         } else { this._aim3DActive=false; const al0=Math.hypot(avx,avz); if(al0>0.08) this.aim=Math.atan2(avz,avx); }
@@ -17419,8 +17418,8 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   //    so it never inverts on a wall or the ceiling (the screen-up projection used to collapse on the ceiling). ──
   const inMag=Math.hypot(rawX,rawZ); let tanDir=null;
   if(inMag>0.05){
-    const cr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);     // camera RIGHT (world)
-    let prr=cr.clone().addScaledVector(N,-cr.dot(N));                           // right projected onto the surface plane
+    const cr=new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));        // screen-right DERIVED FROM CAM.yaw -> always in sync with the orbit cam (camera.matrixWorld lags a frame and desyncs when you spin)
+    let prr=cr.addScaledVector(N,-cr.dot(N));                                   // right projected onto the surface plane
     if(prr.lengthSq()<1e-5){ prr.crossVectors(N, P._cwLastTN||new THREE.Vector3(0,0,1)); }
     prr.normalize();
     let pf=new THREE.Vector3().crossVectors(N,prr);                             // forward = N × right -> never flips on the underside/ceiling
