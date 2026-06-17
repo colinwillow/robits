@@ -8981,7 +8981,15 @@ class Player{
             : new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));      // actual cam when ball/wall-authoritative, CAM.yaw on the floor — same frame movement uses
           let ar=crr.addScaledVector(N,-crr.dot(N)); if(ar.lengthSq()<1e-5) ar.crossVectors(N,new THREE.Vector3(0,0,1)); ar.normalize();
           let af=new THREE.Vector3().crossVectors(N,ar); if(af.lengthSq()<1e-5){ af.set(0,0,1).addScaledVector(N,-N.z); } af.normalize();   // forward = N × right (matches movement so aim+move agree)
-          const aim=af.multiplyScalar(-shootIn.y).addScaledVector(ar,shootIn.x);
+          const _onWall = !!(player && player._cubeCamAuth);                                  // wall/ceiling -> aim is a 3D half-sphere; floor stays flat
+          const _tang=af.clone().multiplyScalar(-shootIn.y).addScaledVector(ar,shootIn.x);     // direction along the surface the stick points
+          let aim;
+          if(_onWall && _tang.lengthSq()>1e-4){
+            _tang.normalize();
+            const _elev=(1-Math.min(1,sMag))*(Math.PI/2)*(window._WALL_SHOOT_3D!=null?window._WALL_SHOOT_3D:1);   // stick centre -> straight OUT of the wall (along N), stick edge -> along the wall (half-sphere)
+            aim=_tang.multiplyScalar(Math.cos(_elev)).addScaledVector(N, Math.sin(_elev));
+          } else if(_onWall){ aim=N.clone(); }                                                 // dead-centre on a wall -> fire straight out
+          else { aim=_tang; }                                                                  // floor -> flat tangent aim (unchanged)
           if(aim.lengthSq()>1e-4){ aim.normalize(); this._aim3D=this._aim3D||new THREE.Vector3(); this._aim3D.copy(aim); this._aim3DActive=true; this.aim=Math.atan2(aim.z,aim.x); }
         } else { this._aim3DActive=false; const al0=Math.hypot(avx,avz); if(al0>0.08) this.aim=Math.atan2(avz,avx); }
         this.fireT++;
@@ -17856,6 +17864,7 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   if(prr.lengthSq()<1e-5){ prr.crossVectors(N, P._cwLastTN||new THREE.Vector3(0,0,1)); }
   prr.normalize();
   let pf=new THREE.Vector3().crossVectors(N,prr);                              // forward = N × right -> never flips on the underside/ceiling
+  if(player && player._cubeCamAuth) pf.multiplyScalar(-1);                     // the x-ray wall cam sits OUTSIDE the wall -> flips the forward handedness; un-flip so stick-up = up the wall
   if(pf.lengthSq()<1e-5){ pf.copy(P._cwLastTN||new THREE.Vector3(0,0,1)); pf.addScaledVector(N,-pf.dot(N)); }
   pf.normalize();
   if(inMag>0.05){
@@ -17966,11 +17975,12 @@ function _cubeWallCam(P, N, dt){
   const CC=(window._CUBE||_CUBE);
   const Fout=N.clone().multiplyScalar(-1); if(Fout.lengthSq()<1e-6)Fout.set(0,-1,0); Fout.normalize();   // N = up (toward room centre); outward = through the wall to OUTSIDE the cube
   const D=(window._CUBE_WALLCAM_D||360);
-  const eye=P.clone().addScaledVector(Fout, D);                                  // X-RAY: sit OUTSIDE the wall, orthogonal, looking back through it at the player (like ball cam, centred on you)
   // screen-up = "up the wall" toward the ceiling (world-up projected into the wall plane); on the ceiling that degenerates -> stable fallback
   let up=new THREE.Vector3(0,1,0); up.addScaledVector(Fout,-up.dot(Fout));
   if(up.lengthSq()<0.05){ up.set(0,0,1); up.addScaledVector(Fout,-up.dot(Fout)); if(up.lengthSq()<0.05){ up.set(1,0,0); up.addScaledVector(Fout,-up.dot(Fout)); } }
   up.normalize();
+  const LIFT=(window._CUBE_WALLCAM_LIFT!=null?window._CUBE_WALLCAM_LIFT:120);
+  const eye=P.clone().addScaledVector(Fout, D).addScaledVector(up, LIFT);          // X-RAY: OUTSIDE the wall, raised a little along "up the wall" so it looks DOWN at the player for a bit of perspective
   if(!_cwLook) _cwLook=P.clone();
   _cwLook.lerp(P,0.14);
   if(_cwCamBlend<1){ _cwCamBlend=Math.min(1,_cwCamBlend+dt/(window._CUBE_CAM_BLEND||0.9)); const e=_cwCamBlend<0.5?2*_cwCamBlend*_cwCamBlend:1-Math.pow(-2*_cwCamBlend+2,2)/2; camera.position.lerpVectors(_cwCamFrom,eye,e); }
