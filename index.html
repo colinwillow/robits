@@ -2824,6 +2824,59 @@ class DroidekaBot extends Enemy{
   remove(){ scene.remove(this.mesh); }
 }
 // ── BLUE DRAGON — animated GLB enemy with a character-style AI: entrance -> idle/casual -> chase (run scaled by speed) -> punch / air fire-breath; hit + dizzy on stagger; plays its death clip before it's removed. Tunables under window._DRAGON_* ──
+// ── QUAD WIREFRAME for a triangulated SKINNED mesh ──────────────────────────────────────────────
+// Stock Three can't skin a LineSegments wireframe, and material.wireframe shows every triangle diagonal.
+// Instead we render the skinned mesh itself with a single-pass BARYCENTRIC wireframe in the fragment
+// shader (reusing Three's skinning), and hide each triangle's diagonal — any edge whose two faces are
+// nearly coplanar (a quad split) — so a triangulated mesh reads as clean deforming QUADS.
+function _quadWireGeometry(srcGeo, angleThresh){
+  const pos=srcGeo.attributes.position, idx=srcGeo.index;
+  const triCount = idx ? (idx.count/3|0) : (pos.count/3|0);
+  const gi=(t,k)=> idx ? idx.getX(t*3+k) : (t*3+k);
+  const _a=new THREE.Vector3(),_b=new THREE.Vector3(),_c=new THREE.Vector3(),_e1=new THREE.Vector3(),_e2=new THREE.Vector3();
+  const qkey=(i)=> (Math.round(pos.getX(i)*1000))+'_'+(Math.round(pos.getY(i)*1000))+'_'+(Math.round(pos.getZ(i)*1000));   // weld split verts by position
+  const edgeMap=new Map(), triN=[];
+  for(let t=0;t<triCount;t++){ const i0=gi(t,0),i1=gi(t,1),i2=gi(t,2);
+    _a.fromBufferAttribute(pos,i0); _b.fromBufferAttribute(pos,i1); _c.fromBufferAttribute(pos,i2);
+    _e1.subVectors(_b,_a); _e2.subVectors(_c,_a); const n=new THREE.Vector3().crossVectors(_e1,_e2); if(n.lengthSq()>1e-12)n.normalize(); triN.push(n);
+    const ks=[qkey(i0),qkey(i1),qkey(i2)], pairs=[[ks[1],ks[2]],[ks[2],ks[0]],[ks[0],ks[1]]];   // edge opposite v0,v1,v2
+    for(const [pa,pb] of pairs){ const ek=pa<pb?pa+'|'+pb:pb+'|'+pa; let arr=edgeMap.get(ek); if(!arr){arr=[];edgeMap.set(ek,arr);} arr.push(n); }
+  }
+  const cosT=Math.cos(angleThresh);
+  const triKeep=new Array(triCount);
+  for(let t=0;t<triCount;t++){ const i0=gi(t,0),i1=gi(t,1),i2=gi(t,2); const ks=[qkey(i0),qkey(i1),qkey(i2)], pairs=[[ks[1],ks[2]],[ks[2],ks[0]],[ks[0],ks[1]]]; const keep=[1,1,1];
+    for(let e=0;e<3;e++){ const pa=pairs[e][0],pb=pairs[e][1], ek=pa<pb?pa+'|'+pb:pb+'|'+pa, arr=edgeMap.get(ek);
+      if(arr&&arr.length>=2){ let flat=false; for(let x=0;x<arr.length&&!flat;x++)for(let y=x+1;y<arr.length;y++){ if(arr[x].dot(arr[y])>cosT){ flat=true; break; } } if(flat) keep[e]=0; }   // shared + coplanar -> a diagonal, hide it
+    }
+    triKeep[t]=keep;
+  }
+  const ng=srcGeo.toNonIndexed();   // duplicates position/skinIndex/skinWeight per corner, in triangle order
+  const M=ng.attributes.position.count, bary=new Float32Array(M*3), keep=new Float32Array(M*3), BARY=[[1,0,0],[0,1,0],[0,0,1]];
+  for(let t=0;t<triCount;t++){ const kp=triKeep[t]||[1,1,1]; for(let k=0;k<3;k++){ const o=t*3+k; bary[o*3]=BARY[k][0]; bary[o*3+1]=BARY[k][1]; bary[o*3+2]=BARY[k][2]; keep[o*3]=kp[0]; keep[o*3+1]=kp[1]; keep[o*3+2]=kp[2]; } }
+  ng.setAttribute('aBary',new THREE.BufferAttribute(bary,3));
+  ng.setAttribute('aKeep',new THREE.BufferAttribute(keep,3));
+  return ng;
+}
+function _quadWireTwin(c, glow, wireOp){
+  const angle=(window._DRAGON_WIRE_ANGLE!=null?window._DRAGON_WIRE_ANGLE:0.30);   // ~17°: edges flatter than this are treated as quad diagonals and hidden
+  const ng=_quadWireGeometry(c.geometry, angle);
+  const lw=(window._DRAGON_WIRE_LW||1.6);
+  const mat=new THREE.MeshBasicMaterial({color:glow, transparent:true, opacity:wireOp, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:true, toneMapped:false, side:THREE.DoubleSide});
+  mat.onBeforeCompile=(sh)=>{
+    sh.vertexShader='attribute vec3 aBary;\nattribute vec3 aKeep;\nvarying vec3 vBary;\nvarying vec3 vKeep;\n'+
+      sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nvBary=aBary; vKeep=aKeep;');
+    sh.fragmentShader='varying vec3 vBary;\nvarying vec3 vKeep;\n'+
+      sh.fragmentShader.replace('#include <dithering_fragment>',
+        '#include <dithering_fragment>\n'+
+        'float _d=1.0;\n if(vKeep.x>0.5)_d=min(_d,vBary.x);\n if(vKeep.y>0.5)_d=min(_d,vBary.y);\n if(vKeep.z>0.5)_d=min(_d,vBary.z);\n'+
+        'float _w=max(fwidth(_d),1e-5);\n float _ln=1.0-smoothstep(0.0,_w*'+lw.toFixed(2)+',_d);\n if(_ln<0.025) discard;\n gl_FragColor.a*=_ln;');
+  };
+  let w;
+  if(c.isSkinnedMesh){ w=new THREE.SkinnedMesh(ng, mat); w.position.copy(c.position); w.quaternion.copy(c.quaternion); w.scale.copy(c.scale); w.bindMode=c.bindMode; w.bind(c.skeleton, c.bindMatrix); }
+  else { w=new THREE.Mesh(ng, mat); w.position.copy(c.position); w.quaternion.copy(c.quaternion); w.scale.copy(c.scale); }
+  w.frustumCulled=false; w.renderOrder=3;
+  return w;
+}
 class BlueDragon extends Enemy{
   constructor(wx,wz,wave){
     super(wx,wz);
@@ -2864,13 +2917,16 @@ class BlueDragon extends Enemy{
           else { let e=mt.color?mt.color.clone():glow.clone(); if(e.r+e.g+e.b<0.12) e=glow.clone(); mt.emissive=e; mt.emissiveIntensity=(window._DRAGON_EMIT!=null?window._DRAGON_EMIT:1.7); }
           if('toneMapped' in mt) mt.toneMapped=false; }
         mt.needsUpdate=true; });
-      if(window._DRAGON_WIRE!==false){   // glowing WIREFRAME twin back ON by default (shares geometry + skeleton so it deforms with the animation). It's a triangle wireframe — a true quad wireframe that still deforms needs a custom skinned-line build (see note)
+      if(window._DRAGON_WIRE!==false){   // glowing WIREFRAME twin (shares geometry + skeleton so it deforms with the animation). Default = clean QUAD wireframe (diagonals hidden); falls back to the triangle wireframe if the quad build fails.
         try{
-          const wmat=new THREE.MeshBasicMaterial({color:glow, wireframe:true, transparent:true, opacity:wireOp, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false});
-          let w;
-          if(c.isSkinnedMesh){ w=new THREE.SkinnedMesh(c.geometry, wmat); w.position.copy(c.position); w.quaternion.copy(c.quaternion); w.scale.copy(c.scale); w.bindMode=c.bindMode; w.bind(c.skeleton, c.bindMatrix); }
-          else { w=new THREE.Mesh(c.geometry, wmat); w.position.copy(c.position); w.quaternion.copy(c.quaternion); w.scale.copy(c.scale); }
-          w.frustumCulled=false; w.renderOrder=3;
+          let w=null;
+          if(window._DRAGON_WIRE_QUAD!==false && typeof _quadWireTwin==='function'){ try{ w=_quadWireTwin(c, glow, wireOp); }catch(qe){ console.warn('dragon quad-wire failed, using tris', qe); w=null; } }
+          if(!w){
+            const wmat=new THREE.MeshBasicMaterial({color:glow, wireframe:true, transparent:true, opacity:wireOp, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false});
+            if(c.isSkinnedMesh){ w=new THREE.SkinnedMesh(c.geometry, wmat); w.position.copy(c.position); w.quaternion.copy(c.quaternion); w.scale.copy(c.scale); w.bindMode=c.bindMode; w.bind(c.skeleton, c.bindMatrix); }
+            else { w=new THREE.Mesh(c.geometry, wmat); w.position.copy(c.position); w.quaternion.copy(c.quaternion); w.scale.copy(c.scale); }
+            w.frustumCulled=false; w.renderOrder=3;
+          }
           wires.push({src:c, w});
         }catch(_e){ console.warn('dragon wire twin skipped', _e); }
       }
@@ -2882,8 +2938,11 @@ class BlueDragon extends Enemy{
     if(clips.length){
       const mx=new THREE.AnimationMixer(m); this._mixer=mx;
       const find=(kw)=>clips.find(c=>c.name&&c.name.toLowerCase()===kw) || clips.find(c=>c.name&&c.name.toLowerCase().includes(kw));
+      const findAny=(kws)=>{ for(const kw of kws){ const c=find(kw); if(c) return c; } return null; };
+      const ALIAS={ death:['death','die','dead','dying','defeat'], hit:['hit','hurt','flinch','impact','pain','react','damage'] };   // the death clip is often named "die"; match it (and hit variants) so the reaction/death anims actually fire
       ['attack_ground','attack_air','casual','death','dizzy','hit','idle','entrance','run','wake_up'].forEach(nm=>{
-        const cl=find(nm); if(cl){ this._act[nm]=mx.clipAction(cl); this._dur[nm]=cl.duration; } });
+        const cl=ALIAS[nm]?findAny(ALIAS[nm]):find(nm); if(cl){ this._act[nm]=mx.clipAction(cl); this._dur[nm]=cl.duration; } });
+      try{ if(!this._act.death){ console.warn('dragon: no death clip found among', clips.map(c=>c.name)); } }catch(_){}
     }
   }
   _play(name,{loop=THREE.LoopRepeat, fade=0.18, speed=1, clamp=false}={}){
@@ -2922,9 +2981,14 @@ class BlueDragon extends Enemy{
       return 0;
     }
     this.hitFlash=6;
-    if(this._state!=='attack_air' && this._state!=='entrance'){
-      if(this._energy<=0 && this._dizzyCD<=0){ this._dizzyCD=window._DRAGON_DIZZY_CD||6; this._dizzyT=window._DRAGON_DIZZY_T||1.8; this._enter('dizzy'); }
-      else if(this._state!=='dizzy'){ this._enter('hit'); }
+    this._hitAccum=(this._hitAccum||0)+dmg;
+    if(this._state!=='attack_air' && this._state!=='entrance' && this._state!=='dizzy'){
+      if(this._energy<=0 && this._dizzyCD<=0){ this._dizzyCD=window._DRAGON_DIZZY_CD||6; this._dizzyT=window._DRAGON_DIZZY_T||1.8; this._hitAccum=0; this._enter('dizzy'); }
+      else {
+        const thresh=(window._DRAGON_HIT_THRESH!=null?window._DRAGON_HIT_THRESH:20);   // pile up ~20 dmg before flinching (bullets 3 / rockets 5) so it doesn't twitch on every shot
+        const hitBusy=(this._state==='hit' && this._stateT < (this._dur.hit||0.5));      // let the current flinch play ALL the way through before it can fire again
+        if(this._hitAccum>=thresh && !hitBusy){ this._hitAccum=0; this._enter('hit'); }
+      }
     }
     return 0;
   }
@@ -11304,6 +11368,51 @@ function _spawnCrateDebris(x,y,z){
   for(let k=0;k<6;k++){ const s=rand(2.4,5.5); const m=new THREE.Mesh(new THREE.BoxGeometry(s,s*0.4,s*rand(0.6,1.6)), new THREE.MeshStandardMaterial({color:woodCol,emissive:0x140a03,roughness:0.9})); m.position.set(x+rand(-6,6),y+rand(0,14),z+rand(-6,6)); scene.add(m); const a=Math.random()*6.28, sp=rand(55,115); window._crateDebris.push({m,vx:Math.cos(a)*sp,vy:rand(80,150),vz:Math.sin(a)*sp,rx:rand(-7,7),rz:rand(-7,7),t:0}); }
 }
 // Replicates the bomb's EXACT effect on enemies: spiders (_ballCapable) get enterBall (the beautiful up-roll-tumble); others get the bomb's knock. dmgScale<1 = lighter damage.
+// ── SLAM SHOCKWAVE — a visible ring + radial slashes that EXPAND outward from a ground-slam, damaging
+//    enemies as the front sweeps past each (once), then dissipate at a local max radius. Pushed to GS.deathRings.
+function _slamShockwave(x, z, o){
+  o=o||{};
+  const y=(o.y!=null?o.y:2);
+  const rMax=(o.r!=null?o.r:(window._SLAM_RING_R!=null?window._SLAM_RING_R:165));         // LOCAL — doesn't reach far
+  const dur=(o.dur!=null?o.dur:(window._SLAM_RING_DUR!=null?window._SLAM_RING_DUR:0.48));
+  const dmgScale=(o.dmgScale!=null?o.dmgScale:(window._SLAM_RING_DMG!=null?window._SLAM_RING_DMG:(window._SLAM_AOE_DMG!=null?window._SLAM_AOE_DMG:0.6)));
+  const band=(window._SLAM_RING_BAND||26);
+  const col=new THREE.Color(o.col!=null?o.col:0x9fe8ff);
+  const grp=new THREE.Group(); grp.position.set(x,y,z); scene.add(grp);
+  const ringGeo=new THREE.RingGeometry(0.82,1.0,56);
+  const ringMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+  const ring=new THREE.Mesh(ringGeo,ringMat); ring.rotation.x=-Math.PI/2; grp.add(ring);
+  const ring2Mat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+  const ring2=new THREE.Mesh(ringGeo,ring2Mat); ring2.rotation.x=-Math.PI/2; grp.add(ring2);
+  // radial slashes shooting outward with the front
+  const slN=(o.slashes||12), angs=[]; for(let i=0;i<slN;i++) angs.push(i/slN*Math.PI*2+rand(-0.12,0.12));
+  const slPos=new Float32Array(slN*2*3); const slGeo=new THREE.BufferGeometry(); slGeo.setAttribute('position',new THREE.BufferAttribute(slPos,3));
+  const slMat=new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+  const slLines=new THREE.LineSegments(slGeo,slMat); grp.add(slLines);
+  const hit=new Set(); let t=0;
+  const fx={ mesh:grp,
+    update(dt){ t+=dt; const k=t/dur; if(k>=1) return false;
+      const ease=1-Math.pow(1-k,2.2), R=Math.max(2,rMax*ease), fade=(1-k);
+      ring.scale.set(R,R,1); ringMat.opacity=0.95*fade*fade;
+      ring2.scale.set(R*0.9,R*0.9,1); ring2Mat.opacity=0.5*fade;
+      for(let i=0;i<slN;i++){ const a=angs[i], inner=R*0.52, outer=R*1.05;
+        slPos[i*6]=Math.cos(a)*inner; slPos[i*6+1]=0.5; slPos[i*6+2]=Math.sin(a)*inner;
+        slPos[i*6+3]=Math.cos(a)*outer; slPos[i*6+4]=0.5; slPos[i*6+5]=Math.sin(a)*outer; }
+      slGeo.attributes.position.needsUpdate=true; slMat.opacity=0.9*fade;
+      // DAMAGE — front at R catches each enemy ONCE as it sweeps past (mirrors the bomb blast: ball-capable tumble, else hit+knock+kill)
+      try{
+        if(typeof GS!=='undefined'&&GS.enemies){ for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||e._invulnerable||hit.has(e))continue; const dx=(e.wx||0)-x, dz=(e.wz||0)-z, dd=Math.hypot(dx,dz); if(dd<=R+band){ hit.add(e); const prox=Math.max(0,1-dd/rMax);
+          if(e._ballCapable && e.alive && !e._ball && typeof e.enterBall==='function'){ const pts=e.hit(1); if(pts>0){ GS.score+=pts*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-14,14),e.wz+rand(-14,14),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } else { e.enterBall(dx,dz,120+prox*240,200+prox*200); } }
+          else { const bd=Math.max(2,Math.ceil((46*prox+6)*dmgScale)); const pts=e.hit(bd); if(e.knock)e.knock(dx,dz,bd,1.4+prox*2.2,prox*prox*24); if(pts>0){ GS.score+=pts*GS.mult; if(GS.mult<25)GS.mult++; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-14,14),e.wz+rand(-14,14),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } }
+        } } }
+        if(typeof GS_bots!=='undefined'){ for(const b of GS_bots){ if(!b||!b.alive||hit.has(b))continue; const dd=Math.hypot(b.wx-x,b.wz-z); if(dd<=R+band){ hit.add(b); const n=Math.max(0,1-dd/rMax); if(b.knock)b.knock(b.wx-x,b.wz-z,2+n*2,480+n*200,28+n*18); if(b.hit)b.hit(Math.max(1,Math.ceil(n*3+1))); } } }
+      }catch(_){}
+      return true; },
+    remove(){ try{ scene.remove(grp); ringGeo.dispose(); ringMat.dispose(); ring2Mat.dispose(); slGeo.dispose(); slMat.dispose(); }catch(_){} } };
+  try{ if(typeof GS!=='undefined'&&GS.deathRings) GS.deathRings.push(fx); }catch(_){}
+  return fx;
+}
+window._slamShockwave=_slamShockwave;
 function _bombBlastEnemies(x,y,z,R,dmgScale){
   dmgScale=(dmgScale==null?1:dmgScale); const R2=R*R; let hitCount=0;
   try{
@@ -15509,7 +15618,7 @@ function loop(ts){ requestAnimationFrame(loop);
               for(let k=0;k<26;k++){ const a=k/26*Math.PI*2, sp=rand(160,360); ps._spawn(player.wx,(player.py||0)+2,player.wz, Math.cos(a)*sp, rand(40,160), Math.sin(a)*sp, 0.55,0.92,1, 0.5); } }   // low outward shockwave debris
             if(typeof addTrauma==='function')addTrauma(0.36); if(typeof hitStop==='function')hitStop(7);
             if(typeof Audio!=='undefined'){ try{ Audio.blip(58,0.55,'sawtooth',0.5,26); if(Audio.noise)Audio.noise(0.45,0.4,520); }catch(_){} }
-            if(window._SLAM_AOE!==false && typeof _bombBlastEnemies==='function') _bombBlastEnemies(player.wx,player.py||0,player.wz,(window._SLAM_AOE_R!=null?window._SLAM_AOE_R:135),(window._SLAM_AOE_DMG!=null?window._SLAM_AOE_DMG:0.6));   // shockwave knocks/tumbles nearby enemies (bomb-style)
+            if(window._SLAM_AOE!==false && typeof _slamShockwave==='function') _slamShockwave(player.wx, player.wz, {y:(player.py||0)+2});   // expanding shockwave ring + radial slashes that damage enemies as the front sweeps out, then dissipates (local radius)
           }
           const _hardFall=!_slam && (ud._maxFallVy||0)<=-(window._ROLL_LAND_VY!=null?window._ROLL_LAND_VY:420);   // fast impact == big drop -> roll instead of soft land; never roll out of a slam
           const _landName=(_hardFall&&ud.clips['roll_landing'])?'roll_landing':'landing';
