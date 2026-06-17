@@ -2821,7 +2821,7 @@ class BlueDragon extends Enemy{
   constructor(wx,wz,wave){
     super(wx,wz);
     this._robitId='blue_dragon'; this._robitName='Blue Dragon';
-    this.glow=[0.3,0.66,1]; this.score=400; this.size=22; this._barY=46; this._barW=42;
+    this.glow=[0.3,0.66,1]; this.score=400; this.size=22; this._barY=46; this._barW=42; this._tall=(window._DRAGON_TARGET||36);
     this.hp=(window._DRAGON_HP||70)+(wave||1)*4; this.maxHp=this.hp;
     this._walkSpd=window._DRAGON_WALK||72; this._runSpd=window._DRAGON_RUN||178;
     this.mesh=new THREE.Group();
@@ -2896,10 +2896,14 @@ class BlueDragon extends Enemy{
     else if(state==='dizzy'){ this._play('dizzy',{fade:0.15}); }
     else if(state==='death'){ this._play('death',{loop:THREE.LoopOnce,clamp:true,fade:0.1}); }
   }
-  hit(dmg=1){
+  knock(){ /* the dragon is far too massive to be shoved around — it just plays its hit reaction */ }
+  hit(dmg=1, hx, hz, hy){
     if(this._dying) return 0;
+    // IMPACT FEEDBACK at the point struck (bullets pass their 3D pos; melee/explosive pass x,z) — shows where he's being hit, like the ball does
+    const _ix=(hx!==undefined?hx:this.wx), _iz=(hz!==undefined?hz:this.wz), _iy=(hy!==undefined?hy:(this._curY||0)+((this._tall||36)*0.5));
+    try{ ps.burst(_ix,_iz,[1,0.93,0.55],11,95,_iy); ps.spark(_ix,_iz,this.glow,_iy); if(ps._spawn){ for(let s=0;s<5;s++){ const a=rand(TAU); ps._spawn(_ix,_iy,_iz,Math.cos(a)*rand(40,120),rand(20,90),Math.sin(a)*rand(40,120),1,1,1,0.06+rand(0.04)); } } if(typeof spawnDmgNum==='function')spawnDmgNum(_ix,_iy+6,_iz,dmg,'#bfe8ff'); }catch(_){}
     this._energy=Math.max(0, this._energy - dmg*(window._DRAGON_STAGGER||0.16));
-    this.hp-=dmg; this._hpShowT=150; ps.burst(this.wx,this.wz,this.glow,8,80); ps.spark(this.wx,this.wz,this.glow);
+    this.hp-=dmg; this._hpShowT=150;
     if(this.hp<=0){   // DEATH: keep alive so the death clip can play; award score now, self-remove after the clip (no weapon loop splices us because we return 0)
       this._dying=true; this._noKnock=true; this.vx=0; this.vz=0; this._enter('death');
       GS.score += (this.score||0)*GS.mult;
@@ -8147,16 +8151,23 @@ function _openRobitMenu(){
 window._openRobitMenu=_openRobitMenu; window._closeRobitMenu=_closeRobitMenu;
 
 
-const bulletGeo=(function(){ const g=new THREE.CylinderGeometry(0.12,0.6,6.5,7); g.rotateX(-Math.PI/2); return g; })();   // thin little rocket, not a cheesy ball
+const bulletGeo=(function(){ const g=new THREE.CylinderGeometry(0.16,0.95,13,8); g.rotateX(-Math.PI/2); return g; })();   // sleek long missile (was a stubby pellet)
+const bulletTailGeo=(function(){ const g=new THREE.ConeGeometry(0.7,20,8,1,true); g.rotateX(-Math.PI/2); g.translate(0,0,-10); return g; })();   // additive glow streak trailing behind (-Z)
 const _BULLET_AXIS=new THREE.Vector3(0,0,1), _bvDir=new THREE.Vector3();
-const bulletMats={ normal:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xffdd00,emissiveIntensity:2.4}),
-  laser:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x00ffea,emissiveIntensity:2.6}),
-  homing:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xff66cc,emissiveIntensity:2.4}) };
+const bulletMats={ normal:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xffdd00,emissiveIntensity:2.8,toneMapped:false}),
+  laser:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x00ffea,emissiveIntensity:3.0,toneMapped:false}),
+  homing:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xff66cc,emissiveIntensity:2.8,toneMapped:false}) };
+const _bulletTailHex={ normal:0xffbb22, laser:0x22fff0, homing:0xff66cc };
+const bulletTailMats={}; for(const _k in _bulletTailHex){ bulletTailMats[_k]=new THREE.MeshBasicMaterial({color:_bulletTailHex[_k],transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}); }
+const _bulletTrailCol={ normal:[1,0.78,0.2], laser:[0.25,1,0.94], homing:[1,0.5,0.86] };
 class Bullet{
   constructor(wx,wz,vx,vz,kind='normal',y0,vy0,g3){ this.wx=wx;this.wz=wz;this.vx=vx;this.vz=vz;this.kind=kind;this.life=1;
     this.y=(y0!==undefined?y0:9); this._g3=!!g3; this.vy=(this._g3&&vy0!==undefined)?vy0:0;
     this.decay=kind==='laser'?0.014:0.008; this.pierce=kind==='laser'?3:0; this.dmg=kind==='laser'?2:1; this.hitSet=new Set();
-    this.mesh=new THREE.Mesh(bulletGeo,bulletMats[kind]); this.mesh.scale.setScalar(kind==='laser'?1.4:1); this.mesh.position.set(wx,this.y,wz); scene.add(this.mesh); }
+    this.mesh=new THREE.Group();
+    const _core=new THREE.Mesh(bulletGeo,bulletMats[kind]); this.mesh.add(_core);
+    const _tail=new THREE.Mesh(bulletTailGeo,bulletTailMats[kind]||bulletTailMats.normal); _tail.renderOrder=2; this.mesh.add(_tail);
+    this.mesh.scale.setScalar(kind==='laser'?1.5:1.15); this.mesh.position.set(wx,this.y,wz); scene.add(this.mesh); }
   update(dt,enemies){
     if(this.kind==='homing'){ let best=null,bd=1e9; for(const e of enemies){const dx=e.wx-this.wx,dz=e.wz-this.wz,d=dx*dx+dz*dz;if(d<bd){bd=d;best=e;}}
       if(best){const dx=best.wx-this.wx,dz=best.wz-this.wz,d=Math.hypot(dx,dz)||1;this.vx+=(dx/d)*1000*dt;this.vz+=(dz/d)*1000*dt;const s=Math.hypot(this.vx,this.vz),mx=480;if(s>mx){this.vx=this.vx/s*mx;this.vz=this.vz/s*mx;}} }
@@ -8167,6 +8178,7 @@ class Bullet{
     else if(GS.zone===-19){ this.y+=this.vy*dt; }                              // cube free-flight: keep its 3D motion (straight-out shots cross the room) — the stick handles surfaces
     else if(this.y>9||this.vy>0.5){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){ this.y=9; this.vy=(this.vy<-55)?-this.vy*0.5:0; } }   // arc + bounce off the floor (loses half its energy each hop)
     this.mesh.position.set(this.wx,this.y,this.wz);
+    if(typeof ps!=='undefined' && ps._spawn && Math.random()<(IS_MOBILE?0.3:0.55)){ const _tc=_bulletTrailCol[this.kind]||_bulletTrailCol.normal; ps._spawn(this.wx-this.vx*0.012,this.y-(this.vy||0)*0.012,this.wz-this.vz*0.012, rand(-6,6),rand(-6,6),rand(-6,6), _tc[0],_tc[1],_tc[2], 0.07+rand(0.05)); }   // glowing spark trail = character
     _bvDir.set(this.vx,this.vy||0,this.vz); if(_bvDir.lengthSq()>1e-4){ _bvDir.normalize(); this.mesh.quaternion.setFromUnitVectors(_BULLET_AXIS,_bvDir); }
     if(!this._g3 && grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,0.7);
     if(GRID_SHEETS.length){ const _h=gridSheetHit(this.wx,this.y,this.wz,this.wx-this.vx*dt,this.y-(this._g3?this.vy*dt:0),this.wz-this.vz*dt);
@@ -13848,7 +13860,7 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
     if(_arenaObstacles.length && b.life>0){ _bounceBulletObs(b); }
     for(let ei=GS.enemies.length-1;ei>=0;ei--){ const e=GS.enemies[ei]; if(b.hitSet.has(e))continue;
       const dx=b.wx-e.wx,dz=b.wz-e.wz,rr=e.size+5; if(dx*dx+dz*dz<rr*rr){
-        const enemyY=9, bulletY=b.y, vertOk=Math.abs(bulletY-enemyY)<28;
+        const enemyY=9, _tall=(e._tall||0), bulletY=b.y, vertOk=(bulletY>enemyY-28 && bulletY<enemyY+Math.max(28,_tall));
         if(!vertOk)continue;
         if(e._invulnerable){ b.life=0; continue; }
         // Non-host: send hit to host, don't apply damage locally
@@ -13857,7 +13869,7 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
           mpSend('event',{event:'enemy_hit',data:{idx:ei, dmg:b.dmg}});
           continue;
         }
-        kt+=0.015; const pts=e.hit(b.dmg); e.knock(b.vx,b.vz,b.dmg,0.1); if(b.pierce>0){b.pierce--;b.hitSet.add(e);}else b.life=0;
+        kt+=0.015; const pts=e.hit(b.dmg, b.wx, b.wz, b.y); e.knock(b.vx,b.vz,b.dmg,0.1); if(b.pierce>0){b.pierce--;b.hitSet.add(e);}else b.life=0;
         // VertexBoss: give hit vertex momentum
         if(e instanceof VertexBoss){
           const lx=b.wx-e.wx, ly=(b.y||9)-e.mesh.position.y, lz=b.wz-e.wz;
