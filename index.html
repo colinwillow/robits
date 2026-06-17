@@ -8973,7 +8973,7 @@ class Player{
       // Galaxy/lab planet state owns movement but still allows aim/shoot
       if(this._inPlanetGravity){
         const sMag=Math.hypot(shootIn.x,shootIn.y);
-        if(sMag>0.08 && typeof camera!=='undefined'){
+        if((sMag>0.08 || (player&&player._cubeCamAuth)) && typeof camera!=='undefined'){     // on a wall, resolve aim even at dead-centre (-> straight out); floor still needs a nudge
           // aim in the surface tangent plane, mapped to the camera's screen axes (same as movement) -> works on any face/wall
           const N=_gN;
           const crr = (window._ballCam || (player&&player._cubeCamAuth))
@@ -15499,7 +15499,7 @@ function loop(ts){ requestAnimationFrame(loop);
         const _flickGuard = (player._fireSuppressT && performance.now()<player._fireSuppressT) || player._flickPending;
         const held=(typeof jR!=='undefined')?jR.isHeld:(stickMag>0.05);
         if(!held){ player._fireLatched=false; }
-        else if((stickMag>0.38 || (player._inPlanetGravity && player._cubeCamAuth && stickMag>0.06)) && !_flickGuard){ player._fireLatched=true; }   // dragged out far enough -> latch ON; on a WALL a tiny push also latches so HOLDING fires straight out (not while a flick is snapping)
+        else if(!_flickGuard){ player._fireLatched=true; }                                    // HOLD the stick ANYWHERE -> fire (no dead zone); a fast flick is still suppressed so melee reads as melee
         if(player._fireLatched){
           if(stickMag>0.05){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; }     // direction + magnitude track the stick (small mag => steep / close)
           else { avx=Math.cos(player.aim)*0.04; avz=Math.sin(player.aim)*0.04; }               // dead center -> keep last direction, minimal mag = steepest dive at your feet
@@ -17969,7 +17969,7 @@ function _cubeCam(P, dt){
     if(player) player._camFocY=_fy;
     if(_cwAuthPrev && typeof CAM!=='undefined'){            // wall -> floor: seed the normal cam from the CURRENT camera angle so it eases (no snap/thrash)
       const dx=camera.position.x-P.x, dz=camera.position.z-P.z;
-      const yaw=Math.atan2(dx,dz); CAM.yaw=yaw; CAM.tyaw=yaw; CAM.focus.set(P.x,_fy,P.z);
+      const yaw=Math.atan2(dx,dz)+Math.PI; CAM.yaw=yaw; CAM.tyaw=yaw; CAM.focus.set(P.x,_fy,P.z);   // FLIP 180°: the wall cam sat outside the wall, so put the floor cam on the OPPOSITE side (in front of your exit) -> keep holding "down" and you run TOWARD the camera, now looking back at the wall, then free to orbit
     }
     _cwAuthPrev=false; if(typeof CAM!=='undefined'){ CAM.tfocus.set(P.x,_fy,P.z); CAM.dist=lerp(CAM.dist,230,0.03); CAM.height=lerp(CAM.height,200,0.03); }   // normal cam follows + orbits, eased to the same dist/height
   } else { if(!_cwAuthPrev){ _cwCamBlend=0; _cwCamFrom.copy(camera.position); _cwLook=P.clone(); _cwAuthPrev=true; } _cubeWallCam(P,N,dt); }   // authoritative wall cam (seed a fresh blend + look target on entry so it eases instead of jumping)
