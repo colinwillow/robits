@@ -1045,6 +1045,7 @@ function updateCamera(dt){
     const _ep=new THREE.Vector3(player.wx,(player.py||0),player.wz), _et=_enemyCamTargetPos(_ep);
     if(_et){ _enemyCam(_ep,_et,dt); return; }
   }
+  if(typeof camera!=='undefined' && (camera.up.x!==0||camera.up.z!==0)) camera.up.set(0,1,0);   // a wall/ceiling cam may have left the up-vector tilted; the normal cam is always world-up (fixes the 90°-tilt when you take boots off mid-wall)
   CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
   CAM.focus.lerp(CAM.tfocus,0.18);
@@ -8245,7 +8246,6 @@ class Bullet{
     else if(GS.zone===-19){ this.y+=this.vy*dt; }                              // cube free-flight: keep its 3D motion (straight-out shots cross the room) — the stick handles surfaces
     else if(this.y>9||this.vy>0.5){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){ this.y=9; this.vy=(this.vy<-55)?-this.vy*0.5:0; } }   // arc + bounce off the floor (loses half its energy each hop)
     this.mesh.position.set(this.wx,this.y,this.wz);
-    if(typeof ps!=='undefined' && ps._spawn && Math.random()<(IS_MOBILE?0.3:0.55)){ const _tc=_bulletTrailCol[this.kind]||_bulletTrailCol.normal; ps._spawn(this.wx-this.vx*0.012,this.y-(this.vy||0)*0.012,this.wz-this.vz*0.012, rand(-6,6),rand(-6,6),rand(-6,6), _tc[0],_tc[1],_tc[2], 0.07+rand(0.05)); }   // glowing spark trail = character
     _bvDir.set(this.vx,this.vy||0,this.vz); if(_bvDir.lengthSq()>1e-4){ _bvDir.normalize(); this.mesh.quaternion.setFromUnitVectors(_BULLET_AXIS,_bvDir); }
     if(!this._g3 && grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,0.7);
     if(GRID_SHEETS.length){ const _h=gridSheetHit(this.wx,this.y,this.wz,this.wx-this.vx*dt,this.y-(this._g3?this.vy*dt:0),this.wz-this.vz*dt);
@@ -13927,7 +13927,7 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
     if(_arenaObstacles.length && b.life>0){ _bounceBulletObs(b); }
     for(let ei=GS.enemies.length-1;ei>=0;ei--){ const e=GS.enemies[ei]; if(b.hitSet.has(e))continue;
       const dx=b.wx-e.wx,dz=b.wz-e.wz,rr=e.size+5; if(dx*dx+dz*dz<rr*rr){
-        const enemyY=9, _tall=(e._tall||0), bulletY=b.y, vertOk=(bulletY>enemyY-28 && bulletY<enemyY+Math.max(28,_tall));
+        const enemyY=(e.mesh?e.mesh.position.y:(e._climbY!=null?e._climbY:9)), _tall=(e._tall||0), bulletY=b.y, vertOk=(bulletY>enemyY-28 && bulletY<enemyY+Math.max(28,_tall));   // use the enemy's ACTUAL height (was hardcoded 9) so spiders climbing the wall are hittable
         if(!vertOk)continue;
         if(e._invulnerable){ b.life=0; continue; }
         // Non-host: send hit to host, don't apply damage locally
@@ -18120,8 +18120,9 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
   if(P.wx> hx){P.wx=hx;v.x=0;} if(P.wx<-hx){P.wx=-hx;v.x=0;}
   if(P.wz> hz){P.wz=hz;v.z=0;} if(P.wz<-hz){P.wz=-hz;v.z=0;}
   const _ceil=(C.h-RIDE); if(P.py> _ceil){ P.py=_ceil; if(v.y>0)v.y=0; }   // don't fly through the ceiling
+  if(P._cwNoCatchT>0)P._cwNoCatchT-=dt;
   // ── CATCH: stick to a nearby surface when not jetting — but only if you're basically on it, drifting INTO it, or nearly stopped, so you can steer AWAY to escape ──
-  if(!P._jetting){
+  if(!P._jetting && (P._cwNoCatchT||0)<=0){
     const _sd=_cubeSDF(P.wx,P.py,P.wz);
     const _catch=(window._CUBE_CATCH!=null?window._CUBE_CATCH:10);   // MAGNETIC BOOTS: small contact-only radius (was a big 30u field that sucked you onto walls). You now have to actually reach the surface to stick.
     if(_sd > -(RIDE+_catch)){
@@ -18217,14 +18218,14 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
     if(N.y > (window._CUBE_FLOORJUMP_NY!=null?window._CUBE_FLOORJUMP_NY:0.6)){
       v.addScaledVector(N,(window._CUBE_JUMP||300)); P._cwAir=(window._CUBE_AIRT||0.85); if(typeof Audio!=='undefined')Audio.blip(300,0.3,'sine',0.12,500);
     } else {
-      v.addScaledVector(N,(window._CUBE_WALLJUMP_KICK||150)); P._cwDislodge=true; P._cwAir=0; P.vx=v.x; P.pvy=v.y; P.vz=v.z;
+      v.addScaledVector(N,(window._CUBE_WALLJUMP_KICK||150)); P._cwDislodge=true; P._cwAir=0; P._cwNoCatchT=(window._CUBE_NOCATCH!=null?window._CUBE_NOCATCH:0.35); P.vx=v.x; P.pvy=v.y; P.vz=v.z;   // brief no-catch window so the magnets don't instantly re-grab the wall you just left
       if(typeof Audio!=='undefined')Audio.blip(220,0.18,'sawtooth',0.14,120);
       return _cubeDislodgeFall(P,rawX,rawZ,dt);   // release the magnets -> world-down fall to the floor
     }
   }
   if(P._jetting && P.boostFuel>0){ P._cwAir=0; P._cwDislodge=true; if(typeof Audio!=='undefined')Audio.blip(240,0.14,'sawtooth',0.12,120); return _cubeDislodgeFall(P,rawX,rawZ,dt); }   // JETPACK -> break off the surface into FREE FLIGHT; thrust is toward TRUE-world up (handled in the fall controller), not "off the wall"
   if((P._cwAir||0)>0){                              // ── AIRBORNE ──
-    if(P._jumpTapped){ P._jumpTapped=false; P._cwAir=0; P._cwDislodge=true; if(typeof Audio!=='undefined')Audio.blip(200,0.18,'sawtooth',0.16,90); return _cubeDislodgeFall(P,rawX,rawZ,dt); }   // 2nd jump mid-air -> dislodge, fall to the floor
+    if(P._jumpTapped){ P._jumpTapped=false; P._cwAir=0; P._cwDislodge=true; P._cwNoCatchT=(window._CUBE_NOCATCH!=null?window._CUBE_NOCATCH:0.35); if(typeof Audio!=='undefined')Audio.blip(200,0.18,'sawtooth',0.16,90); return _cubeDislodgeFall(P,rawX,rawZ,dt); }   // 2nd jump mid-air -> dislodge, fall to the floor
     P._cwAir-=dt; P._glGrounded=false;
     v.addScaledVector(N,-GRAV*dt);                  // gravity toward the wall
     if(P._jetSoundT>0)P._jetSoundT--;
@@ -18313,6 +18314,7 @@ function _cubeCam(P, dt){
     const _fy=4+Math.max(0,P.y)*0.55+Math.max(0,P.y-50)*0.45;   // SAME focus height the normal floor cam uses -> equipping boots on the floor matches the no-boots view (no jolt)
     if(player) player._camFocY=_fy;
     if(_cwAuthPrev && typeof CAM!=='undefined'){            // wall -> floor: FLIP the cam a full 180° to face the wall you just left, so holding "down" keeps running you the SAME world direction (toward the camera); then you're free to orbit
+      if(typeof _camFxBegin==='function') _camFxBegin();    // capture the wall-cam pose and ease into the floor framing instead of snapping
       let hx=N.x, hz=N.z; const hl=Math.hypot(hx,hz);
       let yaw;
       if(hl>1e-3){ yaw=Math.atan2(hx/hl, hz/hl); }          // exit dir = horizontal lean of "up toward centre" = away from the wall -> put the camera THERE (in front of your exit) so you run toward it, looking back at the wall
