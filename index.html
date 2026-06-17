@@ -2824,6 +2824,97 @@ class DroidekaBot extends Enemy{
   remove(){ scene.remove(this.mesh); }
 }
 // ── BLUE DRAGON — animated GLB enemy with a character-style AI: entrance -> idle/casual -> chase (run scaled by speed) -> punch / air fire-breath; hit + dizzy on stagger; plays its death clip before it's removed. Tunables under window._DRAGON_* ──
+// ── DRAGON FIREBALL — a bomb-sized flaming projectile: aimed at the player, arcs under gravity, ricochets off
+//    the ground / arena walls / cube shell, made of fire particles. Direct hit = lethal + on-fire. DEFLECTABLE
+//    with a melee swing (blade-tip sweep, same as whacking the cube ball) -> it turns and flies back at the dragon.
+class DragonFireball{
+  constructor(x,y,z, tx,ty,tz){
+    this.wx=x; this.y=y; this.wz=z;
+    let dx=tx-x, dy=ty-y, dz=tz-z; const dl=Math.hypot(dx,dy,dz)||1;
+    const spd=(window._FIREBALL_SPD||300), arc=(window._FIREBALL_ARC||80);
+    this.vx=dx/dl*spd; this.vy=dy/dl*spd+arc; this.vz=dz/dl*spd;       // lead with a little upward arc so it lobs at you
+    this.R=(window._FIREBALL_R||9);
+    this.life=(window._FIREBALL_LIFE||4.5);
+    this.bounces=0; this.maxBounces=(window._FIREBALL_BOUNCES||4);
+    this._deflected=false; this.hitCd=0; this.dead=false; this.t=0;
+    const grp=new THREE.Group(); this.grp=grp;
+    this.core=new THREE.Mesh(new THREE.SphereGeometry(this.R,10,8), new THREE.MeshBasicMaterial({color:0xffd24a,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); grp.add(this.core);
+    this.glow=new THREE.Mesh(new THREE.SphereGeometry(this.R*1.9,8,6), new THREE.MeshBasicMaterial({color:0xff5510,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); grp.add(this.glow);
+    grp.position.set(x,y,z); scene.add(grp);
+    if(typeof Audio!=='undefined'){try{Audio.blip(170,0.22,'sawtooth',0.26,90);}catch(_){}}
+  }
+  _bounce(){ this.bounces++; if(typeof ps!=='undefined')ps.burst(this.wx,this.wz,[1,0.5,0.1],6,55,this.y); if(typeof Audio!=='undefined'){try{Audio.blip(120,0.07,'square',0.14,80);}catch(_){}} }
+  update(dt){
+    if(this.dead) return false;
+    this.t+=dt; this.life-=dt; this.hitCd=Math.max(0,this.hitCd-dt);
+    this.vy-=(window._FIREBALL_GRAV||260)*dt;
+    this.wx+=this.vx*dt; this.y+=this.vy*dt; this.wz+=this.vz*dt;
+    // ground bounce
+    const floorY=this.R+2;
+    if(this.y<=floorY && this.vy<0){ this.y=floorY; this.vy=-this.vy*0.6; this.vx*=0.82; this.vz*=0.82; this._bounce(); }
+    // cube shell ricochet (reflect off the inner-shell gradient) — else arena radial wall bounce
+    if(GS.zone===-19 && typeof _cubeSDF==='function' && typeof _cubeGrad==='function'){
+      const sd=_cubeSDF(this.wx,this.y,this.wz);
+      if(sd > -this.R){ const g=_cubeGrad(this.wx,this.y,this.wz); const vn=this.vx*g.x+this.vy*g.y+this.vz*g.z;
+        if(vn>0){ this.vx-=2*vn*g.x; this.vy-=2*vn*g.y; this.vz-=2*vn*g.z; this.vx*=0.82; this.vy*=0.82; this.vz*=0.82; this._bounce(); }
+        const push=(-this.R - sd); this.wx+=g.x*push; this.y+=g.y*push; this.wz+=g.z*push; }
+    } else {
+      const d=Math.hypot(this.wx,this.wz), RR=(typeof ARENA_R!=='undefined'?ARENA_R-12:540);
+      if(d>RR){ const nx=this.wx/d, nz=this.wz/d; this.wx=nx*RR; this.wz=nz*RR; const dot=this.vx*nx+this.vz*nz; this.vx-=2*dot*nx; this.vz-=2*dot*nz; this.vx*=0.82; this.vz*=0.82; this._bounce(); }
+    }
+    // flame body — made of particles
+    if(typeof ps!=='undefined'&&ps._spawn){ const cl=this._deflected?[0.45,0.85,1]:[1,0.45,0.08]; for(let k=0;k<3;k++){ const a=rand(TAU), h=Math.random();
+      ps._spawn(this.wx+rand(-3,3), this.y+rand(-3,3), this.wz+rand(-3,3), this.vx*0.18+Math.cos(a)*rand(10,42), this.vy*0.18+rand(8,60), this.vz*0.18+Math.sin(a)*rand(10,42), cl[0], cl[1]*(0.7+h*0.3), cl[2]+h*0.1, 0.08+rand(0.05)); } }
+    this.grp.position.set(this.wx,this.y,this.wz);
+    const pulse=0.85+0.18*Math.sin(this.t*22); this.core.scale.setScalar(pulse); this.glow.material.opacity=0.3+0.2*Math.sin(this.t*16);
+    // MELEE DEFLECT — blade-tip sweep
+    if(!this._deflected && this.hitCd<=0){
+      const ud=player&&player.model&&player.model.userData, swinging=!!(ud&&(ud._meleeTimer>0||ud._swActive));
+      if(swinging && typeof _slashBladePoints==='function'){ const bp=_slashBladePoints();
+        if(bp&&bp[0]&&bp[1]){ const base=bp[0], tip=bp[1], seg=tip.clone().sub(base), sl2=Math.max(seg.lengthSq(),1e-4), fb=new THREE.Vector3(this.wx,this.y,this.wz);
+          const tp=Math.max(0,Math.min(1,fb.clone().sub(base).dot(seg)/sl2)), closest=base.clone().addScaledVector(seg,tp), dd=closest.distanceTo(fb);
+          if(dd < this.R+(window._FIREBALL_DEFLECT_R||16)){ this._deflect(); }
+        }
+      }
+    }
+    // HIT
+    if(this._deflected){
+      if(typeof GS!=='undefined'&&GS.enemies){ for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||e._invulnerable)continue; const ey=e.mesh?e.mesh.position.y:9; if(Math.hypot(this.wx-e.wx,this.y-ey,this.wz-e.wz) < (e.size||10)+this.R+6){
+        if(e.hit){ const s=e.hit(window._FIREBALL_DMG||22, e.wx, e.wz, ey); if(e.knock)e.knock(e.wx-this.wx,e.wz-this.wz,10,1,14);
+          if(s>0){ GS.score+=s*GS.mult; if(GS.mult<25)GS.mult++; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } }
+        this._explode(); return false; } } }
+    } else if(player&&player.alive!==false&&this.hitCd<=0){
+      const hr=(window._FIREBALL_HIT_R||24)+this.R, dpx=this.wx-player.wx, dpy=this.y-((player.py||0)+16), dpz=this.wz-player.wz;
+      if(dpx*dpx+dpy*dpy+dpz*dpz < hr*hr){
+        if((player.inv||0)>0){ /* i-frames: graze */ }
+        else if(player.shieldActive&&player.shieldHit&&player.shieldHit(20,'fire')){ this._explode(); return false; }
+        else { player._burnT=Math.max(player._burnT||0,(window._FIREBALL_BURN_T||1.4));   // ON FIRE
+          try{ if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[1,0.5,0.1],20,150,(player.py||0)+10); for(let k=0;k<14;k++){ const a=rand(TAU); ps._spawn(player.wx,(player.py||0)+rand(0,24),player.wz, Math.cos(a)*rand(20,70), rand(40,120), Math.sin(a)*rand(20,70), 1,0.45,0.08, 0.06+rand(0.05)); } } }catch(_){}
+          if(window._FIREBALL_LETHAL!==false){ if(typeof playerDie==='function')playerDie(1,'#ff6622'); } else { player.inv=Math.max(player.inv||0,90); if(typeof addTrauma==='function')addTrauma(0.2); }
+          this._explode(); return false; }
+      }
+    }
+    if(this.life<=0 || this.bounces>this.maxBounces){ this._explode(); return false; }
+    return true;
+  }
+  _deflect(){
+    let aim=null, best=null, bd=1e9;
+    if(typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(!e)continue; const d2=(e.wx-this.wx)**2+(e.wz-this.wz)**2; if(d2<bd){bd=d2;best=e;} } }
+    if(best){ const ey=best.mesh?best.mesh.position.y:9; aim=new THREE.Vector3(best.wx-this.wx, ey-this.y, best.wz-this.wz); }
+    else { aim=new THREE.Vector3(this.wx-player.wx, 1, this.wz-player.wz); }   // no target -> just send it away from the player
+    if(aim.lengthSq()<1e-4)aim.set(0,0,-1); aim.normalize();
+    const ns=(window._FIREBALL_DEFLECT_SPD||440); this.vx=aim.x*ns; this.vy=aim.y*ns+50; this.vz=aim.z*ns;
+    this._deflected=true; this.hitCd=0.25;
+    try{ this.core.material.color.setHex(0x8fe0ff); this.glow.material.color.setHex(0x2299ff); }catch(_){}
+    if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.5,0.9,1],12,90,this.y);
+    if(typeof Audio!=='undefined'){try{Audio.blip(820,0.12,'square',0.25,1500);}catch(_){}}
+    if(typeof addTrauma==='function')addTrauma(0.06); if(typeof hitStop==='function')hitStop(5);
+    if(typeof announce==='function')announce('DEFLECTED!','#8fe0ff');
+  }
+  _explode(){ if(this.dead)return; this.dead=true; if(typeof ps!=='undefined'){ ps.burst(this.wx,this.wz,[1,0.5,0.1],16,120,this.y); ps.ring(this.wx,this.wz,[1,0.7,0.2],10,90,this.y); } if(typeof Audio!=='undefined'){try{Audio.blip(70,0.3,'sawtooth',0.3,40);}catch(_){}} this.remove(); }
+  remove(){ try{ scene.remove(this.grp); this.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }catch(_){} }
+}
+window.DragonFireball=DragonFireball;
 // ── QUAD WIREFRAME for a triangulated SKINNED mesh ──────────────────────────────────────────────
 // Stock Three can't skin a LineSegments wireframe, and material.wireframe shows every triangle diagonal.
 // Instead we render the skinned mesh itself with a single-pass BARYCENTRIC wireframe in the fragment
@@ -3053,22 +3144,20 @@ class BlueDragon extends Enemy{
     this._applyMesh();
   }
   _breatheFire(dx,dz,d,sustain){
+    if(sustain) return;   // fire ONE fireball at the start of the breath window (not a per-frame stream)
     const nx=dx/d, nz=dz/d;
-    // ORIGIN = the head bone (world), so the stream leaves his mouth; fall back to a point above the base
+    // ORIGIN = the head bone (world) so it leaves his mouth; fall back to a point above the base
     let ox=this.wx+nx*20, oy=(this._curY||0)+(window._DRAGON_MOUTH_Y||30), oz=this.wz+nz*20;
-    if(this._headBone){ try{ const wp=new THREE.Vector3(); this._headBone.getWorldPosition(wp); ox=wp.x+nx*8; oy=wp.y; oz=wp.z+nz*8; }catch(_){} }
-    // aim the stream from the head DOWN toward the player's body
-    const tx=(player?player.wx:this.wx+nx*d), ty=(player?(player.py||0)+10:oy), tz=(player?player.wz:this.wz+nz*d);
-    let fx=tx-ox, fy=ty-oy, fz=tz-oz; const fl=Math.hypot(fx,fy,fz)||1; fx/=fl; fy/=fl; fz/=fl;
-    const SPD=(window._DRAGON_BREATH_SPD||240), n=sustain?5:8;
-    for(let i=0;i<n;i++){
-      const sp=SPD*(0.7+Math.random()*0.6), jx=rand(-0.2,0.2), jy=rand(-0.16,0.16), jz=rand(-0.2,0.2), heat=Math.random();
-      try{ ps._spawn(ox+fx*6, oy+fy*6, oz+fz*6, (fx+jx)*sp,(fy+jy)*sp,(fz+jz)*sp, 1, 0.42+heat*0.42, 0.06+heat*0.12, 0.045+rand(0.03)); }catch(_){}   // directional fire particles = a real stream
-    }
-    try{ ps.burst(ox, oz, [1,0.5,0.1], sustain?2:5, 45, oy); }catch(_){}   // muzzle puff at the mouth
-    if(player&&player.alive&&player.inv<=0 && d<(window._DRAGON_BREATH_RANGE||180)){
-      try{ spawnDmgNum(player.wx,(player.py||0)+20,player.wz,1,'#ff8833'); }catch(_){} if(typeof playerDie==='function') playerDie();
-    }
+    if(this._headBone){ try{ const wp=new THREE.Vector3(); this._headBone.getWorldPosition(wp); ox=wp.x+nx*10; oy=wp.y; oz=wp.z+nz*10; }catch(_){}}
+    const tx=(player?player.wx:ox+nx*200), ty=(player?(player.py||0)+16:oy), tz=(player?player.wz:oz+nz*200);
+    try{ ps.burst(ox, oz, [1,0.5,0.1], 8, 70, oy); if(ps._spawn){ for(let k=0;k<10;k++){ const a=rand(TAU); ps._spawn(ox,oy,oz, Math.cos(a)*rand(20,70), rand(20,80), Math.sin(a)*rand(20,70), 1,0.5,0.1, 0.06+rand(0.04)); } } }catch(_){}   // muzzle flare at the mouth
+    try{ if(typeof DragonFireball!=='undefined' && GS.dragonFireballs){
+      const N=(window._FIREBALL_COUNT||1), spread=(window._FIREBALL_SPREAD||0.18);
+      for(let i=0;i<N;i++){ const off=(N>1?(i-(N-1)/2)*spread:0); const ca=Math.cos(off), sa=Math.sin(off);
+        const aimx=ca*(tx-ox)-sa*(tz-oz), aimz=sa*(tx-ox)+ca*(tz-oz);   // rotate the aim a touch per shot for a spread volley
+        GS.dragonFireballs.push(new DragonFireball(ox,oy,oz, ox+aimx, ty, oz+aimz)); }
+    } }catch(e){ console.warn('fireball spawn',e); }
+    if(typeof Audio!=='undefined'){try{ Audio.blip(110,0.35,'sawtooth',0.35,50); }catch(_){}}
   }
   _clampZone(){
     if(typeof GS!=='undefined' && GS.zone===-19){ const H=(typeof _CUBE!=='undefined'?_CUBE.hx-40:520); this.wx=Math.max(-H,Math.min(H,this.wx)); this.wz=Math.max(-H,Math.min(H,this.wz)); }
@@ -10208,7 +10297,7 @@ function getZoneDef(z){
 }
 
 const GS={ state:'menu',score:0,displayScore:0,lives:3,hp:3,maxHp:3,mult:1,multT:0,multMax:280,
-  wave:0,waveT:0,zone:0,waveInZone:0,survival:false,_wantSurvival:false,enemies:[],bullets:[],enemyBullets:[],gems:[],deathRings:[],dropBombs:[],crates:[],allies:[],acid:[],beams:[],missiles:[],arrows:[],wells:[],quakes:[],boomerangs:[],nukes:[],enemyMissiles:[],
+  wave:0,waveT:0,zone:0,waveInZone:0,survival:false,_wantSurvival:false,enemies:[],bullets:[],enemyBullets:[],gems:[],deathRings:[],dropBombs:[],crates:[],allies:[],acid:[],beams:[],missiles:[],arrows:[],wells:[],quakes:[],boomerangs:[],nukes:[],enemyMissiles:[],dragonFireballs:[],
   kills:0,streak:0,streakT:0,od:0,odMax:100,odActive:0,boss:null,bossWaveEvery:5,
   gateOpen:false, gateAngle:0, transitioning:false };
 // ════════════════════════════════════════════════════════════
@@ -12076,6 +12165,7 @@ function startGame(levelIdx){
   for(const m of GS.missiles)m.remove();GS.missiles=[];
   for(const a of GS.arrows||[]){a.remove&&a.remove();}GS.arrows=[];
   for(const m of GS.enemyMissiles)m.remove();GS.enemyMissiles=[];
+  if(GS.dragonFireballs){ for(const f of GS.dragonFireballs)f.remove&&f.remove(); } GS.dragonFireballs=[];
   for(const r of GS.deathRings)r.remove();GS.deathRings=[];
   if(GS_gate){GS_gate.remove();GS_gate=null;}
   if(_transGate){ scene.remove(_transGate); _transGate=null; } _transState=null;
@@ -16242,6 +16332,8 @@ function loop(ts){ requestAnimationFrame(loop);
       for(let i=GS_hazards.length-1;i>=0;i--){ if(!GS_hazards[i].update(dt)){GS_hazards[i].remove();GS_hazards.splice(i,1);} }
       if(GS._chainShock>0) GS._chainShock--;
       for(let i=GS.enemyMissiles.length-1;i>=0;i--){ if(!GS.enemyMissiles[i].update(dt)){GS.enemyMissiles.splice(i,1);} }
+      if(GS.dragonFireballs){ for(let i=GS.dragonFireballs.length-1;i>=0;i--){ const f=GS.dragonFireballs[i]; if(!f||!f.update(dt)){ if(f&&!f.dead&&f.remove)f.remove(); GS.dragonFireballs.splice(i,1); } } }
+      if(player&&player._burnT>0){ player._burnT-=dt; if(typeof ps!=='undefined'&&Math.random()<0.7) ps.spark(player.wx+rand(-8,8), player.wz+rand(-8,8), [1,0.45,0.08], (player.py||0)+rand(0,22)); }   // player ON FIRE -> lingering flames
       for(let i=GS.missiles.length-1;i>=0;i--){
         const targets=[...GS.enemies,...GS_bots.filter(b=>b.alive),...(window._crates||[])];
         if(GS_trainingDummy&&GS.zone===-2) targets.push(GS_trainingDummy);
