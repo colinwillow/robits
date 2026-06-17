@@ -1101,6 +1101,9 @@ function updateCamera(dt){
     camera.position.set(cx+shX,cy+shY,cz);
     camera.lookAt(aheadX, aheadY, aheadZ);
   }
+  { const _gf=(GS.zone===-19 && GS._gravFlip && player && !(player._hasBoots&&player._bootsEquipped));   // GRAVITY-FLIP: roll the whole view 180° so the ceiling reads as the floor
+    GS._camRoll=lerp(GS._camRoll||0, _gf?Math.PI:0, 0.05);
+    if(Math.abs(GS._camRoll)>0.002 && typeof camera!=='undefined') camera.rotateZ(GS._camRoll); }
   CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
 }
 
@@ -3052,7 +3055,7 @@ class BlueDragon extends Enemy{
     else if(state==='attack_air'){ this._firedBreath=false; this._play('attack_air',{loop:THREE.LoopOnce,clamp:true,fade:0.1}); }
     else if(state==='hit'){ this.hitFlash=6; this._play('hit',{loop:THREE.LoopOnce,clamp:true,fade:0.05}); }
     else if(state==='dizzy'){ this._play('dizzy',{fade:0.15}); }
-    else if(state==='death'){ this._play('death',{loop:THREE.LoopOnce,clamp:true,fade:0.1}); }
+    else if(state==='death'){ try{ for(const k in this._act){ if(this._act[k]&&k!=='death')this._act[k].stop(); } }catch(_){} this._play('death',{loop:THREE.LoopOnce,clamp:true,fade:0.1}); }   // stop every other clip so nothing fades the body back to a standing pose mid-death
   }
   knock(){ /* the dragon is far too massive to be shoved around — it just plays its hit reaction */ }
   hit(dmg=1, hx, hz, hy){
@@ -3072,13 +3075,14 @@ class BlueDragon extends Enemy{
       return 0;
     }
     this.hitFlash=6;
+    { let _rx=this.wx-_ix, _rz=this.wz-_iz; const _rl=Math.hypot(_rx,_rz)||1; this._recoilDx=_rx/_rl; this._recoilDz=_rz/_rl; this._hitRecoil=Math.max(this._hitRecoil||0, 0.4); }   // small squash/nudge on EVERY hit so there's always visible feedback
     this._hitAccum=(this._hitAccum||0)+dmg;
     if(this._state!=='attack_air' && this._state!=='entrance' && this._state!=='dizzy'){
       if(this._energy<=0 && this._dizzyCD<=0){ this._dizzyCD=window._DRAGON_DIZZY_CD||6; this._dizzyT=window._DRAGON_DIZZY_T||1.8; this._hitAccum=0; this._enter('dizzy'); }
       else {
-        const thresh=(window._DRAGON_HIT_THRESH!=null?window._DRAGON_HIT_THRESH:20);   // pile up ~20 dmg before flinching (bullets 3 / rockets 5) so it doesn't twitch on every shot
+        const thresh=(window._DRAGON_HIT_THRESH!=null?window._DRAGON_HIT_THRESH:10);   // pile up ~10 dmg before the big flinch (bullets 3 / rockets 5)
         const hitBusy=(this._state==='hit' && this._stateT < (this._dur.hit||0.5));      // let the current flinch play ALL the way through before it can fire again
-        if(this._hitAccum>=thresh && !hitBusy){ this._hitAccum=0; this._enter('hit'); }
+        if(this._hitAccum>=thresh && !hitBusy){ this._hitAccum=0; this._hitRecoil=1; this._enter('hit'); }   // big flinch: clip (if any) + a strong procedural recoil
       }
     }
     return 0;
@@ -3089,6 +3093,7 @@ class BlueDragon extends Enemy{
     this.baseUpdate();
     if(this._mixer) this._mixer.update(dt);
     this._stateT+=dt;
+    if(this._hitRecoil>0) this._hitRecoil=Math.max(0, this._hitRecoil - dt*(window._DRAGON_RECOIL_DECAY||7));   // procedural flinch decays fast
     if(this._meleeCD>0)this._meleeCD-=dt; if(this._airCD>0)this._airCD-=dt; if(this._dizzyCD>0)this._dizzyCD-=dt;
     if(this._energy<1 && this._state!=='dizzy') this._energy=Math.min(1, this._energy+dt*(window._DRAGON_REGEN||0.25));
     const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1;
@@ -3096,7 +3101,7 @@ class BlueDragon extends Enemy{
     this._aggro=(d<aggroR);
     if(this._dying){
       this._deadT+=dt;
-      if(this._deadT >= (this._dur.death||1.2)+0.15){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1);
+      if(this._deadT >= (this._dur.death||1.2)*(window._DRAGON_DECON_AT||0.72)){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1);
         const _m=this.mesh;
         try{ if(this._mixer)this._mixer.stopAllAction(); }catch(_){}                              // freeze the pose for the beam-out
         try{ if(this._hpBar&&_m){ _m.remove(this._hpBar); this._hpBar=null; } }catch(_){}          // don't beam the HP bar up with the body
@@ -3164,9 +3169,12 @@ class BlueDragon extends Enemy{
     else this._clamp();
   }
   _applyMesh(){
-    this.mesh.position.set(this.wx, (this._curY||0)+(window._DRAGON_Y||0), this.wz);
-    this.mesh.rotation.y=this._faceYaw;
-    const s=(this.spawn<1?(0.5+this.spawn*0.5):1); this.mesh.scale.setScalar(s);
+    const r=Math.max(0, this._hitRecoil||0);
+    const push=r*(window._DRAGON_RECOIL_PUSH||5);
+    this.mesh.position.set(this.wx + (this._recoilDx||0)*push, (this._curY||0)+(window._DRAGON_Y||0), this.wz + (this._recoilDz||0)*push);
+    this.mesh.rotation.y=this._faceYaw + (r>0?Math.sin(r*30)*0.05:0);
+    const s=(this.spawn<1?(0.5+this.spawn*0.5):1), sq=1-0.13*r;   // squash on impact
+    this.mesh.scale.set(s*(1+0.09*r), s*sq, s*(1+0.09*r));
   }
   remove(){ scene.remove(this.mesh); if(this._mixer){ try{ this._mixer.stopAllAction(); }catch(_){} } }
 }
@@ -8688,6 +8696,34 @@ class Arrow{
   }
   remove(){ if(this._removed)return; this._removed=true; scene.remove(this.group); this.group.traverse(o=>{if(o.isMesh){o.geometry.dispose();o.material.dispose();}}); }
 }
+// ── BOW LOCK-ON MARQUEE — corner brackets + ring that snap onto the enemy you're currently aiming at while you draw ──
+let _bowReticle=null;
+function _buildBowReticle(){
+  if(_bowReticle) return _bowReticle;
+  const g=new THREE.Group();
+  const col=(window._BOW_RETICLE_COL!=null?window._BOW_RETICLE_COL:0x8bffd6);
+  const mat=()=>new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false,side:THREE.DoubleSide,toneMapped:false});
+  const S=12,T=1.6,L=6.5;
+  for(const c of [[-1,-1],[1,-1],[1,1],[-1,1]]){ const sx=c[0],sy=c[1];
+    const h=new THREE.Mesh(new THREE.PlaneGeometry(L,T),mat()); h.position.set(sx*(S-L/2), sy*S, 0); g.add(h);
+    const v=new THREE.Mesh(new THREE.PlaneGeometry(T,L),mat()); v.position.set(sx*S, sy*(S-L/2), 0); g.add(v); }
+  const ring=new THREE.Mesh(new THREE.RingGeometry(S*1.34,S*1.5,40),mat()); ring.material.opacity=0.45; g.add(ring); g._ring=ring;
+  g.renderOrder=999; g.visible=false; if(typeof scene!=='undefined')scene.add(g);
+  _bowReticle=g; return g;
+}
+function _updateBowReticle(target){
+  const g=_buildBowReticle();
+  if(!target){ g.visible=false; return; }
+  const base=(target.mesh?target.mesh.position.y:(target.py||0));
+  g.position.set(target.wx, base+Math.max(12,(target._tall||0)*0.5), target.wz);
+  if(typeof camera!=='undefined') g.quaternion.copy(camera.quaternion);                 // billboard to face the camera
+  const baseR=Math.max((target.size||14),(target._tall||0)*0.85,12), pulse=1+0.06*Math.sin(performance.now()*0.012);
+  g.scale.setScalar((baseR/12)*pulse);
+  if(g._ring) g._ring.rotation.z=performance.now()*0.003;
+  g.visible=true;
+}
+function _hideBowReticle(){ if(_bowReticle)_bowReticle.visible=false; }
+window._hideBowReticle=_hideBowReticle;
 
 // ── DOM FX ──
 const flashEl=document.getElementById('flash');
@@ -8915,6 +8951,7 @@ class Player{
   // Stick direction while armed: aimer moves to projected throw point
   // Release stick while armed: throw in that direction
   cycleWeapon(){
+    if(typeof _hideBowReticle==='function')_hideBowReticle(); this._bowCharge=0; this._bowCharging=false; this._bowLock=null;   // clear any bow draw/marquee when switching away
     let order=['bullets','rockets','plasma','flamethrower','grenade','singularity','gridquake','boomerang','nuke','bow'];
     if(window._ITEMS_THROWABLE_ONLY!==false) order=order.filter(w=>w!=='singularity'&&w!=='gridquake'&&w!=='nuke');   // nuke/singularity/quake now exist ONLY as grab-&-throw item drops, not in the gun cycle
     if(this._ownedWeps){ order=order.filter(w=>this._ownedWeps.has(w)); if(!order.length)order=['bullets']; }   // survival: only cycle weapons you've actually picked up
@@ -9680,9 +9717,10 @@ class Player{
     }
 
     if(typeof _cityLedgeHangPlayer==='function') _cityLedgeHangPlayer(this,dt);   // city ledge grab/hang (no boots needed)
+    const _gflip=(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped));   // CUBE gravity-flip: boots-off = fall toward the CEILING
     if(this._hang){ this.pvy=0; }                                                 // hanging: position pinned by the handler, no gravity
     else { let _g=GRAV; if(this._airSlam){ _g*=(window._SLAM_FALL_MULT!=null?window._SLAM_FALL_MULT:1.8); if(this.pvy>0)this.pvy*=0.5; }   // air slam: accelerate the dive so he really smashes down
-      this.pvy -= _g*dt; this.py += this.pvy*dt; }
+      this.pvy -= _g*dt*(_gflip?-1:1); this.py += this.pvy*dt; }
     // Track peak height while airborne for landing impact scaling
     if(this.py>0) this._peakPy=Math.max(this._peakPy||0, this.py);
     const wasAirborne=this._wasAirborne||false;
@@ -9742,6 +9780,7 @@ class Player{
     } else {
       this._wasAirborne=true;
     }
+    if(_gflip){ const _cy=((window._CUBE||_CUBE).h)-(window._CUBE_PAD!=null?window._CUBE_PAD:22); if(this.py>=_cy-2){ this.py=_cy; if(this.pvy>0)this.pvy=0; this._wasAirborne=false; this._peakPy=0; this._jetting=false; this.boostFuel=Math.min(this.boostMax,this.boostFuel+GND_RECHARGE*dt); } else { this._wasAirborne=true; } }   // flipped gravity: the ceiling is now your floor
     if(this.py>3000){ this.py=3000; if(this.pvy>0)this.pvy=0; }   // ceiling raised way up; kill upward vel at the cap so a high boost never lodges
     this._dbgRate=0; this._dbgFloorY=0;
 
@@ -10002,25 +10041,35 @@ class Player{
       if((this._singCool||0)<=0){ if(!GS.wells)GS.wells=[]; GS.wells.push(new Singularity(this._singX,this._singZ,this._singOD)); this._singCool=72; if(typeof MP!=='undefined'&&MP.active) mpSend('event',{event:'shot',data:{x:this._singX,z:this._singZ,sing:true,od:this._singOD}}); }
     }
   }
+  _bowPickTarget(){
+    let ax,az; if(this._aim3DActive&&this._aim3D){ ax=this._aim3D.x; az=this._aim3D.z; const m=Math.hypot(ax,az)||1; ax/=m; az/=m; } else { const a=this.aim||0; ax=Math.cos(a); az=Math.sin(a); }
+    const tgts=[...GS.enemies,...(typeof GS_bots!=='undefined'?GS_bots.filter(b=>b&&b.alive):[])]; if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS.zone===-2)tgts.push(GS_trainingDummy);
+    const R=(window._BOW_LOCK_R!=null?window._BOW_LOCK_R:340), CONE=(window._BOW_LOCK_CONE!=null?window._BOW_LOCK_CONE:0.3);
+    let lock=null,best=-1e9;
+    for(const e of tgts){ if(!e||e.alive===false||e._captured||e._invulnerable)continue; const dx=e.wx-this.wx,dz=e.wz-this.wz,d=Math.hypot(dx,dz)||1; if(d>R)continue; const dot=(dx/d)*ax+(dz/d)*az; if(dot<CONE)continue; const s=dot-(d/R)*0.25; if(s>best){best=s; lock=e;} }   // point the stick AT a target to select it; sweep to re-pick
+    return lock;
+  }
   _handleBow(firing,od,dt){
     const wasFiring=!!this._bowPrev; this._bowPrev=!!firing;
     const MAX=(window._BOW_MAX!=null?window._BOW_MAX:0.9), MIN=(window._BOW_MIN!=null?window._BOW_MIN:0.1);
     if(firing){                                   // hold -> draw/charge (uses the normal aim/shoot pose for now)
       this._bowCharge=Math.min(MAX,(this._bowCharge||0)+dt); this._bowCharging=true;
       if(typeof ps!=='undefined' && Math.random()<0.5){ const a=this.aim||0, r=(this._bowCharge/MAX); ps._spawn(this.wx+Math.cos(a)*10+rand(-3,3),(this.py||0)+16+rand(-2,2),this.wz+Math.sin(a)*10+rand(-3,3), -Math.cos(a)*20,rand(-6,6),-Math.sin(a)*20, 0.4,1,0.7, 0.03+0.03*r); }
+      this._bowLock=this._bowPickTarget();                                            // LIVE target while drawing
+      if(typeof _updateBowReticle==='function') _updateBowReticle(this._bowLock);       // marquee snaps onto it
       return;
     }
     this._bowCharging=false;
-    if(wasFiring && (this._bowCharge||0)>=MIN){    // release -> loose the arrow, power scaled by charge
+    if(typeof _hideBowReticle==='function') _hideBowReticle();
+    if(wasFiring && (this._bowCharge||0)>=MIN){    // release -> loose the arrow at the MARQUEED target, power scaled by charge
       const ch=Math.min(1,(this._bowCharge||0)/MAX);
       let ax,az,ay=0; if(this._aim3DActive&&this._aim3D){ ax=this._aim3D.x; az=this._aim3D.z; ay=this._aim3D.y; } else { const a=this.aim||0; ax=Math.cos(a); az=Math.sin(a); }
-      const tgts=[...GS.enemies,...(typeof GS_bots!=='undefined'?GS_bots.filter(b=>b.alive):[])]; if(GS_trainingDummy&&GS.zone===-2)tgts.push(GS_trainingDummy);
-      let lock=null,best=-1; const R=(window._BOW_LOCK_R!=null?window._BOW_LOCK_R:300);   // soft auto-aim: nearest target in a forward cone
-      for(const e of tgts){ if(!e)continue; const dx=e.wx-this.wx,dz=e.wz-this.wz,d=Math.hypot(dx,dz)||1; if(d>R)continue; const dot=(dx/d)*ax+(dz/d)*az; if(dot<0.5)continue; const s=dot-d/R*0.5; if(s>best){best=s; lock=e;} }
+      let lock=this._bowLock; if(lock&&lock.alive===false)lock=null; if(!lock)lock=this._bowPickTarget();
+      if(lock){ const dx=lock.wx-this.wx, dz=lock.wz-this.wz, m=Math.hypot(dx,dz)||1; ax=dx/m; az=dz/m; const ty=(lock.mesh?lock.mesh.position.y:(lock.py||0)); ay=clamp((ty-((this.py||0)+16))/Math.max(90,m),-0.5,0.7); }   // fire STRAIGHT at the locked target (homing finishes it)
       try{ GS.arrows.push(new Arrow(this.wx+ax*12,this.wz+az*12,ax,az,(this.py||0)+16,ay,ch,lock)); }catch(e){ console.warn('arrow:',e); }
       this.fireT=0; if(typeof addTrauma==='function') addTrauma(0.02+ch*0.04); if(typeof Audio!=='undefined'){try{Audio.blip(300+ch*220,0.12,'triangle',0.18,150);}catch(_){}}
     }
-    this._bowCharge=0;
+    this._bowCharge=0; this._bowLock=null;
   }
   _handleQuake(firing,od){
     if((this._qCool||0)>0) this._qCool--;
@@ -11736,12 +11785,13 @@ function _updateItemShots(dt){
   const A=window._itemShots; if(!A||!A.length)return;
   for(let i=A.length-1;i>=0;i--){ const s=A[i];
     if(!s.mesh){ s.mesh=_makePUModel(s.kind==='crate'?'crate':s.type); s.mesh.scale.setScalar(s.kind==='crate'?1.35:1.15); scene.add(s.mesh); s.spin={x:rand(-5,5),y:rand(-5,5),z:rand(-5,5)}; }
-    s.vy-=320*dt; s.x+=s.vx*dt; s.z+=s.vz*dt; s.y+=s.vy*dt;
+    const _isf=(GS.zone===-19 && GS._gravFlip)?-1:1;   // flipped gravity pulls thrown stuff toward the ceiling too
+    s.vy-=320*dt*_isf; s.x+=s.vx*dt; s.z+=s.vz*dt; s.y+=s.vy*dt;
     if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z); s.mesh.rotation.x+=s.spin.x*dt; s.mesh.rotation.y+=s.spin.y*dt; s.mesh.rotation.z+=s.spin.z*dt; }
     if(typeof ps!=='undefined'&&Math.random()<0.5){ const def=_ITEMDEF[s.type]||_ITEMDEF.nuke; const col=(s.kind==='crate')?new THREE.Color(0x9a6a3a):new THREE.Color(def.col); ps._spawn(s.x,s.y,s.z,rand(-6,6),rand(-6,6),rand(-6,6),col.r,col.g,col.b,0.3); }
     let hit=false;
     if((s.kind==='crate'||s.type==='barrel')&&typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&Math.abs(s.y-(e.mesh?e.mesh.position.y:(e.py||0)))<40&&Math.hypot(e.wx-s.x,e.wz-s.z)<24){ hit=true; break; } } }
-    if(s.y<=6||hit){ if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } if(s.kind==='crate'){ _smashCrateAt(s.x,s.z); } else { _detonateItem(s.type,s.x,s.z,false); } A.splice(i,1); }
+    if(s.y<=6||(_isf<0&&s.y>=((window._CUBE||_CUBE).h)-6)||hit){ if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } if(s.kind==='crate'){ _smashCrateAt(s.x,s.z); } else { _detonateItem(s.type,s.x,s.z,false); } A.splice(i,1); }
   }
 }
 function _ensureGrabHand(){
@@ -15164,11 +15214,13 @@ jR.onTap=()=>{
     Audio.blip(440,0.4,'sine',0.12,520);
     return;
   }
-  if(player.py<=8||player._onPlatform){
+  const _jflip=(GS.zone===-19 && GS._gravFlip && !(player._hasBoots&&player._bootsEquipped));
+  const _ceilJ=((window._CUBE||_CUBE).h)-(window._CUBE_PAD!=null?window._CUBE_PAD:22)-5;
+  if(player.py<=8||player._onPlatform||(_jflip&&player.py>=_ceilJ)){
     const charge=player._jumpCharge||0;
     const {vel:jumpVel,frac:cFrac}=_chargeJumpVel(charge);
     player._jumpTapped=true;
-    player.pvy=jumpVel; player._onPlatform=false;
+    player.pvy=jumpVel*(_jflip?-1:1); player._onPlatform=false;   // flipped: jump pushes DOWN toward the real floor
     // Big particles scale with how much boost was actually spent
     const rings=cFrac>0.5?3:1;
     for(let i=0;i<rings;i++) ps.ring(player.wx,player.wz,[0,0.85,1],8+Math.floor(cFrac*12),60+cFrac*80);
@@ -15470,6 +15522,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(typeof _updateBootsToggle==='function') _updateBootsToggle(playing);
     if(typeof _updateBallCamBtn==='function') _updateBallCamBtn(playing);
     if(typeof _updateEnemyCamBtn==='function') _updateEnemyCamBtn(playing);
+    if(typeof _updateGravFlipBtn==='function') _updateGravFlipBtn(playing);
     if(_dep&&_cyc&&player&&typeof Dex!=='undefined'){
       let _owned=[]; try{ _owned=_ownedSpecies(); }catch(e){}
       const _dds=playing?'flex':'none'; if(_dep.style.display!==_dds)_dep.style.display=_dds;   // always visible in play -> stable layout, even with an empty roster
@@ -15707,8 +15760,12 @@ function loop(ts){ requestAnimationFrame(loop);
             // (parry is handled by the armed window in _parryGaugeTick — swing arms it, the projectile entering the zone triggers it)
             const _try=(e,kind)=>{
               if(!e||e.alive===false||e===player||ud._meleeHitSet.has(e))return false;     // (dummy has no .alive -> still allowed through)
-              const ey=(e.mesh?e.mesh.position.y:(e.py||0))+10;
-              if(_seg(e.wx,ey,e.wz)>HIT_R+(e.size||14))return false;
+              const _eBase=(e.mesh?e.mesh.position.y:(e.py||0)), _etall=(e._tall||0), _reach=HIT_R+(e.size||14);
+              let _inR=false;
+              if(_etall>20){ for(let _h=0;_h<=_etall+10;_h+=(_etall+10)/4){ if(_seg(e.wx,_eBase+_h,e.wz)<=_reach){ _inR=true; break; } } }   // tall enemy (dragon): test the blade up its whole body, not just the centre
+              else { _inR=(_seg(e.wx,_eBase+10,e.wz)<=_reach); }
+              if(!_inR)return false;
+              const ey=_eBase+Math.max(10,_etall*0.5);
               ud._meleeHitSet.add(e);
               if(e.hit)e.hit(dmg, player.wx, player.wz);                                    // pass attacker pos (dummy uses it for knock dir; others ignore extras)
               if(e.alive!==false && (e.isBoss || e._tall || (e.size||0)>=24) && typeof _spawnSlashDecal==='function'){ try{ _spawnSlashDecal(e, bx, by, bz, Math.atan2((kvz||0),(kvx||0))*0.4+0.5); }catch(_){} }   // gash that sticks on the dragon / big enemies briefly
@@ -18274,8 +18331,35 @@ function _updateEnemyCamBtn(playing){
   btn.style.display='block';
   if(cyc) cyc.style.display=window._enemyCam?'block':'none';
 }
+function _doGravFlip(){
+  if(typeof GS==='undefined'||GS.zone!==-19){ if(typeof announce==='function')announce('GRAVITY FLIP — CUBE ONLY','#9fe8ff'); return; }
+  GS._gravFlip=!GS._gravFlip;
+  if(player){ player._wasAirborne=true; player._peakPy=0; const want=(GS._gravFlip?-1:1); if(player.pvy && Math.sign(player.pvy)===want) player.pvy=0; }   // drop the held velocity so the new fall reads instantly
+  if(typeof addTrauma==='function')addTrauma(0.55);
+  if(typeof grid!=='undefined'&&grid.pulse)grid.pulse(0.9);
+  if(typeof announce==='function')announce(GS._gravFlip?'\u2b07 GRAVITY FLIPPED':'\u2b06 GRAVITY RESTORED', GS._gravFlip?'#ff66cc':'#33e0ff');
+  if(typeof Audio!=='undefined'){ try{Audio.blip(GS._gravFlip?90:220,0.32,'sawtooth',0.3,GS._gravFlip?420:70);}catch(_){} }
+}
+window._doGravFlip=_doGravFlip;
+function _updateGravFlipBtn(playing){
+  let btn=document.getElementById('gravflip-btn');
+  const show=playing && typeof GS!=='undefined' && GS.zone===-19 && window._GRAVFLIP_BTN!==false;
+  if(!show){ if(btn)btn.style.display='none'; return; }
+  if(!btn){
+    btn=document.createElement('button'); btn.id='gravflip-btn';
+    btn.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 200px);right:14px;z-index:13;padding:8px 12px;font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:2px;color:#ff66cc;background:rgba(26,8,22,0.72);border:1.5px solid #ff66cc77;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent';
+    btn.textContent='\u21c5 FLIP';
+    const go=(e)=>{ e.preventDefault(); e.stopPropagation(); _doGravFlip(); };
+    btn.addEventListener('click',go); btn.addEventListener('touchstart',go,{passive:false});
+    document.body.appendChild(btn);
+  }
+  btn.style.display='block';
+  const on=!!(GS&&GS._gravFlip); btn.style.color=on?'#1a0814':'#ff66cc'; btn.style.background=on?'rgba(255,102,204,0.92)':'rgba(26,8,22,0.72)';
+}
+window._updateGravFlipBtn=_updateGravFlipBtn;
 function buildCubeArena(){
   _disposeCubeArena();
+  GS._gravFlip=false;   // always enter the cube upright
   const C=Object.assign(_CUBE, window._CUBE||{}); window._CUBE=C;
   const hx=C.hx, hz=C.hz, h=C.h; let ch=Math.min(C.cham, hx*0.9, hz*0.9, h*0.45);
   if(grid){ [grid.lines,grid.glowLines,grid.dots,grid.perimeter,grid.disc,grid.glow].forEach(m=>{ if(m&&m.material) m.material.opacity=0; }); }
@@ -18347,9 +18431,11 @@ function buildCubeArena(){
         if(n.dot(roomC.clone().sub(center))<0) n.negate();                       // face the grid INTO the room
         const zAx=new THREE.Vector3().crossVectors(edgeDir,n).normalize();        // right-handed v-axis (across the bevel)
         const quat=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(edgeDir,n,zAx));
-        const ccell=Math.max(16,chord);                                           // one cell tall = the slice chord -> the facet is a thin ribbon following the bevel
-        const cols=Math.max(3,Math.round(elen/ccell)+1);
-        let sh; try{ sh=new GridSheet({cols,rows:2,cell:ccell,position:center,quaternion:quat,palette:chamPal,fill:false,subdiv:1,bright:1.05}); }catch(e){ console.warn('cube chamfer sheet:',e); continue; }
+        const ccell=(window._CUBE_CHAM_CELL||window._CUBE_GRID_CELL||28);          // MATCH the face grid spacing (was the slice chord ~= DOUBLE)
+        const cols=Math.max(3,Math.round(elen/ccell)+1);                          // cells ALONG the edge
+        const rows=Math.max(2,Math.round(chord/ccell)+1);                         // cells ACROSS the bevel — enough rows to actually ripple (was a flat 2-row ribbon)
+        const csub=(IS_MOBILE?1:2);                                               // same subdivision as the faces -> same ripple smoothness
+        let sh; try{ sh=new GridSheet({cols,rows,cell:ccell,position:center,quaternion:quat,palette:chamPal,fill:false,subdiv:csub,bright:1.05}); }catch(e){ console.warn('cube chamfer sheet:',e); continue; }
         sh._cubeWall=true; sh._cityWall=true; sh._chamfer=true;                   // deform-don't-die, like the faces
         _cubeSheets.push(sh);
       }
@@ -18769,19 +18855,27 @@ function _ballCam(P, dt){
 }
 // ── ENEMY CAM — like ball cam, but frames the player + a focused enemy, or the centroid of nearby enemies (great for swarms / a boss / the dragon). window._enemyCamFocus pins one enemy; null = AVERAGE. ──
 let _enemyCamLook=null;
-function _enemyCamTargetPos(P){
+let _enemyCamTgtS=null;   // EASED framing target — swarm/centroid changes glide instead of jolting
+function _enemyCamRawTarget(P){
   const E=(typeof GS!=='undefined'&&GS.enemies)?GS.enemies:[];
   const f=window._enemyCamFocus;
   if(f){ if(f.alive && E.indexOf(f)>=0){ return new THREE.Vector3(f.wx,(f.mesh?f.mesh.position.y:9),f.wz); } window._enemyCamFocus=null; }   // pinned focus (dropped if it died)
   let boss=null; for(const e of E){ if(e&&e.alive&&e.isBoss){ boss=e; break; } }
   if(boss) return new THREE.Vector3(boss.wx,(boss.mesh?boss.mesh.position.y:9),boss.wz);   // a boss auto-grabs focus
-  const NEAR=(window._ENEMYCAM_NEAR||380); let sx=0,sy=0,sz=0,w=0, near=null,nd=1e9;
+  const NEAR=(window._ENEMYCAM_NEAR||560); let sx=0,sy=0,sz=0,w=0, near=null,nd=1e9;       // only enemies within this radius of YOU count toward the average
   for(const e of E){ if(!e||!e.alive||e._captured) continue; const dx=e.wx-P.x, dz=e.wz-P.z, d=Math.hypot(dx,dz);
     if(d<nd){ nd=d; near=e; }
-    if(d<NEAR){ sx+=e.wx; sy+=(e.mesh?e.mesh.position.y:9); sz+=e.wz; w++; } }
-  if(w>0) return new THREE.Vector3(sx/w, sy/w, sz/w);                                       // AVERAGE of nearby enemies
+    if(d<NEAR){ const k=d/NEAR, wt=1-k*k; sx+=e.wx*wt; sy+=(e.mesh?e.mesh.position.y:9)*wt; sz+=e.wz*wt; w+=wt; } }   // soft falloff: full weight near you, ->0 at the edge so an enemy crossing the radius doesn't pop the centroid
+  if(w>0.001) return new THREE.Vector3(sx/w, sy/w, sz/w);                                   // WEIGHTED AVERAGE of nearby enemies
   if(near) return new THREE.Vector3(near.wx,(near.mesh?near.mesh.position.y:9),near.wz);    // else the single nearest
   return null;
+}
+function _enemyCamTargetPos(P){
+  const raw=_enemyCamRawTarget(P);
+  if(!raw){ _enemyCamTgtS=null; return null; }
+  if(!_enemyCamTgtS) _enemyCamTgtS=raw.clone();
+  else _enemyCamTgtS.lerp(raw, (window._ENEMYCAM_TGT_EASE||0.06));                          // glide the framing point toward the new centroid — kills the jolt between targets
+  return _enemyCamTgtS.clone();
 }
 function _enemyCam(P, tgt, dt){
   if(typeof camera==='undefined') return;
@@ -18789,10 +18883,10 @@ function _enemyCam(P, tgt, dt){
   const D=(window._ENEMYCAM_DIST||window._CUBE_CAM_DIST||330), H=(window._ENEMYCAM_H||240);
   const eye=P.clone().addScaledVector(dir,-D); eye.y+=H;                                       // behind the player, looking toward the enemy/centroid
   camera.up.set(0,1,0);
-  camera.position.lerp(eye,0.10);
+  camera.position.lerp(eye,(window._ENEMYCAM_POS_LERP||0.09));
   const look=P.clone().lerp(tgt,(window._ENEMYCAM_BIAS!=null?window._ENEMYCAM_BIAS:0.45));
   if(!_enemyCamLook) _enemyCamLook=look.clone();
-  _enemyCamLook.lerp(look,0.16);
+  _enemyCamLook.lerp(look,(window._ENEMYCAM_LOOK_LERP||0.14));
   camera.lookAt(_enemyCamLook.x,_enemyCamLook.y,_enemyCamLook.z);
   if(typeof CAM!=='undefined'){ CAM.focus.copy(_enemyCamLook); CAM.tfocus.copy(_enemyCamLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }
 }
