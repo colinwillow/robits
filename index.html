@@ -3420,7 +3420,7 @@ class Crawler extends Enemy{
   enterBall(dx,dz,sp,vy){
     if(this._ball) return;
     const d=Math.hypot(dx,dz)||1;
-    this._ball=true; this._cstate='ground'; this._cgBox=null; this._gs=null; this._climbing=false;
+    this._ball=true; this._cstate='ground'; this._cgBox=null; this._gs=null; this._cubeCrawl=false; this._climbing=false;
     this._kbVx=this._kbVz=this._kbVy=this._kbYOff=0;
     this._ballVx=dx/d*sp; this._ballVz=dz/d*sp; this._ballVy=vy;
     this._ballY=Math.max(0,(this._climbY||9)-9);
@@ -3454,6 +3454,32 @@ class Crawler extends Enemy{
     this._acidCD=((this._acidCD!==undefined)?this._acidCD:0.7+Math.random())-dt;
     if(this._acidCD<=0 && p && p.alive && (this.spawn===undefined||this.spawn>=0.8)){ const dd=Math.hypot(p.wx-this.wx,p.wz-this.wz); if(dd<130 && dd>10){ _spiderSpitAcid(this, p.wx, (p.py||9), p.wz, false); this._acidCD=1.2+Math.random()*0.9; } else { this._acidCD=0.4; } }
     if(this._cstate==='climb'){
+      if(this._cubeCrawl){   // ── CONTINUOUS cube inner-shell crawl via the cube SDF (floor → chamfer → wall → ceiling, no seams) — mirrors the city box crawl but on the rounded room
+        if(GS.zone!==-19){ this._cstate='ground'; this._cubeCrawl=false; }
+        else {
+          this._climbing=true; this._climbT+=dt;
+          const aware=Math.hypot(p.wx-this.wx,p.wz-this.wz,(p.py||9)-this._cy)<(window._CUBE_CRAWL_AGGRO||1100);
+          const OFF2=(window._CUBE_CRAWL_OFF||11);
+          let px=this.wx, py=this._cy, pz=this.wz;
+          _cubeGrad(px,py,pz,_gsN);                                              // outward normal (toward the nearest surface)
+          let tx=p.wx-px, ty=(p.py||9)-py, tz=p.wz-pz; const tn=tx*_gsN.x+ty*_gsN.y+tz*_gsN.z; tx-=_gsN.x*tn; ty-=_gsN.y*tn; tz-=_gsN.z*tn;   // player heading projected onto the surface
+          const tl=Math.hypot(tx,ty,tz); let dxx=0,dyy=0,dzz=0; if(tl>1e-3){dxx=tx/tl;dyy=ty/tl;dzz=tz/tl;}
+          let sx=0,sy=0,sz=0; for(const o of GS.enemies){ if(o===this||!o._isCrawler||!o._cubeCrawl) continue; const ex=px-o.wx,ey=py-(o._cy||9),ez=pz-o.wz,q2=ex*ex+ey*ey+ez*ez; if(q2<900&&q2>1){ const q=Math.sqrt(q2),w=(1-q/30)/q; sx+=ex*w; sy+=ey*w; sz+=ez*w; } }
+          const sn=sx*_gsN.x+sy*_gsN.y+sz*_gsN.z; sx-=_gsN.x*sn; sy-=_gsN.y*sn; sz-=_gsN.z*sn;   // separation, kept tangential
+          const step=(aware?this.spd:this.spd*0.4)*dt;
+          px+=dxx*step+sx*step*1.2; py+=dyy*step+sy*step*1.2; pz+=dzz*step+sz*step*1.2;
+          for(let it=0;it<2;it++){ const sd=_cubeSDF(px,py,pz); _cubeGrad(px,py,pz,_gsN); const err=sd+OFF2; px-=_gsN.x*err; py-=_gsN.y*err; pz-=_gsN.z*err; }   // re-seat on the shell at depth OFF2 (Newton step along the SDF)
+          const moved=Math.hypot(px-this.wx,py-this._cy,pz-this.wz);
+          if(moved<step*0.2) this._stuckT=(this._stuckT||0)+dt; else this._stuckT=0;
+          this.wx=px; this._cy=py; this.wz=pz; this._climbY=py;
+          _cubeGrad(px,py,pz,_gsN); this._upV.set(-_gsN.x,-_gsN.y,-_gsN.z);      // up = into the room (away from the surface)
+          this._fwdV.set(dxx||this._face.x, dyy, dzz||this._face.z); this._orient(this._upV,this._fwdV,dt);
+          if((!p._cubeCamAuth && this._upV.y>0.7 && this._cy<16) || this._stuckT>2.4){ this._cstate='ground'; this._cubeCrawl=false; this._attachCD=0.5; this._stuckT=0; this._climbY=9; }   // back on the floor with the player grounded -> resume ground flocking
+          _updateSpider(this._spider, dt, Math.min(1, moved/(this.spd*dt+1e-3)));
+          this.mesh.scale.setScalar(this.spawn<1?(0.2+this.spawn*0.8):1);
+          this._render(dt); return;
+        }
+      }
       if(GS.zone===-16 && this._cgBox){   // CONTINUOUS box-surface crawl: ride the whole building as one rounded shape -> no seam/corner/ground sticking
         const b=this._cgBox;
         if(typeof _cityBoxes==='undefined' || _cityBoxes.indexOf(b)<0){ this._cstate='ground'; this._cgBox=null; }
@@ -3524,7 +3550,7 @@ class Crawler extends Enemy{
     }
     // GROUND — flock + organic AI. City: only hunt within an aggro radius; otherwise wander / idle / flock with real
     // stop-turn-go pauses. Shipped zones keep the original relentless boid-seek.
-    this._climbing=false;
+    this._climbing=false; this._cubeCrawl=false;
     const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1;
     const CITY=(GS.zone===-16), AGGRO=CITY?460:1e9, aware=Math.hypot(dx,dz,p.py-9)<AGGRO;   // 3D: your height counts -> get high enough and they lose you
     let sx=0,sz=0, cx=0,cz=0, ax=0,az=0, nn=0;
@@ -3568,6 +3594,8 @@ class Crawler extends Enemy{
       if(CITY){
         let bb=null,bD=1e9; for(const box of _cityBoxes){ const ex=Math.max(Math.abs(this.wx-box.x)-box.hw,0), ez=Math.max(Math.abs(this.wz-box.z)-box.hd,0); const hd=Math.hypot(ex,ez); if(hd<bD){bD=hd;bb=box;} }
         if(bb && bD<32){ this._cgBox=bb; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // bind to the building -> continuous surface crawl
+      } else if(GS.zone===-19){
+        if(p._cubeCamAuth || (p.py||0)>40){ this._cubeCrawl=true; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // CUBE: player is up a wall/ceiling -> ride the inner shell toward them (across floor, up the chamfer, onto the wall)
       } else {
         const near=_nearestSheetSurface(this.wx,9,this.wz,28,null);
         if(near && near.dist<24){ _sheetWorldNormal(near.sheet,_gsN); if(Math.abs(_gsN.y)<0.6){ this._gs=near.sheet; this._gcu=near.cu; this._gcv=near.cv; this._cstate='climb'; this._climbT=0; this._climbTotal=0; this._stuckT=0; } }
