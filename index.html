@@ -2817,7 +2817,7 @@ class BlueDragon extends Enemy{
     super(wx,wz);
     this._robitId='blue_dragon'; this._robitName='Blue Dragon';
     this.glow=[0.3,0.66,1]; this.score=400; this.size=22; this._barY=46; this._barW=42;
-    this.hp=14+(wave||1)*2; this.maxHp=this.hp;
+    this.hp=(window._DRAGON_HP||70)+(wave||1)*4; this.maxHp=this.hp;
     this._walkSpd=window._DRAGON_WALK||72; this._runSpd=window._DRAGON_RUN||178;
     this.mesh=new THREE.Group();
     this._model=null; this._mixer=null; this._act={}; this._dur={}; this._cur=null; this._curName=null;
@@ -2840,14 +2840,29 @@ class BlueDragon extends Enemy{
     const box=new THREE.Box3().setFromObject(m); const sz=new THREE.Vector3(); box.getSize(sz);
     const sc=target/(sz.y||1); m.scale.setScalar(sc);
     const ctr=new THREE.Vector3(); box.getCenter(ctr); m.position.set(-ctr.x*sc, -box.min.y*sc, -ctr.z*sc);   // feet sit on the group origin (y=0)
-    const glow=new THREE.Color(0x2a7aff);
-    m.traverse(c=>{ if(c.isMesh||c.isSkinnedMesh){ c.frustumCulled=false;
+    const glow=new THREE.Color(window._DRAGON_GLOW!=null?window._DRAGON_GLOW:0x2aa2ff);
+    const wireOp=(window._DRAGON_WIRE_OP!=null?window._DRAGON_WIRE_OP:0.4);
+    const wires=[];
+    m.traverse(c=>{ if(c.isMesh||c.isSkinnedMesh){ c.frustumCulled=false; c.renderOrder=2;
       const mats=Array.isArray(c.material)?c.material:[c.material];
       mats.forEach(mt=>{ if(!mt) return;
-        if('emissive' in mt){ if(mt.map){ mt.emissiveMap=mt.map; mt.emissive=new THREE.Color(0xffffff); mt.emissiveIntensity=0.5; }
-          else { let e=mt.color?mt.color.clone():glow.clone(); if(e.r+e.g+e.b<0.06) e=glow.clone(); mt.emissive=e; mt.emissiveIntensity=0.8; }
+        mt.transparent=false; mt.opacity=1; mt.depthWrite=true; mt.depthTest=true; mt.alphaTest=0; if('blending' in mt) mt.blending=THREE.NormalBlending;   // SOLID: writes depth so the grid no longer renders over/through him
+        if('emissive' in mt){ if(mt.map){ mt.emissiveMap=mt.map; mt.emissive=new THREE.Color(0xffffff); mt.emissiveIntensity=(window._DRAGON_EMIT!=null?window._DRAGON_EMIT:1.1); }
+          else { let e=mt.color?mt.color.clone():glow.clone(); if(e.r+e.g+e.b<0.12) e=glow.clone(); mt.emissive=e; mt.emissiveIntensity=(window._DRAGON_EMIT!=null?window._DRAGON_EMIT:1.7); }
           if('toneMapped' in mt) mt.toneMapped=false; }
-        mt.needsUpdate=true; }); } });
+        mt.needsUpdate=true; });
+      if(window._DRAGON_WIRE!==false){   // glowing WIREFRAME twin — shares geometry + skeleton so it deforms with the body
+        try{
+          const wmat=new THREE.MeshBasicMaterial({color:glow, wireframe:true, transparent:true, opacity:wireOp, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false});
+          let w;
+          if(c.isSkinnedMesh){ w=new THREE.SkinnedMesh(c.geometry, wmat); w.position.copy(c.position); w.quaternion.copy(c.quaternion); w.scale.copy(c.scale); w.bindMode=c.bindMode; w.bind(c.skeleton, c.bindMatrix); }
+          else { w=new THREE.Mesh(c.geometry, wmat); w.position.copy(c.position); w.quaternion.copy(c.quaternion); w.scale.copy(c.scale); }
+          w.frustumCulled=false; w.renderOrder=3;
+          wires.push({src:c, w});
+        }catch(_e){ console.warn('dragon wire twin skipped', _e); }
+      }
+    } });
+    wires.forEach(({src,w})=>{ if(src.parent) src.parent.add(w); });   // attach as siblings (same transform context as their source mesh)
     this.mesh.add(m); this._model=m;
     const clips=(_dragonGltf.animations)||[];
     if(clips.length){
@@ -2926,7 +2941,7 @@ class BlueDragon extends Enemy{
       case 'chase': { this._curY=0;
         if(!this._aggro){ this._enter('idle'); break; }
         if(d<meleeR && this._meleeCD<=0){ this._meleeCD=window._DRAGON_MELEE_CD||1.1; this._enter('attack_ground'); break; }
-        if(d<airR && d>meleeR+24 && this._airCD<=0 && this._act.attack_air && Math.random()<(window._DRAGON_AIR_CHANCE||0.012)){ this._airCD=window._DRAGON_AIR_CD||4.5; this._enter('attack_air'); break; }
+        if(d<airR && d>meleeR+10 && this._airCD<=0 && this._act.attack_air && Math.random()<(window._DRAGON_AIR_CHANCE||0.035)){ this._airCD=window._DRAGON_AIR_CD||3.2; this._enter('attack_air'); break; }
         const spd=(d>airR)?this._runSpd:this._walkSpd;
         this.vx=dx/d*spd; this.vz=dz/d*spd; this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._clampZone();
         const sp=Math.hypot(this.vx,this.vz), ra=this._act.run; if(ra) ra.timeScale=Math.max(0.4, sp/(window._DRAGON_RUN_REF||150));
@@ -2954,7 +2969,7 @@ class BlueDragon extends Enemy{
     for(let i=0;i<(sustain?2:5);i++){ const ja=rand(-0.34,0.34), cx=nx*Math.cos(ja)-nz*Math.sin(ja), cz=nx*Math.sin(ja)+nz*Math.cos(ja);
       try{ ps.spark(this.wx+cx*24, this.wz+cz*24, [1,0.55+Math.random()*0.25,0.12], mz+rand(-4,6)); }catch(_){} }
     try{ ps.burst(this.wx+nx*22, this.wz+nz*22, [1,0.5,0.1], sustain?3:8, 70, mz); }catch(_){}
-    if(!sustain && player&&player.alive&&player.inv<=0 && d<(window._DRAGON_BREATH_RANGE||155)){
+    if(player&&player.alive&&player.inv<=0 && d<(window._DRAGON_BREATH_RANGE||180)){
       try{ spawnDmgNum(player.wx,(player.py||0)+20,player.wz,1,'#ff8833'); }catch(_){} if(typeof playerDie==='function') playerDie();
     }
   }
@@ -17836,7 +17851,7 @@ function buildCubeArena(){
   } else {
     // ── DEFORMING GRID FACES: each face = a live GridSheet (reacts to the player, bullets, rockets, the ball) ──
     _disposeCubeSheets();
-    const cell=(window._CUBE_GRID_CELL||56), pal=(window._CUBE_GRID_PAL||'cube'), sub=(IS_MOBILE?1:2);
+    const cell=(window._CUBE_GRID_CELL||28), pal=(window._CUBE_GRID_PAL||'cube'), sub=(IS_MOBILE?1:2);
     const cy=h/2, vyH=(iy1-iy0)/2;   // wall vertical center + half-height (between the fillets)
     const Q=(ax,ay,az,ang)=>new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(ax,ay,az),ang);
     const face=(pos,quat,uHalf,vHalf)=>{
