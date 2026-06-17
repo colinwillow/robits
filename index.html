@@ -17771,7 +17771,14 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
     if(P.boostFuel<=0){ P._jetting=false; if(typeof announce==='function')announce('NO FUEL','#ff4400'); }
   }
   if(P._jetSoundT>0)P._jetSoundT--;
-  if(Math.hypot(rawX,rawZ)>0.05){ const yaw=CAM.yaw||0; const fx=Math.cos(yaw),fz=Math.sin(yaw); const _as=(window._CUBE_AIRSTEER||650); v.x+=( -fz*rawX + fx*-rawZ )*_as*dt; v.z+=( fx*rawX + fz*-rawZ )*_as*dt; }   // air steer — strong enough to push off a wall
+  if(Math.hypot(rawX,rawZ)>0.05){
+    const _cy=Math.cos(CAM.yaw||0), _sy=Math.sin(CAM.yaw||0);
+    const sx=_cy*rawX - _sy*rawZ, sz=_sy*rawX + _cy*rawZ;          // recover the RAW screen stick (undo the CAM.yaw rotInput)
+    const cr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0); cr.y=0; if(cr.lengthSq()<1e-5)cr.set(1,0,0); cr.normalize();   // ACTUAL camera right
+    const cf=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,2).multiplyScalar(-1); cf.y=0; if(cf.lengthSq()<1e-5)cf.set(0,0,1); cf.normalize();   // ACTUAL camera forward (flattened)
+    const _as=(window._CUBE_AIRSTEER||650);
+    v.x += (cr.x*sx + cf.x*(-sz))*_as*dt; v.z += (cr.z*sx + cf.z*(-sz))*_as*dt;   // screen-relative: up=away from camera, down=toward camera, left/right match the screen
+  }   // air steer — relative to where the camera ACTUALLY looks, so pulling toward you moves him toward the camera
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
   const hx=C.hx-RIDE, hz=C.hz-RIDE;                 // stay inside the walls while falling
   if(P.wx> hx){P.wx=hx;v.x=0;} if(P.wx<-hx){P.wx=-hx;v.x=0;}
@@ -17944,6 +17951,7 @@ function _cubeCam(P, dt){
   const onFloor = wasAuth ? (N.y > 0.80) : (N.y > 0.42);   // on a wall -> become floor only when clearly flat; on floor -> become wall only when clearly steep
   if(player) player._cubeCamAuth = !onFloor;
   if(onFloor){
+    if(typeof camera!=='undefined') camera.up.set(0,1,0);   // clear any wall-cam tilt
     const _fy=4+Math.max(0,P.y)*0.55+Math.max(0,P.y-50)*0.45;   // SAME focus height the normal floor cam uses -> equipping boots on the floor matches the no-boots view (no jolt)
     if(player) player._camFocY=_fy;
     if(_cwAuthPrev && typeof CAM!=='undefined'){            // wall -> floor: seed the normal cam from the CURRENT camera angle so it eases (no snap/thrash)
@@ -17955,18 +17963,19 @@ function _cubeCam(P, dt){
 }
 function _cubeWallCam(P, N, dt){
   if(typeof camera==='undefined') return;
-  camera.up.set(0,1,0);
-  const CC=(window._CUBE||_CUBE), C=new THREE.Vector3(0,CC.h*0.5,0);
-  const D=(window._CUBE_CAM_D||360), LIFT=(window._CUBE_CAM_LIFT||50), m=60;
-  const toC=C.clone().sub(P); if(toC.lengthSq()<1) toC.set(0,1,0); toC.normalize();   // player -> centre (radial)
-  const eye=P.clone().addScaledVector(toC,D); eye.y+=LIFT;                            // pull toward centre + small world-up lift
-  eye.x=Math.max(-CC.hx+m,Math.min(CC.hx-m,eye.x));                                   // keep inside the box
-  eye.z=Math.max(-CC.hz+m,Math.min(CC.hz-m,eye.z));
-  eye.y=Math.max(C.y-CC.h*0.5+m,Math.min(C.y+CC.h*0.5-m,eye.y));
+  const CC=(window._CUBE||_CUBE);
+  const Fout=N.clone().multiplyScalar(-1); if(Fout.lengthSq()<1e-6)Fout.set(0,-1,0); Fout.normalize();   // N = up (toward room centre); outward = through the wall to OUTSIDE the cube
+  const D=(window._CUBE_WALLCAM_D||360);
+  const eye=P.clone().addScaledVector(Fout, D);                                  // X-RAY: sit OUTSIDE the wall, orthogonal, looking back through it at the player (like ball cam, centred on you)
+  // screen-up = "up the wall" toward the ceiling (world-up projected into the wall plane); on the ceiling that degenerates -> stable fallback
+  let up=new THREE.Vector3(0,1,0); up.addScaledVector(Fout,-up.dot(Fout));
+  if(up.lengthSq()<0.05){ up.set(0,0,1); up.addScaledVector(Fout,-up.dot(Fout)); if(up.lengthSq()<0.05){ up.set(1,0,0); up.addScaledVector(Fout,-up.dot(Fout)); } }
+  up.normalize();
   if(!_cwLook) _cwLook=P.clone();
-  _cwLook.lerp(P,0.12);
+  _cwLook.lerp(P,0.14);
   if(_cwCamBlend<1){ _cwCamBlend=Math.min(1,_cwCamBlend+dt/(window._CUBE_CAM_BLEND||0.9)); const e=_cwCamBlend<0.5?2*_cwCamBlend*_cwCamBlend:1-Math.pow(-2*_cwCamBlend+2,2)/2; camera.position.lerpVectors(_cwCamFrom,eye,e); }
-  else camera.position.lerp(eye,0.1);
+  else camera.position.lerp(eye,0.12);
+  camera.up.copy(up);
   camera.lookAt(_cwLook.x,_cwLook.y,_cwLook.z);
   if(typeof CAM!=='undefined'){ CAM.focus.copy(_cwLook); CAM.tfocus.copy(_cwLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }
 }
