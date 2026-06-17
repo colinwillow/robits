@@ -17995,6 +17995,7 @@ function _cubeGrad(x,y,z,out){ const e=1.5, d=_cubeSDF(x,y,z); out.set(_cubeSDF(
 function _cubeDislodgeFall(P,rawX,rawZ,dt){
   dt=Math.min(dt,0.033);
   P._glGrounded=false; P._inPlanetGravity=true;
+  P._cwDashT=0; P._wallDashRaw=null;                                   // left the surface -> drop any flip-drift so it can't resume (and override your stick) when you re-catch a wall
   const C=window._CUBE||_CUBE, RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
   v.y-=(window._CUBE_FALLG||1100)*dt;               // world-down gravity
@@ -18100,12 +18101,14 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   }
   // ── CUBE DASH (left-stick flick) — a timed velocity burst along the surface in the flicked screen direction ──
   let dashDir=null;
-  if((P._cwDashT||0)>0 && P._wallDashRaw){
-    P._cwDashT-=dt;
-    const dsx=P._wallDashRaw[0], dsy=P._wallDashRaw[1], dm=Math.hypot(dsx,dsy)||1;
-    dashDir=prr.clone().multiplyScalar(dsx/dm).addScaledVector(pf, -(dsy/dm));   // screen-right -> prr, screen-up (-dsy) -> forward pf
-    if(dashDir.lengthSq()>1e-4){ dashDir.normalize(); } else dashDir=null;
-    if(!dashDir) P._cwDashT=0;
+  if((P._cwDashT||0)>0){
+    P._cwDashT-=dt;                                                              // ALWAYS count down -> the flip-drift can never get stuck "on" and override your stick forever
+    if(P._wallDashRaw && P._cwDashT>0){
+      const dsx=P._wallDashRaw[0], dsy=P._wallDashRaw[1], dm=Math.hypot(dsx,dsy)||1;
+      dashDir=prr.clone().multiplyScalar(dsx/dm).addScaledVector(pf, -(dsy/dm));   // screen-right -> prr, screen-up (-dsy) -> forward pf
+      if(dashDir.lengthSq()>1e-4){ dashDir.normalize(); } else dashDir=null;
+    }
+    if(P._cwDashT<=0){ P._cwDashT=0; P._wallDashRaw=null; }                       // expired -> clear the flick so nothing lingers into the next step
   }
   let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
   const grounded=(P._cwAir||0)<=0;
