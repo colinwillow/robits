@@ -2822,6 +2822,7 @@ class BlueDragon extends Enemy{
     super(wx,wz);
     this._robitId='blue_dragon'; this._robitName='Blue Dragon';
     this.glow=[0.3,0.66,1]; this.score=400; this.size=22; this._barY=46; this._barW=42; this._tall=(window._DRAGON_TARGET||36);
+    this._ballCapable=false; this._noKnock=true;   // too massive: melee must NOT fold him into a spinning ball, and nothing knocks him around (he plays his hit clip instead)
     this.hp=(window._DRAGON_HP||70)+(wave||1)*4; this.maxHp=this.hp;
     this._walkSpd=window._DRAGON_WALK||72; this._runSpd=window._DRAGON_RUN||178;
     this.mesh=new THREE.Group();
@@ -2856,7 +2857,7 @@ class BlueDragon extends Enemy{
           else { let e=mt.color?mt.color.clone():glow.clone(); if(e.r+e.g+e.b<0.12) e=glow.clone(); mt.emissive=e; mt.emissiveIntensity=(window._DRAGON_EMIT!=null?window._DRAGON_EMIT:1.7); }
           if('toneMapped' in mt) mt.toneMapped=false; }
         mt.needsUpdate=true; });
-      if(window._DRAGON_WIRE===true){   // glowing WIREFRAME twin (OFF by default — the body glow carries the look; if re-enabled it's tris, would want quads)
+      if(window._DRAGON_WIRE!==false){   // glowing WIREFRAME twin back ON by default (shares geometry + skeleton so it deforms with the animation). It's a triangle wireframe — a true quad wireframe that still deforms needs a custom skinned-line build (see note)
         try{
           const wmat=new THREE.MeshBasicMaterial({color:glow, wireframe:true, transparent:true, opacity:wireOp, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false});
           let w;
@@ -8900,7 +8901,7 @@ class Player{
     // launch in the SURFACE frame: tangential part = where the stick points along the wall, plus a kick straight out along the normal
     const _isCube=(GS.zone===-19);
     const _m=Math.min(1,mag);
-    const tanSpeed=(window._BOMB_SURF_BASE||25)+_m*_m*(window._BOMB_SURF_SPAN||380), outSpeed=_isCube?((window._BOMB_CUBE_LOB_MIN||45)+_m*(window._BOMB_CUBE_LOB||185)):16;   // CUBE: BOTH horizontal distance AND the upward lob scale with how hard you push -> gentle push drops it close, hard push arcs it far (matches the no-boots throw feel)
+    const tanSpeed=(window._BOMB_SURF_BASE||25)+_m*_m*(window._BOMB_SURF_SPAN||210), outSpeed=_isCube?((window._BOMB_CUBE_LOB_MIN||40)+_m*(window._BOMB_CUBE_LOB||115)):16;   // CUBE: BOTH horizontal distance AND the upward lob scale with how hard you push -> gentle push drops it close, hard push arcs it far (tuned DOWN so the boots/flick throw matches the no-boots distance, was launching way too far)
     let lvx,lvy,lvz;
     if(td){ lvx=td.x*tanSpeed+N.x*outSpeed; lvy=td.y*tanSpeed+N.y*outSpeed; lvz=td.z*tanSpeed+N.z*outSpeed; }
     else if(_isCube){ lvx=N.x*outSpeed; lvy=N.y*outSpeed; lvz=N.z*outSpeed; }   // no aim in the cube -> still pop straight off the surface so it arcs back, not a dead drop
@@ -15833,7 +15834,14 @@ function loop(ts){ requestAnimationFrame(loop);
             let prr=cr.clone().addScaledVector(N,-cr.dot(N)); if(prr.lengthSq()<1e-5)prr.set(1,0,0); prr.normalize();
             const pf=new THREE.Vector3().crossVectors(N,prr).normalize();
             const tan=pf.multiplyScalar(-shootIn.y).addScaledVector(prr,shootIn.x);
-            if(tan.lengthSq()>1e-4){ tan.normalize(); player._bombThrow3D={x:tan.x,y:tan.y,z:tan.z}; player._bombThrowMag=sm; player._stickWasPushed=true; }
+            if(tan.lengthSq()>1e-4){ tan.normalize();
+              const _ad=(window._BOMB_AIM_DAMP||0.14);   // heavier crosshair: ease the aim dir + magnitude instead of snapping to the raw stick (less twitchy for bomb/nuke/item)
+              const _pd=player._bombThrow3D||{x:tan.x,y:tan.y,z:tan.z};
+              let _nx=_pd.x+(tan.x-_pd.x)*_ad, _ny=_pd.y+(tan.y-_pd.y)*_ad, _nz=_pd.z+(tan.z-_pd.z)*_ad; const _nl=Math.hypot(_nx,_ny,_nz)||1;
+              player._bombThrow3D={x:_nx/_nl,y:_ny/_nl,z:_nz/_nl};
+              player._bombThrowMag=(player._bombThrowMag||0)+(sm-(player._bombThrowMag||0))*_ad;
+              player._stickWasPushed=true;
+            }
           }
           player.updateBomb(dt,0,0);
         } else {
