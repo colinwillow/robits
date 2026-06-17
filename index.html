@@ -2941,7 +2941,13 @@ class BlueDragon extends Enemy{
     this._aggro=(d<aggroR);
     if(this._dying){
       this._deadT+=dt;
-      if(this._deadT >= (this._dur.death||1.2)+0.15){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1); try{ if(typeof _robitDeconstruct==='function') _robitDeconstruct(this.wx,(this._curY||0)+12,this.wz,(window._DRAGON_GLOW||0x2aa2ff)); }catch(_){} this.remove(); return; }   // death clip done -> bit deconstruct beam-out
+      if(this._deadT >= (this._dur.death||1.2)+0.15){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1);
+        const _m=this.mesh;
+        try{ if(this._mixer)this._mixer.stopAllAction(); }catch(_){}                              // freeze the pose for the beam-out
+        try{ if(this._hpBar&&_m){ _m.remove(this._hpBar); this._hpBar=null; } }catch(_){}          // don't beam the HP bar up with the body
+        try{ if(typeof _robitDeconstruct==='function') _robitDeconstruct(this.wx,(this._curY||0)+12,this.wz,(window._DRAGON_GLOW||0x2aa2ff), _m); }catch(_){}   // hand the MODEL to the effect -> bits cover it, then it fades + beams out
+        this.mesh=null; this.remove(); return;                                                    // null the mesh so remove() doesn't yank the model the effect now owns
+      }   // death clip done -> bit deconstruct beam-out
       this._applyMesh(); return;
     }
     if(this._state!=='entrance' && this._state!=='dizzy'){   // face the player, smoothed
@@ -6409,35 +6415,64 @@ function spawnDebris(wx,wz,count,scale){
   ps.burst(wx,wz,[1,0.5,0.1],8,60);
 }
 
-// ── ROBIT DECONSTRUCT — "bit-like" beam-out: a column of glowing voxel cubes lift off the body into a rising beam, then de-rez. Pushed into GS.deathRings so it ticks with the world and cleans up on zone change.
-function _robitDeconstruct(x,y,z,col){
+// ── ROBIT DECONSTRUCT — bit-like beam-out. Cubes pop onto the model's own vertices in a fast sequence (axis-aligned = "bits", no
+//    random rotation), expand upward at staggered intervals; a tractor beam drops from the ceiling and engulfs the body; then the
+//    model fades, the bits fade out in sequence, and the beam retracts. Self-pushes into GS.deathRings so it ticks + cleans up.
+function _robitDeconstruct(x,y,z,col,modelGroup){
   col=(col!=null?col:0x4cc8ff); const c3=new THREE.Color(col);
   const grp=new THREE.Group(); scene.add(grp);
-  const beamH=(window._DECON_BEAM_H||240), beamGeo=new THREE.CylinderGeometry(8,8,beamH,12,1,true);
-  const beamMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
-  const beam=new THREE.Mesh(beamGeo,beamMat); beam.position.set(x,y+beamH*0.5,z); grp.add(beam);
-  const flashMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false});
-  const flash=new THREE.Mesh(new THREE.SphereGeometry(10,10,8),flashMat); flash.position.set(x,y+18,z); grp.add(flash);
-  const bitGeo=new THREE.BoxGeometry(1,1,1); const bits=[]; const N=(IS_MOBILE?14:24);
-  for(let i=0;i<N;i++){ const s=rand(3,7), a=rand(TAU), rr=rand(2,20);
-    const m=new THREE.Mesh(bitGeo,new THREE.MeshBasicMaterial({color:(Math.random()<0.4?0xffffff:col),transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
-    m.position.set(x+Math.cos(a)*rr, y+rand(2,40), z+Math.sin(a)*rr); m.scale.setScalar(s); grp.add(m);
-    bits.push({m,s,vx:Math.cos(a)*rand(6,26),vz:Math.sin(a)*rand(6,26),vy:rand(60,140),rx:rand(-6,6),ry:rand(-6,6),rz:rand(-6,6),delay:rand(0,0.22)});
+  // ── sample vertices off the model so the bits actually cover it ──
+  const samples=[];
+  if(modelGroup){ try{ modelGroup.updateWorldMatrix(true,true);
+    const meshes=[]; modelGroup.traverse(o=>{ if(o.isMesh && o.geometry && o.geometry.attributes && o.geometry.attributes.position) meshes.push(o); });
+    const want=(IS_MOBILE?22:38), per=Math.max(1,Math.floor(want/Math.max(1,meshes.length))), v=new THREE.Vector3();
+    for(const me of meshes){ const pos=me.geometry.attributes.position, cnt=pos.count; if(!cnt)continue; const stride=Math.max(1,Math.floor(cnt/per));
+      for(let i=0;i<cnt && samples.length<want;i+=stride){ v.fromBufferAttribute(pos,i); me.localToWorld(v); samples.push(v.clone()); } }
+  }catch(_){} }
+  if(!samples.length){ const n=(IS_MOBILE?16:26); for(let i=0;i<n;i++){ const a=rand(TAU), rr=rand(2,22); samples.push(new THREE.Vector3(x+Math.cos(a)*rr, y+rand(2,44), z+Math.sin(a)*rr)); } }
+  for(let i=samples.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const tmp=samples[i]; samples[i]=samples[j]; samples[j]=tmp; }   // shuffle -> bits pop all over, not in a sweep
+  const DUR=(window._DECON_DUR||1.9), SEQ=(window._DECON_SEQ||0.014);
+  const T_BEAM=(window._DECON_BEAM_AT||0.4)*DUR, T_ENGULF=(window._DECON_ENGULF_AT||0.62)*DUR, T_FADE=(window._DECON_FADE_AT||0.78)*DUR;
+  // ── bits: axis-aligned cubes ──
+  const bitGeo=new THREE.BoxGeometry(1,1,1); const bits=[];
+  for(let i=0;i<samples.length;i++){ const s=rand(4,9);
+    const m=new THREE.Mesh(bitGeo,new THREE.MeshBasicMaterial({color:(Math.random()<0.35?0xffffff:col),transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+    m.position.copy(samples[i]); m.scale.setScalar(0.001); grp.add(m);   // NO rotation -> stays orthogonal
+    bits.push({m,s,appear:i*SEQ, rise:0.28+Math.random()*0.55, vy:rand(45,110), fadeAt:T_FADE+Math.random()*((DUR-T_FADE)*0.5)});   // staggered appear + random rise interval + sequential fade
   }
-  try{ ps.burst(x,z,[c3.r,c3.g,c3.b],16,95,y+16); }catch(_){}
-  try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(780,0.12,'sine',0.18,1500); Audio.blip(300,0.22,'sine',0.12,80); } }catch(_){}
-  let t=0; const DUR=(window._DECON_DUR||1.2);
-  return { mesh:grp,
-    update(dt){ t+=dt; const k=t/DUR; if(k>=1) return false;
-      const bb=Math.sin(Math.min(1,k*1.7)*Math.PI); beamMat.opacity=0.6*bb; beam.scale.x=beam.scale.z=Math.max(0.05,1-k*0.7);
-      flashMat.opacity=Math.max(0,0.9*(1-k*3)); flash.scale.setScalar(1+k*3.5);
-      for(const b of bits){ if(t<b.delay) continue;
-        b.m.position.x+=(b.vx+(x-b.m.position.x)*1.4)*dt; b.m.position.z+=(b.vz+(z-b.m.position.z)*1.4)*dt;
-        b.m.position.y+=b.vy*dt; b.vy+=40*dt;   // accelerate up = beamed out
-        b.m.rotation.x+=b.rx*dt; b.m.rotation.y+=b.ry*dt; b.m.rotation.z+=b.rz*dt;
-        const f=Math.max(0,1-(t-b.delay)/Math.max(0.01,DUR-b.delay)); b.m.scale.setScalar(b.s*f); b.m.material.opacity=0.95*f; }
+  // ── tractor beam from the sky/ceiling, straight down through the body ──
+  const beamTop=(window._DECON_BEAM_TOP!=null?window._DECON_BEAM_TOP:((typeof _CUBE!=='undefined'&&GS.zone===-19)?_CUBE.h+20:y+760));
+  const beamH=Math.max(140,beamTop-y), R=(window._DECON_BEAM_R||44);
+  const beamGeo=new THREE.CylinderGeometry(R,R,beamH,22,1,true), coreGeo=new THREE.CylinderGeometry(R*0.42,R*0.42,beamH,14,1,true), discGeo=new THREE.CircleGeometry(R*1.25,28);
+  const beamMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+  const coreMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+  const discMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+  const beam=new THREE.Mesh(beamGeo,beamMat); beam.position.set(x,y+beamH*0.5,z); grp.add(beam);
+  const core=new THREE.Mesh(coreGeo,coreMat); core.position.copy(beam.position); grp.add(core);
+  const disc=new THREE.Mesh(discGeo,discMat); disc.rotation.x=-Math.PI/2; disc.position.set(x,y+1,z); grp.add(disc);
+  // ── make the model's materials fade-able ──
+  const modelMats=[]; if(modelGroup){ try{ modelGroup.traverse(o=>{ if(o.isMesh&&o.material){ const ms=Array.isArray(o.material)?o.material:[o.material]; for(const mm of ms){ mm.transparent=true; modelMats.push(mm); } } }); }catch(_){} }
+  try{ ps.burst(x,z,[c3.r,c3.g,c3.b],14,80,y+16); }catch(_){}
+  try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(900,0.1,'sine',0.16,1800); Audio.blip(210,0.55,'sine',0.1,55); } }catch(_){}
+  let t=0;
+  const fx={ mesh:grp,
+    update(dt){ t+=dt; if(t>=DUR) return false;
+      for(const b of bits){ if(t<b.appear)continue; const at=t-b.appear;
+        const ap=Math.min(1,at/0.1);                                  // pop in
+        if(at>b.rise){ b.m.position.y+=b.vy*dt; b.vy+=55*dt; }         // expand upward
+        let op=1; if(t>b.fadeAt) op=Math.max(0,1-(t-b.fadeAt)/Math.max(0.05,DUR-b.fadeAt));   // sequential fade-out
+        const sc=b.s*ap; b.m.scale.setScalar(sc>0.001?sc:0.001); b.m.material.opacity=0.95*ap*op;
+      }
+      const bk=Math.max(0,Math.min(1,(t-T_BEAM)/Math.max(0.01,DUR-T_BEAM)));   // beam life 0..1
+      const beamOn=Math.sin(Math.min(1,bk*1.25)*Math.PI);                       // drop in, then retract
+      beamMat.opacity=0.5*beamOn; coreMat.opacity=0.85*beamOn; discMat.opacity=0.6*beamOn;
+      const wide=1+(t>T_ENGULF?Math.min(1,(t-T_ENGULF)/0.3)*0.7:0);             // engulf = widen
+      beam.scale.x=beam.scale.z=wide; disc.scale.setScalar(1+bk*1.6);
+      if(modelMats.length){ const mf=(t>T_FADE)?Math.max(0,1-(t-T_FADE)/Math.max(0.05,(DUR-T_FADE)*0.7)):1; for(const mm of modelMats) mm.opacity=mf; }   // fade the model out
       return true; },
-    remove(){ try{ scene.remove(grp); grp.traverse(o=>{ if(o.material)o.material.dispose(); }); beamGeo.dispose(); bitGeo.dispose(); flash.geometry.dispose(); }catch(_){} } };
+    remove(){ try{ if(modelGroup){ scene.remove(modelGroup); } scene.remove(grp); grp.traverse(o=>{ if(o.material)o.material.dispose(); }); beamGeo.dispose(); coreGeo.dispose(); discGeo.dispose(); bitGeo.dispose(); }catch(_){} } };   // don't dispose the model's geometry (SkeletonUtils clones share buffers) — just pull it from the scene
+  try{ if(typeof GS!=='undefined'&&GS.deathRings) GS.deathRings.push(fx); }catch(_){}   // tick + auto-cleanup
+  return fx;
 }
 window._robitDeconstruct=_robitDeconstruct;
 
@@ -6469,9 +6504,9 @@ class DropBomb{
 
     // Physics — gravity
     const GRAV=320;
-    if(!this._orbitLock && GS.zone!==-19) this.vy-=GRAV*dt;                    // no world-down in the cube — the inner-shell stick owns surface motion
+    if(!this._orbitLock) this.vy-=GRAV*dt;                    // world-down gravity EVERYWHERE incl. the cube, so the throw follows the arc the trajectory dots predict (was disabled in the cube -> bomb flew straight up/diagonal)
     this.wx+=this.vx*dt; this.wz+=this.vz*dt; this.y+=this.vy*dt;
-    this._orbitLock = (GS.zone===-16) ? _cityProjOrbit(this, 12, 46, dt) : (GS.zone===-19 ? _cubeProjStick(this, window._CUBE_PROJ_R||12, window._CUBE_PROJ_SOI||90, dt) : (this._orbitLock||false));   // city: building orbit; cube: ride the inner shell
+    this._orbitLock = (GS.zone===-16) ? _cityProjOrbit(this, 12, 46, dt) : (GS.zone===-19 ? false : (this._orbitLock||false));   // city: building orbit; cube: NO surface-stick for bombs -> they arc under gravity and bounce off the grid-sheet faces (matches the predicted arc)
 
     // Bounce off ground
     if(!this._orbitLock && GS.zone!==-19 && this.y<=9){
@@ -6556,9 +6591,13 @@ class DropBomb{
     this._coreMesh.position.set(this.wx,this.y+5,this.wz);
     this._coreMat.opacity=0.6+pulse*0.4;
     this._coreMat.color.setRGB(1,g,b);
-    // Trailing fire sparks
-    if(Math.random()<0.5)
-      ps.spark(this.wx+rand(-3,3),this.wz+rand(-3,3),[1,g,0.1]);
+    // Trailing fire sparks — inherit most of the bomb's velocity so they stream just BEHIND it (and die fast) instead of raining down to the floor while the bomb's up in the air
+    if(ps._spawn && Math.random()<0.6){
+      const _g=g;
+      ps._spawn(this.wx+rand(-2,2), this.y+rand(-2,2), this.wz+rand(-2,2),
+                this.vx*0.55+rand(-14,14), this.vy*0.55+rand(-6,18), this.vz*0.55+rand(-14,14),
+                1,_g,0.1, 0.12+rand(0.05));
+    }
 
     // Bounce off training dummy
     if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS.zone===-2){
@@ -14755,7 +14794,9 @@ jL.onTap=()=>{
               const sx=totalDx/totalDist, sy2=totalDy/totalDist;
               const wx=sx*cy+sy2*sy, wz=-sx*sy+sy2*cy;
               const len=Math.hypot(wx,wz)||1;
-              player._throwBomb(wx/len,wz/len, vel); // vel = flick power
+              const _adx=(player._aimerX!=null?player._aimerX:player.wx)-player.wx, _adz=(player._aimerZ!=null?player._aimerZ:player.wz)-player.wz, _ad=Math.hypot(_adx,_adz);
+              if(_ad>5) player._throwBomb(_adx/_ad,_adz/_ad);          // flick = quick RELEASE along the SHOWN arc (aimer) so the throw matches the trajectory dots (no separate flick-power distance that flew flat/linear)
+              else player._throwBomb(wx/len,wz/len, vel);              // no valid aimer -> fall back to the swipe direction
               threw=true;
             }
           }
@@ -14827,7 +14868,9 @@ jR.onTap=()=>{
         const cy=Math.cos(CAM.yaw), sy=Math.sin(CAM.yaw);
         const wx=svx*cy+svy*sy, wz=-svx*sy+svy*cy;
         const len=Math.hypot(wx,wz)||1;
-        player._throwBomb(wx/len,wz/len);
+        const _adx=(player._aimerX!=null?player._aimerX:player.wx)-player.wx, _adz=(player._aimerZ!=null?player._aimerZ:player.wz)-player.wz, _ad=Math.hypot(_adx,_adz);
+        if(_ad>5) player._throwBomb(_adx/_ad,_adz/_ad);   // flick follows the shown trajectory arc
+        else player._throwBomb(wx/len,wz/len);
         const bb=document.getElementById('btn-bomb-arm');
         if(bb) bb.classList.remove('armed');
         return;
