@@ -14281,13 +14281,13 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
                 const _fwx=svx*_fcy+svy*_fsy, _fwz=-svx*_fsy+svy*_fcy, _dl=Math.hypot(_fwx,_fwz)||1;
                 const _ax=Math.abs(svx),_ay=Math.abs(svy);
                 player._flipAnimName='flip_forward';   // ALWAYS the front flip for every flick direction — the stick turns the character, so a sideways/back flip reads wrong; a forward flip + drift in the flick direction always looks right
-                const _ft=(window._FLIP_DUR_FB||1.0);
+                const _ft=(window._FLIP_DUR_FB||0.5);   // 2x faster flip
                 player._diveRollDir=[_fwx/_dl,_fwz/_dl];   // triggers the flip clip
                 player._flipNoTurn=true;                    // flick must NOT reorient the character (set NOW so the very next render holds facing)
                 setTimeout(()=>{ if(player)player._flipNoTurn=false; }, 2500);   // safety only — the flip's completion poll normally clears this exactly when the clip finishes
                 player._flipFacingHold=player._cwLastF?player._cwLastF.clone():null;
                 // GENTLE directional drift over the flip duration — no teleport-dash, no character turn
-                const _drift=(window._FLIP_DRIFT_DIST||70);
+                const _drift=(window._FLIP_DRIFT_DIST||140);   // 2x lead distance
                 if(player._inPlanetGravity){ player._wallDashRaw=[svx,svy]; player._cwDashT=_ft; player._cwDashSpd=_drift/_ft; }
                 else { player._dashDir=[_fwx/_dl,_fwz/_dl]; player._dashRamp=Math.max(6,Math.round(_ft*60)); player._dashPeak=_drift/_ft*1.8; }
                 if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0,0.85,1],10,80); if(typeof grid!=='undefined')grid.push(player.wx,player.wz,-2,50);
@@ -14995,7 +14995,7 @@ function loop(ts){ requestAnimationFrame(loop);
             // Play at the AUTHORED real-time: target = the duration you timed (fwd/back 1.0s, side 1.8s), timeScale corrects whatever the GLB exported.
             const _glbDur=(rollClip._clip&&rollClip._clip.duration)||0.45;
             const _tgt = _isFlip
-              ? ((_flipName==='flip_left'||_flipName==='flip_right')?(window._FLIP_DUR_SIDE||0.9):(window._FLIP_DUR_FB||1.0))
+              ? ((_flipName==='flip_left'||_flipName==='flip_right')?(window._FLIP_DUR_SIDE||0.9):(window._FLIP_DUR_FB||0.5))
               : (_glbDur/1.4);
             const _ts = _isFlip ? Math.max(0.05, _glbDur/_tgt) : 1.4;
             if(player._flipDiag!==rollName){ player._flipDiag=rollName; console.log('[Robits]',rollName,'GLB dur',_glbDur.toFixed(2),'s -> target',_tgt,'s @ timeScale',_ts.toFixed(2)); }
@@ -17469,7 +17469,19 @@ function _updateCubeBall(dt){
   _ballHitPlayer(b, dtc);
   b.grp.position.copy(b.pos);
   if(typeof _updateBallLocator==='function') _updateBallLocator(b);
-  b.wire.rotation.x+=b.spin.x*dtc; b.wire.rotation.y+=b.spin.y*dtc; b.wire.rotation.z+=b.spin.z*dtc;
+  // ── ROLL: spin the ball body to match how it's actually travelling (rolling without slipping) instead of a fixed random spin ──
+  { const sp=b.vel.length();
+    if(sp>2){
+      const _g=new THREE.Vector3(); _cubeGrad(b.pos.x,b.pos.y,b.pos.z,_g);   // outward (toward nearest surface)
+      const Nc=_g.multiplyScalar(-1);                                        // surface -> ball (contact normal)
+      let axis=new THREE.Vector3().crossVectors(Nc, b.vel);                  // roll axis: perpendicular to motion, in the surface plane
+      if(axis.lengthSq()<1e-6) axis.crossVectors(new THREE.Vector3(0,1,0), b.vel);
+      if(axis.lengthSq()>1e-6){ axis.normalize();
+        const ang=(sp/Math.max(b.R,1))*dtc;                                  // ω = v / r  -> looks like real rolling at any speed
+        b.wire.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, ang));
+      }
+    } else { b.wire.rotation.y += 0.25*dtc; }                               // settled -> a slow idle turn
+  }
 }
 window._resetBall=function(){ if(_cubeBall){ const C=window._CUBE||_CUBE; _cubeBall.pos.set(0,C.h*0.5,0); _cubeBall.vel.set(0,0,0); } };
 // ── BALL LOCATOR — Rocket-League style. NOT in ball cam: a 3D arrow hovers over the ball when it's ON screen (and settled);
