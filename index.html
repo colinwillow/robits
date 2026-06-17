@@ -18298,7 +18298,7 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
 //  • FLOOR  -> hand off to the NORMAL updateCamera (rotatable, shoot spins it = normal gameplay).
 //  • WALL/CEILING -> AUTHORITATIVE cam (inverted lab cube): sits INSIDE the room pulled toward centre from the player, world-up,
 //    looking outward at the player on the wall. Dictated by position, so the right stick shoots/swipes WITHOUT spinning the view.
-let _cwLook=null, _cwCamBlend=1, _cwCamFrom=new THREE.Vector3(), _cwAuthPrev=false;
+let _cwLook=null, _cwCamBlend=1, _cwCamFrom=new THREE.Vector3(), _cwAuthPrev=false, _cwCeilE=null, _cwUpSmooth=null;
 function _cubeCam(P, dt){
   if(window._ballCam){ _ballCam(P,dt); if(player)player._cubeCamAuth=false; _cwAuthPrev=false; return; }
   if(window._enemyCam){ const _t=_enemyCamTargetPos(P); if(_t){ let _dir=_t.clone().sub(P); _dir.y=0; if(_dir.lengthSq()>1){ _dir.normalize(); CAM.yaw=Math.atan2(-_dir.x,-_dir.z); CAM.tyaw=CAM.yaw; } _enemyCam(P,_t,dt); if(player)player._cubeCamAuth=false; _cwAuthPrev=false; return; } }   // ENEMY CAM works in the cube too (frame the dragon/swarm); align CAM.yaw so floor/wall movement still reads with the view
@@ -18320,19 +18320,38 @@ function _cubeCam(P, dt){
       CAM.yaw=yaw; CAM.tyaw=yaw; CAM.focus.set(P.x,_fy,P.z);
     }
     _cwAuthPrev=false; if(typeof CAM!=='undefined'){ CAM.tfocus.set(P.x,_fy,P.z); CAM.dist=lerp(CAM.dist,230,0.03); CAM.height=lerp(CAM.height,200,0.03); }   // normal cam follows + orbits, eased to the same dist/height
-  } else { if(!_cwAuthPrev){ _cwCamBlend=0; _cwCamFrom.copy(camera.position); _cwLook=P.clone(); _cwAuthPrev=true; } _cubeWallCam(P,N,dt); }   // authoritative wall cam (seed a fresh blend + look target on entry so it eases instead of jumping)
+  } else { if(!_cwAuthPrev){ _cwCamBlend=0; _cwCamFrom.copy(camera.position); _cwLook=P.clone(); _cwUpSmooth=null; _cwAuthPrev=true; } _cubeWallCam(P,N,dt); }   // authoritative wall cam (seed a fresh blend + look target on entry so it eases instead of jumping)
 }
 function _cubeWallCam(P, N, dt){
   if(typeof camera==='undefined') return;
   const CC=(window._CUBE||_CUBE);
   const Fout=N.clone().multiplyScalar(-1); if(Fout.lengthSq()<1e-6)Fout.set(0,-1,0); Fout.normalize();   // N = up (toward room centre); outward = through the wall to OUTSIDE the cube
   const D=(window._CUBE_WALLCAM_D||360);
-  // screen-up = "up the wall" toward the ceiling (world-up projected into the wall plane); on the ceiling that degenerates -> stable fallback
+  // ── WALL screen-up = world-up projected into the wall plane (up the wall toward the ceiling). On the ceiling this degenerates -> handled below. ──
   let up=new THREE.Vector3(0,1,0); up.addScaledVector(Fout,-up.dot(Fout));
   if(up.lengthSq()<0.05){ up.set(0,0,1); up.addScaledVector(Fout,-up.dot(Fout)); if(up.lengthSq()<0.05){ up.set(1,0,0); up.addScaledVector(Fout,-up.dot(Fout)); } }
   up.normalize();
+  // ── CEILING QUADRANT ORIENTATION ──
+  // The ceiling square is split by its two diagonals into 4 triangles, each owning the wall edge it points at. We want "down"
+  // on the stick to run you toward that edge so you continue straight onto its wall. That means aiming the camera-up toward the
+  // room CENTRE ( = -e, where e = horizontal direction from centre to you ): screen-down then points at the nearest edge. Using the
+  // continuous centre->player direction (instead of a hard triangle pick) avoids a snap at the diagonals; we blend it into the
+  // wall's world-up as the surface bends through the chamfer so ceiling<->wall is seamless; and we ease the final up over time so
+  // the unavoidable singularity at the exact centre is a gentle swing, not a pop.
+  const ceilK=Math.max(0,Math.min(1, Fout.y));                  // 1 = ceiling (outward = +Y), 0 = wall
+  if(ceilK>0.001){
+    let ex=P.x, ez=P.z; const el=Math.hypot(ex,ez);
+    if(el>(window._CUBE_CEIL_POLE||60)){ _cwCeilE=new THREE.Vector3(ex/el,0,ez/el); }   // outside the centre pole -> dominant edge dir; inside -> hold the last one
+    const e=_cwCeilE||new THREE.Vector3(0,0,1);
+    const ceilUp=new THREE.Vector3(-e.x,0,-e.z);                // toward centre -> screen-down lands on the dominant edge
+    const bu=up.clone().multiplyScalar(1-ceilK).addScaledVector(ceilUp,ceilK);   // blend wall<->ceiling across the chamfer
+    if(bu.lengthSq()>1e-4){ up.copy(bu).normalize(); }
+  }
+  // ease the up vector over time -> soft pole + soft quadrant/chamfer transitions
+  if(!_cwUpSmooth){ _cwUpSmooth=up.clone(); } else { _cwUpSmooth.lerp(up, Math.min(1,dt*(window._CUBE_CEIL_EASE||6))); if(_cwUpSmooth.lengthSq()>1e-4)_cwUpSmooth.normalize(); else _cwUpSmooth.copy(up); }
+  up=_cwUpSmooth;
   const LIFT=(window._CUBE_WALLCAM_LIFT!=null?window._CUBE_WALLCAM_LIFT:120);
-  const eye=P.clone().addScaledVector(Fout, D).addScaledVector(up, LIFT);          // X-RAY: OUTSIDE the wall, raised a little along "up the wall" so it looks DOWN at the player for a bit of perspective
+  const eye=P.clone().addScaledVector(Fout, D).addScaledVector(up, LIFT);          // X-RAY: OUTSIDE the surface, lifted along screen-up so it looks back at the player for perspective
   if(!_cwLook) _cwLook=P.clone();
   _cwLook.lerp(P,0.14);
   if(_cwCamBlend<1){ _cwCamBlend=Math.min(1,_cwCamBlend+dt/(window._CUBE_CAM_BLEND||0.9)); const e=_cwCamBlend<0.5?2*_cwCamBlend*_cwCamBlend:1-Math.pow(-2*_cwCamBlend+2,2)/2; camera.position.lerpVectors(_cwCamFrom,eye,e); }
