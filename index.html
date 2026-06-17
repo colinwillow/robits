@@ -1029,6 +1029,12 @@ const CAM={ yaw:0, tyaw:0, pitch:0, tpitch:0, dist:230, height:200, trauma:0,
   aimMode:false }; // aimMode = 3D free-look bomb throw
 function addTrauma(t){ CAM.trauma=clamp(CAM.trauma+t,0,1); }
 function punchZoom(z){ CAM.tzoom=z; }
+// ── CAMERA MODE BLEND — ease between ball / enemy / regular cams instead of popping. Captured on toggle, applied just before render.
+const _camFx={active:false,t:0,dur:0.42,p0:new THREE.Vector3(),q0:new THREE.Quaternion(),_tp:new THREE.Vector3(),_tq:new THREE.Quaternion()};
+function _camFxBegin(){ try{ if(typeof camera==='undefined'||!camera)return; _camFx.active=true; _camFx.t=0; _camFx.dur=(window._CAM_BLEND_DUR||0.42); _camFx.p0.copy(camera.position); _camFx.q0.copy(camera.quaternion); }catch(_){} }
+function _camFxApply(dt){ if(!_camFx.active)return; _camFx.t+=dt; let k=_camFx.t/_camFx.dur; if(k>=1){ _camFx.active=false; return; } k=k*k*(3-2*k); _camFx._tp.copy(camera.position); _camFx._tq.copy(camera.quaternion); camera.position.lerpVectors(_camFx.p0,_camFx._tp,k); camera.quaternion.slerpQuaternions(_camFx.q0,_camFx._tq,k); camera.updateMatrixWorld(); }
+window._camFxBegin=_camFxBegin;
+
 function updateCamera(dt){
   if(player&&player._inPlanetGravity&&(GS.zone===-15||GS.zone===-16)) return;   // lab/city gravity cam owns the camera
   // BALL CAM works in the cube whether or not boots are equipped (without boots the wall-walk render path that normally dispatches it never runs)
@@ -2906,7 +2912,7 @@ class BlueDragon extends Enemy{
     this._energy=Math.max(0, this._energy - dmg*(window._DRAGON_STAGGER||0.16));
     this.hp-=dmg; this._hpShowT=150;
     if(this.hp<=0){   // DEATH: keep alive so the death clip can play; award score now, self-remove after the clip (no weapon loop splices us because we return 0)
-      this._dying=true; this._noKnock=true; this.vx=0; this.vz=0; this._enter('death');
+      this._dying=true; this._noKnock=true; this._invulnerable=true; this.hp=9999; this.vx=0; this.vz=0; this._enter('death');   // _invulnerable + hp>0 so explosion/weapon loops can't splice us mid-clip (that's what made him sometimes just vanish); we self-remove after the death clip
       GS.score += (this.score||0)*GS.mult;
       try{ if(typeof Gem3D!=='undefined') GS.gems.push(new Gem3D(this.wx+rand(-12,12),this.wz+rand(-12,12),'mult')); }catch(_){}
       try{ if(typeof registerKill==='function') registerKill(this); }catch(_){}
@@ -2934,7 +2940,7 @@ class BlueDragon extends Enemy{
     this._aggro=(d<aggroR);
     if(this._dying){
       this._deadT+=dt;
-      if(this._deadT >= (this._dur.death||1.2)+0.15){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1); this.remove(); return; }
+      if(this._deadT >= (this._dur.death||1.2)+0.15){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1); try{ if(typeof _robitDeconstruct==='function') _robitDeconstruct(this.wx,(this._curY||0)+12,this.wz,(window._DRAGON_GLOW||0x2aa2ff)); }catch(_){} this.remove(); return; }   // death clip done -> bit deconstruct beam-out
       this._applyMesh(); return;
     }
     if(this._state!=='entrance' && this._state!=='dizzy'){   // face the player, smoothed
@@ -6401,6 +6407,38 @@ function spawnDebris(wx,wz,count,scale){
   grid.shock(wx,wz,2);
   ps.burst(wx,wz,[1,0.5,0.1],8,60);
 }
+
+// ── ROBIT DECONSTRUCT — "bit-like" beam-out: a column of glowing voxel cubes lift off the body into a rising beam, then de-rez. Pushed into GS.deathRings so it ticks with the world and cleans up on zone change.
+function _robitDeconstruct(x,y,z,col){
+  col=(col!=null?col:0x4cc8ff); const c3=new THREE.Color(col);
+  const grp=new THREE.Group(); scene.add(grp);
+  const beamH=(window._DECON_BEAM_H||240), beamGeo=new THREE.CylinderGeometry(8,8,beamH,12,1,true);
+  const beamMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+  const beam=new THREE.Mesh(beamGeo,beamMat); beam.position.set(x,y+beamH*0.5,z); grp.add(beam);
+  const flashMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false});
+  const flash=new THREE.Mesh(new THREE.SphereGeometry(10,10,8),flashMat); flash.position.set(x,y+18,z); grp.add(flash);
+  const bitGeo=new THREE.BoxGeometry(1,1,1); const bits=[]; const N=(IS_MOBILE?14:24);
+  for(let i=0;i<N;i++){ const s=rand(3,7), a=rand(TAU), rr=rand(2,20);
+    const m=new THREE.Mesh(bitGeo,new THREE.MeshBasicMaterial({color:(Math.random()<0.4?0xffffff:col),transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+    m.position.set(x+Math.cos(a)*rr, y+rand(2,40), z+Math.sin(a)*rr); m.scale.setScalar(s); grp.add(m);
+    bits.push({m,s,vx:Math.cos(a)*rand(6,26),vz:Math.sin(a)*rand(6,26),vy:rand(60,140),rx:rand(-6,6),ry:rand(-6,6),rz:rand(-6,6),delay:rand(0,0.22)});
+  }
+  try{ ps.burst(x,z,[c3.r,c3.g,c3.b],16,95,y+16); }catch(_){}
+  try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(780,0.12,'sine',0.18,1500); Audio.blip(300,0.22,'sine',0.12,80); } }catch(_){}
+  let t=0; const DUR=(window._DECON_DUR||1.2);
+  return { mesh:grp,
+    update(dt){ t+=dt; const k=t/DUR; if(k>=1) return false;
+      const bb=Math.sin(Math.min(1,k*1.7)*Math.PI); beamMat.opacity=0.6*bb; beam.scale.x=beam.scale.z=Math.max(0.05,1-k*0.7);
+      flashMat.opacity=Math.max(0,0.9*(1-k*3)); flash.scale.setScalar(1+k*3.5);
+      for(const b of bits){ if(t<b.delay) continue;
+        b.m.position.x+=(b.vx+(x-b.m.position.x)*1.4)*dt; b.m.position.z+=(b.vz+(z-b.m.position.z)*1.4)*dt;
+        b.m.position.y+=b.vy*dt; b.vy+=40*dt;   // accelerate up = beamed out
+        b.m.rotation.x+=b.rx*dt; b.m.rotation.y+=b.ry*dt; b.m.rotation.z+=b.rz*dt;
+        const f=Math.max(0,1-(t-b.delay)/Math.max(0.01,DUR-b.delay)); b.m.scale.setScalar(b.s*f); b.m.material.opacity=0.95*f; }
+      return true; },
+    remove(){ try{ scene.remove(grp); grp.traverse(o=>{ if(o.material)o.material.dispose(); }); beamGeo.dispose(); bitGeo.dispose(); flash.geometry.dispose(); }catch(_){} } };
+}
+window._robitDeconstruct=_robitDeconstruct;
 
 
 class DropBomb{
@@ -15751,8 +15789,9 @@ function loop(ts){ requestAnimationFrame(loop);
           if(_sv > (window._FIRE_FLICK_VEL!=null?window._FIRE_FLICK_VEL:0.13)) player._fireSuppressT=performance.now()+(window._FIRE_FLICK_HOLD||150); }
         const _flickGuard = (player._fireSuppressT && performance.now()<player._fireSuppressT) || player._flickPending;
         const held=(typeof jR!=='undefined')?jR.isHeld:(stickMag>0.05);
+        const _wallFire = !!(player._cubeCamAuth && !player._cwDislodge && (player._cwAir||0)<=0);   // grounded on a WALL/CEILING -> hold anywhere fires (no dead zone). On the floor or in the AIR -> must push past the dead zone, so a center tap is free for the jetpack (no accidental shot)
         if(!held){ player._fireLatched=false; }
-        else if(!_flickGuard){ player._fireLatched=true; }                                    // HOLD the stick ANYWHERE -> fire (no dead zone); a fast flick is still suppressed so melee reads as melee
+        else if(!_flickGuard){ if(_wallFire || stickMag > (window._FIRE_DEADZONE!=null?window._FIRE_DEADZONE:0.22)) player._fireLatched=true; }   // a fast flick is still suppressed so melee reads as melee
         if(player._fireLatched){
           if(stickMag>0.05){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; }     // direction + magnitude track the stick (small mag => steep / close)
           else { avx=Math.cos(player.aim)*0.04; avz=Math.sin(player.aim)*0.04; }               // dead center -> keep last direction, minimal mag = steepest dive at your feet
@@ -16546,6 +16585,7 @@ function loop(ts){ requestAnimationFrame(loop);
       scene.fog.color.lerp(new THREE.Color(gc[0]*0.05+b+od,gc[1]*0.025+b*0.5,gc[2]*0.06+b),0.02);
     }
     // Update post-processing
+    if(typeof _camFxApply==='function') _camFxApply(rawDt);   // ease between camera modes (ball/enemy/regular) right before drawing
     if(window._glLost){ /* GPU context lost — skip drawing until reload */ }
     else if(window.LIGHT_MODE){
       _lightModeFrame();
@@ -17889,7 +17929,7 @@ function _updateBallCamBtn(playing){
     btn=document.createElement('button'); btn.id='ballcam-btn';
     btn.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 116px);right:14px;z-index:13;padding:8px 12px;font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:2px;color:#33e0ff;background:rgba(8,20,28,0.72);border:1.5px solid #33e0ff77;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent';
     btn.textContent='BALL CAM';
-    const flip=(e)=>{ e.preventDefault(); e.stopPropagation(); window._ballCam=!window._ballCam; btn.style.color=window._ballCam?'#06141a':'#33e0ff'; btn.style.background=window._ballCam?'rgba(51,224,255,0.9)':'rgba(8,20,28,0.72)'; if(typeof Audio!=='undefined')Audio.blip(window._ballCam?660:330,0.08,'square',0.14,800); };
+    const flip=(e)=>{ e.preventDefault(); e.stopPropagation(); if(typeof _camFxBegin==='function')_camFxBegin(); window._ballCam=!window._ballCam; btn.style.color=window._ballCam?'#06141a':'#33e0ff'; btn.style.background=window._ballCam?'rgba(51,224,255,0.9)':'rgba(8,20,28,0.72)'; if(typeof Audio!=='undefined')Audio.blip(window._ballCam?660:330,0.08,'square',0.14,800); };
     btn.addEventListener('click',flip); btn.addEventListener('touchstart',flip,{passive:false});
     document.body.appendChild(btn);
   }
@@ -17902,7 +17942,7 @@ function _updateEnemyCamBtn(playing){
     btn=document.createElement('button'); btn.id='enemycam-btn';
     btn.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 158px);right:14px;z-index:13;padding:8px 12px;font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:2px;color:#ff8844;background:rgba(28,14,8,0.72);border:1.5px solid #ff884477;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent';
     btn.textContent='ENEMY CAM';
-    const flip=(e)=>{ e.preventDefault(); e.stopPropagation(); window._enemyCam=!window._enemyCam; if(window._enemyCam){ window._ballCam=false; window._enemyCamFocus=null; }   // turning on enemy cam frees the ball cam + resets to AVERAGE
+    const flip=(e)=>{ e.preventDefault(); e.stopPropagation(); if(typeof _camFxBegin==='function')_camFxBegin(); window._enemyCam=!window._enemyCam; if(window._enemyCam){ window._ballCam=false; window._enemyCamFocus=null; }   // turning on enemy cam frees the ball cam + resets to AVERAGE
       btn.style.color=window._enemyCam?'#1a0a04':'#ff8844'; btn.style.background=window._enemyCam?'rgba(255,136,68,0.92)':'rgba(28,14,8,0.72)';
       if(cyc) cyc.style.display=window._enemyCam?'block':'none';
       if(typeof Audio!=='undefined')Audio.blip(window._enemyCam?660:330,0.08,'square',0.14,800); };
