@@ -1034,6 +1034,11 @@ function updateCamera(dt){
   // BALL CAM works in the cube whether or not boots are equipped (without boots the wall-walk render path that normally dispatches it never runs)
   if(window._ballCam && GS.zone===-19 && player && typeof _ballCam==='function' && !(typeof _cubeWalkOn==='function' && _cubeWalkOn(player))){ _ballCam(new THREE.Vector3(player.wx,player.py,player.wz), dt); player._cubeCamAuth=false; return; }
   if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player) && (window._ballCam || player._cubeCamAuth)){ return; }   // BALL cam or the AUTHORITATIVE wall cam owns it; the FLOOR uses this normal path
+  // ENEMY CAM — frames the player + a focused enemy / nearby-enemy centroid. Yields to cube wall-walk (the wall/ball cams own the cube when you have boots on a wall).
+  if(window._enemyCam && player && GS.state==='playing' && !(typeof _cubeWalkOn==='function' && _cubeWalkOn(player))){
+    const _ep=new THREE.Vector3(player.wx,(player.py||0),player.wz), _et=_enemyCamTargetPos(_ep);
+    if(_et){ _enemyCam(_ep,_et,dt); return; }
+  }
   CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
   CAM.focus.lerp(CAM.tfocus,0.18);
@@ -15059,6 +15064,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(typeof _updateRobitStrip==='function') _updateRobitStrip(playing);
     if(typeof _updateBootsToggle==='function') _updateBootsToggle(playing);
     if(typeof _updateBallCamBtn==='function') _updateBallCamBtn(playing);
+    if(typeof _updateEnemyCamBtn==='function') _updateEnemyCamBtn(playing);
     if(_dep&&_cyc&&player&&typeof Dex!=='undefined'){
       let _owned=[]; try{ _owned=_ownedSpecies(); }catch(e){}
       const _dds=playing?'flex':'none'; if(_dep.style.display!==_dds)_dep.style.display=_dds;   // always visible in play -> stable layout, even with an empty roster
@@ -17828,6 +17834,29 @@ function _updateBallCamBtn(playing){
   }
   btn.style.display='block';
 }
+function _updateEnemyCamBtn(playing){
+  let btn=document.getElementById('enemycam-btn'), cyc=document.getElementById('enemycam-cyc');
+  if(!playing){ if(btn)btn.style.display='none'; if(cyc)cyc.style.display='none'; return; }
+  if(!btn){
+    btn=document.createElement('button'); btn.id='enemycam-btn';
+    btn.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 158px);right:14px;z-index:13;padding:8px 12px;font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:2px;color:#ff8844;background:rgba(28,14,8,0.72);border:1.5px solid #ff884477;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent';
+    btn.textContent='ENEMY CAM';
+    const flip=(e)=>{ e.preventDefault(); e.stopPropagation(); window._enemyCam=!window._enemyCam; if(window._enemyCam){ window._ballCam=false; window._enemyCamFocus=null; }   // turning on enemy cam frees the ball cam + resets to AVERAGE
+      btn.style.color=window._enemyCam?'#1a0a04':'#ff8844'; btn.style.background=window._enemyCam?'rgba(255,136,68,0.92)':'rgba(28,14,8,0.72)';
+      if(cyc) cyc.style.display=window._enemyCam?'block':'none';
+      if(typeof Audio!=='undefined')Audio.blip(window._enemyCam?660:330,0.08,'square',0.14,800); };
+    btn.addEventListener('click',flip); btn.addEventListener('touchstart',flip,{passive:false});
+    document.body.appendChild(btn);
+    cyc=document.createElement('button'); cyc.id='enemycam-cyc';
+    cyc.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 158px);right:106px;z-index:13;padding:8px 11px;font-family:Orbitron,sans-serif;font-size:11px;color:#ff8844;background:rgba(28,14,8,0.72);border:1.5px solid #ff884477;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;display:none';
+    cyc.textContent='⟳';
+    const cycle=(e)=>{ e.preventDefault(); e.stopPropagation(); if(typeof _enemyCamCycle==='function')_enemyCamCycle(); if(typeof Audio!=='undefined')Audio.blip(520,0.05,'square',0.1,400); };
+    cyc.addEventListener('click',cycle); cyc.addEventListener('touchstart',cycle,{passive:false});
+    document.body.appendChild(cyc);
+  }
+  btn.style.display='block';
+  if(cyc) cyc.style.display=window._enemyCam?'block':'none';
+}
 function buildCubeArena(){
   _disposeCubeArena();
   const C=Object.assign(_CUBE, window._CUBE||{}); window._CUBE=C;
@@ -18259,6 +18288,43 @@ function _ballCam(P, dt){
   camera.lookAt(look.x, look.y, look.z);
   if(CAM){ CAM.focus.copy(look); CAM.tfocus.copy(look); }
 }
+// ── ENEMY CAM — like ball cam, but frames the player + a focused enemy, or the centroid of nearby enemies (great for swarms / a boss / the dragon). window._enemyCamFocus pins one enemy; null = AVERAGE. ──
+let _enemyCamLook=null;
+function _enemyCamTargetPos(P){
+  const E=(typeof GS!=='undefined'&&GS.enemies)?GS.enemies:[];
+  const f=window._enemyCamFocus;
+  if(f){ if(f.alive && E.indexOf(f)>=0){ return new THREE.Vector3(f.wx,(f.mesh?f.mesh.position.y:9),f.wz); } window._enemyCamFocus=null; }   // pinned focus (dropped if it died)
+  let boss=null; for(const e of E){ if(e&&e.alive&&e.isBoss){ boss=e; break; } }
+  if(boss) return new THREE.Vector3(boss.wx,(boss.mesh?boss.mesh.position.y:9),boss.wz);   // a boss auto-grabs focus
+  const NEAR=(window._ENEMYCAM_NEAR||380); let sx=0,sy=0,sz=0,w=0, near=null,nd=1e9;
+  for(const e of E){ if(!e||!e.alive||e._captured) continue; const dx=e.wx-P.x, dz=e.wz-P.z, d=Math.hypot(dx,dz);
+    if(d<nd){ nd=d; near=e; }
+    if(d<NEAR){ sx+=e.wx; sy+=(e.mesh?e.mesh.position.y:9); sz+=e.wz; w++; } }
+  if(w>0) return new THREE.Vector3(sx/w, sy/w, sz/w);                                       // AVERAGE of nearby enemies
+  if(near) return new THREE.Vector3(near.wx,(near.mesh?near.mesh.position.y:9),near.wz);    // else the single nearest
+  return null;
+}
+function _enemyCam(P, tgt, dt){
+  if(typeof camera==='undefined') return;
+  let dir=tgt.clone().sub(P); dir.y=0; if(dir.lengthSq()<1)dir.set(0,0,1); dir.normalize();   // horizontal: player -> target
+  const D=(window._ENEMYCAM_DIST||window._CUBE_CAM_DIST||330), H=(window._ENEMYCAM_H||240);
+  const eye=P.clone().addScaledVector(dir,-D); eye.y+=H;                                       // behind the player, looking toward the enemy/centroid
+  camera.up.set(0,1,0);
+  camera.position.lerp(eye,0.10);
+  const look=P.clone().lerp(tgt,(window._ENEMYCAM_BIAS!=null?window._ENEMYCAM_BIAS:0.45));
+  if(!_enemyCamLook) _enemyCamLook=look.clone();
+  _enemyCamLook.lerp(look,0.16);
+  camera.lookAt(_enemyCamLook.x,_enemyCamLook.y,_enemyCamLook.z);
+  if(typeof CAM!=='undefined'){ CAM.focus.copy(_enemyCamLook); CAM.tfocus.copy(_enemyCamLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }
+}
+function _enemyCamCycle(){   // step the pinned focus through alive enemies, then back to AVERAGE
+  const E=(typeof GS!=='undefined'&&GS.enemies)?GS.enemies.filter(e=>e&&e.alive&&!e._captured):[];
+  if(!E.length){ window._enemyCamFocus=null; if(typeof announce==='function')announce('NO ENEMIES','#ff8844'); return; }
+  const cur=window._enemyCamFocus; let i=cur?E.indexOf(cur):-1; i++;
+  window._enemyCamFocus=(i>=E.length)?null:E[i];
+  if(typeof announce==='function') announce(window._enemyCamFocus?('FOCUS: '+((window._enemyCamFocus._robitName)||'ENEMY')):'FOCUS: AVERAGE','#ff8844');
+}
+window._enemyCamCycle=_enemyCamCycle;
 function _cubeWalkOrient(P){   // surface-aligned model orientation (called from draw)
   if(!P.model||!P._cubeUp)return;
   const up=P._cubeUp.clone(); let fwd=(P._cwFaceV?P._cwFaceV.clone():new THREE.Vector3(Math.cos(P._cwFace||0),0,Math.sin(P._cwFace||0)));
