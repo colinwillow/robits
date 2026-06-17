@@ -18123,7 +18123,7 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
   // ── CATCH: stick to a nearby surface when not jetting — but only if you're basically on it, drifting INTO it, or nearly stopped, so you can steer AWAY to escape ──
   if(!P._jetting){
     const _sd=_cubeSDF(P.wx,P.py,P.wz);
-    const _catch=(window._CUBE_CATCH!=null?window._CUBE_CATCH:30);
+    const _catch=(window._CUBE_CATCH!=null?window._CUBE_CATCH:10);   // MAGNETIC BOOTS: small contact-only radius (was a big 30u field that sucked you onto walls). You now have to actually reach the surface to stick.
     if(_sd > -(RIDE+_catch)){
       _cubeGrad(P.wx,P.py,P.wz,_cwN);                       // outward normal (toward the surface)
       const _toward=v.x*_cwN.x+v.y*_cwN.y+v.z*_cwN.z;        // >0 = moving INTO the surface
@@ -18131,7 +18131,7 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
       const _slow=Math.hypot(v.x,v.y,v.z) < (window._CUBE_CATCH_SLOW||80);
       if(_snug || _toward>0 || _slow){
         const _corr=_sd+RIDE; P.wx-=_cwN.x*_corr; P.py-=_cwN.y*_corr; P.wz-=_cwN.z*_corr;   // snap to ride height on that surface
-        P._cwDislodge=false; P._glGrounded=true; P._cwAir=0; P.vx=0; P.pvy=0; P.vz=0; P._cubeUp=_cwN.clone().multiplyScalar(-1);
+        P._cwDislodge=false; P._glGrounded=true; P._cwAir=0; P.vx=0; P.pvy=0; P.vz=0; P._cubeUp=_cwN.clone().multiplyScalar(-1); P._cwGrabT=(window._CUBE_GRAB_EASE!=null?window._CUBE_GRAB_EASE:0.35);   // magnet-grab: ease the body's rotation onto the surface (render slerps gently while this counts down)
         if(typeof Audio!=='undefined')Audio.blip(170,0.13,'square',0.2,90); if(typeof ps!=='undefined')ps.ring(P.wx,P.wz,[0.4,1,0.85],8,64); if(typeof addTrauma==='function')addTrauma(0.07);
         return;
       }
@@ -18212,8 +18212,16 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   }
   let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
   const grounded=(P._cwAir||0)<=0;
-  // ── JUMP: tap launches toward the room (along N); gravity pulls back to the wall ──
-  if(grounded && P._jumpTapped){ P._jumpTapped=false; v.addScaledVector(N,(window._CUBE_JUMP||300)); P._cwAir=(window._CUBE_AIRT||0.85); if(typeof Audio!=='undefined')Audio.blip(300,0.3,'sine',0.12,500); }
+  // ── JUMP. On the FLOOR -> normal up-jump (arcs back down). On a WALL/CEILING -> magnetic release: kick off the surface and FALL to the floor (no wall-gravity arcing you back). ──
+  if(grounded && P._jumpTapped){ P._jumpTapped=false;
+    if(N.y > (window._CUBE_FLOORJUMP_NY!=null?window._CUBE_FLOORJUMP_NY:0.6)){
+      v.addScaledVector(N,(window._CUBE_JUMP||300)); P._cwAir=(window._CUBE_AIRT||0.85); if(typeof Audio!=='undefined')Audio.blip(300,0.3,'sine',0.12,500);
+    } else {
+      v.addScaledVector(N,(window._CUBE_WALLJUMP_KICK||150)); P._cwDislodge=true; P._cwAir=0; P.vx=v.x; P.pvy=v.y; P.vz=v.z;
+      if(typeof Audio!=='undefined')Audio.blip(220,0.18,'sawtooth',0.14,120);
+      return _cubeDislodgeFall(P,rawX,rawZ,dt);   // release the magnets -> world-down fall to the floor
+    }
+  }
   if(P._jetting && P.boostFuel>0){ P._cwAir=0; P._cwDislodge=true; if(typeof Audio!=='undefined')Audio.blip(240,0.14,'sawtooth',0.12,120); return _cubeDislodgeFall(P,rawX,rawZ,dt); }   // JETPACK -> break off the surface into FREE FLIGHT; thrust is toward TRUE-world up (handled in the fall controller), not "off the wall"
   if((P._cwAir||0)>0){                              // ── AIRBORNE ──
     if(P._jumpTapped){ P._jumpTapped=false; P._cwAir=0; P._cwDislodge=true; if(typeof Audio!=='undefined')Audio.blip(200,0.18,'sawtooth',0.16,90); return _cubeDislodgeFall(P,rawX,rawZ,dt); }   // 2nd jump mid-air -> dislodge, fall to the floor
@@ -18266,7 +18274,8 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
     const xA=new THREE.Vector3().crossVectors(N,fwd).normalize();
     const tq=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,N,fwd));
     P.model.visible=true; P.model.position.set(P.wx-N.x*RIDE, P.py-N.y*RIDE, P.wz-N.z*RIDE);
-    P.model.quaternion.slerp(tq, grounded?0.22:0.12);
+    const _grab=(P._cwGrabT||0)>0; if(_grab)P._cwGrabT-=dt;
+    P.model.quaternion.slerp(tq, _grab?(window._CUBE_GRAB_SLERP||0.1):(grounded?0.22:0.12));   // magnets rotating him onto the surface -> a slower turn for ~0.35s after the boots grab
     if(window._CUBE_FACE_OFF) P.model.rotateY(window._CUBE_FACE_OFF);
     if(P._flip){   // FLIP composed on top of the surface orientation, pivoting around the hips (draw() bails here, so advance it ourselves)
       const f=P._flip; f.t+=dt;
