@@ -8916,6 +8916,7 @@ class Player{
   // Release stick while armed: throw in that direction
   cycleWeapon(){
     let order=['bullets','rockets','plasma','flamethrower','grenade','singularity','gridquake','boomerang','nuke','bow'];
+    if(window._ITEMS_THROWABLE_ONLY!==false) order=order.filter(w=>w!=='singularity'&&w!=='gridquake'&&w!=='nuke');   // nuke/singularity/quake now exist ONLY as grab-&-throw item drops, not in the gun cycle
     if(this._ownedWeps){ order=order.filter(w=>this._ownedWeps.has(w)); if(!order.length)order=['bullets']; }   // survival: only cycle weapons you've actually picked up
     let _i=order.indexOf(this.primaryWeapon); if(_i<0)_i=0;
     this.primaryWeapon = order[(_i+1)%order.length];
@@ -11398,7 +11399,7 @@ let GS_trainingDummy=null;
 // ── holographic OLMEC mask: the head primitives rendered as a glowing wireframe hologram on a projector pedestal ──
 // ════════ THROWABLE POWER-UP ITEMS + CRATES (grab via left stick, throw via bomb machinery) ════════
 window._crates=window._crates||[]; window._itemPU=window._itemPU||[]; window._itemShots=window._itemShots||[]; window._crateDebris=window._crateDebris||[];
-const _ITEMDEF={ nuke:{col:0xff5a3c, glow:0xff9a66}, singularity:{col:0xb060ff, glow:0xd09bff}, quake:{col:0x39ffc9, glow:0x9bffe0} };
+const _ITEMDEF={ nuke:{col:0xff5a3c, glow:0xff9a66}, singularity:{col:0xb060ff, glow:0xd09bff}, quake:{col:0x39ffc9, glow:0x9bffe0}, barrel:{col:0xff8c1a, glow:0xffbf66} };
 const _ITEM_TYPES=['nuke','singularity','quake'];
 
 function _detonateItem(type,x,z,od){
@@ -11410,6 +11411,15 @@ function _detonateItem(type,x,z,od){
       if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS.zone===-2){ if(Math.hypot(GS_trainingDummy.wx-x,GS_trainingDummy.wz-z)<R&&GS_trainingDummy.hit)GS_trainingDummy.hit(60,x,z); }
     } else if(type==='singularity'){ if(!GS.wells)GS.wells=[]; if(typeof Singularity!=='undefined')GS.wells.push(new Singularity(x,z,!!od)); }
     else if(type==='quake'){ if(!GS.quakes)GS.quakes=[]; if(typeof QuakeStorm!=='undefined')GS.quakes.push(new QuakeStorm(x,z,!!od)); }
+    else if(type==='barrel'){
+      const R=(window._BARREL_R||150), dmg=(window._BARREL_DMG||1.0);
+      if(typeof _bombBlastEnemies==='function') _bombBlastEnemies(x,9,z,R,dmg);
+      if(typeof ps!=='undefined'){ ps.burst(x,z,[1,0.5,0.1],26,200,14); ps.ring(x,z,[1,0.7,0.2],16,R*0.8,14); for(let k=0;k<24;k++){ const a=rand(TAU),sp=rand(120,300); ps._spawn(x,rand(6,44),z,Math.cos(a)*sp,rand(40,180),Math.sin(a)*sp,1,0.45,0.08,0.4); } }
+      if(typeof grid!=='undefined'){ if(grid.push)grid.push(x,z,-10,R); if(grid.shock)grid.shock(x,z,7); if(grid.pulse)grid.pulse(0.4); }
+      if(typeof hitStop==='function')hitStop(5);
+      if(player&&player.alive!==false&&(player.inv||0)<=0){ const pd=Math.hypot(player.wx-x,player.wz-z); if(pd<(window._BARREL_HURT_R||72)){ if(player.shieldActive&&player.shieldHit){ player.shieldHit(20,'blast'); } else if(window._BARREL_HURTS_PLAYER!==false){ player._burnT=Math.max(player._burnT||0,1); if(typeof playerDie==='function')playerDie(1,'#ff8c1a'); } } }   // barrels hurt YOU too if you're in the blast
+      try{ if(window._itemPU){ for(const p of window._itemPU){ if(p&&p.type==='barrel'&&!(p._cooking>0)){ const d=Math.hypot(p.x-x,p.z-z); if(d<(window._BARREL_CHAIN_R||120)){ p._cooking=0.1+Math.random()*0.18; } } } } }catch(_){}   // CHAIN: nearby barrels cook off
+    }
     if(typeof addTrauma==='function')addTrauma(type==='nuke'?0.5:0.3);
     if(typeof Audio!=='undefined'){try{Audio.blip(type==='nuke'?70:160,0.25,'square',0.3,40);}catch(_){}}
   }catch(e){ console.warn('detonate item:',e); }
@@ -11564,7 +11574,7 @@ function _smashCrateAt(x,z){
   for(let k=0;k<n;k++){ const a=Math.random()*6.28, sp=rand(22,58), vx=Math.cos(a)*sp, vy=rand(95,150), vz=Math.sin(a)*sp; const roll=Math.random();
     if(roll<0.40) _spawnLootBall(x,z,'gun',pick(guns),vx,vy,vz);
     else if(roll<0.80) _spawnLootBall(x,z,'melee',pick(melee),vx,vy,vz);
-    else _spawnPU(x,16,z, _ITEM_TYPES[(Math.random()*_ITEM_TYPES.length)|0], vx,vy,vz);
+    else { const pool=window._BARREL_LOOT_POOL||['barrel','barrel','barrel','nuke','singularity','quake']; _spawnPU(x,16,z, pool[(Math.random()*pool.length)|0], vx,vy,vz); }
   }
 }
 // LOOT BALL — a coloured ball that rolls out of a crate; on settle it flattens and unfolds into the matching weapon pad.
@@ -11651,6 +11661,13 @@ function _makePUModel(type){
     const main=new THREE.Mesh(new THREE.OctahedronGeometry(5,0),cm); main.scale.y=1.5; g.add(main);
     for(let k=0;k<5;k++){ const sp=new THREE.Mesh(new THREE.ConeGeometry(1.6,rand(4,7),5),cm); const a=Math.random()*6.28,r=3; sp.position.set(Math.cos(a)*r,rand(-3,3),Math.sin(a)*r); sp.rotation.set(rand(0,3),rand(0,3),rand(0,3)); g.add(sp); }
     g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(7,0), new THREE.MeshBasicMaterial({color:0x9bffe0,wireframe:true,transparent:true,opacity:0.5})));
+  } else if(type==='barrel'){
+    const metal=new THREE.MeshStandardMaterial({color:0x8a3010,emissive:0x4a1505,emissiveIntensity:0.8,roughness:0.5,metalness:0.6,flatShading:true,toneMapped:false});
+    const body=new THREE.Mesh(new THREE.CylinderGeometry(6,6,15,14,1),metal); g.add(body);
+    const bandMat=new THREE.MeshStandardMaterial({color:0xff8c1a,emissive:0xff8c1a,emissiveIntensity:1.5,roughness:0.4,toneMapped:false});
+    for(const yy of [-4.5,0,4.5]){ const ring=new THREE.Mesh(new THREE.TorusGeometry(6.05,0.7,6,18),bandMat); ring.rotation.x=Math.PI/2; ring.position.y=yy; g.add(ring); }
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(6.2,6.2,15.2,14,1,true), new THREE.MeshBasicMaterial({color:0xffbf66,wireframe:true,transparent:true,opacity:0.35,blending:THREE.AdditiveBlending,depthWrite:false})));
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(2.6,8,6), new THREE.MeshBasicMaterial({color:0xffdd66,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}))).position.y=8.6;   // hazard cap glow
   } else { // crate — same neon-wood look as the ground crate, centered for held/thrown
     const S=14;
     const wood=new THREE.MeshStandardMaterial({color:0x7a4a26,emissive:0x1a0d04,emissiveIntensity:0.5,roughness:0.85,metalness:0.15});
@@ -11673,6 +11690,12 @@ function _spawnPU(x,y,z,type,vx,vy,vz){
 }
 function _updatePU(dt){
   const A=window._itemPU; if(!A){window._nearOrb=null;return;}
+  // ── BARRELS: take a bullet -> cook off; cook-off timer -> explode (chain handled in _detonateItem) ──
+  for(let i=A.length-1;i>=0;i--){ const p=A[i]; if(!p||p.type!=='barrel')continue;
+    if(!(p._cooking>0) && p.settled && typeof GS!=='undefined' && GS.bullets){ for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b)continue; const bw=(b.wx!=null?b.wx:b.x)||0, bz=(b.wz!=null?b.wz:b.z)||0; if(Math.hypot(bw-p.x,bz-p.z)<(window._BARREL_HIT_R||16) && Math.abs(((b.y!=null?b.y:9))-(p.y||7))<28){ if(b.remove)b.remove(); GS.bullets.splice(bi,1); p._cooking=(window._BARREL_FUSE||0.12); break; } } }
+    if(p._cooking>0){ p._cooking-=dt; if(typeof ps!=='undefined'&&Math.random()<0.6)ps.spark(p.x+rand(-5,5),p.z+rand(-5,5),[1,0.5,0.1],(p.y||7)+rand(4,16)); if(p.cube)p.cube.scale.setScalar(1+0.12*Math.sin(performance.now()*0.05));
+      if(p._cooking<=0){ if(p.grp){scene.remove(p.grp); p.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} A.splice(i,1); if(p===window._nearOrb)window._nearOrb=null; _detonateItem('barrel',p.x,p.z,false); } }
+  }
   let near=null,nd=1e9;
   for(const p of A){ p.t+=dt;
     if(!p.settled){ p.vy-=360*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.z+=p.vz*dt; if(p.y<=7){ p.y=7; if(p.vy<-30){ p.vy*=-0.4; p.vx*=0.65; p.vz*=0.65; } else { p.vy=0; } p.vx*=0.82; p.vz*=0.82; if(Math.abs(p.vy)<14&&Math.hypot(p.vx,p.vz)<8){ p.settled=true; p.vx=p.vy=p.vz=0; p.y=7; } } p.grp.position.set(p.x,p.y,p.z); p.cube.rotation.x+=dt*4; p.cube.rotation.y+=dt*3; }
@@ -11717,7 +11740,7 @@ function _updateItemShots(dt){
     if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z); s.mesh.rotation.x+=s.spin.x*dt; s.mesh.rotation.y+=s.spin.y*dt; s.mesh.rotation.z+=s.spin.z*dt; }
     if(typeof ps!=='undefined'&&Math.random()<0.5){ const def=_ITEMDEF[s.type]||_ITEMDEF.nuke; const col=(s.kind==='crate')?new THREE.Color(0x9a6a3a):new THREE.Color(def.col); ps._spawn(s.x,s.y,s.z,rand(-6,6),rand(-6,6),rand(-6,6),col.r,col.g,col.b,0.3); }
     let hit=false;
-    if(s.kind==='crate'&&typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&Math.abs(s.y-(e.py||0))<34&&Math.hypot(e.wx-s.x,e.wz-s.z)<22){ hit=true; break; } } }
+    if((s.kind==='crate'||s.type==='barrel')&&typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&Math.abs(s.y-(e.mesh?e.mesh.position.y:(e.py||0)))<40&&Math.hypot(e.wx-s.x,e.wz-s.z)<24){ hit=true; break; } } }
     if(s.y<=6||hit){ if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } if(s.kind==='crate'){ _smashCrateAt(s.x,s.z); } else { _detonateItem(s.type,s.x,s.z,false); } A.splice(i,1); }
   }
 }
@@ -11759,7 +11782,23 @@ function _disposeBarrels(){
   const js=document.getElementById('joystick-right'); if(js){js.style.borderColor='';}
 }
 function _spawnTrainingBarrels(){ _spawnCrate(60,-40); _spawnCrate(95,-10); _spawnCrate(40,20); _spawnCannon((window._CANNON_X!=null?window._CANNON_X:0),(window._CANNON_Z!=null?window._CANNON_Z:-340),(window._CANNON_R!=null?window._CANNON_R:420)); }
-window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateCarry(dt); if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
+let _barrelSpawnT=0;
+function _barrelSpawnTick(dt){
+  if(window._BARRELS_ENABLED===false || typeof GS==='undefined' || GS.state!=='playing') return;
+  const _bz=(GS.zone>=0 || GS.zone===-19 || GS.zone===-2);   // combat waves, the cube sandbox, and training
+  if(!_bz) return;
+  _barrelSpawnT-=dt;
+  const cap=(window._BARREL_MAX!=null?window._BARREL_MAX:4);
+  const cur=(window._itemPU||[]).filter(p=>p&&p.type==='barrel').length;
+  if(cur>=cap){ if(_barrelSpawnT<1)_barrelSpawnT=1; return; }
+  if(_barrelSpawnT<=0){ _barrelSpawnT=(window._BARREL_SPAWN_CD||6)+rand(0,4);
+    const cen=(typeof zoneCenter==='function')?zoneCenter(GS.zone):{x:0,z:0};
+    const RR=(typeof ARENA_R!=='undefined'?ARENA_R-60:480);
+    for(let tries=0;tries<6;tries++){ const a=rand(TAU), r=rand(RR*0.3,RR), bx=cen.x+Math.cos(a)*r, bz=cen.z+Math.sin(a)*r;
+      if(!player || Math.hypot(player.wx-bx,player.wz-bz)>90){ _spawnPU(bx,60,bz,'barrel',rand(-10,10),0,rand(-10,10)); break; } }
+  }
+}
+window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateCarry(dt); _barrelSpawnTick(dt); if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
 
 // ============================================================
 //  TRAINING CANNON — debug rig. Fires the player's own projectiles AT you when you step inside its dotted circle of influence. Built to develop melee projectile-deflection.
