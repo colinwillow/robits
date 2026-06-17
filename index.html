@@ -1885,12 +1885,12 @@ class Particles{
   }
   // Spawn fewer particles on mobile
   burst(wx,wz,col,n=28,spd=90,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); const nn=IS_MOBILE?Math.ceil(n*0.5):n; for(let i=0;i<nn;i++){const a=rand(TAU),up=rand(0.2,1.1),s=spd*(0.3+Math.random());this._spawn(wx,Y,wz,Math.cos(a)*s,up*s*0.6,Math.sin(a)*s,r,g,b,0.014+rand(0.02));} }
-  ring(wx,wz,col,n=40,spd=120){ const[r,g,b]=col; const nn=IS_MOBILE?Math.ceil(n*0.5):n; for(let i=0;i<nn;i++){const a=(i/nn)*TAU,s=spd*(0.6+Math.random()*0.5);this._spawn(wx,4,wz,Math.cos(a)*s,rand(10,60),Math.sin(a)*s,r,g,b,0.012+rand(0.014));} }
+  ring(wx,wz,col,n=40,spd=120,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); const nn=IS_MOBILE?Math.ceil(n*0.5):n; for(let i=0;i<nn;i++){const a=(i/nn)*TAU,s=spd*(0.6+Math.random()*0.5);this._spawn(wx,Y,wz,Math.cos(a)*s,rand(10,60),Math.sin(a)*s,r,g,b,0.012+rand(0.014));} }
   _spawn(x,y,z,vx,vy,vz,r,g,b,dec){ let i=this.n<this.cap?this.n++:Math.floor(rand(this.cap));
     this.pos[i*3]=x;this.pos[i*3+1]=y;this.pos[i*3+2]=z; this.vel[i*3]=vx;this.vel[i*3+1]=vy;this.vel[i*3+2]=vz;
     this.base[i*3]=r;this.base[i*3+1]=g;this.base[i*3+2]=b; this.col[i*3]=r;this.col[i*3+1]=g;this.col[i*3+2]=b; this.life[i]=1;this.decay[i]=dec; }
   burst(wx,wz,col,n=28,spd=90,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); for(let i=0;i<n;i++){const a=rand(TAU),up=rand(0.2,1.1),s=spd*(0.3+Math.random());this._spawn(wx,Y,wz,Math.cos(a)*s,up*s*0.6,Math.sin(a)*s,r,g,b,0.014+rand(0.02));} }
-  ring(wx,wz,col,n=40,spd=120){ const[r,g,b]=col; for(let i=0;i<n;i++){const a=(i/n)*TAU,s=spd*(0.6+Math.random()*0.5);this._spawn(wx,4,wz,Math.cos(a)*s,rand(10,60),Math.sin(a)*s,r,g,b,0.012+rand(0.014));} }
+  ring(wx,wz,col,n=40,spd=120,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); for(let i=0;i<n;i++){const a=(i/n)*TAU,s=spd*(0.6+Math.random()*0.5);this._spawn(wx,Y,wz,Math.cos(a)*s,rand(10,60),Math.sin(a)*s,r,g,b,0.012+rand(0.014));} }
   spark(wx,wz,col,y){ const[r,g,b]=col,Y=(y!==undefined?y:5); for(let i=0;i<4;i++){const a=rand(TAU);this._spawn(wx,Y,wz,Math.cos(a)*rand(40,120),rand(20,80),Math.sin(a)*rand(40,120),r,g,b,0.05+rand(0.04));} }
   update(dt){ const t=dt*60;
     for(let i=0;i<this.n;i++){ if(this.life[i]<=0)continue;
@@ -2856,7 +2856,7 @@ class BlueDragon extends Enemy{
           else { let e=mt.color?mt.color.clone():glow.clone(); if(e.r+e.g+e.b<0.12) e=glow.clone(); mt.emissive=e; mt.emissiveIntensity=(window._DRAGON_EMIT!=null?window._DRAGON_EMIT:1.7); }
           if('toneMapped' in mt) mt.toneMapped=false; }
         mt.needsUpdate=true; });
-      if(window._DRAGON_WIRE!==false){   // glowing WIREFRAME twin — shares geometry + skeleton so it deforms with the body
+      if(window._DRAGON_WIRE===true){   // glowing WIREFRAME twin (OFF by default — the body glow carries the look; if re-enabled it's tris, would want quads)
         try{
           const wmat=new THREE.MeshBasicMaterial({color:glow, wireframe:true, transparent:true, opacity:wireOp, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false});
           let w;
@@ -2868,6 +2868,7 @@ class BlueDragon extends Enemy{
       }
     } });
     wires.forEach(({src,w})=>{ if(src.parent) src.parent.add(w); });   // attach as siblings (same transform context as their source mesh)
+    this._headBone=null; try{ m.traverse(o=>{ if(!this._headBone && o.isBone){ const nm=(o.name||''); if(nm==='Bip001 Head' || /head$/i.test(nm)) this._headBone=o; } }); }catch(_){}   // fire breath emits from here
     this.mesh.add(m); this._model=m;
     const clips=(_dragonGltf.animations)||[];
     if(clips.length){
@@ -2938,7 +2939,7 @@ class BlueDragon extends Enemy{
     }
     switch(this._state){
       case 'entrance': { const dur=this._dur.entrance||1.4, k=Math.min(1,this._stateT/dur);
-        this._curY=-(window._DRAGON_EMERGE||28)*(1-k);   // rise from underground (set window._DRAGON_EMERGE=0 if the clip already includes the vertical)
+        this._curY=-(window._DRAGON_EMERGE!=null?window._DRAGON_EMERGE:0)*(1-k);   // the entrance CLIP already rises from underground -> add no extra lift by default (was double-lifting -> looked like he floated then settled). Set window._DRAGON_EMERGE>0 to add lift.
         if(this._stateT>=dur){ this._curY=0; this._enter(this._aggro?'chase':'idle'); } break; }
       case 'idle': { this._curY=0; this.vx*=0.8; this.vz*=0.8;
         if(this._stateT>(window._DRAGON_IDLE_SWAP||4)){ this._play((this._curName==='idle'&&this._act.casual)?'casual':'idle',{fade:0.4}); this._stateT=0; }
@@ -2970,10 +2971,19 @@ class BlueDragon extends Enemy{
     this._applyMesh();
   }
   _breatheFire(dx,dz,d,sustain){
-    const nx=dx/d, nz=dz/d, mz=this._curY+(window._DRAGON_MOUTH_Y||30);
-    for(let i=0;i<(sustain?2:5);i++){ const ja=rand(-0.34,0.34), cx=nx*Math.cos(ja)-nz*Math.sin(ja), cz=nx*Math.sin(ja)+nz*Math.cos(ja);
-      try{ ps.spark(this.wx+cx*24, this.wz+cz*24, [1,0.55+Math.random()*0.25,0.12], mz+rand(-4,6)); }catch(_){} }
-    try{ ps.burst(this.wx+nx*22, this.wz+nz*22, [1,0.5,0.1], sustain?3:8, 70, mz); }catch(_){}
+    const nx=dx/d, nz=dz/d;
+    // ORIGIN = the head bone (world), so the stream leaves his mouth; fall back to a point above the base
+    let ox=this.wx+nx*20, oy=(this._curY||0)+(window._DRAGON_MOUTH_Y||30), oz=this.wz+nz*20;
+    if(this._headBone){ try{ const wp=new THREE.Vector3(); this._headBone.getWorldPosition(wp); ox=wp.x+nx*8; oy=wp.y; oz=wp.z+nz*8; }catch(_){} }
+    // aim the stream from the head DOWN toward the player's body
+    const tx=(player?player.wx:this.wx+nx*d), ty=(player?(player.py||0)+10:oy), tz=(player?player.wz:this.wz+nz*d);
+    let fx=tx-ox, fy=ty-oy, fz=tz-oz; const fl=Math.hypot(fx,fy,fz)||1; fx/=fl; fy/=fl; fz/=fl;
+    const SPD=(window._DRAGON_BREATH_SPD||240), n=sustain?5:8;
+    for(let i=0;i<n;i++){
+      const sp=SPD*(0.7+Math.random()*0.6), jx=rand(-0.2,0.2), jy=rand(-0.16,0.16), jz=rand(-0.2,0.2), heat=Math.random();
+      try{ ps._spawn(ox+fx*6, oy+fy*6, oz+fz*6, (fx+jx)*sp,(fy+jy)*sp,(fz+jz)*sp, 1, 0.42+heat*0.42, 0.06+heat*0.12, 0.045+rand(0.03)); }catch(_){}   // directional fire particles = a real stream
+    }
+    try{ ps.burst(ox, oz, [1,0.5,0.1], sustain?2:5, 45, oy); }catch(_){}   // muzzle puff at the mouth
     if(player&&player.alive&&player.inv<=0 && d<(window._DRAGON_BREATH_RANGE||180)){
       try{ spawnDmgNum(player.wx,(player.py||0)+20,player.wz,1,'#ff8833'); }catch(_){} if(typeof playerDie==='function') playerDie();
     }
@@ -8299,7 +8309,7 @@ class Missile{
   _explode(){
     const BLAST=90; let hitAny=false;
     ps.burst(this.wx,this.wz,[1,0.5,0.1],10,BLAST*0.5,this.y);
-    ps.ring(this.wx,this.wz,[1,0.8,0.2],10,BLAST);
+    ps.ring(this.wx,this.wz,[1,0.8,0.2],10,BLAST,this.y);
     grid.shock(this.wx,this.wz,8); grid.push(this.wx,this.wz,-6,120); grid.pulse(0.5);
     if(GRID_SHEETS.length) gridSheetsBlast(this.wx,this.y,this.wz,8,BLAST);
     addTrauma(0.045); _physTextBlast(this.wx,this.wz,BLAST*0.5);
@@ -17721,7 +17731,7 @@ function _updateBallLocator(b){
   const ndc=b.pos.clone().project(camera);
   const onScreen=!behind && Math.abs(ndc.x)<=0.95 && Math.abs(ndc.y)<=0.95;
   const settled=b.vel.length() < (window._BALL_ARROW_SETTLE!=null?window._BALL_ARROW_SETTLE:60);
-  if(b.arrow) b.arrow.visible = onScreen && (window._BALL_ARROW_ALWAYS===true || settled);   // over-ball arrow: on-screen and (settled, or forced on)
+  if(b.arrow) b.arrow.visible = (window._BALL_ARROW_ALWAYS===true) && onScreen && settled;   // over-ball arrow OFF by default now (the off-screen edge indicators cover it); window._BALL_ARROW_ALWAYS=true to bring it back
   if(!el) return;
   if(onScreen){ el.style.display='none'; return; }
   let sx=ndc.x, sy=ndc.y; if(behind){ sx=-sx; sy=-sy; }
@@ -18194,6 +18204,7 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
 let _cwLook=null, _cwCamBlend=1, _cwCamFrom=new THREE.Vector3(), _cwAuthPrev=false;
 function _cubeCam(P, dt){
   if(window._ballCam){ _ballCam(P,dt); if(player)player._cubeCamAuth=false; _cwAuthPrev=false; return; }
+  if(window._enemyCam){ const _t=_enemyCamTargetPos(P); if(_t){ let _dir=_t.clone().sub(P); _dir.y=0; if(_dir.lengthSq()>1){ _dir.normalize(); CAM.yaw=Math.atan2(-_dir.x,-_dir.z); CAM.tyaw=CAM.yaw; } _enemyCam(P,_t,dt); if(player)player._cubeCamAuth=false; _cwAuthPrev=false; return; } }   // ENEMY CAM works in the cube too (frame the dragon/swarm); align CAM.yaw so floor/wall movement still reads with the view
   const Fout=new THREE.Vector3(); _cubeGrad(P.x,P.y,P.z,Fout); Fout.normalize();
   const N=Fout.clone().multiplyScalar(-1);                 // player up = toward the room centre
   // HYSTERESIS: hold the current mode through the chamfer so floor<->wall doesn't flicker (which made the cam thrash on the way down).
