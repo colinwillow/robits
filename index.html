@@ -11502,6 +11502,35 @@ function _slamShockwave(x, z, o){
   return fx;
 }
 window._slamShockwave=_slamShockwave;
+// ── SLASH DECAL — a glowing claw/gash that sticks to a big enemy's body at the melee contact point, then fades.
+//    Parented to the enemy's mesh so it rides the body; offset just off the surface (depth-tested) so the far side is hidden.
+function _spawnSlashDecal(e, wx, wy, wz, ang){
+  if(!e||!e.mesh) return;
+  try{
+    const parent=e.mesh; parent.updateWorldMatrix(true,false);
+    let nx=wx-e.wx, nz=wz-e.wz; if(nx*nx+nz*nz<1e-3){ nx=0; nz=1; } const nl=Math.hypot(nx,nz)||1; nx/=nl; nz/=nl;
+    const nrm=new THREE.Vector3(nx,0.05,nz).normalize();                                  // outward surface normal
+    const off=(window._SLASH_DECAL_OFF||3);
+    const wp=new THREE.Vector3(wx+nx*off, wy, wz+nz*off);
+    const grp=new THREE.Group();
+    const col=new THREE.Color(window._SLASH_DECAL_COL!=null?window._SLASH_DECAL_COL:0xfff2c0);
+    const len=(window._SLASH_DECAL_LEN||(e._tall?34:22)), base=(typeof ang==='number'?ang:(window._SLASH_DECAL_ANG||0.6));
+    for(let i=0;i<3;i++){ const w=1.5-i*0.35, g=new THREE.PlaneGeometry(w, len*(1-i*0.13));
+      const m=new THREE.Mesh(g, new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:true,side:THREE.DoubleSide,toneMapped:false}));
+      m.position.x=(i-1)*3.2; m.rotation.z=base+(i-1)*0.05+rand(-0.05,0.05); grp.add(m); }
+    const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), nrm);     // face the slash outward
+    const lp=parent.worldToLocal(wp.clone());
+    const pq=new THREE.Quaternion(); parent.getWorldQuaternion(pq); pq.invert();
+    grp.position.copy(lp); grp.quaternion.copy(pq.multiply(q));
+    parent.add(grp);
+    const T=(window._SLASH_DECAL_T||0.7); let t=0;
+    const fx={ mesh:grp, _decal:true,
+      update(dt){ t+=dt; const k=t/T; if(k>=1) return false; const op=(k<0.15?k/0.15:1-(k-0.15)/0.85); const o2=0.95*Math.max(0,op); grp.traverse(o=>{ if(o.material)o.material.opacity=o2; }); return true; },
+      remove(){ try{ if(grp.parent)grp.parent.remove(grp); grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }catch(_){} } };
+    if(typeof GS!=='undefined'&&GS.deathRings) GS.deathRings.push(fx);
+  }catch(_){}
+}
+window._spawnSlashDecal=_spawnSlashDecal;
 function _bombBlastEnemies(x,y,z,R,dmgScale){
   dmgScale=(dmgScale==null?1:dmgScale); const R2=R*R; let hitCount=0;
   try{
@@ -15643,6 +15672,7 @@ function loop(ts){ requestAnimationFrame(loop);
               if(_seg(e.wx,ey,e.wz)>HIT_R+(e.size||14))return false;
               ud._meleeHitSet.add(e);
               if(e.hit)e.hit(dmg, player.wx, player.wz);                                    // pass attacker pos (dummy uses it for knock dir; others ignore extras)
+              if(e.alive!==false && (e.isBoss || e._tall || (e.size||0)>=24) && typeof _spawnSlashDecal==='function'){ try{ _spawnSlashDecal(e, bx, by, bz, Math.atan2((kvz||0),(kvx||0))*0.4+0.5); }catch(_){} }   // gash that sticks on the dragon / big enemies briefly
               if(typeof spawnDmgNum==='function') spawnDmgNum(e.wx,ey+8,e.wz,dmg,tier>=3?'#fff0b0':'#bfffff');   // visible feedback
               let dx=kvx,dz=kvz; if(dx*dx+dz*dz<1){ dx=e.wx-player.wx; dz=e.wz-player.wz; }
               { const _m=Math.hypot(dx,dz)||1, _s=(Math.random()-0.5)*0.4, _px=-dz/_m, _pz=dx/_m; dx+=_px*_m*_s; dz+=_pz*_m*_s; }   // a little scatter so a group doesn't all fly the same way
