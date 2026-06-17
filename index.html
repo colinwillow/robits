@@ -2858,7 +2858,7 @@ class DragonFireball{
     // cube shell ricochet (reflect off the inner-shell gradient) — else arena radial wall bounce
     if(GS.zone===-19 && typeof _cubeSDF==='function' && typeof _cubeGrad==='function'){
       const sd=_cubeSDF(this.wx,this.y,this.wz);
-      if(sd > -this.R){ const g=_cubeGrad(this.wx,this.y,this.wz); const vn=this.vx*g.x+this.vy*g.y+this.vz*g.z;
+      if(sd > -this.R){ const g=new THREE.Vector3(); _cubeGrad(this.wx,this.y,this.wz,g); const vn=this.vx*g.x+this.vy*g.y+this.vz*g.z;
         if(vn>0){ this.vx-=2*vn*g.x; this.vy-=2*vn*g.y; this.vz-=2*vn*g.z; this.vx*=0.82; this.vy*=0.82; this.vz*=0.82; this._bounce(); }
         const push=(-this.R - sd); this.wx+=g.x*push; this.y+=g.y*push; this.wz+=g.z*push; }
     } else {
@@ -9183,7 +9183,10 @@ class Player{
       const g=Math.max(0,1-rage*0.6);
       if(this._bombMode==='ally'){ this._bombBodyMat&&this._bombBodyMat.color.setHex(0x3aa0ff); if(this._bombCoreMat)this._bombCoreMat.color.setHex(0x9ad0ff); this._bombMesh.rotation.y+=dt*2.2; }
       else if(this._bombMode==='crate'){ this._bombBodyMat&&this._bombBodyMat.color.setHex(0x33e0ff); if(this._bombCoreMat)this._bombCoreMat.color.setHex(0x9af6ff); this._bombMesh.rotation.x=0.4; this._bombMesh.rotation.y+=dt*1.6; }
-      else if(this._bombMode==='item'){ if(this._carryPayload&&this._carryPayload.kind==='crate'){ if(player&&player.model){ this._bombMesh.rotation.set(0, player.model.rotation.y, 0); } } else { this._bombMesh.rotation.y+=dt*2.2; this._bombMesh.rotation.x+=dt*1.1; } }
+      else if(this._bombMode==='item'){ const _ct=this._carryPayload&&this._carryPayload.type;
+        if(_ct==='barrel'){ this._bombMesh.rotation.set(0, (player&&player.model?player.model.rotation.y:0), Math.PI/2); }   // barrel: lie it on its side, no spin
+        else if(this._carryPayload&&this._carryPayload.kind==='crate'){ if(player&&player.model){ this._bombMesh.rotation.set(0, player.model.rotation.y, 0); } }
+        else { this._bombMesh.rotation.y+=dt*2.2; this._bombMesh.rotation.x+=dt*1.1; } }
       else { this._bombBodyMat&&this._bombBodyMat.color.setRGB(1,g,0); }
       if(this._bombCoreMesh) this._bombCoreMesh.scale.setScalar(0.8+0.4*Math.sin(t*6));
     } else if(!this.bombArmed&&this._bombMesh){
@@ -11468,6 +11471,12 @@ function _detonateItem(type,x,z,od){
       if(typeof hitStop==='function')hitStop(5);
       if(player&&player.alive!==false&&(player.inv||0)<=0){ const pd=Math.hypot(player.wx-x,player.wz-z); if(pd<(window._BARREL_HURT_R||72)){ if(player.shieldActive&&player.shieldHit){ player.shieldHit(20,'blast'); } else if(window._BARREL_HURTS_PLAYER!==false){ player._burnT=Math.max(player._burnT||0,1); if(typeof playerDie==='function')playerDie(1,'#ff8c1a'); } } }   // barrels hurt YOU too if you're in the blast
       try{ if(window._itemPU){ for(const p of window._itemPU){ if(p&&p.type==='barrel'&&!(p._cooking>0)){ const d=Math.hypot(p.x-x,p.z-z); if(d<(window._BARREL_CHAIN_R||120)){ p._cooking=0.1+Math.random()*0.18; } } } } }catch(_){}   // CHAIN: nearby barrels cook off
+      try{ const guns=['rockets','plasma','flamethrower','grenade','boomerang','bow'], melee=['sword','hammer','axe','spear','scythe'], pick=a=>a[(Math.random()*a.length)|0];
+        const n=(window._BARREL_LOOT_N!=null?window._BARREL_LOOT_N:2)+(Math.random()<0.4?1:0);
+        for(let k=0;k<n;k++){ const a=Math.random()*6.28, sp=rand(45,105), vx=Math.cos(a)*sp, vy=rand(120,185), vz=Math.sin(a)*sp, roll=Math.random();
+          if(roll<0.42 && typeof _spawnLootBall==='function') _spawnLootBall(x,z,'gun',pick(guns),vx,vy,vz);
+          else if(roll<0.78 && typeof _spawnLootBall==='function') _spawnLootBall(x,z,'melee',pick(melee),vx,vy,vz);
+          else if(typeof _spawnPU==='function'){ const pool=window._BARREL_BREAK_POOL||['nuke','singularity','quake']; _spawnPU(x,16,z,pool[(Math.random()*pool.length)|0],vx,vy,vz); } } }catch(_){}   // barrel breaks OPEN -> weapons + items spill out
     }
     if(typeof addTrauma==='function')addTrauma(type==='nuke'?0.5:0.3);
     if(typeof Audio!=='undefined'){try{Audio.blip(type==='nuke'?70:160,0.25,'square',0.3,40);}catch(_){}}
@@ -11711,12 +11720,14 @@ function _makePUModel(type){
     for(let k=0;k<5;k++){ const sp=new THREE.Mesh(new THREE.ConeGeometry(1.6,rand(4,7),5),cm); const a=Math.random()*6.28,r=3; sp.position.set(Math.cos(a)*r,rand(-3,3),Math.sin(a)*r); sp.rotation.set(rand(0,3),rand(0,3),rand(0,3)); g.add(sp); }
     g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(7,0), new THREE.MeshBasicMaterial({color:0x9bffe0,wireframe:true,transparent:true,opacity:0.5})));
   } else if(type==='barrel'){
-    const metal=new THREE.MeshStandardMaterial({color:0x8a3010,emissive:0x4a1505,emissiveIntensity:0.8,roughness:0.5,metalness:0.6,flatShading:true,toneMapped:false});
-    const body=new THREE.Mesh(new THREE.CylinderGeometry(6,6,15,14,1),metal); g.add(body);
-    const bandMat=new THREE.MeshStandardMaterial({color:0xff8c1a,emissive:0xff8c1a,emissiveIntensity:1.5,roughness:0.4,toneMapped:false});
-    for(const yy of [-4.5,0,4.5]){ const ring=new THREE.Mesh(new THREE.TorusGeometry(6.05,0.7,6,18),bandMat); ring.rotation.x=Math.PI/2; ring.position.y=yy; g.add(ring); }
-    g.add(new THREE.Mesh(new THREE.CylinderGeometry(6.2,6.2,15.2,14,1,true), new THREE.MeshBasicMaterial({color:0xffbf66,wireframe:true,transparent:true,opacity:0.35,blending:THREE.AdditiveBlending,depthWrite:false})));
-    g.add(new THREE.Mesh(new THREE.SphereGeometry(2.6,8,6), new THREE.MeshBasicMaterial({color:0xffdd66,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}))).position.y=8.6;   // hazard cap glow
+    const R=(window._BARREL_SIZE||11), H=R*2.55;
+    const wood=new THREE.MeshStandardMaterial({color:0x7a3f1c,emissive:0x2a1206,emissiveIntensity:0.7,roughness:0.7,metalness:0.3,flatShading:true,toneMapped:false});
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(R*0.9,R*0.9,H,16,1),wood));                 // body
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(R,R,H*0.5,16,1),wood));                      // bulged belly -> barrel shape
+    const bandMat=new THREE.MeshStandardMaterial({color:0xff8c1a,emissive:0xff8c1a,emissiveIntensity:1.6,roughness:0.4,metalness:0.5,toneMapped:false});
+    for(const yy of [-H*0.42,-H*0.15,H*0.15,H*0.42]){ const rr=(Math.abs(yy)<H*0.25?R:R*0.92); const ring=new THREE.Mesh(new THREE.TorusGeometry(rr+0.2,1.0,8,22),bandMat); ring.rotation.x=Math.PI/2; ring.position.y=yy; g.add(ring); }
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(R*0.95,R*0.95,H*1.01,16,1,true), new THREE.MeshBasicMaterial({color:0xffbf66,wireframe:true,transparent:true,opacity:0.28,blending:THREE.AdditiveBlending,depthWrite:false})));
+    const cap=new THREE.Mesh(new THREE.SphereGeometry(R*0.32,10,8), new THREE.MeshBasicMaterial({color:0xffdd66,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})); cap.position.y=H*0.5+1; g.add(cap);
   } else { // crate — same neon-wood look as the ground crate, centered for held/thrown
     const S=14;
     const wood=new THREE.MeshStandardMaterial({color:0x7a4a26,emissive:0x1a0d04,emissiveIntensity:0.5,roughness:0.85,metalness:0.15});
@@ -11843,9 +11854,10 @@ function _barrelSpawnTick(dt){
   if(cur>=cap){ if(_barrelSpawnT<1)_barrelSpawnT=1; return; }
   if(_barrelSpawnT<=0){ _barrelSpawnT=(window._BARREL_SPAWN_CD||6)+rand(0,4);
     const cen=(typeof zoneCenter==='function')?zoneCenter(GS.zone):{x:0,z:0};
-    const RR=(typeof ARENA_R!=='undefined'?ARENA_R-60:480);
-    for(let tries=0;tries<6;tries++){ const a=rand(TAU), r=rand(RR*0.3,RR), bx=cen.x+Math.cos(a)*r, bz=cen.z+Math.sin(a)*r;
-      if(!player || Math.hypot(player.wx-bx,player.wz-bz)>90){ _spawnPU(bx,60,bz,'barrel',rand(-10,10),0,rand(-10,10)); break; } }
+    for(let tries=0;tries<8;tries++){ let bx,bz;
+      if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{hx:560,hz:560,cham:130}); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9); const mx=Math.max(40,C.hx-ch-50), mz=Math.max(40,C.hz-ch-50); bx=rand(-mx,mx); bz=rand(-mz,mz); }   // inside the FLAT floor, clear of the rounded corners
+      else { const RR=(typeof ARENA_R!=='undefined'?ARENA_R-60:480), a=rand(TAU), r=rand(RR*0.3,RR); bx=cen.x+Math.cos(a)*r; bz=cen.z+Math.sin(a)*r; }
+      if(!player || Math.hypot(player.wx-bx,player.wz-bz)>90){ _spawnPU(bx,60,bz,'barrel',rand(-8,8),0,rand(-8,8)); break; } }
   }
 }
 window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateCarry(dt); _barrelSpawnTick(dt); if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
@@ -18520,7 +18532,7 @@ function _cubeSDF(x,y,z){   // signed distance to the rounded interior shell (ne
   const qx=Math.abs(px)-(hx-r), qy=Math.abs(py)-(h*0.5-r), qz=Math.abs(pz)-(hz-r);
   return Math.hypot(Math.max(qx,0),Math.max(qy,0),Math.max(qz,0)) + Math.min(Math.max(qx,Math.max(qy,qz)),0) - r;
 }
-function _cubeGrad(x,y,z,out){ const e=1.5, d=_cubeSDF(x,y,z); out.set(_cubeSDF(x+e,y,z)-d,_cubeSDF(x,y+e,z)-d,_cubeSDF(x,y,z+e)-d); if(out.lengthSq()<1e-9)out.set(0,-1,0); out.normalize(); return out; }   // outward normal (toward the nearest surface)
+function _cubeGrad(x,y,z,out){ if(!out)out=new THREE.Vector3(); const e=1.5, d=_cubeSDF(x,y,z); out.set(_cubeSDF(x+e,y,z)-d,_cubeSDF(x,y+e,z)-d,_cubeSDF(x,y,z+e)-d); if(out.lengthSq()<1e-9)out.set(0,-1,0); out.normalize(); return out; }   // outward normal (toward the nearest surface); self-allocates out if a caller forgot it
 // DISLODGED — a 2nd jump in the air drops you off the surface; you fall under TRUE-world gravity to the floor, upright.
 function _cubeDislodgeFall(P,rawX,rawZ,dt){
   dt=Math.min(dt,0.033);
@@ -20748,7 +20760,7 @@ function gridSheetWake(wx,wy,wz,amt){
     if(Math.abs(_gsV.y)<sh.cell*1.4 && Math.abs(_gsV.x)<sh.hw && Math.abs(_gsV.z)<sh.hd) sh.dimple(_gsV.x,_gsV.z,amt);
   }
 }
-function _sheetWorldNormal(sh,out){ sh.group.getWorldQuaternion(_gsQ); return out.set(0,1,0).applyQuaternion(_gsQ); }
+function _sheetWorldNormal(sh,out){ if(!out)out=new THREE.Vector3(); sh.group.getWorldQuaternion(_gsQ); return out.set(0,1,0).applyQuaternion(_gsQ); }
 // Nearest point on any sheet surface (clamped to footprint) to a world point.
 function _nearestSheetSurface(wx,wy,wz,maxDist,exclude){
   let best=null, bd=maxDist*maxDist;
