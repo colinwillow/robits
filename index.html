@@ -11797,11 +11797,40 @@ function _updateItemShots(dt){
   for(let i=A.length-1;i>=0;i--){ const s=A[i];
     if(!s.mesh){ s.mesh=_makePUModel(s.kind==='crate'?'crate':s.type); s.mesh.scale.setScalar(s.kind==='crate'?1.35:1.15); scene.add(s.mesh); s.spin={x:rand(-5,5),y:rand(-5,5),z:rand(-5,5)}; }
     const _isf=(GS.zone===-19 && GS._gravFlip)?-1:1;   // flipped gravity pulls thrown stuff toward the ceiling too
+    const BSZ=(window._BARREL_SIZE||11);
+    const _barrelWall=(px,py,pz)=>{ if(GS.zone===-19){ return (typeof _cubeSDF==='function') && _cubeSDF(px,py,pz) > -BSZ; } const d=Math.hypot(px,pz), RR=(typeof ARENA_R!=='undefined'?ARENA_R-18:540); return d>RR; };
+    const _breakBarrel=(s,i)=>{ if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } _detonateItem('barrel',s.x,s.z,false); A.splice(i,1); };
+
+    // ── BARREL ROLL PHASE — after it lands it rolls, then breaks on an enemy / wall / running out of roll ──
+    if(s.type==='barrel' && s._rolling){
+      s._rollT=(s._rollT||0)+dt; s.x+=s.vx*dt; s.z+=s.vz*dt; s.y=8;
+      const fr=Math.pow((window._BARREL_ROLL_FRIC!=null?window._BARREL_ROLL_FRIC:0.5),dt); s.vx*=fr; s.vz*=fr;
+      const sp=Math.hypot(s.vx,s.vz);
+      if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z);
+        if(sp>4){ const dirx=s.vx/sp, dirz=s.vz/sp, axis=new THREE.Vector3(-dirz,0,dirx); s._rollAng=(s._rollAng||0)+(sp/BSZ)*dt;
+          const q1=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),axis), q2=new THREE.Quaternion().setFromAxisAngle(axis,s._rollAng); s.mesh.quaternion.copy(q2).multiply(q1); } }
+      if(typeof ps!=='undefined'&&Math.random()<0.4) ps.spark(s.x+rand(-6,6),s.z+rand(-6,6),[1,0.55,0.12],9);
+      let brk=false;
+      if(typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&!e._captured&&Math.hypot(e.wx-s.x,e.wz-s.z)<((e.size||14)+BSZ+4)){ brk=true; break; } } }
+      if(!brk && _barrelWall(s.x,8,s.z)) brk=true;
+      if(!brk && (s._rollT>(window._BARREL_ROLL_T||1.7) || sp<(window._BARREL_ROLL_MIN||34))) brk=true;
+      if(brk) _breakBarrel(s,i);
+      continue;
+    }
+
+    // ── FLIGHT PHASE ──
     s.vy-=320*dt*_isf; s.x+=s.vx*dt; s.z+=s.vz*dt; s.y+=s.vy*dt;
     if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z); s.mesh.rotation.x+=s.spin.x*dt; s.mesh.rotation.y+=s.spin.y*dt; s.mesh.rotation.z+=s.spin.z*dt; }
     if(typeof ps!=='undefined'&&Math.random()<0.5){ const def=_ITEMDEF[s.type]||_ITEMDEF.nuke; const col=(s.kind==='crate')?new THREE.Color(0x9a6a3a):new THREE.Color(def.col); ps._spawn(s.x,s.y,s.z,rand(-6,6),rand(-6,6),rand(-6,6),col.r,col.g,col.b,0.3); }
     let hit=false;
     if((s.kind==='crate'||s.type==='barrel')&&typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&Math.abs(s.y-(e.mesh?e.mesh.position.y:(e.py||0)))<40&&Math.hypot(e.wx-s.x,e.wz-s.z)<24){ hit=true; break; } } }
+    if(s.type==='barrel'){
+      s._fAge=(s._fAge||0)+dt;
+      if(hit || (s._fAge>0.12 && _barrelWall(s.x,s.y,s.z))){ _breakBarrel(s,i); continue; }   // hit an enemy mid-air, or thrown hard into a wall
+      if(_isf>0){ if(s.y<=8){ s._rolling=true; s._rollT=0; s.y=8; s.vy=0; const sp=Math.hypot(s.vx,s.vz)||1, L=(window._BARREL_ROLL_LAUNCH||130); if(sp<L){ const b=L/sp; s.vx*=b; s.vz*=b; } } }   // landed -> start rolling with momentum
+      else if(s.y>=((window._CUBE||_CUBE).h)-8){ _breakBarrel(s,i); }                          // flipped gravity: just pop on the ceiling (no roll)
+      continue;
+    }
     if(s.y<=6||(_isf<0&&s.y>=((window._CUBE||_CUBE).h)-6)||hit){ if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } if(s.kind==='crate'){ _smashCrateAt(s.x,s.z); } else { _detonateItem(s.type,s.x,s.z,false); } A.splice(i,1); }
   }
 }
