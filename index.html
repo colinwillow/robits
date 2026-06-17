@@ -14287,7 +14287,7 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
                 setTimeout(()=>{ if(player)player._flipNoTurn=false; }, 2500);   // safety only — the flip's completion poll normally clears this exactly when the clip finishes
                 player._flipFacingHold=player._cwLastF?player._cwLastF.clone():null;
                 // GENTLE directional drift over the flip duration — no teleport-dash, no character turn
-                const _drift=(window._FLIP_DRIFT_DIST||140);   // 2x lead distance
+                const _drift=(window._FLIP_DRIFT_DIST||280);   // 2x lead distance
                 if(player._inPlanetGravity){ player._wallDashRaw=[svx,svy]; player._cwDashT=_ft; player._cwDashSpd=_drift/_ft; }
                 else { player._dashDir=[_fwx/_dl,_fwz/_dl]; player._dashRamp=Math.max(6,Math.round(_ft*60)); player._dashPeak=_drift/_ft*1.8; }
                 if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0,0.85,1],10,80); if(typeof grid!=='undefined')grid.push(player.wx,player.wz,-2,50);
@@ -17771,22 +17771,27 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
     if(P.boostFuel<=0){ P._jetting=false; if(typeof announce==='function')announce('NO FUEL','#ff4400'); }
   }
   if(P._jetSoundT>0)P._jetSoundT--;
-  if(Math.hypot(rawX,rawZ)>0.05){ const yaw=CAM.yaw||0; const fx=Math.cos(yaw),fz=Math.sin(yaw); v.x+=( -fz*rawX + fx*-rawZ )*260*dt; v.z+=( fx*rawX + fz*-rawZ )*260*dt; }   // mild air steer
+  if(Math.hypot(rawX,rawZ)>0.05){ const yaw=CAM.yaw||0; const fx=Math.cos(yaw),fz=Math.sin(yaw); const _as=(window._CUBE_AIRSTEER||650); v.x+=( -fz*rawX + fx*-rawZ )*_as*dt; v.z+=( fx*rawX + fz*-rawZ )*_as*dt; }   // air steer — strong enough to push off a wall
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
   const hx=C.hx-RIDE, hz=C.hz-RIDE;                 // stay inside the walls while falling
   if(P.wx> hx){P.wx=hx;v.x=0;} if(P.wx<-hx){P.wx=-hx;v.x=0;}
   if(P.wz> hz){P.wz=hz;v.z=0;} if(P.wz<-hz){P.wz=-hz;v.z=0;}
   const _ceil=(C.h-RIDE); if(P.py> _ceil){ P.py=_ceil; if(v.y>0)v.y=0; }   // don't fly through the ceiling
-  // ── CATCH: in freefall (not jetting), if you're close to ANY surface, get pulled in and stick to it (jetpack up, let go near the ceiling/wall -> stick) ──
+  // ── CATCH: stick to a nearby surface when not jetting — but only if you're basically on it, drifting INTO it, or nearly stopped, so you can steer AWAY to escape ──
   if(!P._jetting){
     const _sd=_cubeSDF(P.wx,P.py,P.wz);
-    const _catch=(window._CUBE_CATCH!=null?window._CUBE_CATCH:60);   // distance from a surface's ride-height within which it grabs you
+    const _catch=(window._CUBE_CATCH!=null?window._CUBE_CATCH:30);
     if(_sd > -(RIDE+_catch)){
-      _cubeGrad(P.wx,P.py,P.wz,_cwN);                                // outward normal toward the nearest surface
-      const _corr=_sd+RIDE; P.wx-=_cwN.x*_corr; P.py-=_cwN.y*_corr; P.wz-=_cwN.z*_corr;   // snap to ride height on that surface
-      P._cwDislodge=false; P._glGrounded=true; P._cwAir=0; P.vx=0; P.pvy=0; P.vz=0; P._cubeUp=_cwN.clone().multiplyScalar(-1);
-      if(typeof Audio!=='undefined')Audio.blip(170,0.13,'square',0.2,90); if(typeof ps!=='undefined')ps.ring(P.wx,P.wz,[0.4,1,0.85],8,64); if(typeof addTrauma==='function')addTrauma(0.07);
-      return;
+      _cubeGrad(P.wx,P.py,P.wz,_cwN);                       // outward normal (toward the surface)
+      const _toward=v.x*_cwN.x+v.y*_cwN.y+v.z*_cwN.z;        // >0 = moving INTO the surface
+      const _snug=_sd > -(RIDE+(window._CUBE_CATCH_SNUG||9));// basically touching it
+      const _slow=Math.hypot(v.x,v.y,v.z) < (window._CUBE_CATCH_SLOW||80);
+      if(_snug || _toward>0 || _slow){
+        const _corr=_sd+RIDE; P.wx-=_cwN.x*_corr; P.py-=_cwN.y*_corr; P.wz-=_cwN.z*_corr;   // snap to ride height on that surface
+        P._cwDislodge=false; P._glGrounded=true; P._cwAir=0; P.vx=0; P.pvy=0; P.vz=0; P._cubeUp=_cwN.clone().multiplyScalar(-1);
+        if(typeof Audio!=='undefined')Audio.blip(170,0.13,'square',0.2,90); if(typeof ps!=='undefined')ps.ring(P.wx,P.wz,[0.4,1,0.85],8,64); if(typeof addTrauma==='function')addTrauma(0.07);
+        return;
+      }
     }
   }
   P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=Math.hypot(v.x,v.z); P._cubeUp=new THREE.Vector3(0,1,0);
@@ -17939,11 +17944,13 @@ function _cubeCam(P, dt){
   const onFloor = wasAuth ? (N.y > 0.80) : (N.y > 0.42);   // on a wall -> become floor only when clearly flat; on floor -> become wall only when clearly steep
   if(player) player._cubeCamAuth = !onFloor;
   if(onFloor){
+    const _fy=4+Math.max(0,P.y)*0.55+Math.max(0,P.y-50)*0.45;   // SAME focus height the normal floor cam uses -> equipping boots on the floor matches the no-boots view (no jolt)
+    if(player) player._camFocY=_fy;
     if(_cwAuthPrev && typeof CAM!=='undefined'){            // wall -> floor: seed the normal cam from the CURRENT camera angle so it eases (no snap/thrash)
       const dx=camera.position.x-P.x, dz=camera.position.z-P.z;
-      const yaw=Math.atan2(dx,dz); CAM.yaw=yaw; CAM.tyaw=yaw; CAM.focus.set(P.x,P.y,P.z);
+      const yaw=Math.atan2(dx,dz); CAM.yaw=yaw; CAM.tyaw=yaw; CAM.focus.set(P.x,_fy,P.z);
     }
-    _cwAuthPrev=false; if(typeof CAM!=='undefined') CAM.tfocus.set(P.x,P.y,P.z);   // normal cam follows + orbits
+    _cwAuthPrev=false; if(typeof CAM!=='undefined'){ CAM.tfocus.set(P.x,_fy,P.z); CAM.dist=lerp(CAM.dist,230,0.03); CAM.height=lerp(CAM.height,200,0.03); }   // normal cam follows + orbits, eased to the same dist/height
   } else { if(!_cwAuthPrev){ _cwCamBlend=0; _cwCamFrom.copy(camera.position); _cwLook=P.clone(); _cwAuthPrev=true; } _cubeWallCam(P,N,dt); }   // authoritative wall cam (seed a fresh blend + look target on entry so it eases instead of jumping)
 }
 function _cubeWallCam(P, N, dt){
