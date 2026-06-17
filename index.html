@@ -6387,12 +6387,12 @@ class DropBomb{
 
     // Physics — gravity
     const GRAV=320;
-    if(!this._orbitLock) this.vy-=GRAV*dt;
+    if(!this._orbitLock && GS.zone!==-19) this.vy-=GRAV*dt;                    // no world-down in the cube — the inner-shell stick owns surface motion
     this.wx+=this.vx*dt; this.wz+=this.vz*dt; this.y+=this.vy*dt;
-    this._orbitLock = (GS.zone===-16) ? _cityProjOrbit(this, 12, 46, dt) : (this._orbitLock||false);   // city: captured into a building's orbit (suspends fall/bounce)
+    this._orbitLock = (GS.zone===-16) ? _cityProjOrbit(this, 12, 46, dt) : (GS.zone===-19 ? _cubeProjStick(this, window._CUBE_PROJ_R||12, window._CUBE_PROJ_SOI||90, dt) : (this._orbitLock||false));   // city: building orbit; cube: ride the inner shell
 
     // Bounce off ground
-    if(!this._orbitLock && this.y<=9){
+    if(!this._orbitLock && GS.zone!==-19 && this.y<=9){
       this.y=9;
       if(Math.abs(this.vy)>40){
         this.vy=Math.abs(this.vy)*0.45;
@@ -6761,7 +6761,7 @@ class CaptureCrate{
       const GRAV=320;
       if(!this._orbitLock) this.vy-=GRAV*dt;
       this.wx+=this.vx*dt; this.wz+=this.vz*dt; this.y+=this.vy*dt;
-      this._orbitLock=(GS.zone===-16 && !this._noOrbit)?_cityProjOrbit(this,12,46,dt):(this._orbitLock||false);
+      this._orbitLock=(GS.zone===-16 && !this._noOrbit)?_cityProjOrbit(this,12,46,dt):((GS.zone===-19 && !this._noOrbit)?_cubeProjStick(this,window._CUBE_PROJ_R||12,window._CUBE_PROJ_SOI||90,dt):(this._orbitLock||false));
       if(!this._orbitLock && this.y<=9){ this.y=9;
         if(Math.abs(this.vy)>40){ this.vy=Math.abs(this.vy)*0.38; this.vx*=0.66; this.vz*=0.66; if(typeof grid!=='undefined')grid.push(this.wx,this.wz,1.2,40); if(typeof Audio!=='undefined')Audio.blip(150,0.07,'sine',0.1,90); }
         else { this.vy=0; this.vx*=0.8; this.vz*=0.8; }
@@ -7109,7 +7109,7 @@ class DeployPod{
       this.timer-=dt; const GRAV=320;
       if(!this._orbitLock) this.vy-=GRAV*dt;
       this.wx+=this.vx*dt; this.wz+=this.vz*dt; this.y+=this.vy*dt;
-      this._orbitLock=(GS.zone===-16 && !this._noOrbit)?_cityProjOrbit(this,12,46,dt):(this._orbitLock||false);
+      this._orbitLock=(GS.zone===-16 && !this._noOrbit)?_cityProjOrbit(this,12,46,dt):((GS.zone===-19 && !this._noOrbit)?_cubeProjStick(this,window._CUBE_PROJ_R||12,window._CUBE_PROJ_SOI||90,dt):(this._orbitLock||false));
       if(!this._orbitLock && this.y<=9){ this.y=9;
         if(Math.abs(this.vy)>40){ this.vy=Math.abs(this.vy)*0.42; this.vx*=0.7; this.vz*=0.7; if(typeof grid!=='undefined')grid.push(this.wx,this.wz,1.2,40); if(typeof Audio!=='undefined')Audio.blip(150,0.07,'sine',0.1,90); }
         else { this.vy=0; this.vx*=0.82; this.vz*=0.82; }
@@ -8151,9 +8151,10 @@ class Bullet{
     if(this.kind==='homing'){ let best=null,bd=1e9; for(const e of enemies){const dx=e.wx-this.wx,dz=e.wz-this.wz,d=dx*dx+dz*dz;if(d<bd){bd=d;best=e;}}
       if(best){const dx=best.wx-this.wx,dz=best.wz-this.wz,d=Math.hypot(dx,dz)||1;this.vx+=(dx/d)*1000*dt;this.vz+=(dz/d)*1000*dt;const s=Math.hypot(this.vx,this.vz),mx=480;if(s>mx){this.vx=this.vx/s*mx;this.vz=this.vz/s*mx;}} }
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this.life-=this.decay*dt*60;
-    const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 12, 34, dt) : false;   // building field owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the ground->wall corner
+    const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 12, 34, dt) : (GS.zone===-19 ? _cubeProjStick(this, window._CUBE_PROJ_R||12, window._CUBE_PROJ_SOI||90, dt) : false);   // building field / cube inner shell owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the corner
     if(this._g3){ this.y+=this.vy*dt; }                                        // straight-line 3D flight (galaxy)
-    else if(_cf){ this.y+=this.vy*dt; }                                        // riding/approaching a building -> climb freely, no ground pull
+    else if(_cf){ this.y+=this.vy*dt; }                                        // riding/approaching a surface -> climb freely, no ground pull
+    else if(GS.zone===-19){ this.y+=this.vy*dt; }                              // cube free-flight: keep its 3D motion (straight-out shots cross the room) — the stick handles surfaces
     else if(this.y>9||this.vy>0.5){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){ this.y=9; this.vy=(this.vy<-55)?-this.vy*0.5:0; } }   // arc + bounce off the floor (loses half its energy each hop)
     this.mesh.position.set(this.wx,this.y,this.wz);
     _bvDir.set(this.vx,this.vy||0,this.vz); if(_bvDir.lengthSq()>1e-4){ _bvDir.normalize(); this.mesh.quaternion.setFromUnitVectors(_BULLET_AXIS,_bvDir); }
@@ -8242,9 +8243,9 @@ class Missile{
     const ns=Math.hypot(dirx,diry,dirz)||1;
     this.vx=dirx/ns*this.speed; this.vy=diry/ns*this.speed; this.vz=dirz/ns*this.speed;
     this.wx+=this.vx*dt; this.y+=this.vy*dt; this.wz+=this.vz*dt;
-    const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 20, 52, dt) : false;   // CITY: orbit walls (reach wall-crawling spiders); owns vertical motion at the ground->wall corner
+    const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 20, 52, dt) : (GS.zone===-19 ? _cubeProjStick(this, window._CUBE_PROJ_R||14, window._CUBE_PROJ_SOI||100, dt) : false);   // CITY: orbit walls; CUBE: ride the inner shell — owns vertical motion at the corner
     const _minY=(window._MISSILE_MIN_Y!=null?window._MISSILE_MIN_Y:7);
-    if(!_cf && GS.zone!==-15 && this.y<_minY){ this.y=_minY; this.vy=Math.max(0,this.vy); }   // floor clamp (raised: body radius ~2.5 was sinking below y=0 → looked like it clipped behind the ground). only when NOT riding a building
+    if(!_cf && GS.zone!==-15 && GS.zone!==-19 && this.y<_minY){ this.y=_minY; this.vy=Math.max(0,this.vy); }   // floor clamp — only when NOT riding a surface and NOT in the cube (cube floor is the stick's job; lets shots cross the room in 3D)
     { const ot=!!_cf;   // riding a building -> render the rocket ON TOP so the opaque wall fill can't swallow it (the additive body was getting depth-occluded; the trail line peeks past the edge -> "trail right, rocket gone")
       if(this.body) this.body.material.depthTest=!ot;
       if(this.nose) this.nose.material.depthTest=!ot;
@@ -23046,6 +23047,29 @@ function _cityProjOrbit(b, R, SOI, dt){
   }
   const ns=Math.hypot(b.vx,b.vy,b.vz); if(ns>20){ b.vx=b.vx/ns*sp; b.vy=b.vy/ns*sp; b.vz=b.vz/ns*sp; }   // hold steady speed ONLY while travelling; a near-stationary (dropped) projectile rests instead of being flung in a random leftover direction
   return true;
+}
+const _cpsN=new THREE.Vector3();
+function _cubeProjStick(b, R, SOI, dt){
+  // Ride a projectile on the INSIDE shell of the cube arena (like the player's wall-walk). The rounded corner fillets do the
+  // curving for free: near a surface we strip the INTO-wall part of the velocity and re-aim it along the surface, so a shot
+  // travelling down a wall bends onto the floor at the fillet. Shots heading toward the room CENTRE are left free to cross.
+  if(typeof GS==='undefined' || GS.zone!==-19 || b._noOrbit) return false;
+  if(typeof _cubeSDF!=='function' || typeof _cubeGrad!=='function') return false;
+  const by=(b.y!==undefined?b.y:9);
+  const depth=-_cubeSDF(b.wx,by,b.wz);              // distance off the inner shell (>0 inside the room)
+  if(!(depth<SOI)) return false;                    // out in the open middle -> free flight
+  _cubeGrad(b.wx,by,b.wz,_cpsN); if(_cpsN.lengthSq()<1e-9) return false;
+  const ox=_cpsN.x, oy=_cpsN.y, oz=_cpsN.z;         // outward = toward the nearest surface
+  if(b.vy===undefined) b.vy=0;
+  const sp=Math.hypot(b.vx,b.vy,b.vz)||1;
+  const dn=b.vx*ox+b.vy*oy+b.vz*oz;                 // >0 = heading INTO the surface; <0 = leaving toward the centre
+  if(depth<R && dn>-3){ const push=R-depth; b.wx-=ox*push; if(b.y!==undefined) b.y-=oy*push; b.wz-=oz*push; }   // pin at ride depth (don't sink through) unless actively leaving
+  if(dn>0 && depth<R+(window._CUBE_PROJ_GRIP||44)){ // riding & moving into the surface -> bend ALONG it (fillets curve it around corners)
+    b.vx-=ox*dn; b.vy-=oy*dn; b.vz-=oz*dn;          // strip the into-wall component
+    const k=Math.hypot(b.vx,b.vy,b.vz); if(k>1e-3){ b.vx=b.vx/k*sp; b.vy=b.vy/k*sp; b.vz=b.vz/k*sp; }   // keep steady speed -> turns the corner instead of bleeding to a stop
+    return true;
+  }
+  return false;
 }
 function _cityLedgeHangPlayer(p,dt){
   if(GS.zone!==-16 || typeof _cityBoxes==='undefined' || !_cityBoxes.length) return;
