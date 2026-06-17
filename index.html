@@ -2123,6 +2123,18 @@ function loadPlayerAlienGLB(){
 }
 loadPlayerAlienGLB(); // preload
 
+// ── BLUE DRAGON — enemy GLB with its own clip set (idle/casual/run/attack_ground/attack_air/hit/dizzy/death/entrance/wake_up) ──
+const BLUE_DRAGON_GLB='models/blue_dragon.glb';
+let _dragonGltf=null, _dragonLoadPromise=null;
+function loadBlueDragonGLB(){
+  if(_dragonLoadPromise) return _dragonLoadPromise;
+  _dragonLoadPromise=new Promise((resolve)=>{ const loader=new GLTFLoader();
+    loader.load(BLUE_DRAGON_GLB, gltf=>{ _dragonGltf=gltf; console.log('Blue dragon loaded. Animations:', gltf.animations.map(a=>a.name)); resolve(gltf); },
+      undefined, ()=>{ console.warn('blue_dragon.glb failed to load (loads on the live site only)'); resolve(null); }); });
+  return _dragonLoadPromise;
+}
+loadBlueDragonGLB(); // preload
+
 // ── INTERACTIVE DOOR — proximity open/close, driven by the GLB's "open"/"closed" clips ──
 function _makeInteractiveDoor(target=130, glowHex=0x66ccff){
   const wrap=_makeDoorModel(target,glowHex);
@@ -2799,7 +2811,173 @@ class DroidekaBot extends Enemy{
   }
   remove(){ scene.remove(this.mesh); }
 }
-// ── ROLLING ARMORED BOUNCER-BOT ──
+// ── BLUE DRAGON — animated GLB enemy with a character-style AI: entrance -> idle/casual -> chase (run scaled by speed) -> punch / air fire-breath; hit + dizzy on stagger; plays its death clip before it's removed. Tunables under window._DRAGON_* ──
+class BlueDragon extends Enemy{
+  constructor(wx,wz,wave){
+    super(wx,wz);
+    this._robitId='blue_dragon'; this._robitName='Blue Dragon';
+    this.glow=[0.3,0.66,1]; this.score=400; this.size=22; this._barY=46; this._barW=42;
+    this.hp=14+(wave||1)*2; this.maxHp=this.hp;
+    this._walkSpd=window._DRAGON_WALK||72; this._runSpd=window._DRAGON_RUN||178;
+    this.mesh=new THREE.Group();
+    this._model=null; this._mixer=null; this._act={}; this._dur={}; this._cur=null; this._curName=null;
+    this._buildModel();
+    this._state='entrance'; this._stateT=0;
+    this._faceYaw=Math.atan2(-wx||0,-wz||0)||0; this._curY=0;
+    this._meleeCD=0; this._airCD=0; this._dizzyCD=0; this._dizzyT=0;
+    this._dying=false; this._deadT=0; this._didMeleeHit=false; this._firedBreath=false; this._aggro=false;
+    this._energy=1;
+    this._enter('entrance');
+  }
+  _buildModel(){
+    const target=window._DRAGON_TARGET||36;
+    if(!_dragonGltf){   // dev file: GLB only loads on the live site -> wireframe placeholder so the AI is still testable
+      const ph=new THREE.Mesh(new THREE.IcosahedronGeometry(16,0), new THREE.MeshBasicMaterial({color:0x0d2a4a}));
+      ph.add(new THREE.LineSegments(new THREE.EdgesGeometry(ph.geometry), new THREE.LineBasicMaterial({color:0x44aaff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending})));
+      ph.position.y=16; this.mesh.add(ph); this._model=ph; return;
+    }
+    let m; try{ m=SkeletonUtils.clone(_dragonGltf.scene); }catch(e){ m=_dragonGltf.scene.clone(true); }
+    const box=new THREE.Box3().setFromObject(m); const sz=new THREE.Vector3(); box.getSize(sz);
+    const sc=target/(sz.y||1); m.scale.setScalar(sc);
+    const ctr=new THREE.Vector3(); box.getCenter(ctr); m.position.set(-ctr.x*sc, -box.min.y*sc, -ctr.z*sc);   // feet sit on the group origin (y=0)
+    const glow=new THREE.Color(0x2a7aff);
+    m.traverse(c=>{ if(c.isMesh||c.isSkinnedMesh){ c.frustumCulled=false;
+      const mats=Array.isArray(c.material)?c.material:[c.material];
+      mats.forEach(mt=>{ if(!mt) return;
+        if('emissive' in mt){ if(mt.map){ mt.emissiveMap=mt.map; mt.emissive=new THREE.Color(0xffffff); mt.emissiveIntensity=0.5; }
+          else { let e=mt.color?mt.color.clone():glow.clone(); if(e.r+e.g+e.b<0.06) e=glow.clone(); mt.emissive=e; mt.emissiveIntensity=0.8; }
+          if('toneMapped' in mt) mt.toneMapped=false; }
+        mt.needsUpdate=true; }); } });
+    this.mesh.add(m); this._model=m;
+    const clips=(_dragonGltf.animations)||[];
+    if(clips.length){
+      const mx=new THREE.AnimationMixer(m); this._mixer=mx;
+      const find=(kw)=>clips.find(c=>c.name&&c.name.toLowerCase()===kw) || clips.find(c=>c.name&&c.name.toLowerCase().includes(kw));
+      ['attack_ground','attack_air','casual','death','dizzy','hit','idle','entrance','run','wake_up'].forEach(nm=>{
+        const cl=find(nm); if(cl){ this._act[nm]=mx.clipAction(cl); this._dur[nm]=cl.duration; } });
+    }
+  }
+  _play(name,{loop=THREE.LoopRepeat, fade=0.18, speed=1, clamp=false}={}){
+    const a=this._act[name]; if(!a) return null;
+    if(this._cur===a){ a.timeScale=speed; return a; }
+    a.reset(); a.setLoop(loop, loop===THREE.LoopOnce?1:Infinity); a.clampWhenFinished=clamp; a.timeScale=speed; a.enabled=true; a.setEffectiveWeight(1); a.fadeIn(fade); a.play();
+    if(this._cur) this._cur.fadeOut(fade);
+    this._cur=a; this._curName=name; return a;
+  }
+  _enter(state){
+    this._state=state; this._stateT=0;
+    if(state==='entrance'){ this._play('entrance',{loop:THREE.LoopOnce,clamp:true}); }
+    else if(state==='idle'){ this._play((this._act.casual&&Math.random()<0.5)?'casual':'idle',{fade:0.3}); }
+    else if(state==='chase'){ this._play('run'); }
+    else if(state==='attack_ground'){ this._didMeleeHit=false; this._play('attack_ground',{loop:THREE.LoopOnce,clamp:true,fade:0.08}); }
+    else if(state==='attack_air'){ this._firedBreath=false; this._play('attack_air',{loop:THREE.LoopOnce,clamp:true,fade:0.1}); }
+    else if(state==='hit'){ this.hitFlash=6; this._play('hit',{loop:THREE.LoopOnce,clamp:true,fade:0.05}); }
+    else if(state==='dizzy'){ this._play('dizzy',{fade:0.15}); }
+    else if(state==='death'){ this._play('death',{loop:THREE.LoopOnce,clamp:true,fade:0.1}); }
+  }
+  hit(dmg=1){
+    if(this._dying) return 0;
+    this._energy=Math.max(0, this._energy - dmg*(window._DRAGON_STAGGER||0.16));
+    this.hp-=dmg; this._hpShowT=150; ps.burst(this.wx,this.wz,this.glow,8,80); ps.spark(this.wx,this.wz,this.glow);
+    if(this.hp<=0){   // DEATH: keep alive so the death clip can play; award score now, self-remove after the clip (no weapon loop splices us because we return 0)
+      this._dying=true; this._noKnock=true; this.vx=0; this.vz=0; this._enter('death');
+      GS.score += (this.score||0)*GS.mult;
+      try{ if(typeof Gem3D!=='undefined') GS.gems.push(new Gem3D(this.wx+rand(-12,12),this.wz+rand(-12,12),'mult')); }catch(_){}
+      try{ if(typeof registerKill==='function') registerKill(this); }catch(_){}
+      try{ if(typeof spawnDebris==='function') spawnDebris(this.wx,this.wz); }catch(_){}
+      this.die();
+      return 0;
+    }
+    this.hitFlash=6;
+    if(this._state!=='attack_air' && this._state!=='entrance'){
+      if(this._energy<=0 && this._dizzyCD<=0){ this._dizzyCD=window._DRAGON_DIZZY_CD||6; this._dizzyT=window._DRAGON_DIZZY_T||1.8; this._enter('dizzy'); }
+      else if(this._state!=='dizzy'){ this._enter('hit'); }
+    }
+    return 0;
+  }
+  die(){ ps.burst(this.wx,this.wz,this.glow,32,150); ps.ring(this.wx,this.wz,this.glow,30,150); try{ if(typeof grid!=='undefined') grid.push(this.wx,this.wz,3,120); }catch(_){} addTrauma(0.08);
+    if(this._hpBar&&this.mesh){ this.mesh.remove(this._hpBar); this._hpBar=null; } }
+  update(p,dt){
+    this.baseUpdate();
+    if(this._mixer) this._mixer.update(dt);
+    this._stateT+=dt;
+    if(this._meleeCD>0)this._meleeCD-=dt; if(this._airCD>0)this._airCD-=dt; if(this._dizzyCD>0)this._dizzyCD-=dt;
+    if(this._energy<1 && this._state!=='dizzy') this._energy=Math.min(1, this._energy+dt*(window._DRAGON_REGEN||0.25));
+    const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1;
+    const aggroR=window._DRAGON_AGGRO||540, meleeR=window._DRAGON_MELEE_R||42, airR=window._DRAGON_AIR_R||270;
+    this._aggro=(d<aggroR);
+    if(this._dying){
+      this._deadT+=dt;
+      if(this._deadT >= (this._dur.death||1.2)+0.15){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1); this.remove(); return; }
+      this._applyMesh(); return;
+    }
+    if(this._state!=='entrance' && this._state!=='dizzy'){   // face the player, smoothed
+      const tgt=Math.atan2(dx,dz)+(window._DRAGON_FACE_OFF||0);
+      let dy=tgt-this._faceYaw; while(dy>Math.PI)dy-=TAU; while(dy<-Math.PI)dy+=TAU;
+      this._faceYaw+=dy*Math.min(1,dt*(window._DRAGON_TURN||6));
+    }
+    switch(this._state){
+      case 'entrance': { const dur=this._dur.entrance||1.4, k=Math.min(1,this._stateT/dur);
+        this._curY=-(window._DRAGON_EMERGE||28)*(1-k);   // rise from underground (set window._DRAGON_EMERGE=0 if the clip already includes the vertical)
+        if(this._stateT>=dur){ this._curY=0; this._enter(this._aggro?'chase':'idle'); } break; }
+      case 'idle': { this._curY=0; this.vx*=0.8; this.vz*=0.8;
+        if(this._stateT>(window._DRAGON_IDLE_SWAP||4)){ this._play((this._curName==='idle'&&this._act.casual)?'casual':'idle',{fade:0.4}); this._stateT=0; }
+        if(this._aggro) this._enter('chase'); break; }
+      case 'chase': { this._curY=0;
+        if(!this._aggro){ this._enter('idle'); break; }
+        if(d<meleeR && this._meleeCD<=0){ this._meleeCD=window._DRAGON_MELEE_CD||1.1; this._enter('attack_ground'); break; }
+        if(d<airR && d>meleeR+24 && this._airCD<=0 && this._act.attack_air && Math.random()<(window._DRAGON_AIR_CHANCE||0.012)){ this._airCD=window._DRAGON_AIR_CD||4.5; this._enter('attack_air'); break; }
+        const spd=(d>airR)?this._runSpd:this._walkSpd;
+        this.vx=dx/d*spd; this.vz=dz/d*spd; this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._clampZone();
+        const sp=Math.hypot(this.vx,this.vz), ra=this._act.run; if(ra) ra.timeScale=Math.max(0.4, sp/(window._DRAGON_RUN_REF||150));
+        break; }
+      case 'attack_ground': { this._curY=0; this.vx*=0.6; this.vz*=0.6;
+        const dur=this._dur.attack_ground||0.9, hitAt=dur*(window._DRAGON_PUNCH_FRAC||0.45);
+        if(!this._didMeleeHit && this._stateT>=hitAt){ this._didMeleeHit=true;
+          if(d<meleeR+18 && player&&player.alive&&player.inv<=0){ try{ spawnDmgNum(player.wx,(player.py||0)+20,player.wz,2,'#66bbff'); }catch(_){} if(typeof playerDie==='function') playerDie(); }
+          ps.burst(this.wx+dx/d*meleeR, this.wz+dz/d*meleeR, this.glow, 12, 90); addTrauma(0.05); }
+        if(this._stateT>=dur+0.05){ this._enter(this._aggro?'chase':'idle'); } break; }
+      case 'attack_air': { const dur=this._dur.attack_air||1.6, k=this._stateT/dur;
+        this._curY=Math.sin(Math.min(1,k)*Math.PI)*(window._DRAGON_AIR_LIFT||26); this.vx*=0.9; this.vz*=0.9;
+        const bAt=dur*(window._DRAGON_BREATH_FRAC||0.4);
+        if(this._stateT>=bAt && this._stateT<bAt+(window._DRAGON_BREATH_DUR||0.55)){ this._breatheFire(dx,dz,d, this._firedBreath); this._firedBreath=true; }
+        if(this._stateT>=dur){ this._curY=0; this._enter(this._aggro?'chase':'idle'); } break; }
+      case 'hit': { this._curY=0; this.vx*=0.7; this.vz*=0.7;
+        if(this._stateT>=(this._dur.hit||0.5)+0.05){ this._enter(this._aggro?'chase':'idle'); } break; }
+      case 'dizzy': { this._curY=0; this.vx*=0.8; this.vz*=0.8; this._dizzyT-=dt;
+        if(this._dizzyT<=0){ this._energy=Math.max(this._energy,0.5); this._enter(this._aggro?'chase':'idle'); } break; }
+    }
+    this._applyMesh();
+  }
+  _breatheFire(dx,dz,d,sustain){
+    const nx=dx/d, nz=dz/d, mz=this._curY+(window._DRAGON_MOUTH_Y||30);
+    for(let i=0;i<(sustain?2:5);i++){ const ja=rand(-0.34,0.34), cx=nx*Math.cos(ja)-nz*Math.sin(ja), cz=nx*Math.sin(ja)+nz*Math.cos(ja);
+      try{ ps.spark(this.wx+cx*24, this.wz+cz*24, [1,0.55+Math.random()*0.25,0.12], mz+rand(-4,6)); }catch(_){} }
+    try{ ps.burst(this.wx+nx*22, this.wz+nz*22, [1,0.5,0.1], sustain?3:8, 70, mz); }catch(_){}
+    if(!sustain && player&&player.alive&&player.inv<=0 && d<(window._DRAGON_BREATH_RANGE||155)){
+      try{ spawnDmgNum(player.wx,(player.py||0)+20,player.wz,1,'#ff8833'); }catch(_){} if(typeof playerDie==='function') playerDie();
+    }
+  }
+  _clampZone(){
+    if(typeof GS!=='undefined' && GS.zone===-19){ const H=(typeof _CUBE!=='undefined'?_CUBE.hx-40:520); this.wx=Math.max(-H,Math.min(H,this.wx)); this.wz=Math.max(-H,Math.min(H,this.wz)); }
+    else this._clamp();
+  }
+  _applyMesh(){
+    this.mesh.position.set(this.wx, (this._curY||0)+(window._DRAGON_Y||0), this.wz);
+    this.mesh.rotation.y=this._faceYaw;
+    const s=(this.spawn<1?(0.5+this.spawn*0.5):1); this.mesh.scale.setScalar(s);
+  }
+  remove(){ scene.remove(this.mesh); if(this._mixer){ try{ this._mixer.stopAllAction(); }catch(_){} } }
+}
+window._spawnBlueDragon=function(n=1){
+  for(let k=0;k<n;k++){ try{
+    let sx,sz;
+    if(typeof player!=='undefined'&&player){ const a=Math.random()*TAU, r=150+Math.random()*70; sx=player.wx+Math.cos(a)*r; sz=player.wz+Math.sin(a)*r; }
+    else { sx=140; sz=140; }
+    const e=new BlueDragon(sx,sz,2); e.addToScene(); GS.enemies.push(e);
+    if(typeof announce==='function') announce('BLUE DRAGON','#44aaff');
+  }catch(err){ console.warn('spawn dragon',err); } }
+};
 function _makeBouncerBot(glowHex=0x44aaff){
   const g=new THREE.Group(); const dark=0x081826;
   const eMat=(col,op=0.9)=>new THREE.LineBasicMaterial({color:col,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false});
@@ -24550,7 +24728,7 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
 <!-- ════ WORKSHOP / DRESS ROOM ════ -->
 <style>#workshop-overlay .ws-nudge{background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:12px monospace;padding:7px 11px;border-radius:6px;min-width:36px;}#workshop-overlay .ws-nudge:active{background:#1e4a6e;}#workshop-overlay button{cursor:pointer;}</style>
 <div id="workshop-overlay" style="display:none;position:fixed;inset:0;z-index:200000;background:radial-gradient(ellipse at 50% 38%,#0a1426 0%,#04060c 68%,#000 100%);font-family:Orbitron,monospace;"><canvas id="workshop-canvas" style="position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;"></canvas><div style="position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:10px 14px;pointer-events:none;"><div style="color:#00ffc8;font-size:15px;letter-spacing:2px;text-shadow:0 0 10px #00ffc8;">⚙ WORKSHOP</div><button id="ws-close" style="pointer-events:all;background:#ff447722;border:1px solid #ff4477aa;color:#ff6699;font:15px monospace;padding:5px 13px;border-radius:8px;">✕</button></div><div id="ws-poses" style="position:absolute;top:46px;left:0;right:0;display:flex;gap:7px;overflow-x:auto;padding:6px 12px;-webkit-overflow-scrolling:touch;"></div><div style="position:absolute;bottom:0;left:0;right:0;padding:10px 12px 18px;background:linear-gradient(0deg,rgba(2,6,14,0.94),rgba(2,6,14,0));"><div style="display:flex;gap:9px;justify-content:center;margin-bottom:10px;"><button id="ws-spin" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:11px Orbitron,monospace;padding:8px 14px;border-radius:8px;">↻ SPIN</button><button id="ws-boots" style="opacity:0.5;background:#00ffaa22;border:1px solid #00ffaa77;color:#00ffaa;font:11px Orbitron,monospace;padding:8px 14px;border-radius:8px;">BOOTS</button><button id="ws-zoom-out" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:14px monospace;padding:8px 14px;border-radius:8px;">−</button><button id="ws-zoom-in" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:14px monospace;padding:8px 14px;border-radius:8px;">+</button><button id="ws-fit" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:10px Orbitron,monospace;padding:8px 12px;border-radius:8px;">FIT</button></div><div id="ws-rot" style="max-width:520px;margin:0 auto;background:rgba(0,8,16,0.72);border:1px solid #1e3a52;border-radius:12px;padding:10px 12px;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;"><span style="color:#7fb4d8;font-size:11px;">BOOT:</span><button id="ws-side-L" style="background:#00ffc822;border:1px solid #00ffc877;color:#00ffc8;font:11px monospace;padding:5px 13px;border-radius:7px;">LEFT</button><button id="ws-side-R" style="background:#ff993322;border:1px solid #ff993377;color:#ffb866;font:11px monospace;padding:5px 13px;border-radius:7px;">RIGHT</button><span style="color:#7fb4d8;font-size:10px;margin-left:6px;">MODE</span><button id="ws-mode-rot" style="background:#9fdcff22;border:1px solid #9fdcff66;color:#9fdcff;font:10px monospace;padding:5px 9px;border-radius:7px;">ROT</button><button id="ws-mode-pos" style="background:#9fdcff22;border:1px solid #9fdcff66;color:#9fdcff;font:10px monospace;padding:5px 9px;border-radius:7px;">POS</button><button id="ws-reset" style="margin-left:auto;background:#ff447722;border:1px solid #ff447766;color:#ff7799;font:10px monospace;padding:5px 11px;border-radius:7px;">RESET</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#ff6b6b;font-size:13px;font-weight:bold;">X</span><button class="ws-nudge" data-axis="x" data-deg="-5">−5</button><button class="ws-nudge" data-axis="x" data-deg="-1">−1</button><button class="ws-nudge" data-axis="x" data-deg="1">+1</button><button class="ws-nudge" data-axis="x" data-deg="5">+5</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#7bff7b;font-size:13px;font-weight:bold;">Y</span><button class="ws-nudge" data-axis="y" data-deg="-5">−5</button><button class="ws-nudge" data-axis="y" data-deg="-1">−1</button><button class="ws-nudge" data-axis="y" data-deg="1">+1</button><button class="ws-nudge" data-axis="y" data-deg="5">+5</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#6bb4ff;font-size:13px;font-weight:bold;">Z</span><button class="ws-nudge" data-axis="z" data-deg="-5">−5</button><button class="ws-nudge" data-axis="z" data-deg="-1">−1</button><button class="ws-nudge" data-axis="z" data-deg="1">+1</button><button class="ws-nudge" data-axis="z" data-deg="5">+5</button></div><div style="margin-top:9px;font-size:11px;color:#9fdcff;text-align:center;">L: <span id="ws-read-L">0°, 0°, 0°</span> &nbsp;·&nbsp; R: <span id="ws-read-R">0°, 0°, 0°</span></div><div style="margin-top:4px;font-size:10px;color:#7fd0ff;text-align:center;">pos L: <span id="ws-pos-L">0.00, 0.00, 0.00</span> &nbsp;·&nbsp; R: <span id="ws-pos-R">0.00, 0.00, 0.00</span></div></div></div></div>
-<button id="dbg-shop" onclick="window.openWorkshop&&window.openWorkshop()" style="position:fixed;bottom:0;right:60px;background:#00ffc822;border:1px solid #00ffc866;color:#00ffc8;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">SHOP</button><button id="dbg-enemy" style="position:fixed;bottom:0;right:124px;background:#ff66cc22;border:1px solid #ff66cc66;color:#ff66cc;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">ENEMY</button><div id="dbg-enemy-menu" style="display:none;position:fixed;bottom:30px;right:96px;z-index:100001;flex-direction:column;gap:5px;background:rgba(4,10,18,0.95);border:1px solid #ff66cc55;border-radius:8px;padding:6px;"><button class="dbg-enemy-pick" data-kind="spdr" style="background:#ff66cc22;border:1px solid #ff66cc66;color:#ff66cc;font:11px monospace;padding:6px 16px;border-radius:6px;">SPIDER</button><button class="dbg-enemy-pick" data-kind="droid" style="background:#ff772244;border:1px solid #ff882266;color:#ff8844;font:11px monospace;padding:6px 16px;border-radius:6px;">DROID</button><button class="dbg-enemy-pick" data-kind="ghost" style="background:#33ffcc22;border:1px solid #33ffcc66;color:#33ffcc;font:11px monospace;padding:6px 16px;border-radius:6px;">GHOST</button></div><button id="dbg-bot" onclick="window._botSpawnTap&&window._botSpawnTap(this)" style="position:fixed;bottom:0;right:196px;background:#ff447722;border:1px solid #ff447788;color:#ff6688;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">+BOT·D</button>
+<button id="dbg-shop" onclick="window.openWorkshop&&window.openWorkshop()" style="position:fixed;bottom:0;right:60px;background:#00ffc822;border:1px solid #00ffc866;color:#00ffc8;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">SHOP</button><button id="dbg-enemy" style="position:fixed;bottom:0;right:124px;background:#ff66cc22;border:1px solid #ff66cc66;color:#ff66cc;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">ENEMY</button><div id="dbg-enemy-menu" style="display:none;position:fixed;bottom:30px;right:96px;z-index:100001;flex-direction:column;gap:5px;background:rgba(4,10,18,0.95);border:1px solid #ff66cc55;border-radius:8px;padding:6px;"><button class="dbg-enemy-pick" data-kind="spdr" style="background:#ff66cc22;border:1px solid #ff66cc66;color:#ff66cc;font:11px monospace;padding:6px 16px;border-radius:6px;">SPIDER</button><button class="dbg-enemy-pick" data-kind="droid" style="background:#ff772244;border:1px solid #ff882266;color:#ff8844;font:11px monospace;padding:6px 16px;border-radius:6px;">DROID</button><button class="dbg-enemy-pick" data-kind="ghost" style="background:#33ffcc22;border:1px solid #33ffcc66;color:#33ffcc;font:11px monospace;padding:6px 16px;border-radius:6px;">GHOST</button><button class="dbg-enemy-pick" data-kind="dragon" style="background:#2a7aff22;border:1px solid #44aaff88;color:#66bbff;font:11px monospace;padding:6px 16px;border-radius:6px;">DRAGON</button></div><button id="dbg-bot" onclick="window._botSpawnTap&&window._botSpawnTap(this)" style="position:fixed;bottom:0;right:196px;background:#ff447722;border:1px solid #ff447788;color:#ff6688;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">+BOT·D</button>
 <script>
 (function(){
   const panel=document.getElementById('dbg-panel');
@@ -24581,6 +24759,7 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
         if(k==='spdr'&&window._spawnTestSpiders) window._spawnTestSpiders(10);
         else if(k==='droid'&&window._spawnDroids) window._spawnDroids(2);
         else if(k==='ghost'&&window._spawnGhosts) window._spawnGhosts(5);
+        else if(k==='dragon'&&window._spawnBlueDragon) window._spawnBlueDragon(1);
         enemyMenu.style.display='none';
       });
     });
