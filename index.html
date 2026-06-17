@@ -8365,8 +8365,11 @@ class Missile{
     if(this.target){
       const ty=this.target.mesh?this.target.mesh.position.y:(this.target.py!==undefined?this.target.py:10);
       const dx=this.target.wx-this.wx, dy=ty-this.y, dz=this.target.wz-this.wz, d=Math.hypot(dx,dy,dz)||1;
-      const turn=this.turnRate*dt;
+      const close=(window._MISSILE_CLOSE||150);
+      const trMul = d<close ? 1+(close-d)/close*(window._MISSILE_CLOSE_TURN||3.4) : 1;   // sharpen the turn as it closes in -> converges onto a nearby (e.g. wall-climbing) spider instead of orbiting it
+      const turn=Math.min(1, this.turnRate*trMul*dt);
       dirx=lerp(dirx,dx/d,turn); diry=lerp(diry,dy/d,turn); dirz=lerp(dirz,dz/d,turn);
+      if(d<(window._MISSILE_SLOW_D||72)) this.speed=Math.min(this.speed,(window._MISSILE_SLOW_SPD||255));   // ease off speed at point-blank so the turn radius shrinks (kills the fly-by loop on the last few targets)
     }
     const ns=Math.hypot(dirx,diry,dirz)||1;
     this.vx=dirx/ns*this.speed; this.vy=diry/ns*this.speed; this.vz=dirz/ns*this.speed;
@@ -18055,16 +18058,44 @@ function buildCubeArena(){
     {P:V(hx,h,-hz), e:V(0,0,2*hz), n1:nY, n2:Xn}, {P:V(-hx,h,-hz),e:V(0,0,2*hz), n1:nY, n2:Xp},
     {P:V(-hx,h,hz), e:V(2*hx,0,0), n1:nY, n2:V(0,0,-1)}, {P:V(-hx,h,-hz),e:V(2*hx,0,0), n1:nY, n2:Zp},
   ];
-  const AN=7, NL=4;
-  for(const E of EDGES){
-    const arc=(frac,a)=>{ const base=E.P.clone().addScaledVector(E.e,frac).addScaledVector(E.n1,ch).addScaledVector(E.n2,ch);
-      return base.addScaledVector(E.n1,-ch*Math.cos(a)).addScaledVector(E.n2,-ch*Math.sin(a)); };
-    for(let il=0;il<NL;il++){ const f=il/(NL-1); let prev=null;
-      for(let ia=0;ia<=AN;ia++){ const a=ia/AN*Math.PI/2; const p=arc(f,a); if(prev)Le(prev,p); prev=p; } }   // arc cross-sections
-    for(let ia=0;ia<=AN;ia++){ const a=ia/AN*Math.PI/2; Le(arc(0,a), arc(1,a)); }                              // longitudinal seams
+  const _CHAM_GRID=(window._CUBE_CHAM_GRID!==false);
+  if(_CHAM_GRID){
+    // ── ROUNDED EDGES as LIVE deforming grid: fan each quarter-circle fillet into flat grid facets (galaxy-panel style); each facet is a GridSheet that ripples on bullet/rocket/ball impact, just like the 6 faces ──
+    if(!_USE_SHEETS){ try{ _disposeCubeSheets(); }catch(_){} }   // make sure the sheet list is fresh even when the faces are drawn as plain lines
+    const facets=Math.max(2, window._CUBE_CHAM_FACETS||(IS_MOBILE?3:4));
+    const chamCellBase=(window._CUBE_CHAM_CELL||window._CUBE_GRID_CELL||28), chamPal=(window._CUBE_GRID_PAL||'cube'), roomC=new THREE.Vector3(0,h/2,0);
+    for(const E of EDGES){
+      const arc=(frac,a)=>{ const base=E.P.clone().addScaledVector(E.e,frac).addScaledVector(E.n1,ch).addScaledVector(E.n2,ch);
+        return base.addScaledVector(E.n1,-ch*Math.cos(a)).addScaledVector(E.n2,-ch*Math.sin(a)); };
+      const elen=E.e.length(), edgeDir=E.e.clone().normalize();
+      for(let s=0;s<facets;s++){
+        const a0=s/facets*Math.PI/2, a1=(s+1)/facets*Math.PI/2;
+        const A=arc(0,a0), B=arc(1,a0), Cc=arc(1,a1), D=arc(0,a1);
+        const center=A.clone().add(B).add(Cc).add(D).multiplyScalar(0.25);
+        const arcMid=D.clone().sub(A); const chord=arcMid.length()||chamCellBase; arcMid.normalize();
+        let n=new THREE.Vector3().crossVectors(edgeDir,arcMid).normalize();
+        if(n.dot(roomC.clone().sub(center))<0) n.negate();                       // face the grid INTO the room
+        const zAx=new THREE.Vector3().crossVectors(edgeDir,n).normalize();        // right-handed v-axis (across the bevel)
+        const quat=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(edgeDir,n,zAx));
+        const ccell=Math.max(16,chord);                                           // one cell tall = the slice chord -> the facet is a thin ribbon following the bevel
+        const cols=Math.max(3,Math.round(elen/ccell)+1);
+        let sh; try{ sh=new GridSheet({cols,rows:2,cell:ccell,position:center,quaternion:quat,palette:chamPal,fill:false,subdiv:1,bright:1.05}); }catch(e){ console.warn('cube chamfer sheet:',e); continue; }
+        sh._cubeWall=true; sh._cityWall=true; sh._chamfer=true;                   // deform-don't-die, like the faces
+        _cubeSheets.push(sh);
+      }
+    }
+  } else {
+    const AN=7, NL=4;
+    for(const E of EDGES){
+      const arc=(frac,a)=>{ const base=E.P.clone().addScaledVector(E.e,frac).addScaledVector(E.n1,ch).addScaledVector(E.n2,ch);
+        return base.addScaledVector(E.n1,-ch*Math.cos(a)).addScaledVector(E.n2,-ch*Math.sin(a)); };
+      for(let il=0;il<NL;il++){ const f=il/(NL-1); let prev=null;
+        for(let ia=0;ia<=AN;ia++){ const a=ia/AN*Math.PI/2; const p=arc(f,a); if(prev)Le(prev,p); prev=p; } }   // arc cross-sections
+      for(let ia=0;ia<=AN;ia++){ const a=ia/AN*Math.PI/2; Le(arc(0,a), arc(1,a)); }                              // longitudinal seams
+    }
+    const eg=new THREE.BufferGeometry(); eg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(ed),3));
+    grp.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({color:EDGE,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})));
   }
-  const eg=new THREE.BufferGeometry(); eg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(ed),3));
-  grp.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({color:EDGE,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})));
   // ── pickups: boots + melee + guns to test with ──
   try{ if(typeof _spawnBootStation==='function') _spawnBootStation(0, -hz+ch+90); }catch(e){ console.warn('boot station',e); }
   try{ if(typeof _spawnHammerStation==='function'){ const ms=['sword','hammer','axe','spear','scythe']; ms.forEach((m,i)=>_spawnHammerStation(-200+i*100, hz-ch-90, m)); } }catch(e){ console.warn('hammer stations',e); }
