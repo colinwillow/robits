@@ -8980,13 +8980,17 @@ class Player{
             ? new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0)
             : new THREE.Vector3(Math.cos(CAM.yaw),0,-Math.sin(CAM.yaw));      // actual cam when ball/wall-authoritative, CAM.yaw on the floor — same frame movement uses
           let ar=crr.addScaledVector(N,-crr.dot(N)); if(ar.lengthSq()<1e-5) ar.crossVectors(N,new THREE.Vector3(0,0,1)); ar.normalize();
-          let af=new THREE.Vector3().crossVectors(N,ar); if(af.lengthSq()<1e-5){ af.set(0,0,1).addScaledVector(N,-N.z); } af.normalize();   // forward = N × right (matches movement so aim+move agree)
+          let af;
+          { const _cu=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1); _cu.addScaledVector(N,-_cu.dot(N));   // camera-UP projected = aim "up on screen" -> stick-up aims up the wall (matches movement), eases with the camera
+            if((player&&(player._cubeCamAuth||window._ballCam)) && _cu.lengthSq()>0.04){ af=_cu.normalize(); }
+            else { af=new THREE.Vector3().crossVectors(N,ar); if(af.lengthSq()<1e-5){ af.set(0,0,1).addScaledVector(N,-N.z); } af.normalize(); } }   // floor: forward = N × right
           const _onWall = !!(player && player._cubeCamAuth);                                  // wall/ceiling -> aim is a 3D half-sphere; floor stays flat
           const _tang=af.clone().multiplyScalar(-shootIn.y).addScaledVector(ar,shootIn.x);     // direction along the surface the stick points
           let aim;
           if(_onWall && _tang.lengthSq()>1e-4){
             _tang.normalize();
-            const _elev=(1-Math.min(1,sMag))*(Math.PI/2)*(window._WALL_SHOOT_3D!=null?window._WALL_SHOOT_3D:1);   // stick centre -> straight OUT of the wall (along N), stick edge -> along the wall (half-sphere)
+            const _po=(window._WALL_SHOOT_OUT_POW!=null?window._WALL_SHOOT_OUT_POW:2.2);       // >1 = bigger "straight out" window (stays near the normal until you push the stick well out)
+            const _elev=(1-Math.pow(Math.min(1,sMag),_po))*(Math.PI/2)*(window._WALL_SHOOT_3D!=null?window._WALL_SHOOT_3D:1);   // stick centre -> straight OUT of the wall (along N), stick edge -> along the wall (half-sphere)
             aim=_tang.multiplyScalar(Math.cos(_elev)).addScaledVector(N, Math.sin(_elev));
           } else if(_onWall){ aim=N.clone(); }                                                 // dead-centre on a wall -> fire straight out
           else { aim=_tang; }                                                                  // floor -> flat tangent aim (unchanged)
@@ -15495,7 +15499,7 @@ function loop(ts){ requestAnimationFrame(loop);
         const _flickGuard = (player._fireSuppressT && performance.now()<player._fireSuppressT) || player._flickPending;
         const held=(typeof jR!=='undefined')?jR.isHeld:(stickMag>0.05);
         if(!held){ player._fireLatched=false; }
-        else if(stickMag>0.38 && !_flickGuard){ player._fireLatched=true; }                                    // dragged out far enough -> latch ON (not while a flick is snapping)
+        else if((stickMag>0.38 || (player._inPlanetGravity && player._cubeCamAuth && stickMag>0.06)) && !_flickGuard){ player._fireLatched=true; }   // dragged out far enough -> latch ON; on a WALL a tiny push also latches so HOLDING fires straight out (not while a flick is snapping)
         if(player._fireLatched){
           if(stickMag>0.05){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; }     // direction + magnitude track the stick (small mag => steep / close)
           else { avx=Math.cos(player.aim)*0.04; avz=Math.sin(player.aim)*0.04; }               // dead center -> keep last direction, minimal mag = steepest dive at your feet
@@ -17863,10 +17867,10 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   let prr=cr.addScaledVector(N,-cr.dot(N));                                     // right projected onto the surface plane
   if(prr.lengthSq()<1e-5){ prr.crossVectors(N, P._cwLastTN||new THREE.Vector3(0,0,1)); }
   prr.normalize();
-  let pf=new THREE.Vector3().crossVectors(N,prr);                              // forward = N × right -> never flips on the underside/ceiling
-  if(player && player._cubeCamAuth) pf.multiplyScalar(-1);                     // the x-ray wall cam sits OUTSIDE the wall -> flips the forward handedness; un-flip so stick-up = up the wall
-  if(pf.lengthSq()<1e-5){ pf.copy(P._cwLastTN||new THREE.Vector3(0,0,1)); pf.addScaledVector(N,-pf.dot(N)); }
-  pf.normalize();
+  let pf;
+  { const _cu=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1); _cu.addScaledVector(N,-_cu.dot(N));   // camera-UP projected onto the surface = "up on screen" -> stick-up runs up the wall, and it EASES as the camera flips (no snap-reversal on the ground->wall transition)
+    if((player&&(player._cubeCamAuth||window._ballCam)) && _cu.lengthSq()>0.04){ pf=_cu.normalize(); }
+    else { pf=new THREE.Vector3().crossVectors(N,prr); if(pf.lengthSq()<1e-5){ pf.copy(P._cwLastTN||new THREE.Vector3(0,0,1)); pf.addScaledVector(N,-pf.dot(N)); } pf.normalize(); } }   // floor (or degenerate): forward = N × right
   if(inMag>0.05){
     tanDir=pf.clone().multiplyScalar(-sz).addScaledVector(prr,sx);
     if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); P._cwLastTN=pf.clone(); } else tanDir=null;
