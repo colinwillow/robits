@@ -18098,12 +18098,21 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
   if(typeof _gN!=='undefined') _gN.copy(N);   // aim/shoot branch reads _gN as the surface normal -> bullets fire in the wall plane
   const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   // Facing: AIM when aiming (so the character faces where the bullets go), else the actual MOTION direction (coasting faces the glide), else input, else last.
-  let fwd;
+  let fwd=null;
   if(P._flipNoTurn){ fwd=(P._flipFacingHold||P._cwLastF||new THREE.Vector3(0,0,1)).clone(); }   // mid-flip: hold the facing captured at flick time so the directional drift never rotates the character
-  else if(P._aim3DActive && P._aim3D && P._aim3D.lengthSq()>1e-4){ fwd=P._aim3D.clone(); }
-  else { const vt=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0); vt.addScaledVector(N,-vt.dot(N));
-    if(vt.lengthSq()>900) fwd=vt; else if(tanDir) fwd=tanDir.clone(); else fwd=(P._cwLastF?P._cwLastF.clone():new THREE.Vector3(1,0,0)); }
-  fwd.addScaledVector(N,-fwd.dot(N)); if(fwd.lengthSq()<1e-4) fwd.set(1,0,0); fwd.normalize();
+  else {
+    if(P._aim3DActive && P._aim3D && P._aim3D.lengthSq()>1e-4){                                  // AIM, projected onto the surface — but a STRAIGHT-OUT aim (along N, e.g. stick released/centred on a wall) has no in-plane direction, so skip it then and keep the last facing instead of snapping to a fixed axis
+      const af=P._aim3D.clone(); af.addScaledVector(N,-af.dot(N));
+      if(af.lengthSq()>0.03) fwd=af;
+    }
+    if(!fwd){ const vt=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0); vt.addScaledVector(N,-vt.dot(N)); if(vt.lengthSq()>900) fwd=vt; }   // MOTION
+    if(!fwd && tanDir) fwd=tanDir.clone();                                                       // INPUT
+    if(!fwd) fwd=(P._cwLastF?P._cwLastF.clone():new THREE.Vector3(0,0,1));                        // LAST good facing
+  }
+  fwd.addScaledVector(N,-fwd.dot(N));
+  if(fwd.lengthSq()<1e-4) fwd.copy(P._cwLastF&&P._cwLastF.lengthSq()>1e-4?P._cwLastF:new THREE.Vector3(0,0,1));
+  fwd.addScaledVector(N,-fwd.dot(N)); if(fwd.lengthSq()<1e-4) fwd.set(0,0,1);
+  fwd.normalize();
   P._cwLastF=fwd.clone();
   if(P.model){
     const xA=new THREE.Vector3().crossVectors(N,fwd).normalize();
