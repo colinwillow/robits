@@ -288,8 +288,8 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <div id="weapon-hud" style="position:absolute;top:calc(env(safe-area-inset-top,0px) + 110px);left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:2px;z-index:12;pointer-events:none">
 
     <!-- ACTIVE WEAPON — single weapon shown clearly -->
-    <div style="display:flex;flex-direction:row;align-items:center;gap:11px;background:rgba(6,12,18,0.62);border:1.5px solid rgba(120,200,255,0.28);border-radius:12px;padding:6px 16px 6px 11px;box-shadow:0 0 18px rgba(0,120,200,0.18)">
-      <div id="secondary-weapon-icon" style="width:44px;height:52px;display:flex;align-items:center;justify-content:center;position:relative;transform:scale(1.32);transform-origin:center">
+    <div style="display:flex;flex-direction:row;align-items:center;gap:7px;background:rgba(6,12,18,0.62);border:1.5px solid rgba(120,200,255,0.28);border-radius:10px;padding:3px 11px 3px 7px;box-shadow:0 0 14px rgba(0,120,200,0.18)">
+      <div id="secondary-weapon-icon" style="width:30px;height:34px;display:flex;align-items:center;justify-content:center;position:relative;transform:scale(0.66);transform-origin:center">
         <!-- BOMB icon (shown when bomb selected) -->
         <svg id="icon-bomb" width="44" height="52" viewBox="0 0 44 52" fill="none" xmlns="http://www.w3.org/2000/svg" style="position:absolute">
           <!-- Fuse spark -->
@@ -343,11 +343,10 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
         </svg>
         <div id="icon-weapon" style="position:absolute;display:none;width:44px;height:52px"></div>
       </div>
-      <!-- Weapon name + ammo, stacked beside the icon -->
-      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:1px">
-        <div style="font-size:8px;letter-spacing:2.5px;color:#ffffff66;text-transform:uppercase">WEAPON</div>
-        <div id="weapon-name" style="font-size:20px;font-weight:900;letter-spacing:2px;color:#ff6600;text-shadow:0 0 12px #ff6600,0 1px 2px rgba(0,0,0,0.6);text-transform:uppercase;text-align:left;line-height:1.05">BOMB</div>
-        <div id="weapon-ammo" style="font-size:22px;font-weight:900;letter-spacing:1px;color:#fff;text-shadow:0 0 9px #00ccff,0 1px 2px rgba(0,0,0,0.6);text-align:left;line-height:1">&#8734;</div>
+      <!-- Weapon name + ammo, inline on a single row -->
+      <div style="display:flex;flex-direction:row;align-items:baseline;gap:8px">
+        <div id="weapon-name" style="font-size:14px;font-weight:900;letter-spacing:1.5px;color:#ff6600;text-shadow:0 0 9px #ff6600,0 1px 2px rgba(0,0,0,0.6);text-transform:uppercase;line-height:1">BOMB</div>
+        <div id="weapon-ammo" style="font-size:15px;font-weight:900;letter-spacing:1px;color:#fff;text-shadow:0 0 7px #00ccff,0 1px 2px rgba(0,0,0,0.6);line-height:1">&#8734;</div>
       </div>
     </div>
 
@@ -391,7 +390,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
     <!-- Robot 3D viewer -->
     <div style="height:200px;display:flex;align-items:center;justify-content:center;position:relative;perspective:520px">
       <!-- Ground ring under the robot's feet — tilted into perspective so it reads as a disc on the floor receding into the distance -->
-      <div style="position:absolute;bottom:14px;left:50%;width:168px;height:168px;border:2px solid #00ffc855;border-radius:50%;
+      <div style="position:absolute;bottom:-58px;left:50%;width:168px;height:168px;border:2px solid #00ffc855;border-radius:50%;
         background:radial-gradient(circle,#00ffc814,transparent 68%);
         box-shadow:0 0 34px #00ffc822, inset 0 0 26px #00ffc818;pointer-events:none;z-index:0;
         transform:translateX(-50%) rotateX(74deg);transform-origin:center center"></div>
@@ -3027,7 +3026,8 @@ function _trimClipDeadTail(clip, opt){
     const t=times[lastChange]||0; if(t>lastReal) lastReal=t;
   }
   if(lastReal>0 && lastReal < origDur*(1-minFrac)){
-    const keep=Math.min(origDur, lastReal+(1/30));   // settle one frame past the last motion
+    const fps=(window._TRIM_FPS||30), pad=(window._TRIM_TAIL_PAD!=null?window._TRIM_TAIL_PAD:-1.5);   // frames past the last motion; negative trims a touch INTO the cycle to kill the loop-seam stutter
+    const keep=Math.max(1/fps, Math.min(origDur, lastReal+pad/fps));
     try{ clip.duration=keep; clip.trim(); }catch(_e){ clip.duration=origDur; return null; }
     return {from:origDur, to:clip.duration};
   }
@@ -9426,6 +9426,7 @@ class Player{
         else if(this._carryPayload&&this._carryPayload.kind==='crate'){ if(player&&player.model){ this._bombMesh.rotation.set(0, player.model.rotation.y, 0); } }
         else { if(player&&player.model){ this._bombMesh.rotation.set(0, player.model.rotation.y, 0); } } }   // nuke / singularity / quake: held steady facing forward, no spin
       else { this._bombBodyMat&&this._bombBodyMat.color.setRGB(1,g,0); }
+      if(this._carryPayload && /barrel/i.test(this._carryPayload.type||'')){ this._bombMesh.rotation.set(0, (player&&player.model?player.model.rotation.y:0)+(window._BARREL_HOLD_YAW||0), Math.PI/2); }   // barrels ALWAYS lie horizontal, whatever branch tagged the carry
       if(this._bombCoreMesh) this._bombCoreMesh.scale.setScalar(0.8+0.4*Math.sin(t*6));
     } else if(!this.bombArmed&&this._bombMesh){
       this._disarmBomb();
@@ -12066,7 +12067,7 @@ function _updatePU(dt){
   // ── BARRELS: take a bullet -> cook off; cook-off timer -> explode (chain handled in _detonateItem) ──
   for(let i=A.length-1;i>=0;i--){ const p=A[i]; if(!p||p.type!=='barrel')continue;
     if(!(p._cooking>0) && p.settled && typeof GS!=='undefined' && GS.bullets){ for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b)continue; const bw=(b.wx!=null?b.wx:b.x)||0, bz=(b.wz!=null?b.wz:b.z)||0; if(Math.hypot(bw-p.x,bz-p.z)<(window._BARREL_HIT_R||16) && Math.abs(((b.y!=null?b.y:9))-(p.y||7))<32){ if(b.remove)b.remove(); GS.bullets.splice(bi,1); _barrelImpactMark(p,[1,0.85,0.3]); p._cooking=(window._BARREL_FUSE||0.12); break; } } }
-    if(!(p._cooking>0) && p.settled){ const ud=player&&player.model&&player.model.userData; if(ud&&ud._meleeTimer>0 && player && Math.hypot(p.x-player.wx,p.z-player.wz)<(window._BARREL_MELEE_R||44)){ _barrelImpactMark(p); p._cooking=(window._BARREL_FUSE||0.12); if(typeof ps!=='undefined')ps.ring(p.x,p.z,[1,0.6,0.2],5,40); } }   // MELEE / FIST breaks a resting barrel (works before pickup)
+    if(!(p._cooking>0) && p.settled){ const ud=player&&player.model&&player.model.userData; if(ud&&ud._meleeTimer>0 && player && Math.hypot(p.x-player.wx,p.z-player.wz)<(window._BARREL_MELEE_R||74)){ _barrelImpactMark(p); p._cooking=(window._BARREL_FUSE||0.12); if(typeof ps!=='undefined')ps.ring(p.x,p.z,[1,0.6,0.2],5,40); } }   // MELEE / FIST breaks a resting barrel (works before pickup)
     if(p._cooking>0){ p._cooking-=dt; if(typeof ps!=='undefined'&&Math.random()<0.6)ps.spark(p.x+rand(-5,5),p.z+rand(-5,5),[1,0.5,0.1],(p.y||7)+rand(4,16)); if(p.cube)p.cube.scale.setScalar(1+0.12*Math.sin(performance.now()*0.05));
       if(p._cooking<=0){ if(p.grp){scene.remove(p.grp); p.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} A.splice(i,1); if(p===window._nearOrb)window._nearOrb=null; _detonateItem('barrel',p.x,p.z,false); } }
   }
@@ -23967,14 +23968,18 @@ function _stowMeleeOnBack(hm, back){
   hm.position.copy(back.worldToLocal(bp));
   const bsBack=back.getWorldScale(new THREE.Vector3());                 // preserve the world size
   hm.scale.set((wsBefore.x/(bsBack.x||1))*(window._STOW_SCALE||1), (wsBefore.y/(bsBack.y||1))*(window._STOW_SCALE||1), (wsBefore.z/(bsBack.z||1))*(window._STOW_SCALE||1));
-  if(window._STOW_CENTER!==false){   // mount from the MIDDLE of the blade, not the hilt base — otherwise long weapons (spear/scythe) tower way over the shoulder
+  if(window._STOW_CENTER!==false){   // mount from the MIDDLE of the weapon, not the hilt base — otherwise long weapons (spear/scythe) tower way over the shoulder
     try{ hm.updateWorldMatrix(true,true);
       const bb=new THREE.Box3().setFromObject(hm);
       if(!bb.isEmpty() && isFinite(bb.min.x) && isFinite(bb.max.x)){
         const wc=bb.getCenter(new THREE.Vector3());
         const originW=back.localToWorld(hm.position.clone());
-        const corr=bp.clone().sub(wc).addScaledVector(yA, window._STOW_CENTER_BIAS||0);
-        if(corr.length() < (window._STOW_CENTER_MAX||40)){ hm.position.copy(back.worldToLocal(originW.add(corr))); }   // sane correction only — never fling it off the body
+        const delta=bp.clone().sub(wc);                                  // bbox-center -> mount point
+        const corr=yA.clone().multiplyScalar(delta.dot(yA));             // slide ONLY along the weapon's long axis (handle->tip) so it centers without ever flinging off the body sideways
+        corr.addScaledVector(yA, window._STOW_CENTER_BIAS||0);
+        const maxSlide=(window._STOW_CENTER_MAX||140);                   // long weapons need a big slide; the axis-projection above keeps it safe
+        if(corr.length()>maxSlide) corr.setLength(maxSlide);
+        hm.position.copy(back.worldToLocal(originW.add(corr)));
       }
     }catch(e){ console.warn('[stow] centering skipped',e); }
   }
@@ -24066,12 +24071,23 @@ const _SLASH_PROFILES={
   axe:    {col:0xffb066, rgb:[1.00,0.66,0.34], A:1.50, R:32, TH:16, scale:1.12},   // big chunky cleave
   spear:  {col:0xc6ff8a, rgb:[0.72,1.00,0.50], A:0.30, R:42, TH:5,  scale:1.00},   // narrow forward thrust
   scythe: {col:0xd0a0ff, rgb:[0.80,0.56,1.00], A:2.00, R:34, TH:12, scale:1.18},   // long wide reap
+  mace:   {col:0xcfe0ff, rgb:[0.78,0.86,1.00], A:1.20, R:30, TH:22, scale:1.10},   // heavy steel head — trail traces the BALL, not a blade
 };
 function _slashProfile(){ const t=(player&&player._meleeType)||'sword'; return _SLASH_PROFILES[t]||_SLASH_PROFILES.sword; }
 function _slashBrighten(hex,a){ const r=(hex>>16)&255,g=(hex>>8)&255,b=hex&255; return (Math.round(r+(255-r)*a)<<16)|(Math.round(g+(255-g)*a)<<8)|Math.round(b+(255-b)*a); }
 function _slashBladePoints(){
   const h=player&&player._hammer; if(!h||!player.model) return null;
   player.model.updateWorldMatrix(true,true);
+  // MACE: the trail should read as the heavy BALL whipping on its chain — trace anchor(handle-top) -> ball, NOT the handle blade axis
+  if(player._meleeType==='mace' && player._maceChain && player._maceChain.ball){
+    try{ const ball=player._maceChain.ball; ball.updateWorldMatrix&&ball.updateWorldMatrix(true,false);
+      const tip=new THREE.Vector3(); ball.getWorldPosition(tip);
+      const base=(typeof _maceAnchor==='function')?_maceAnchor(new THREE.Vector3()):tip.clone();
+      // pull the inner edge most of the way out to the ball so the ribbon is a tight streak behind the head, not a wide fan off the handle
+      base.lerp(tip, (window._MACE_TRAIL_INNER!=null?window._MACE_TRAIL_INNER:0.6));
+      return [base, tip];
+    }catch(_e){}
+  }
   h.updateWorldMatrix(true,false);                                 // weapon model is already oriented (incl. _HAMMER_FIX + scale)
   const ud=h.userData||{};
   const baseY=(ud._baseY!=null)?ud._baseY:0;                       // sample the model's OWN axis -> trail matches the rendered blade/head
