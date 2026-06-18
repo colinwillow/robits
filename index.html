@@ -3148,6 +3148,7 @@ class BlueDragon extends Enemy{
   update(p,dt){
     this.baseUpdate();
     if(this._mixer) this._mixer.update(dt);
+    if(window._DRAGON_ANIM_DEBUG){ this._dbgT=(this._dbgT||0)+dt; if(this._dbgT>=1){ this._dbgT=0; const c=this._cur; try{ console.log('[anim]',(this._robitName||'dragon'),'state='+this._state,'clip='+this._curName, c?('t='+c.time.toFixed(2)+' w='+c.getEffectiveWeight().toFixed(2)+' running='+c.isRunning()+' ts='+(c.timeScale||1).toFixed(2)+' dur='+(this._dur[this._curName]||'?')):'(NO ACTION)','mixer='+(!!this._mixer)); }catch(_){} } }
     this._stateT+=dt;
     if(this._hitRecoil>0) this._hitRecoil=Math.max(0, this._hitRecoil - dt*(window._DRAGON_RECOIL_DECAY||7));   // procedural flinch decays fast
     if(this._meleeCD>0)this._meleeCD-=dt; if(this._airCD>0)this._airCD-=dt; if(this._dizzyCD>0)this._dizzyCD-=dt;
@@ -3259,6 +3260,8 @@ window._spawnBlueDragon=function(n=1){
     let sx,sz;
     if(typeof player!=='undefined'&&player){ const a=Math.random()*TAU, r=150+Math.random()*70; sx=player.wx+Math.cos(a)*r; sz=player.wz+Math.sin(a)*r; }
     else { sx=140; sz=140; }
+    if(GS.zone===-19){ const C=(typeof _CUBE!=='undefined'?_CUBE:{hx:560,hz:560,cham:130}), m=(C.cham||130)+60; sx=Math.max(-(C.hx-m),Math.min(C.hx-m,sx)); sz=Math.max(-(C.hz-m),Math.min(C.hz-m,sz)); }   // CUBE: keep the spawn on the floor (inside the chamfer) so it's reachable
+    else { const zc=zoneCenter(GS.zone), R=ARENA_R-40, dx=sx-zc.x, dz=sz-zc.z, dl=Math.hypot(dx,dz); if(dl>R){ sx=zc.x+dx/dl*R; sz=zc.z+dz/dl*R; } }
     const e=new BlueDragon(sx,sz,2); e.addToScene(); GS.enemies.push(e);
     if(typeof announce==='function') announce('BLUE DRAGON','#44aaff');
   }catch(err){ console.warn('spawn dragon',err); } }
@@ -9754,8 +9757,9 @@ class Player{
       // ── EASED INPUT ──
       this.inX=lerp(this.inX,rawX,MOVE.inputEase);
       this.inZ=lerp(this.inZ,rawZ,MOVE.inputEase);
-      const speedMult=(this._speedBoost>0)?1.7:1;
-      if(this._speedBoost>0) this._speedBoost--;
+      const _puBoost=(this._speedBoost>0 && this._speedBoost<=1000);   // a TIMED speed powerup (≈hundreds of frames). The boots use a huge sentinel (99999) and must NOT add speed — they're for wall-walking, not a boost.
+      const speedMult=_puBoost?(window._SPEED_PU_MULT||1.7):1;
+      if(this._speedBoost>0 && this._speedBoost<=1000) this._speedBoost--;   // only count DOWN timed powerups; leave the boots' permanent sentinel alone
 
       // ── DASH IMPULSE — directly set velocity, bypass eased input for dashDuration frames ──
       if(this._dashRamp>0&&this._dashDir){
@@ -9777,7 +9781,7 @@ class Player{
         if(this._dashDir&&Math.random()<0.7) ps.spark(this.wx-this._dashDir[0]*rand(4,18),this.wz-this._dashDir[1]*rand(4,18),[0,0.9,1]);
       } else if(GS.zone===-8){ this._skateHoriz(rawX,rawZ,dt); } else if(GS.zone===-10){ this._pipeHoriz(rawX,rawZ,dt); } else {
 
-      const top=MOVE.topSpeed*speedMult*(od?1.25:1);
+      const top=MOVE.topSpeed*(window._SPEED_SCALE||0.75)*speedMult*(od?1.25:1);   // global ~0.75 so boots-on and boots-off match and neither is breakneck
       let tvx=this.inX*top, tvz=this.inZ*top;
       if(this._zapT>0){ this._zapT-=dt; tvx*=0.1; tvz*=0.1; if(typeof ps!=='undefined'&&Math.random()<0.55) ps.spark(this.wx+rand(-7,7),this.wz+rand(-7,7),[0.85,0.4,1],9+(this.py||0)+rand(0,20)); }   // electrocuted: held in place, jolting   // electrocuted: slowed + sparking
       const inMag=Math.hypot(rawX,rawZ);
@@ -18511,10 +18515,11 @@ function _ballHitPlayer(b, dt){
     const KN=(window._BALL_KNOCK||1.0)*(melee0?(window._BALL_MELEE_BOOST||2.0):1)*passive;
     b.vel.addScaledVector(n,((window._BALL_BASE||8)+along*(window._BALL_VFAC||1.2))*KN); b.vel.addScaledVector(pv,0.3*passive);
     if(b.vel.length()>2400)b.vel.setLength(2400);
-    b.hitCd=0.1;
-    if(typeof ps!=='undefined'){ for(let k=0;k<8;k++){ const a=Math.random()*6.28,sp=rand(40,120); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(-30,80),Math.sin(a)*sp,0.2,1,0.9,0.4); } }
-    if(typeof Audio!=='undefined'){try{Audio.blip(240,0.1,'square',0.22,120);}catch(_){}}
-    if(typeof addTrauma==='function')addTrauma(0.05);
+    b.hitCd=(melee0||dashing)?0.1:(window._BALL_PASSIVE_CD||0.5);   // a real whack re-arms fast; just brushing the ball gets a long cooldown so the sound/glitch can't rapid-fire
+    const _hard=(melee0||dashing);
+    if(typeof ps!=='undefined'){ const np=_hard?8:3; for(let k=0;k<np;k++){ const a=Math.random()*6.28,sp=rand(40,120); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(-30,80),Math.sin(a)*sp,0.2,1,0.9,0.4); } }
+    if(typeof Audio!=='undefined'){try{Audio.blip(_hard?240:200,0.09,'square',_hard?0.22:0.06,120);}catch(_){}}   // quiet little tap on a brush, full thunk on a strike
+    if(typeof addTrauma==='function')addTrauma(_hard?0.05:0.012);
     return;
   }
   if(!player._dbgBox) return;
@@ -23119,7 +23124,6 @@ function _deflectProjectiles(){
 }
 function _doMeleeFlick(ud, dirAngle, comboOverride){
   if(!ud||!ud.clips||!player) return;
-  if(player._meleeType==='mace') return;   // FLAIL doesn't swing on a flick — the right stick drives the chain continuously
   if(ud._meleeTimer && ud._meleeTimer>0){ player._meleeBuf={dir:(typeof dirAngle==='number'?dirAngle:null),combo:comboOverride}; return; }   // swing in progress -> buffer ONE, fired on finish (1 swing = 1 hit)
   if(player._meleeType && player._meleeDur!=null){ player._meleeDur--; if(typeof updateAmmoHUD==='function')updateAmmoHUD(); if(player._meleeDur<=0) player._meleeBreakPending=true; }   // each swing wears the weapon
   if(typeof dirAngle==='number') player.aim=dirAngle;                       // flicks pass null -> DON'T turn the character
@@ -23198,7 +23202,6 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
 }
 function _doMeleeTap(){
   if(!player||!player.model||!player.model.userData) return;
-  if(player._meleeType==='mace') return;   // FLAIL: no tap-swing
   const ud=player.model.userData;
   if(ud._meleeTimer && ud._meleeTimer>0){ player._meleeBuf={tap:true}; return; }   // chain: re-target + re-lunge when the current swing finishes
   if(player._meleeType && player._meleeDur!=null){ player._meleeDur--; if(typeof updateAmmoHUD==='function')updateAmmoHUD(); if(player._meleeDur<=0) player._meleeBreakPending=true; }   // each swing wears the weapon; it shatters when the swing finishes
@@ -23418,27 +23421,13 @@ function _updateMace(dt){
   const mc=player._maceChain; if(!mc) return;
   const a=_maceAnchor(new THREE.Vector3());
   const pts=mc.pts, N=mc.N, L=mc.L, h=Math.min(dt,0.033);
-  const G=(window._MACE_GRAV||900), damp=(window._MACE_DAMP||0.92), drive=(window._MACE_DRIVE||2600);
-  // right stick -> world-horizontal force on the BALL (push = fling, circle = spin)
-  const rx=player._maceRX||0, rz=player._maceRZ||0;
-  // ── SWIPE-SWING: a quick directional flick of the right stick triggers a wound-up swing in that direction ──
-  const _msp=player._maceStickPrev||{x:rx,z:rz}; const dvx=rx-_msp.x, dvz=rz-_msp.z; player._maceStickPrev={x:rx,z:rz};
-  if(player._maceSwingCD>0)player._maceSwingCD-=dt;
-  if(window._MACE_SWIPE!==false){ const swSpd=Math.hypot(dvx,dvz)/Math.max(h,1e-3), mag=Math.hypot(rx,rz);
-    if(swSpd>(window._MACE_SWIPE_TRIG||5.5) && mag>(window._MACE_SWIPE_MINMAG||0.32) && (player._maceSwingCD||0)<=0 && !player._maceSwing){ const sl=Math.hypot(dvx,dvz)||1; _startMaceSwing(dvx/sl,dvz/sl,Math.min(2.2,swSpd/(window._MACE_SWIPE_REF||7))); player._maceSwingCD=(window._MACE_SWING_CD||0.3); }   // mag gate: ignore the stick snapping back to centre on release
-  }
-  const sw=player._maceSwing;
-  if(sw){ sw.t+=dt; const ball=pts[N], windDur=(window._MACE_WIND_DUR||0.12);
-    if(sw.t<windDur){ const v=sw.wind, spd=(window._MACE_WIND_SPD||560); ball.prev.set(ball.pos.x-v.x*spd*h, ball.pos.y-v.y*spd*h, ball.pos.z-v.z*spd*h); }   // wind up to the opposite side
-    else if(!sw.struck){ sw.struck=true; const v=sw.strike, spd=(window._MACE_STRIKE_SPD||1700)*sw.strength; ball.prev.set(ball.pos.x-v.x*spd*h, ball.pos.y-v.y*spd*h, ball.pos.z-v.z*spd*h); if(typeof Audio!=='undefined'){try{Audio.blip(150,0.09,'sawtooth',0.18,80);}catch(_){}} if(typeof addTrauma==='function')addTrauma(0.05); }   // STRIKE: fling through
-    else if(sw.t>windDur+(window._MACE_SWING_HOLD||0.55)){ player._maceSwing=null; }   // done -> gravity/idle (or next swipe)
-  }
+  const G=(window._MACE_GRAV||900), damp=(window._MACE_DAMP||0.92);
+  // The mace now swings with the SAME melee animations as the other weapons — the hand (anchor) whips through the swing and the chain+ball just FOLLOW via physics (no stick drive / swipe).
   pts[0].pos.copy(a); pts[0].prev.copy(a);
   for(let i=1;i<=N;i++){ const p=pts[i];
     const vx=(p.pos.x-p.prev.x)*damp, vy=(p.pos.y-p.prev.y)*damp, vz=(p.pos.z-p.prev.z)*damp;
     p.prev.copy(p.pos);
     p.pos.x+=vx; p.pos.y+=vy - G*h*h; p.pos.z+=vz;
-    if(i===N && !player._maceSwing){ p.pos.x+=rx*drive*h*h; p.pos.z+=rz*drive*h*h; }   // continuous drive only when NOT mid-swing (swing owns the ball)
   }
   for(let it=0; it<(window._MACE_ITER||6); it++){
     pts[0].pos.copy(a);
@@ -23953,11 +23942,14 @@ function _stowMeleeOnBack(hm, back){
   hm.scale.set((wsBefore.x/(bsBack.x||1))*(window._STOW_SCALE||1), (wsBefore.y/(bsBack.y||1))*(window._STOW_SCALE||1), (wsBefore.z/(bsBack.z||1))*(window._STOW_SCALE||1));
   if(window._STOW_CENTER!==false){   // mount from the MIDDLE of the blade, not the hilt base — otherwise long weapons (spear/scythe) tower way over the shoulder
     try{ hm.updateWorldMatrix(true,true);
-      const wc=new THREE.Box3().setFromObject(hm).getCenter(new THREE.Vector3());           // current world centre of the weapon
-      const originW=back.localToWorld(hm.position.clone());                                   // current world origin (where the hilt sits)
-      const corr=bp.clone().sub(wc).add(yA.clone().multiplyScalar(window._STOW_CENTER_BIAS||0)); // shift centre onto the mount (+ optional bias up the handle axis)
-      hm.position.copy(back.worldToLocal(originW.add(corr)));
-    }catch(_){}
+      const bb=new THREE.Box3().setFromObject(hm);
+      if(!bb.isEmpty() && isFinite(bb.min.x) && isFinite(bb.max.x)){
+        const wc=bb.getCenter(new THREE.Vector3());
+        const originW=back.localToWorld(hm.position.clone());
+        const corr=bp.clone().sub(wc).addScaledVector(yA, window._STOW_CENTER_BIAS||0);
+        if(corr.length() < (window._STOW_CENTER_MAX||40)){ hm.position.copy(back.worldToLocal(originW.add(corr))); }   // sane correction only — never fling it off the body
+      }
+    }catch(e){ console.warn('[stow] centering skipped',e); }
   }
   return true;
 }
@@ -23971,7 +23963,7 @@ function _toggleMeleeStow(){
     let slung=false;
     if(back && window._MELEE_STOW_BACK!==false){ try{ slung=_stowMeleeOnBack(hm, back); }catch(e){ slung=false; } }
     if(slung){ player._stowedMesh=hm; }
-    else { if(hm.parent)hm.parent.remove(hm); player._stowedMesh=null; }   // fallback: just hide it
+    else { if(hm.parent)hm.parent.remove(hm); player._stowedMesh=null; console.warn('[stow] back-sling failed -> hidden. chestBone=', !!back, 'STOW_BACK=', window._MELEE_STOW_BACK!==false); }   // fallback: just hide it (logged so we can see WHY it vanished)
     player._hammer=null; player._meleeType=null; player._meleeStowed=true;
     const ud=player.model&&player.model.userData; if(ud){ ud._meleeTimer=0; ud.currentClip=null; }
     if(player._meleeAdditive){ try{player._meleeAdditive.stop();}catch(e){} player._meleeAdditive=null; }
