@@ -3102,7 +3102,13 @@ class BlueDragon extends Enemy{
     this._aggro=(d<aggroR);
     if(this._dying){
       this._deadT+=dt;
-      if(this._deadT >= (this._dur.death||1.2)*(window._DRAGON_DECON_AT||0.72)){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1);
+      // keep the death clip pinned every frame so the rig can NEVER drift back to idle/bind
+      const _da=this._act.death, _dd=(this._dur.death||1.2);
+      if(_da){
+        if(this._cur!==_da){ try{ for(const k in this._act){ if(this._act[k]&&this._act[k]!==_da)this._act[k].stop(); } _da.enabled=true; _da.setEffectiveWeight(1); _da.setLoop(THREE.LoopOnce,1); _da.clampWhenFinished=true; if(!_da.isRunning())_da.play(); this._cur=_da; }catch(_){} }
+        if(this._deadT>=_dd){ _da.paused=true; _da.time=Math.max(0,_dd-0.001); }   // clip done -> freeze on the LAST frame
+      }
+      if(this._deadT >= _dd*(window._DRAGON_DECON_AT||0.5)){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1);   // beam-out begins about HALFWAY through the death fall (set _DRAGON_DECON_AT=1.05 to play it fully + hold the last frame first)
         const _m=this.mesh;
         try{ if(this._mixer)this._mixer.stopAllAction(); }catch(_){}                              // freeze the pose for the beam-out
         try{ if(this._hpBar&&_m){ _m.remove(this._hpBar); this._hpBar=null; } }catch(_){}          // don't beam the HP bar up with the body
@@ -11690,22 +11696,29 @@ function _makeLootBall(kind){
   g.add(new THREE.Mesh(new THREE.SphereGeometry(10.5,16,12), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.18,blending:THREE.AdditiveBlending,depthWrite:false})));
   return {grp:g, cube:ball, col};
 }
-function _spawnLootBall(x,z,kind,weapon,vx,vy,vz){
+function _spawnLootBall(x,z,kind,weapon,vx,vy,vz,ammo){
   const lb=_makeLootBall(kind);
   const ring=new THREE.Mesh(new THREE.RingGeometry(18,22,40), new THREE.MeshBasicMaterial({color:lb.col,transparent:true,opacity:0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=-6.5; lb.grp.add(ring);
   lb.grp.position.set(x,16,z); scene.add(lb.grp);
   if(!window._itemPU)window._itemPU=[];
-  window._itemPU.push({grp:lb.grp, cube:lb.cube, ring, x, y:16, z, vx:vx||0, vy:vy||0, vz:vz||0, type:weapon, settled:false, t:Math.random()*6, _loot:{kind,weapon}});
+  window._itemPU.push({grp:lb.grp, cube:lb.cube, ring, x, y:16, z, vx:vx||0, vy:vy||0, vz:vz||0, type:weapon, settled:false, t:Math.random()*6, _loot:{kind,weapon,ammo:(ammo!=null?ammo:null)}});
 }
 function _unfoldLootBall(p){
   const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1);
   if(p.grp){ scene.remove(p.grp); p.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); }
   try{
-    if(p._loot.kind==='gun' && typeof _spawnWeaponPad==='function') _spawnWeaponPad(p.x,p.z,p._loot.weapon);
-    else if(p._loot.kind==='melee' && typeof _spawnHammerStation==='function') _spawnHammerStation(p.x,p.z,p._loot.weapon);
+    if(p._loot.kind==='gun' && typeof _spawnWeaponPad==='function') _spawnWeaponPad(p.x,p.z,p._loot.weapon,p._loot.ammo);
+    else if(p._loot.kind==='melee' && typeof _spawnHammerStation==='function') _spawnHammerStation(p.x,p.z,p._loot.weapon,p._loot.dur);
   }catch(e){ console.warn('loot unfold',e); }
   if(typeof ps!=='undefined'){ ps.ring(p.x,p.z,[0.3,1,0.9],10,72); for(let k=0;k<10;k++){ const a=Math.random()*6.28,sp=rand(20,60); ps._spawn(p.x,8,p.z,Math.cos(a)*sp,rand(40,90),Math.sin(a)*sp,0.4,1,0.85,0.5); } }
   if(typeof Audio!=='undefined'){try{Audio.blip(420,0.12,'sine',0.2,720);Audio.blip(720,0.09,'sine',0.14,1050);}catch(_){}}
+}
+// spill the currently-equipped gun out of the player as a grabbable pickup that keeps its remaining ammo (for swapping)
+function _dropWeaponPickup(weapon, ammo){
+  if(!player||!weapon||weapon==='bullets') return;
+  const a=Math.random()*6.28, sp=70;
+  if(typeof _spawnLootBall==='function') _spawnLootBall(player.wx+Math.cos(a)*10, player.wz+Math.sin(a)*10, 'gun', weapon, Math.cos(a)*sp, 150, Math.sin(a)*sp, (ammo!=null?ammo:null));
+  if(typeof announce==='function') announce('DROPPED '+(weapon||'').toUpperCase(), '#ffd84a');
 }
 function _smashCrate(c){
   const i=window._crates.indexOf(c); if(i>=0)window._crates.splice(i,1);
@@ -11733,7 +11746,7 @@ function _updateCrates(dt){
     if(typeof GS!=='undefined'&&GS.bullets&&GS.bullets.length){ for(let j=GS.bullets.length-1;j>=0;j--){ const bl=GS.bullets[j]; if(!bl)continue; const bx=(bl.wx!=null?bl.wx:bl.x), bz=(bl.wz!=null?bl.wz:bl.z); if(bx==null)continue; if(Math.hypot(bx-c.x,bz-c.z)<16){ c.hp--; c.hitFlash=0.12; const dx=c.x-bx, dz=c.z-bz, d=Math.hypot(dx,dz)||1; c.vx+=dx/d*70; c.vz+=dz/d*70; if(bl.mesh){scene.remove(bl.mesh); if(bl.mesh.geometry)bl.mesh.geometry.dispose();} GS.bullets.splice(j,1); if(typeof ps!=='undefined')ps.ring(c.x,c.z,[1,0.85,0.35],4,28); if(c.hp<=0){ _smashCrate(c); break; } } } }
     if(window._crates.indexOf(c)<0) continue;
     // nearest crate (for grab)
-    if(player&&!player._carryPayload){ const d=Math.hypot(player.wx-c.x,player.wz-c.z); if(d<34&&d<ncd){ncd=d;nc=c;} }
+    if(player&&!player._carryPayload){ const d=Math.hypot(player.wx-c.x,player.wz-c.z); if(d<(window._GRAB_R_CRATE||52)&&d<ncd){ncd=d;nc=c;} }
     if(c.bar){ const ratio=Math.max(0,c.hp/c.hpMax); c.bar.visible=ratio<1; c.bar.position.set(c.x, 40, c.z); try{ if(typeof camera!=='undefined'&&camera)c.bar.lookAt(camera.position); }catch(_){} const f=c.bar.userData.fill; if(f){ f.scale.x=Math.max(0.001,ratio); f.position.x=-(28*(1-ratio))/2; f.material.color.setHex(ratio>0.5?0x39ffc9:(ratio>0.25?0xffd24a:0xff5a3c)); } }
   } }
   window._nearCrate=nc;
@@ -11815,7 +11828,7 @@ function _updatePU(dt){
     }
     else { p.grp.position.y=7+Math.sin(p.t*2.4)*1.4; p.cube.rotation.y+=dt*1.4; }
     if(p.type==='barrel'&&p.cube){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // barrels stand UPRIGHT on the ground — no tumble/tilt, just the gentle spin
-    if(player&&!player._carryPayload&&p.settled&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z); if(d<40&&d<nd){nd=d;near=p;} }
+    if(player&&!player._carryPayload&&p.settled&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z); if(d<(window._GRAB_R_ITEM||60)&&d<nd){nd=d;near=p;} }
   }
   window._nearOrb=near;
   for(const p of A){ const on=(p===near); if(p.ring){ const tgt=on?(0.5+Math.sin(p.t*5)*0.3):0.0; p.ring.material.opacity+=(tgt-p.ring.material.opacity)*Math.min(1,dt*10); const sc=on?(1+Math.sin(p.t*5)*0.06):1; p.ring.scale.set(sc,sc,sc); } }
@@ -11837,7 +11850,7 @@ function _nearestGrab(){
 function _grabItem(){
   if(!player||player._carryPayload) return false;
   const g=_nearestGrab(); if(!g) return false;
-  if(g.kind==='weapon'){ const st=g.ref; if(typeof _equipWeapon==='function')_equipWeapon(st.weapon); if(typeof _padConsume==='function')_padConsume(st); window._nearPad=null; return true; }   // grab a weapon pad -> equip the gun, no carrying
+  if(g.kind==='weapon'){ const st=g.ref; if(typeof _equipWeapon==='function')_equipWeapon(st.weapon, st.ammo); if(typeof _padConsume==='function')_padConsume(st); window._nearPad=null; return true; }   // grab a weapon pad -> equip the gun (keeps its remaining ammo if it was a drop), no carrying
   if(g.kind==='meleepad'){ const st=g.ref; if(typeof _collectHammer==='function'&&_collectHammer(st)){ if(typeof _padConsume==='function')_padConsume(st); } window._nearHammer=null; return true; }   // grab a melee station -> equip the melee weapon
   if(g.kind==='item'){ const p=g.ref; const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} player._carryPayload={kind:'item',type:p.type}; window._nearOrb=null; }
   else { const c=g.ref; const i=window._crates.indexOf(c); if(i>=0)window._crates.splice(i,1); if(c.grp){scene.remove(c.grp);c.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} if(c.bar){scene.remove(c.bar);c.bar.traverse(o=>{if(o.geometry)o.geometry.dispose();});} player._carryPayload={kind:'crate',type:null}; window._nearCrate=null; }
@@ -11924,11 +11937,41 @@ function _ensureGrabRing(){
 function _updateCarry(dt){
   // RIGHT-stick grab affordance (no throw button — the bomb machinery handles held mesh + throw)
   const js=document.getElementById('joystick-right'); const knob=document.getElementById('joy-knob-right'); const hand=_ensureGrabHand(); const ring=_ensureGrabRing();
-  const ready=!!_nearestGrab();
-  if(knob){ knob.style.background=ready?'rgba(57,255,160,0.45)':''; knob.style.boxShadow=ready?'0 0 18px rgba(57,255,160,0.85)':''; }
-  if(js){ js.style.borderColor=ready?'rgba(57,255,160,0.9)':''; }
+  const g=_nearestGrab(); const ready=!!g;
+  const swap=!!(g && g.kind==='weapon' && player && player._ownedWeps && Array.from(player._ownedWeps).some(w=>w!=='bullets' && w!==g.ref.weapon));   // already hold a different gun -> this is a SWAP
+  const accent=swap?'rgba(255,216,74,':'rgba(57,255,160,';
+  if(knob){ knob.style.background=ready?accent+'0.45)':''; knob.style.boxShadow=ready?`0 0 18px ${accent}0.85)`:''; }
+  if(js){ js.style.borderColor=ready?accent+'0.9)':''; }
+  hand.textContent=swap?'\u21c4':'\u270b';                       // ⇄ swap vs ✋ grab
+  hand.style.textShadow=`0 0 12px ${accent}0.95)`;
   hand.style.display=ready?'flex':'none';
-  ring.style.display=ready?'block':'none';
+  if(ring){ ring.style.display=ready?'block':'none'; ring.style.borderColor=swap?'#ffd84a':'#39ffa0'; ring.style.boxShadow=swap?'0 0 26px rgba(255,216,74,0.95),inset 0 0 18px rgba(255,216,74,0.5)':'0 0 26px rgba(57,255,160,0.95),inset 0 0 18px rgba(57,255,160,0.5)'; }
+  _updateGrabArrow(g, swap);
+}
+// A small down-pointing triangle that bobs above whatever you're in range to grab — the universal "you can pick this up" marker.
+function _updateGrabArrow(g, swap){
+  if(typeof scene==='undefined') return;
+  if(!window._grabArrow){
+    try{
+      const sh=new THREE.Shape(); sh.moveTo(0,-9); sh.lineTo(7,5); sh.lineTo(-7,5); sh.lineTo(0,-9);   // apex at the bottom -> points DOWN at the item
+      const mat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false,side:THREE.DoubleSide,toneMapped:false});
+      const m=new THREE.Mesh(new THREE.ShapeGeometry(sh),mat); m.renderOrder=40; m.visible=false; scene.add(m); window._grabArrow=m;
+    }catch(_){ return; }
+  }
+  const arrow=window._grabArrow;
+  if(!g||!g.ref||!player){ arrow.visible=false; return; }
+  const ref=g.ref;
+  const bx=(ref.x!=null?ref.x:player.wx), bz=(ref.z!=null?ref.z:player.wz);
+  let by;
+  if(g.kind==='weapon'||g.kind==='meleepad') by=46;                       // pads sit on the floor, emblem ~16 -> float above
+  else by=((ref.y!=null?ref.y:10))+34;                                    // items/crates/barrels float above their body
+  const t=performance.now()*0.001;
+  arrow.position.set(bx, by+Math.sin(t*3.2)*3.2, bz);                     // gentle bob
+  if(typeof camera!=='undefined') arrow.quaternion.copy(camera.quaternion);   // billboard to camera
+  const col=swap?0xffd84a:((g.kind==='weapon')?((window._WPN_COLORS&&window._WPN_COLORS[ref.weapon])||0x39ffa0):(g.kind==='meleepad'?0xffd84a:0x39ffa0));
+  arrow.material.color.setHex(col);
+  arrow.material.opacity=0.8+0.2*Math.sin(t*6);
+  arrow.visible=true;
 }
 function _disposeBarrels(){
   if(typeof _disposeCannon==='function')_disposeCannon();
@@ -18581,6 +18624,14 @@ function buildCubeArena(){
     const eg=new THREE.BufferGeometry(); eg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(ed),3));
     grp.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({color:EDGE,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})));
   }
+  // ── loadout: start with ONLY bullets + fists — every projectile gun & melee must be physically grabbed from the pads ──
+  try{ if(window._CUBE_ARSENAL!==true && player){
+    player._ownedWeps=new Set(['bullets']); player.primaryWeapon='bullets'; player.secWeapon='bullets'; player._ammo={};
+    if(player._hammer&&player._hammer.parent)player._hammer.parent.remove(player._hammer);
+    player._hammer=null; player._meleeType=null; player._stowedType=null; player._meleeStowed=true; player._meleeDur=0;
+    if(player._disarmBomb)player._disarmBomb();
+    if(typeof updateWeaponHUD==='function')updateWeaponHUD();
+  } }catch(_){}
   // ── pickups: boots + melee + guns to test with ──
   try{ if(typeof _spawnBootStation==='function') _spawnBootStation(0, -hz+ch+90); }catch(e){ console.warn('boot station',e); }
   try{ if(typeof _spawnHammerStation==='function'){ const ms=['sword','hammer','axe','spear','scythe']; ms.forEach((m,i)=>_spawnHammerStation(-200+i*100, hz-ch-90, m)); } }catch(e){ console.warn('hammer stations',e); }
@@ -23239,7 +23290,28 @@ function _makeWeaponEmblem(weapon){
   g.add(gem); g.add(glow); g.add(ring); g.add(oe);
   return g;
 }
-function _spawnWeaponPad(x,z,weapon){
+function _makeAmmoLabel(){
+  const cv=document.createElement('canvas'); cv.width=128; cv.height=64;
+  const tex=new THREE.CanvasTexture(cv); tex.minFilter=THREE.LinearFilter;
+  const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,depthTest:false,toneMapped:false}));
+  spr.scale.set(26,13,1); spr.renderOrder=42; spr._cv=cv; spr._tex=tex; spr._last='';
+  return spr;
+}
+function _setAmmoLabel(spr,text,hex){
+  if(!spr||spr._last===text+hex)return; spr._last=text+hex;
+  const cv=spr._cv, c=cv.getContext('2d'); c.clearRect(0,0,cv.width,cv.height);
+  c.font='900 46px system-ui,Arial,sans-serif'; c.textAlign='center'; c.textBaseline='middle';
+  c.lineWidth=8; c.strokeStyle='rgba(0,0,0,0.92)'; c.strokeText(text,64,34);
+  c.fillStyle=hex||'#fff'; c.fillText(text,64,34); spr._tex.needsUpdate=true;
+}
+function _padAmmoText(st){   // {text,hex} for a gun pad's remaining ammo (full default if it was never fired)
+  const full=(window._WPN_AMMO&&window._WPN_AMMO[st.weapon]!=null)?window._WPN_AMMO[st.weapon]:null;
+  const cur=(st.ammo!=null)?st.ammo:full;
+  if(cur==null) return {text:'\u221e',hex:'#9fd8ff'};
+  const frac=full?cur/full:1, hex=(frac<=0.25)?'#ff5555':(frac<=0.5?'#ffcc44':'#ffffff');
+  return {text:''+(cur|0),hex};
+}
+function _spawnWeaponPad(x,z,weapon,ammo){
   window._weaponPads=window._weaponPads||[];
   const col=_WPN_COLORS[weapon]||0x00ccff;
   const grp=new THREE.Group(); grp.position.set(x,0,z);
@@ -23248,19 +23320,33 @@ function _spawnWeaponPad(x,z,weapon){
   const disc=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.15,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); disc.rotation.x=-Math.PI/2; disc.position.y=0.5; grp.add(disc);
   const colm=new THREE.Mesh(new THREE.CylinderGeometry(5,8,42,16,1,true),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); colm.position.y=21; grp.add(colm);
   const emblem=_makeWeaponEmblem(weapon); emblem.scale.setScalar(weapon==='rockets'?1.5:1.0); emblem.position.y=16; grp.add(emblem);
+  const label=_makeAmmoLabel(); label.position.set(0,30,0); grp.add(label);
   scene.add(grp);
-  const st={grp,ring,ring2,emblem,x,z,weapon,t:0,cd:0,_col:[((col>>16)&255)/255,((col>>8)&255)/255,(col&255)/255]};
+  const st={grp,ring,ring2,emblem,label,x,z,weapon,ammo:(ammo!=null?ammo:null),t:0,cd:0,_col:[((col>>16)&255)/255,((col>>8)&255)/255,(col&255)/255]};
+  const at=_padAmmoText(st); _setAmmoLabel(label,at.text,at.hex);
   window._weaponPads.push(st);
   return st;
 }
 function _removeWeaponPads(){ const A=window._weaponPads||[]; for(const st of A){ if(st.grp){ scene.remove(st.grp); st.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } } window._weaponPads=[]; }
-function _equipWeapon(weapon){
+function _equipWeapon(weapon,ammo){
   if(!player) return;
+  // ONE secondary projectile weapon at a time — any OTHER gun you own spills out of you (keeping its remaining ammo) so it becomes a grabbable pickup
+  let swapped=false;
+  if(player._ownedWeps){
+    for(const w of Array.from(player._ownedWeps)){
+      if(w!=='bullets' && w!==weapon){
+        const left=(player._ammo&&player._ammo[w]!=null)?player._ammo[w]:null;
+        if(typeof _dropWeaponPickup==='function') _dropWeaponPickup(w,left);
+        player._ownedWeps.delete(w); if(player._ammo)delete player._ammo[w]; swapped=true;
+      }
+    }
+  }
   player.primaryWeapon=weapon; player.secWeapon=weapon; if(player._ownedWeps)player._ownedWeps.add(weapon);
-  if(player._grantAmmo)player._grantAmmo(weapon);   // a freshly grabbed gun comes with full ammo
+  if(ammo!=null){ if(!player._ammo)player._ammo={}; player._ammo[weapon]=ammo; if(typeof updateAmmoHUD==='function')updateAmmoHUD(); }   // grabbed a half-used drop -> keep its ammo
+  else if(player._grantAmmo)player._grantAmmo(weapon);                                                                                  // fresh pad -> full ammo
   if(player._disarmBomb) player._disarmBomb();
   if(typeof updateWeaponHUD==='function') updateWeaponHUD();
-  if(typeof announce==='function') announce('\u25b8 '+weapon.toUpperCase(), _WPN_HEX[weapon]||'#00ccff');
+  if(typeof announce==='function') announce((swapped?'\u21c4 ':'\u25b8 ')+weapon.toUpperCase(), _WPN_HEX[weapon]||'#00ccff');
   if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[1,0.7,0.2],30,160); ps.ring(player.wx,player.wz,[0.6,1,1],20,140); }
   if(typeof Audio!=='undefined'){ Audio.blip(440,0.1,'square',0.2,900); Audio.blip(180,0.16,'sawtooth',0.18,60); }
 }
@@ -23279,7 +23365,7 @@ function _padRespawnFX(st){
 }
 function _updateWeaponPads(dt){
   const A=window._weaponPads; if(!A||!A.length||!player){ window._nearPad=null; return; }
-  let near=null, nd=1e9; const GR=(window._WPN_GRAB_R||38), tapGrab=(window._WPN_TAP_GRAB!==false);
+  let near=null, nd=1e9; const GR=(window._WPN_GRAB_R||56), tapGrab=(window._WPN_TAP_GRAB!==false);
   for(const st of A){
     if(st.cd>0){ st.cd-=dt; if(st.cd<=0){ st.cd=0; if(st.grp)st.grp.visible=true; _padRespawnFX(st); } st._glow=0; continue; }   // recharging -> hidden
     st.t+=dt; st.ring.rotation.z+=dt*0.6; st.ring2.rotation.z-=dt*1.0;
@@ -23289,7 +23375,7 @@ function _updateWeaponPads(dt){
     else if(d<GR && player.py<28 && diff && !player._carryPayload && d<nd){ nd=d; near=st; }                      // tap-to-grab: light it up + let the right-stick tap take it
   }
   for(const st of A){ const on=(st===near); st._glow=(st._glow==null?0:st._glow)+((on?1:0)-(st._glow||0))*Math.min(1,dt*9);   // ready-glow swells on the pad you're standing in
-    const lift=0.85+0.55*(st._glow||0); if(st.ring&&st.ring.material)st.ring.material.opacity=0.85*lift; if(st.ring2&&st.ring2.material)st.ring2.material.opacity=0.6*lift; if(st.grp&&st.cd<=0)st.grp.scale.setScalar(1+0.07*(st._glow||0)); }
+    const lift=Math.min(1.25,0.34+1.0*(st._glow||0)); if(st.ring&&st.ring.material)st.ring.material.opacity=0.9*lift; if(st.ring2&&st.ring2.material)st.ring2.material.opacity=0.62*lift; if(st.grp&&st.cd<=0)st.grp.scale.setScalar(1+0.09*(st._glow||0)); }
   window._nearPad = near;
 }
 function _equipMeleeType(type){
@@ -23369,7 +23455,7 @@ function _spawnHammerStation(x,z,type){
 function _removeHammerStation(){ const A=window._hammerStations||[]; for(const st of A){ if(st.grp){ scene.remove(st.grp); st.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } } window._hammerStations=[]; window._hammerStation=null; }
 function _updateHammerStation(dt){
   const A=window._hammerStations; if(!A||!A.length||!player){ window._nearHammer=null; if(typeof _updateStowButton==='function')_updateStowButton(); return; }
-  let near=null, nd=1e9; const GR=(window._WPN_GRAB_R||38), tapGrab=(window._WPN_TAP_GRAB!==false);
+  let near=null, nd=1e9; const GR=(window._WPN_GRAB_R||56), tapGrab=(window._WPN_TAP_GRAB!==false);
   for(const st of A){
     if(st.cd>0){ st.cd-=dt; if(st.cd<=0){ st.cd=0; if(st.grp)st.grp.visible=true; _padRespawnFX(st); } st._glow=0; continue; }   // recharging -> hidden
     st.t+=dt; st.ring.rotation.z+=dt*0.6; st.ring2.rotation.z-=dt*1.0;
@@ -23379,7 +23465,7 @@ function _updateHammerStation(dt){
     else if(d<GR && player.py<28 && !player._carryPayload && d<nd){ nd=d; near=st; }
   }
   for(const st of A){ const on=(st===near); st._glow=(st._glow==null?0:st._glow)+((on?1:0)-(st._glow||0))*Math.min(1,dt*9);
-    const lift=0.85+0.55*(st._glow||0); if(st.ring&&st.ring.material)st.ring.material.opacity=0.85*lift; if(st.ring2&&st.ring2.material)st.ring2.material.opacity=0.6*lift; if(st.grp&&st.cd<=0)st.grp.scale.setScalar(1+0.07*(st._glow||0)); }
+    const lift=Math.min(1.25,0.34+1.0*(st._glow||0)); if(st.ring&&st.ring.material)st.ring.material.opacity=0.9*lift; if(st.ring2&&st.ring2.material)st.ring2.material.opacity=0.62*lift; if(st.grp&&st.cd<=0)st.grp.scale.setScalar(1+0.09*(st._glow||0)); }
   window._nearHammer = near;
   if(typeof _updateStowButton==='function') _updateStowButton();
 }
