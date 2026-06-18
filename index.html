@@ -2521,7 +2521,7 @@ class Enemy{
     if(this._hpShowT>0) this._hpShowT--;
     const mx=this.maxHp||0;
     if(mx<=1){ if(this._hpBar) this._hpBar.visible=false; return; }
-    if(this._hpShowT>0 && this.hp>0){
+    if(this._hpShowT>0 && this.hp>0 && !this._dying){   // dying sets hp=9999 as a splice-guard sentinel -> never draw the bar then (it'd read 100%)
       this._ensureHpBar(); const b=this._hpBar; if(!b) return;
       b.visible=true; this.mesh.getWorldQuaternion(_hpTmpQ); _hpTmpQ.invert().multiply(camera.quaternion); b.quaternion.copy(_hpTmpQ);
       const frac=Math.max(0,Math.min(1,this.hp/mx));
@@ -3176,7 +3176,17 @@ class BlueDragon extends Enemy{
         if(d<airR && d>meleeR+10 && this._airCD<=0 && this._act.attack_air && Math.random()<(window._DRAGON_AIR_CHANCE||0.035)){ this._airCD=window._DRAGON_AIR_CD||3.2; this._enter('attack_air'); break; }
         const spd=(d>airR)?this._runSpd:this._walkSpd;
         this.vx=dx/d*spd; this.vz=dz/d*spd; this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._clampZone();
-        const sp=Math.hypot(this.vx,this.vz), ra=this._act.run; if(ra){ ra.timeScale=Math.max(0.4, sp/(window._DRAGON_RUN_REF||150)); if(sp>4 && this._curName!=='run') this._play('run'); }   // moving but not playing run (got interrupted) -> re-assert the run clip
+        const sp=Math.hypot(this.vx,this.vz), ra=this._act.run;
+        if(ra){ ra.timeScale=Math.max(0.4, sp/(window._DRAGON_RUN_REF||150));
+          if(sp>4){
+            if(this._curName!=='run'){ this._play('run'); }
+            else { ra.enabled=true; ra.paused=false; ra.setLoop(THREE.LoopRepeat,Infinity); ra.clampWhenFinished=false;   // FORCE a continuous loop — a clamped/finished run is the "plays once then freezes & glides" bug
+              const rd=this._dur.run||1, endK=(window._DOG_RUN_END||1);
+              if(endK<1 && ra.time> rd*endK) ra.time=ra.time%(rd*endK);   // optional: skip trailing dead/static frames in the GLB without re-exporting (set window._DOG_RUN_END≈0.6)
+              if(!ra.isRunning()) ra.play();
+            }
+          }
+        }
         break; }
       case 'attack_ground': { this._curY=0; this.vx*=0.6; this.vz*=0.6;
         const dur=this._dur.attack_ground||0.9, hitAt=dur*(window._DRAGON_PUNCH_FRAC||0.45);
@@ -19406,7 +19416,7 @@ function _enemyCam(P, tgt, dt){
   if(!_enemyCamLook) _enemyCamLook=look.clone();
   _enemyCamLook.lerp(look,(window._ENEMYCAM_LOOK_LERP||0.14));
   // WALL AIM-NUDGE: on a wall, pan the look toward where you're shooting so off-side targets come into frame (mirrors the normal wall cam)
-  if(window._ENEMYCAM_WALL_NUDGE!==false && player && player._aim3DActive && player._aim3D){
+  if(window._ENEMYCAM_WALL_NUDGE!==false && player && player._aim3DActive && player._aim3D && player._cubeUp && player._cubeUp.y < (window._ENEMYCAM_WALL_NY||0.85)){   // ONLY on a wall/ceiling (surface up tilted) — the floor's _aim3DActive shouldn't trigger it
     const lat=(-dir.z)*player._aim3D.x + (dir.x)*player._aim3D.z;   // aim component along camera-right (horizontal)
     player._ecAimPan=(player._ecAimPan||0); player._ecAimPan += (lat*(window._ENEMYCAM_NUDGE_AMT||84) - player._ecAimPan)*Math.min(1,dt*(window._ENEMYCAM_NUDGE_EASE||5));
     _enemyCamLook.x += (-dir.z)*player._ecAimPan; _enemyCamLook.z += (dir.x)*player._ecAimPan;
@@ -23327,7 +23337,7 @@ window._MELEE_NAMES={sword:'\u2694 SWORD',hammer:'\u2692 SLEDGEHAMMER',axe:'\u26
 // ════════════════════════════════════════════════════════════════════════════════
 function _makeRoboMace(){   // just the HANDLE/grip held in the hand; the chain+ball live in world space
   const g=new THREE.Group();
-  const grip=new THREE.MeshStandardMaterial({color:0x394048,emissive:0x0a0e12,roughness:0.6,metalness:0.7});
+  const grip=new THREE.MeshStandardMaterial({color:0x7a8698,emissive:0x32465c,emissiveIntensity:0.6,roughness:0.5,metalness:0.7});
   const accent=new THREE.MeshStandardMaterial({color:0xff8c1a,emissive:0xff8c1a,emissiveIntensity:1.2,roughness:0.4,metalness:0.5,toneMapped:false});
   g.add(new THREE.Mesh(new THREE.CylinderGeometry(1.5,1.8,16,12),grip));                                  // grip along +Y
   const pommel=new THREE.Mesh(new THREE.SphereGeometry(2.2,12,10),grip); pommel.position.y=-8.5; g.add(pommel);
@@ -23338,8 +23348,8 @@ function _makeRoboMace(){   // just the HANDLE/grip held in the hand; the chain+
 }
 function _makeMaceBall(){
   const g=new THREE.Group();
-  const steel=new THREE.MeshStandardMaterial({color:0x55606b,emissive:0x101418,roughness:0.45,metalness:0.85,toneMapped:false});
-  const spikeMat=new THREE.MeshStandardMaterial({color:0xbfc8d2,emissive:0x2a3340,emissiveIntensity:0.5,roughness:0.35,metalness:0.9,toneMapped:false});
+  const steel=new THREE.MeshStandardMaterial({color:0xaebccf,emissive:0x4a6a88,emissiveIntensity:0.85,roughness:0.4,metalness:0.8,toneMapped:false});
+  const spikeMat=new THREE.MeshStandardMaterial({color:0xeaf2ff,emissive:0x9fc0e0,emissiveIntensity:1.0,roughness:0.3,metalness:0.85,toneMapped:false});
   const R=(window._MACE_BALL_R||8);
   g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(R,1),steel));
   const dirs=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1],[0.6,0.6,0.6],[-0.6,0.6,-0.6],[0.6,-0.6,0.6],[-0.6,-0.6,-0.6]];
@@ -23361,7 +23371,7 @@ function _initMaceChain(){
   const a=_maceAnchor(new THREE.Vector3());
   const pts=[]; for(let i=0;i<=N;i++){ const p=a.clone(); p.y-=L*i; pts.push({pos:p.clone(), prev:p.clone()}); }
   const grp=new THREE.Group(); grp.renderOrder=18;
-  const linkMat=new THREE.MeshStandardMaterial({color:0x8a939c,emissive:0x141a20,roughness:0.4,metalness:0.9,toneMapped:false});
+  const linkMat=new THREE.MeshStandardMaterial({color:0xcdd8e6,emissive:0x5878a0,emissiveIntensity:0.8,roughness:0.35,metalness:0.85,toneMapped:false});
   const links=[]; for(let i=1;i<N;i++){ const lk=new THREE.Mesh(new THREE.TorusGeometry(1.7,0.6,6,12),linkMat); if(i%2)lk.rotation.x=Math.PI/2; grp.add(lk); links.push(lk); }
   const ball=_makeMaceBall(); grp.add(ball);
   try{ scene.add(grp); }catch(_){}
@@ -23372,6 +23382,21 @@ function _disposeMaceChain(){
   try{ if(mc.grp){ scene.remove(mc.grp); mc.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){}
   player._maceChain=null;
 }
+function _startMaceSwing(sx,sz,strength){
+  // map the 2D right-stick swipe to a 3D strike (camera-relative): vertical swipe = overhead/uppercut, horizontal = slash
+  const yaw=(typeof CAM!=='undefined')?CAM.yaw:0;
+  const F=new THREE.Vector3(-Math.sin(yaw),0,-Math.cos(yaw));   // into the screen (away from camera)
+  const R=new THREE.Vector3(F.z,0,-F.x);                        // camera-right
+  const U=new THREE.Vector3(0,1,0);
+  const vUp=(window._MACE_SWIPE_INVERT?1:-1)*sz;               // pad-up = +  (swipe up -> uppercut), pad-down = - (overhead)
+  const LAT=(window._MACE_SW_LAT||1.0), FWD=(window._MACE_SW_FWD||0.75), VERT=(window._MACE_SW_VERT||1.15);
+  const strike=new THREE.Vector3().addScaledVector(R,sx*LAT).addScaledVector(F,FWD).addScaledVector(U,vUp*VERT);
+  if(strike.lengthSq()<1e-5)strike.copy(F); strike.normalize();
+  const wUp=(vUp<-0.1)?1:(vUp>0.1?-1:1);                        // overhead -> wind UP then slam; uppercut -> wind DOWN then rise; slash -> wind up
+  const wind=new THREE.Vector3().addScaledVector(R,-sx*LAT*0.55).addScaledVector(F,-(window._MACE_SW_BACK||0.45)).addScaledVector(U,wUp*(window._MACE_SW_LIFT||1.25));
+  if(wind.lengthSq()<1e-5)wind.set(0,1,0); wind.normalize();
+  player._maceSwing={ strike, wind, t:0, strength:strength||1, struck:false };
+}
 function _updateMace(dt){
   if(!player || player._meleeType!=='mace'){ if(player&&player._maceChain)_disposeMaceChain(); return; }
   if(!player._maceChain) _initMaceChain();
@@ -23381,12 +23406,24 @@ function _updateMace(dt){
   const G=(window._MACE_GRAV||900), damp=(window._MACE_DAMP||0.92), drive=(window._MACE_DRIVE||2600);
   // right stick -> world-horizontal force on the BALL (push = fling, circle = spin)
   const rx=player._maceRX||0, rz=player._maceRZ||0;
+  // ── SWIPE-SWING: a quick directional flick of the right stick triggers a wound-up swing in that direction ──
+  const _msp=player._maceStickPrev||{x:rx,z:rz}; const dvx=rx-_msp.x, dvz=rz-_msp.z; player._maceStickPrev={x:rx,z:rz};
+  if(player._maceSwingCD>0)player._maceSwingCD-=dt;
+  if(window._MACE_SWIPE!==false){ const swSpd=Math.hypot(dvx,dvz)/Math.max(h,1e-3), mag=Math.hypot(rx,rz);
+    if(swSpd>(window._MACE_SWIPE_TRIG||5.5) && mag>(window._MACE_SWIPE_MINMAG||0.32) && (player._maceSwingCD||0)<=0 && !player._maceSwing){ const sl=Math.hypot(dvx,dvz)||1; _startMaceSwing(dvx/sl,dvz/sl,Math.min(2.2,swSpd/(window._MACE_SWIPE_REF||7))); player._maceSwingCD=(window._MACE_SWING_CD||0.3); }   // mag gate: ignore the stick snapping back to centre on release
+  }
+  const sw=player._maceSwing;
+  if(sw){ sw.t+=dt; const ball=pts[N], windDur=(window._MACE_WIND_DUR||0.12);
+    if(sw.t<windDur){ const v=sw.wind, spd=(window._MACE_WIND_SPD||560); ball.prev.set(ball.pos.x-v.x*spd*h, ball.pos.y-v.y*spd*h, ball.pos.z-v.z*spd*h); }   // wind up to the opposite side
+    else if(!sw.struck){ sw.struck=true; const v=sw.strike, spd=(window._MACE_STRIKE_SPD||1700)*sw.strength; ball.prev.set(ball.pos.x-v.x*spd*h, ball.pos.y-v.y*spd*h, ball.pos.z-v.z*spd*h); if(typeof Audio!=='undefined'){try{Audio.blip(150,0.09,'sawtooth',0.18,80);}catch(_){}} if(typeof addTrauma==='function')addTrauma(0.05); }   // STRIKE: fling through
+    else if(sw.t>windDur+(window._MACE_SWING_HOLD||0.55)){ player._maceSwing=null; }   // done -> gravity/idle (or next swipe)
+  }
   pts[0].pos.copy(a); pts[0].prev.copy(a);
   for(let i=1;i<=N;i++){ const p=pts[i];
     const vx=(p.pos.x-p.prev.x)*damp, vy=(p.pos.y-p.prev.y)*damp, vz=(p.pos.z-p.prev.z)*damp;
     p.prev.copy(p.pos);
     p.pos.x+=vx; p.pos.y+=vy - G*h*h; p.pos.z+=vz;
-    if(i===N){ p.pos.x+=rx*drive*h*h; p.pos.z+=rz*drive*h*h; }   // drive the ball
+    if(i===N && !player._maceSwing){ p.pos.x+=rx*drive*h*h; p.pos.z+=rz*drive*h*h; }   // continuous drive only when NOT mid-swing (swing owns the ball)
   }
   for(let it=0; it<(window._MACE_ITER||6); it++){
     pts[0].pos.copy(a);
@@ -23899,6 +23936,14 @@ function _stowMeleeOnBack(hm, back){
   hm.position.copy(back.worldToLocal(bp));
   const bsBack=back.getWorldScale(new THREE.Vector3());                 // preserve the world size
   hm.scale.set((wsBefore.x/(bsBack.x||1))*(window._STOW_SCALE||1), (wsBefore.y/(bsBack.y||1))*(window._STOW_SCALE||1), (wsBefore.z/(bsBack.z||1))*(window._STOW_SCALE||1));
+  if(window._STOW_CENTER!==false){   // mount from the MIDDLE of the blade, not the hilt base — otherwise long weapons (spear/scythe) tower way over the shoulder
+    try{ hm.updateWorldMatrix(true,true);
+      const wc=new THREE.Box3().setFromObject(hm).getCenter(new THREE.Vector3());           // current world centre of the weapon
+      const originW=back.localToWorld(hm.position.clone());                                   // current world origin (where the hilt sits)
+      const corr=bp.clone().sub(wc).add(yA.clone().multiplyScalar(window._STOW_CENTER_BIAS||0)); // shift centre onto the mount (+ optional bias up the handle axis)
+      hm.position.copy(back.worldToLocal(originW.add(corr)));
+    }catch(_){}
+  }
   return true;
 }
 function _toggleMeleeStow(){
