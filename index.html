@@ -401,7 +401,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
     <!-- START button -->
     <button onclick="window._showScreen('mode')" style="
       font-family:'Orbitron',sans-serif;font-size:clamp(16px,4vw,22px);font-weight:900;
-      letter-spacing:4px;padding:16px 44px;margin-top:6px;
+      letter-spacing:4px;padding:16px 44px;margin-top:34px;
       background:transparent;border:2px solid #00ffc8;color:#00ffc8;
       box-shadow:0 0 30px #00ffc833,inset 0 0 30px #00ffc808;
       cursor:pointer;text-transform:uppercase;
@@ -9426,7 +9426,7 @@ class Player{
         else if(this._carryPayload&&this._carryPayload.kind==='crate'){ if(player&&player.model){ this._bombMesh.rotation.set(0, player.model.rotation.y, 0); } }
         else { if(player&&player.model){ this._bombMesh.quaternion.copy(player.model.quaternion); } } }   // nuke / singularity / quake: held steady but ROTATE WITH the character (was locked to a stale yaw)
       else { this._bombBodyMat&&this._bombBodyMat.color.setRGB(1,g,0); }
-      if(this._carryPayload && /barrel/i.test(this._carryPayload.type||'')){ this._bombMesh.rotation.set(0, (player&&player.model?player.model.rotation.y:0)+(window._BARREL_HOLD_YAW||0), Math.PI/2); }   // barrels ALWAYS lie horizontal, whatever branch tagged the carry
+      if(this._carryPayload && /barrel/i.test(this._carryPayload.type||'')){ if(player&&player.model){ const _rW=new THREE.Vector3(window._BARREL_HOLD_FLIP?-1:1,0,0).applyQuaternion(player.model.quaternion).normalize(); this._bombMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),_rW); } }   // barrel lies HORIZONTAL across the body (long axis = player's left/right) so its round ends face each hand
       if(this._bombCoreMesh) this._bombCoreMesh.scale.setScalar(0.8+0.4*Math.sin(t*6));
     } else if(!this.bombArmed&&this._bombMesh){
       this._disarmBomb();
@@ -12085,7 +12085,7 @@ function _updatePU(dt){
     else if(p._lying){ p.grp.position.set(p.x,p.y,p.z); }   // a barrel that rolled to a stop -> stays lying on its side where it landed (no bob, no upright snap)
     else { p.grp.position.y=7+Math.sin(p.t*2.4)*1.4; p.cube.rotation.y+=dt*1.4; }
     if(p.type==='barrel'&&p.cube&&!p._lying){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // upright barrels stand straight; a LYING (rolled-to-rest) barrel keeps its side pose
-    if(player&&!player._carryPayload&&p.settled&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z); if(d<(window._GRAB_R_ITEM||60)&&d<nd){nd=d;near=p;} }
+    if(player&&!player._carryPayload&&(p.settled||p.type==='barrel')&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z); if(d<(window._GRAB_R_ITEM||60)&&d<nd){nd=d;near=p;} }   // barrels are grabbable even while still rolling
   }
   window._nearOrb=near;
   for(const p of A){ const on=(p===near); if(p.ring){ const tgt=on?(0.5+Math.sin(p.t*5)*0.3):0.0; p.ring.material.opacity+=(tgt-p.ring.material.opacity)*Math.min(1,dt*10); const sc=on?(1+Math.sin(p.t*5)*0.06):1; p.ring.scale.set(sc,sc,sc); } }
@@ -16772,11 +16772,12 @@ function loop(ts){ requestAnimationFrame(loop);
           player.updateBomb(dt,0,0);
         } else {
           let worldX=0,worldZ=0;
-          if(sm>0.08){ const ws=rotInput(shootIn.x,shootIn.y); worldX=ws.x; worldZ=ws.z; }
+          const _aimHeld=(!IS_TOUCH)||(typeof jR!=='undefined'&&jR&&jR.id!==null);   // only show the aimer/trajectory while the right stick is actually being TOUCHED (so just holding an item shows nothing, and a quick flick won't flash it)
+          if(_aimHeld && sm>0.08){ const ws=rotInput(shootIn.x,shootIn.y); worldX=ws.x; worldZ=ws.z; }
           player.updateBomb(dt,worldX,worldZ);
         }
-      } else if(player&&CAM.aimMode&&player.bombArmed&&sm>(window._AIM_SHOW_MIN||0.08)){
-        // 3D aim mode: show trajectory arc ONLY while the throw stick is pushed (was drawn persistently the whole time you held an item)
+      } else if(player&&CAM.aimMode&&player.bombArmed&&sm>(window._AIM_SHOW_MIN||0.08)&&((!IS_TOUCH)||(typeof jR!=='undefined'&&jR&&jR.id!==null))){
+        // 3D aim mode: show trajectory arc ONLY while the throw stick is actually held (was drawn the whole time you held an item)
         player._hideAimer(); // hide ground ring/lines
         // Show trajectory dots along the 3D throw path
         if(player._trajDots&&CAM._aimFwdX!==undefined){
@@ -23949,6 +23950,15 @@ function _collectHammer(st){
   if(typeof _updateStowButton==='function') _updateStowButton();
   return ok;
 }
+// Per-weapon stow tweaks (all live-tunable via window._STOW_FIX). roll = spin about the handle axis; flip = end-over-end; nudgeX/Y = lateral/along-axis shift; midY = override the centering midpoint.
+window._STOW_FIX=window._STOW_FIX||{
+  hammer:{roll:Math.PI/2},          // turn the head 90° off the side so it clears his skull
+  sword:{flip:Math.PI},             // was upside-down -> flip so the hilt sits up
+  axe:{nudgeX:4},                   // shift right to center on the spine
+  spear:{midY:14,nudgeX:2},         // center on the SHAFT, not the spearhead
+  scythe:{},
+  mace:{}
+};
 function _stowMeleeOnBack(hm, back){
   if(!hm||!back||!player||!player.model) return false;
   player.model.updateWorldMatrix(true,true);
@@ -23961,23 +23971,29 @@ function _stowMeleeOnBack(hm, back){
   const yA=upW.clone().applyAxisAngle(fwdW, tilt).normalize();          // weapon handle (+Y) points up-the-back, tilted
   let xA=new THREE.Vector3().crossVectors(yA,fwdW); if(xA.lengthSq()<1e-5)xA.set(1,0,0); xA.normalize();
   const zA=new THREE.Vector3().crossVectors(xA,yA).normalize();
+  const _ft=(player._meleeType)||(hm.userData&&hm.userData._meleeType)||'';
+  const _fix=(window._STOW_FIX&&window._STOW_FIX[_ft])||{};
   const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,yA,zA));
+  if(_fix.flip) desired.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), _fix.flip));   // end-over-end (sword hilt-up)
+  if(_fix.roll) desired.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), _fix.roll));   // spin about the handle (hammer head off the skull)
   const bq=back.getWorldQuaternion(new THREE.Quaternion());
   hm.quaternion.copy(bq.clone().invert().multiply(desired));            // local rot that yields the desired world pose on the back bone
-  const off=upW.clone().multiplyScalar(window._STOW_UP||4).addScaledVector(fwdW,-(window._STOW_BACK||5));   // behind + slightly up
+  const off=upW.clone().multiplyScalar(window._STOW_UP||4).addScaledVector(fwdW,-(window._STOW_BACK||12));   // pushed further BEHIND the spine so it stops intersecting his back mesh
   const bp=back.getWorldPosition(new THREE.Vector3()).add(off);
   hm.position.copy(back.worldToLocal(bp));
   const bsBack=back.getWorldScale(new THREE.Vector3());                 // preserve the world size
   hm.scale.set((wsBefore.x/(bsBack.x||1))*(window._STOW_SCALE||1), (wsBefore.y/(bsBack.y||1))*(window._STOW_SCALE||1), (wsBefore.z/(bsBack.z||1))*(window._STOW_SCALE||1));
-  if(window._STOW_CENTER!==false){   // center the MIDDLE of the weapon on the back. Use the weapon's KNOWN length (its _baseY/_tipY trail anchors) and slide along its own axis — deterministic, can't fling off the body like the old world-bbox math did
+  if(window._STOW_CENTER!==false){   // center the MIDDLE of the weapon on the back. Use the weapon's KNOWN length (its _baseY/_tipY trail anchors, or a per-weapon midY override) and slide along its own axis — deterministic, can't fling off the body
     try{ hm.updateWorldMatrix(true,true);
       const ud2=hm.userData||{};
-      const midLocalY=(((ud2._baseY!=null?ud2._baseY:0)+(ud2._tipY!=null?ud2._tipY:18))*0.5)+(window._STOW_CENTER_BIAS||0);
+      const midLocalY=(_fix.midY!=null?_fix.midY:(((ud2._baseY!=null?ud2._baseY:0)+(ud2._tipY!=null?ud2._tipY:18))*0.5))+(window._STOW_CENTER_BIAS||0);
       const wsY=hm.getWorldScale(new THREE.Vector3()).y||1;
       let shift=midLocalY*wsY*(window._STOW_CENTER_K||1);
       const mxs=(window._STOW_CENTER_MAX||50); shift=Math.max(-mxs,Math.min(mxs,shift));   // bounded so a bad value can never throw it off the body
-      const w0=back.localToWorld(hm.position.clone());
-      hm.position.copy(back.worldToLocal(w0.addScaledVector(yA,-shift)));                  // slide DOWN its own handle axis so the midpoint lands on the mount
+      const w0=back.localToWorld(hm.position.clone()).addScaledVector(yA,-shift);          // slide DOWN its own handle axis so the midpoint lands on the mount
+      if(_fix.nudgeX) w0.addScaledVector(xA, _fix.nudgeX);                                  // lateral re-center (axe)
+      if(_fix.nudgeY) w0.addScaledVector(yA, _fix.nudgeY);
+      hm.position.copy(back.worldToLocal(w0));
     }catch(e){ console.warn('[stow] centering skipped',e); }
   }
   return true;
