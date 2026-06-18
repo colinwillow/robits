@@ -11468,6 +11468,7 @@ function _detonateItem(type,x,z,od){
       if(typeof _bombBlastEnemies==='function') _bombBlastEnemies(x,9,z,R,dmg);
       if(typeof ps!=='undefined'){ ps.burst(x,z,[1,0.5,0.1],26,200,14); ps.ring(x,z,[1,0.7,0.2],16,R*0.8,14); for(let k=0;k<24;k++){ const a=rand(TAU),sp=rand(120,300); ps._spawn(x,rand(6,44),z,Math.cos(a)*sp,rand(40,180),Math.sin(a)*sp,1,0.45,0.08,0.4); } }
       if(typeof grid!=='undefined'){ if(grid.push)grid.push(x,z,-10,R); if(grid.shock)grid.shock(x,z,7); if(grid.pulse)grid.pulse(0.4); }
+      if(typeof gridSheetsBlast==='function' && typeof GRID_SHEETS!=='undefined' && GRID_SHEETS.length){ try{ gridSheetsBlast(x,9,z,(window._BARREL_SHEET_POWER||11),R); }catch(_){} }   // ripple the cube floor/walls/chamfer too (not just the legacy ground grid)
       if(typeof hitStop==='function')hitStop(5);
       if(player&&player.alive!==false&&(player.inv||0)<=0){ const pd=Math.hypot(player.wx-x,player.wz-z); if(pd<(window._BARREL_HURT_R||72)){ if(player.shieldActive&&player.shieldHit){ player.shieldHit(20,'blast'); } else if(window._BARREL_HURTS_PLAYER!==false){ player._burnT=Math.max(player._burnT||0,1); if(typeof playerDie==='function')playerDie(1,'#ff8c1a'); } } }   // barrels hurt YOU too if you're in the blast
       try{ if(window._itemPU){ for(const p of window._itemPU){ if(p&&p.type==='barrel'&&!(p._cooking>0)){ const d=Math.hypot(p.x-x,p.z-z); if(d<(window._BARREL_CHAIN_R||120)){ p._cooking=0.1+Math.random()*0.18; } } } } }catch(_){}   // CHAIN: nearby barrels cook off
@@ -11551,6 +11552,8 @@ function _slamShockwave(x, z, o){
     update(dt){ t+=dt; const k=t/dur; if(k>=1) return false;
       const ease=1-Math.pow(1-k,2.2), R=Math.max(2,rMax*ease), fade=(1-k);
       ring.scale.set(R,R,1); ringMat.opacity=0.95*fade*fade;
+      fx._sheetT=(fx._sheetT||0)-dt;
+      if(fx._sheetT<=0 && typeof gridSheetsBlast==='function' && typeof GRID_SHEETS!=='undefined' && GRID_SHEETS.length){ try{ gridSheetsBlast(x,y,z,(window._SLAM_SHEET_POWER||5)*fade, R+band); }catch(_){} fx._sheetT=0.05; }   // the shockwave front ripples ALL nearby sheets — floor, walls AND the chamfer corners
       ring2.scale.set(R*0.9,R*0.9,1); ring2Mat.opacity=0.5*fade;
       for(let i=0;i<slN;i++){ const a=angs[i], inner=R*0.52, outer=R*1.05;
         slPos[i*6]=Math.cos(a)*inner; slPos[i*6+1]=0.5; slPos[i*6+2]=Math.sin(a)*inner;
@@ -11758,6 +11761,7 @@ function _updatePU(dt){
   }
   let near=null,nd=1e9;
   for(const p of A){ p.t+=dt;
+    if(GS.zone===-19){ const C=(window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{hx:560,hz:560,cham:130})); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9), mx=C.hx-ch-12, mz=C.hz-ch-12; if(p.x>mx){p.x=mx;if(p.vx>0)p.vx*=-0.3;} else if(p.x<-mx){p.x=-mx;if(p.vx<0)p.vx*=-0.3;} if(p.z>mz){p.z=mz;if(p.vz>0)p.vz*=-0.3;} else if(p.z<-mz){p.z=-mz;if(p.vz<0)p.vz*=-0.3;} }   // keep loot on the FLAT floor (inside the chamfer corners) so it can't land on the curve and fall through
     if(!p.settled){ p.vy-=360*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.z+=p.vz*dt; if(p.y<=7){ p.y=7; if(p.vy<-30){ p.vy*=-0.4; p.vx*=0.65; p.vz*=0.65; } else { p.vy=0; } p.vx*=0.82; p.vz*=0.82; if(Math.abs(p.vy)<14&&Math.hypot(p.vx,p.vz)<8){ p.settled=true; p.vx=p.vy=p.vz=0; p.y=7; } } p.grp.position.set(p.x,p.y,p.z); p.cube.rotation.x+=dt*4; p.cube.rotation.y+=dt*3; }
     else if(p._loot){   // LOOT BALL settled -> flatten into a disc, then unfold into the pad (beam-up)
       if(p._unfoldT==null) p._unfoldT=0.32;
@@ -11767,6 +11771,7 @@ function _updatePU(dt){
       if(p._unfoldT<=0){ _unfoldLootBall(p); continue; }
     }
     else { p.grp.position.y=7+Math.sin(p.t*2.4)*1.4; p.cube.rotation.y+=dt*1.4; }
+    if(p.type==='barrel'&&p.cube){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // barrels stand UPRIGHT on the ground — no tumble/tilt, just the gentle spin
     if(player&&!player._carryPayload&&p.settled&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z); if(d<40&&d<nd){nd=d;near=p;} }
   }
   window._nearOrb=near;
@@ -11795,41 +11800,61 @@ function _grabItem(){
 function _updateItemShots(dt){
   const A=window._itemShots; if(!A||!A.length)return;
   for(let i=A.length-1;i>=0;i--){ const s=A[i];
-    if(!s.mesh){ s.mesh=_makePUModel(s.kind==='crate'?'crate':s.type); s.mesh.scale.setScalar(s.kind==='crate'?1.35:1.15); scene.add(s.mesh); s.spin={x:rand(-5,5),y:rand(-5,5),z:rand(-5,5)}; }
+    if(!s.mesh){ s.mesh=_makePUModel(s.kind==='crate'?'crate':s.type); s.mesh.scale.setScalar(s.kind==='crate'?1.35:1.15); scene.add(s.mesh); s.spin={x:rand(-5,5),y:rand(-5,5),z:rand(-5,5)}; if(s.type==='barrel'){ const f=(window._BARREL_THROW_F||1.8); s.vx*=f; s.vz*=f; if(s.vy>50)s.vy*=0.65; } }   // barrels get extra FORWARD launch + a flatter arc so they land rolling, not plopping
     const _isf=(GS.zone===-19 && GS._gravFlip)?-1:1;   // flipped gravity pulls thrown stuff toward the ceiling too
     const BSZ=(window._BARREL_SIZE||11);
     const _barrelWall=(px,py,pz)=>{ if(GS.zone===-19){ return (typeof _cubeSDF==='function') && _cubeSDF(px,py,pz) > -BSZ; } const d=Math.hypot(px,pz), RR=(typeof ARENA_R!=='undefined'?ARENA_R-18:540); return d>RR; };
     const _breakBarrel=(s,i)=>{ if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } _detonateItem('barrel',s.x,s.z,false); A.splice(i,1); };
 
-    // ── BARREL ROLL PHASE — after it lands it rolls, then breaks on an enemy / wall / running out of roll ──
+    // ── BARREL ROLL PHASE — rolls on the cube's INNER SHELL (climbs the curved chamfer/walls + rolls back down); breaks only when actually HIT ──
     if(s.type==='barrel' && s._rolling){
-      s._rollT=(s._rollT||0)+dt; s.x+=s.vx*dt; s.z+=s.vz*dt; s.y=8;
-      const fr=Math.pow((window._BARREL_ROLL_FRIC!=null?window._BARREL_ROLL_FRIC:0.5),dt); s.vx*=fr; s.vz*=fr;
-      const sp=Math.hypot(s.vx,s.vz);
-      if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z);
-        if(sp>4){ const dirx=s.vx/sp, dirz=s.vz/sp, axis=new THREE.Vector3(-dirz,0,dirx); s._rollAng=(s._rollAng||0)+(sp/BSZ)*dt;
-          const q1=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),axis), q2=new THREE.Quaternion().setFromAxisAngle(axis,s._rollAng); s.mesh.quaternion.copy(q2).multiply(q1); } }
-      if(typeof ps!=='undefined'&&Math.random()<0.4) ps.spark(s.x+rand(-6,6),s.z+rand(-6,6),[1,0.55,0.12],9);
+      s._rollT=(s._rollT||0)+dt;
+      s.vy-=(window._BARREL_ROLL_GRAV||560)*dt;                                   // world gravity rolls it back down the curves
+      s.x+=s.vx*dt; s.y+=s.vy*dt; s.z+=s.vz*dt;
+      let onSurf=false, slamV=0;
+      if(GS.zone===-19 && typeof _cubeSDF==='function' && typeof _cubeGrad==='function'){
+        const sd=_cubeSDF(s.x,s.y,s.z);
+        if(sd > -BSZ){ const n=new THREE.Vector3(); _cubeGrad(s.x,s.y,s.z,n); const push=(-BSZ - sd); s.x+=n.x*push; s.y+=n.y*push; s.z+=n.z*push;
+          const vn=s.vx*n.x+s.vy*n.y+s.vz*n.z; if(vn>0){ slamV=vn; const REST=(window._BARREL_ROLL_REST||0.18); s.vx-=n.x*vn*(1+REST); s.vy-=n.y*vn*(1+REST); s.vz-=n.z*vn*(1+REST); } onSurf=true; }
+      } else {
+        if(s.y<=BSZ){ slamV=Math.max(0,-s.vy); s.y=BSZ; if(s.vy<0)s.vy=-s.vy*0.2; onSurf=true; }
+        const d=Math.hypot(s.x,s.z), RR=(typeof ARENA_R!=='undefined'?ARENA_R-BSZ:540-BSZ); if(d>RR){ const nx=s.x/d,nz=s.z/d; s.x=nx*RR; s.z=nz*RR; const vn=s.vx*nx+s.vz*nz; if(vn>0){ s.vx-=nx*vn*1.4; s.vz-=nz*vn*1.4; } }
+      }
+      if(onSurf){ const fr=Math.pow((window._BARREL_ROLL_FRIC!=null?window._BARREL_ROLL_FRIC:0.6),dt); s.vx*=fr; s.vz*=fr; }
+      const hsp=Math.hypot(s.vx,s.vz);
+      if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z); if(hsp>4){ const dirx=s.vx/hsp,dirz=s.vz/hsp,axis=new THREE.Vector3(-dirz,0,dirx); s._rollAng=(s._rollAng||0)+(hsp/BSZ)*dt; const q1=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),axis),q2=new THREE.Quaternion().setFromAxisAngle(axis,s._rollAng); s.mesh.quaternion.copy(q2).multiply(q1); } }
+      if(typeof ps!=='undefined'&&onSurf&&hsp>40&&Math.random()<0.4) ps.spark(s.x+rand(-6,6),s.z+rand(-6,6),[1,0.55,0.12],s.y);
       let brk=false;
-      if(typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&!e._captured&&Math.hypot(e.wx-s.x,e.wz-s.z)<((e.size||14)+BSZ+4)){ brk=true; break; } } }
-      if(!brk && _barrelWall(s.x,8,s.z)) brk=true;
-      if(!brk && (s._rollT>(window._BARREL_ROLL_T||1.7) || sp<(window._BARREL_ROLL_MIN||34))) brk=true;
+      if(typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&!e._captured&&Math.hypot(e.wx-s.x,e.wz-s.z)<((e.size||14)+BSZ+4)){ brk=true; break; } } }   // rolled into an enemy
+      if(!brk && slamV>(window._BARREL_SLAM_BREAK||340)) brk=true;                                          // slammed a surface HARD
+      if(!brk && typeof GS!=='undefined'&&GS.bullets){ for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b)continue; const bw=(b.wx!=null?b.wx:b.x)||0,bz=(b.wz!=null?b.wz:b.z)||0; if(Math.hypot(bw-s.x,bz-s.z)<(BSZ+6)&&Math.abs(((b.y!=null?b.y:9))-s.y)<(BSZ+12)){ if(b.remove)b.remove(); GS.bullets.splice(bi,1); brk=true; break; } } }   // shot it
+      if(!brk && s._rollT>(window._BARREL_ROLL_T||7)) brk=true;                                             // safety: don't roll forever
       if(brk) _breakBarrel(s,i);
       continue;
     }
 
     // ── FLIGHT PHASE ──
     s.vy-=320*dt*_isf; s.x+=s.vx*dt; s.z+=s.vz*dt; s.y+=s.vy*dt;
-    if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z); s.mesh.rotation.x+=s.spin.x*dt; s.mesh.rotation.y+=s.spin.y*dt; s.mesh.rotation.z+=s.spin.z*dt; }
+    if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z);
+      if(s.type==='barrel'){ const hsp=Math.hypot(s.vx,s.vz)||1, dirx=s.vx/hsp,dirz=s.vz/hsp,axis=new THREE.Vector3(-dirz,0,dirx); s._rollAng=(s._rollAng||0)+(hsp/BSZ)*dt; const q1=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),axis),q2=new THREE.Quaternion().setFromAxisAngle(axis,s._rollAng); s.mesh.quaternion.copy(q2).multiply(q1); }   // barrel flies lying on its side, already spinning in the throw direction -> lands rolling straight
+      else { s.mesh.rotation.x+=s.spin.x*dt; s.mesh.rotation.y+=s.spin.y*dt; s.mesh.rotation.z+=s.spin.z*dt; } }
     if(typeof ps!=='undefined'&&Math.random()<0.5){ const def=_ITEMDEF[s.type]||_ITEMDEF.nuke; const col=(s.kind==='crate')?new THREE.Color(0x9a6a3a):new THREE.Color(def.col); ps._spawn(s.x,s.y,s.z,rand(-6,6),rand(-6,6),rand(-6,6),col.r,col.g,col.b,0.3); }
     let hit=false;
     if((s.kind==='crate'||s.type==='barrel')&&typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&Math.abs(s.y-(e.mesh?e.mesh.position.y:(e.py||0)))<40&&Math.hypot(e.wx-s.x,e.wz-s.z)<24){ hit=true; break; } } }
     if(s.type==='barrel'){
       s._fAge=(s._fAge||0)+dt;
-      if(hit || (s._fAge>0.12 && _barrelWall(s.x,s.y,s.z))){ _breakBarrel(s,i); continue; }   // hit an enemy mid-air, or thrown hard into a wall
-      if(_isf>0){ if(s.y<=8){ s._rolling=true; s._rollT=0; s.y=8; s.vy=0; const sp=Math.hypot(s.vx,s.vz)||1, L=(window._BARREL_ROLL_LAUNCH||130); if(sp<L){ const b=L/sp; s.vx*=b; s.vz*=b; } } }   // landed -> start rolling with momentum
-      else if(s.y>=((window._CUBE||_CUBE).h)-8){ _breakBarrel(s,i); }                          // flipped gravity: just pop on the ceiling (no roll)
-      continue;
+      if(hit){ _breakBarrel(s,i); continue; }                                     // hit an enemy mid-air
+      let contact=false;
+      if(GS.zone===-19){ contact=(typeof _cubeSDF==='function') && _cubeSDF(s.x,s.y,s.z) > -BSZ; }
+      else { contact=(s.y<=BSZ); }
+      if(s._fAge>0.06 && contact){
+        if(_isf<0){ _breakBarrel(s,i); continue; }                                // flipped gravity: smashes on the ceiling
+        if(s.vy < -(window._BARREL_SLAM_BREAK||340)){ _breakBarrel(s,i); continue; }   // dropped from height -> smash on impact
+        s._rolling=true; s._rollT=0;                                              // otherwise start rolling (rides walls)
+        const sp=Math.hypot(s.vx,s.vz)||1, L=(window._BARREL_ROLL_LAUNCH||130); if(sp<L){ const b=L/sp; s.vx*=b; s.vz*=b; }
+        continue;
+      }
+      continue;   // still flying
     }
     if(s.y<=6||(_isf<0&&s.y>=((window._CUBE||_CUBE).h)-6)||hit){ if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } if(s.kind==='crate'){ _smashCrateAt(s.x,s.z); } else { _detonateItem(s.type,s.x,s.z,false); } A.splice(i,1); }
   }
@@ -11881,7 +11906,7 @@ function _barrelSpawnTick(dt){
   const cap=(window._BARREL_MAX!=null?window._BARREL_MAX:4);
   const cur=(window._itemPU||[]).filter(p=>p&&p.type==='barrel').length;
   if(cur>=cap){ if(_barrelSpawnT<1)_barrelSpawnT=1; return; }
-  if(_barrelSpawnT<=0){ _barrelSpawnT=(window._BARREL_SPAWN_CD||6)+rand(0,4);
+  if(_barrelSpawnT<=0){ _barrelSpawnT=(cur===0?(window._BARREL_MIN_CD||1.6):((window._BARREL_SPAWN_CD||6)+rand(0,4)));   // none left -> drop a fresh one fast so there's always one around
     const cen=(typeof zoneCenter==='function')?zoneCenter(GS.zone):{x:0,z:0};
     for(let tries=0;tries<8;tries++){ let bx,bz;
       if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{hx:560,hz:560,cham:130}); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9); const mx=Math.max(40,C.hx-ch-50), mz=Math.max(40,C.hz-ch-50); bx=rand(-mx,mx); bz=rand(-mz,mz); }   // inside the FLAT floor, clear of the rounded corners
@@ -15156,8 +15181,8 @@ jL.onTap=()=>{
               const wx=sx*cy+sy2*sy, wz=-sx*sy+sy2*cy;
               const len=Math.hypot(wx,wz)||1;
               const _adx=(player._aimerX!=null?player._aimerX:player.wx)-player.wx, _adz=(player._aimerZ!=null?player._aimerZ:player.wz)-player.wz, _ad=Math.hypot(_adx,_adz);
-              if(_ad>5) player._throwBomb(_adx/_ad,_adz/_ad);          // flick = quick RELEASE along the SHOWN arc (aimer) so the throw matches the trajectory dots (no separate flick-power distance that flew flat/linear)
-              else player._throwBomb(wx/len,wz/len, vel);              // no valid aimer -> fall back to the swipe direction
+              if(_ad>(window._THROW_AIMER_MIN||50)) player._throwBomb(_adx/_ad,_adz/_ad);          // aimer was HELD out -> precision throw along the shown arc
+              else player._throwBomb(wx/len,wz/len, Math.max(vel,(window._FLICK_MIN_POWER||0.7)));  // quick FLICK -> strong throw in the swipe direction (was lobbing weakly off the un-extended aimer)
               threw=true;
             }
           }
@@ -15230,8 +15255,8 @@ jR.onTap=()=>{
         const wx=svx*cy+svy*sy, wz=-svx*sy+svy*cy;
         const len=Math.hypot(wx,wz)||1;
         const _adx=(player._aimerX!=null?player._aimerX:player.wx)-player.wx, _adz=(player._aimerZ!=null?player._aimerZ:player.wz)-player.wz, _ad=Math.hypot(_adx,_adz);
-        if(_ad>5) player._throwBomb(_adx/_ad,_adz/_ad);   // flick follows the shown trajectory arc
-        else player._throwBomb(wx/len,wz/len);
+        if(_ad>(window._THROW_AIMER_MIN||50)) player._throwBomb(_adx/_ad,_adz/_ad);   // aimer HELD out -> precision throw along the arc
+        else player._throwBomb(wx/len,wz/len, Math.max(spd,(window._FLICK_MIN_POWER||0.7)));   // quick flick -> strong throw
         const bb=document.getElementById('btn-bomb-arm');
         if(bb) bb.classList.remove('armed');
         return;
@@ -18820,11 +18845,17 @@ function _cubeWallCam(P, N, dt){
     const bu=up.clone().multiplyScalar(1-ceilK).addScaledVector(ceilUp,ceilK);   // blend wall<->ceiling across the chamfer
     if(bu.lengthSq()>1e-4){ up.copy(bu).normalize(); }
   }
+  // ── WALL→FLOOR (lower chamfer): mirror the floor→wall handoff in reverse. As the surface flattens toward the floor (N.y rising),
+  //    ease screen-up back to TRUE world-up and lift the cam ABOVE the player so it angles DOWN — instead of following Fout outward
+  //    through the floor, which buried the camera under the character's feet during the transition.
+  const floorK=Math.max(0,Math.min(1,(N.y-(window._CUBE_WF_LO!=null?window._CUBE_WF_LO:0.42))/((window._CUBE_WF_HI||0.82)-(window._CUBE_WF_LO!=null?window._CUBE_WF_LO:0.42))));
+  if(floorK>0.001){ const wu=new THREE.Vector3(0,1,0); const bu=up.clone().multiplyScalar(1-floorK).addScaledVector(wu,floorK); if(bu.lengthSq()>1e-4)up.copy(bu).normalize(); }
   // ease the up vector over time -> soft pole + soft quadrant/chamfer transitions
   if(!_cwUpSmooth){ _cwUpSmooth=up.clone(); } else { _cwUpSmooth.lerp(up, Math.min(1,dt*(window._CUBE_CEIL_EASE||6))); if(_cwUpSmooth.lengthSq()>1e-4)_cwUpSmooth.normalize(); else _cwUpSmooth.copy(up); }
   up=_cwUpSmooth;
   const LIFT=(window._CUBE_WALLCAM_LIFT!=null?window._CUBE_WALLCAM_LIFT:120);
-  const eye=P.clone().addScaledVector(Fout, D).addScaledVector(up, LIFT);          // X-RAY: OUTSIDE the surface, lifted along screen-up so it looks back at the player for perspective
+  let eye=P.clone().addScaledVector(Fout, D).addScaledVector(up, LIFT);          // X-RAY: OUTSIDE the surface, lifted along screen-up so it looks back at the player for perspective
+  if(floorK>0.001){ const oh=P.clone(); oh.y+=(D+LIFT)*(window._CUBE_WF_LIFT||0.85); const hb=new THREE.Vector3(camera.position.x-P.x,0,camera.position.z-P.z); if(hb.lengthSq()>1){ hb.normalize().multiplyScalar(window._CUBE_WF_BACK||160); oh.add(hb); } eye.lerp(oh, floorK*floorK); }   // pull the eye up & behind (overhead, angled down) as the floor flattens — no more under-the-feet
   if(!_cwLook) _cwLook=P.clone();
   _cwLook.lerp(P,0.14);
   if(_cwCamBlend<1){ _cwCamBlend=Math.min(1,_cwCamBlend+dt/(window._CUBE_CAM_BLEND||0.9)); const e=_cwCamBlend<0.5?2*_cwCamBlend*_cwCamBlend:1-Math.pow(-2*_cwCamBlend+2,2)/2; camera.position.lerpVectors(_cwCamFrom,eye,e); }
