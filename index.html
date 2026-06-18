@@ -7937,6 +7937,8 @@ class QuakeStorm{
     this.ring=new THREE.Mesh(new THREE.RingGeometry(this.R*0.95,this.R,80), new THREE.MeshBasicMaterial({color:0x39ffc9,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); this.ring.rotation.x=-Math.PI/2; this.group.add(this.ring);
     this.ring2=new THREE.Mesh(new THREE.RingGeometry(this.R*0.5,this.R*0.53,64), new THREE.MeshBasicMaterial({color:0x9bff70,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); this.ring2.rotation.x=-Math.PI/2; this.group.add(this.ring2);
     if(grid&&grid.shock) grid.shock(wx,wz,od?3.2:2.4);
+    if(typeof gridSheetsBlast==='function' && typeof GRID_SHEETS!=='undefined' && GRID_SHEETS.length){ try{ gridSheetsBlast(wx, 9, wz, (window._QUAKE_SHEET_POWER||10), this.R); }catch(_){} }   // big initial shockwave on the MODERN grid sheets (cube floor/walls/chamfer + sheet zones) — the legacy flat grid above doesn't exist here
+    this._sheetT=0;
     if(typeof addTrauma==='function')addTrauma(0.1); if(typeof Audio!=='undefined')Audio.blip(44,0.6,'sawtooth',0.3,22);
   }
   _hurt(e,i,dmg){ const pts=(e.hit?e.hit(dmg):0);
@@ -7949,6 +7951,10 @@ class QuakeStorm{
     // CHURN: random up/down heaves all over the zone so the ground rips & roils continuously
     if(grid&&grid.push){ const n=this.od?6:4; for(let k=0;k<n;k++){ const a=rand(TAU), rr=Math.sqrt(Math.random())*this.R; grid.push(this.wx+Math.cos(a)*rr, this.wz+Math.sin(a)*rr, rand(-3.2,3.6), 38+Math.random()*44); }
       if(grid.shock&&Math.random()<0.22) grid.shock(this.wx+rand(-this.R*0.5,this.R*0.5), this.wz+rand(-this.R*0.5,this.R*0.5), 0.7); }
+    // SHEET-GRID churn (cube floor/walls/chamfer + modern sheet zones) — the legacy grid.push above only roils the OLD flat grid, so the cube floor never rippled
+    this._sheetT=(this._sheetT||0)-dt;
+    if(this._sheetT<=0 && typeof gridSheetsBlast==='function' && typeof GRID_SHEETS!=='undefined' && GRID_SHEETS.length){ this._sheetT=(window._QUAKE_SHEET_CD||0.06);
+      const ns=this.od?3:2; for(let k=0;k<ns;k++){ const a=rand(TAU), rr=Math.sqrt(Math.random())*this.R; try{ gridSheetsBlast(this.wx+Math.cos(a)*rr, 9, this.wz+Math.sin(a)*rr, (window._QUAKE_CHURN_POWER||4), (window._QUAKE_CHURN_R||70)); }catch(_){} } }
     // debris erupting upward
     if(typeof ps!=='undefined'){ const n=this.od?4:2; for(let k=0;k<n;k++){ const a=rand(TAU), rr=Math.sqrt(Math.random())*this.R; ps._spawn(this.wx+Math.cos(a)*rr,4,this.wz+Math.sin(a)*rr, rand(-34,34), rand(130,320), rand(-34,34), 0.32,1,0.62, 0.34); } }
     // DOT + jolt enemies inside the field
@@ -9249,7 +9255,8 @@ class Player{
       this._bombMesh.position.set(cx,cy,cz);
       if(this._bombCoreMesh) this._bombCoreMesh.position.set(cx,cy,cz);
       this._bombHandPos={x:cx,y:cy,z:cz}; // store for throw spawn
-      const pulse=1+0.15*Math.sin(t*8);
+      const _noPulse=(this._bombMode==='item' && this._carryPayload && this._carryPayload.type==='barrel');   // a barrel shouldn't breathe big/small — only the energy orbs pulse
+      const pulse=_noPulse?1:(1+0.15*Math.sin(t*8));
       this._bombMesh.scale.setScalar(pulse);
       const rage=this._stickWasPushed?0.8:0.3;
       const g=Math.max(0,1-rage*0.6);
@@ -11825,7 +11832,7 @@ function _makePUModel(type){
 function _spawnPU(x,y,z,type,vx,vy,vz){
   const def=_ITEMDEF[type]||_ITEMDEF.nuke;
   const g=new THREE.Group();
-  const cube=_makePUModel(type); g.add(cube);
+  const cube=_makePUModel(type); if(type==='barrel')cube.scale.setScalar(window._BARREL_PU_SCALE||1.3); g.add(cube);
   const ring=new THREE.Mesh(new THREE.RingGeometry(18,22,40), new THREE.MeshBasicMaterial({color:def.glow,transparent:true,opacity:0.0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=-6.5; g.add(ring);
   g.position.set(x,y,z); scene.add(g);
   window._itemPU.push({grp:g,cube,ring,x,y,z,vx,vy,vz,type,settled:false,t:Math.random()*6});
@@ -11863,6 +11870,7 @@ function _nearestGrab(){
   const cands=[];
   if(window._nearPad) cands.push({kind:'weapon',ref:window._nearPad, d:Math.hypot(player.wx-window._nearPad.x,player.wz-window._nearPad.z)});
   if(window._nearHammer) cands.push({kind:'meleepad',ref:window._nearHammer, d:Math.hypot(player.wx-window._nearHammer.x,player.wz-window._nearHammer.z)});
+  if(window._nearBoots) cands.push({kind:'boots',ref:window._nearBoots, d:Math.hypot(player.wx-window._nearBoots.x,player.wz-window._nearBoots.z)});
   if(window._nearCrate) cands.push({kind:'crate',ref:window._nearCrate, d:Math.hypot(player.wx-window._nearCrate.x,player.wz-window._nearCrate.z)});
   if(window._nearOrb) cands.push({kind:'item',ref:window._nearOrb, d:Math.hypot(player.wx-window._nearOrb.x,player.wz-window._nearOrb.z)});
   if(!cands.length) return null;
@@ -11875,6 +11883,7 @@ function _grabItem(){
   const g=_nearestGrab(); if(!g) return false;
   if(g.kind==='weapon'){ const st=g.ref; if(typeof _equipWeapon==='function')_equipWeapon(st.weapon, st.ammo); if(typeof _padConsume==='function')_padConsume(st); window._nearPad=null; return true; }   // grab a weapon pad -> equip the gun (keeps its remaining ammo if it was a drop), no carrying
   if(g.kind==='meleepad'){ const st=g.ref; if(typeof _collectHammer==='function'&&_collectHammer(st)){ if(typeof _padConsume==='function')_padConsume(st); } window._nearHammer=null; return true; }   // grab a melee station -> equip the melee weapon
+  if(g.kind==='boots'){ if(typeof _collectBoots==='function')_collectBoots(); window._nearBoots=null; return true; }   // grab the boot station -> bone-attach the wall boots
   if(g.kind==='item'){ const p=g.ref; const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} player._carryPayload={kind:'item',type:p.type}; window._nearOrb=null; }
   else { const c=g.ref; const i=window._crates.indexOf(c); if(i>=0)window._crates.splice(i,1); if(c.grp){scene.remove(c.grp);c.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} if(c.bar){scene.remove(c.bar);c.bar.traverse(o=>{if(o.geometry)o.geometry.dispose();});} player._carryPayload={kind:'crate',type:null}; window._nearCrate=null; }
   if(typeof player._armBomb==='function') player._armBomb('item');
@@ -11906,14 +11915,19 @@ function _updateItemShots(dt){
       }
       if(onSurf){ const fr=Math.pow((window._BARREL_ROLL_FRIC!=null?window._BARREL_ROLL_FRIC:0.6),dt); s.vx*=fr; s.vz*=fr; }
       const hsp=Math.hypot(s.vx,s.vz);
+      if(onSurf && hsp<(window._BARREL_REST_SPD||22)) s._restT=(s._restT||0)+dt; else s._restT=0;   // track "rolled to a stop"
       if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z); if(hsp>4){ const dirx=s.vx/hsp,dirz=s.vz/hsp,axis=new THREE.Vector3(-dirz,0,dirx); s._rollAng=(s._rollAng||0)+(hsp/BSZ)*dt; const q1=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),axis),q2=new THREE.Quaternion().setFromAxisAngle(axis,s._rollAng); s.mesh.quaternion.copy(q2).multiply(q1); } }
       if(typeof ps!=='undefined'&&onSurf&&hsp>40&&Math.random()<0.4) ps.spark(s.x+rand(-6,6),s.z+rand(-6,6),[1,0.55,0.12],s.y);
       let brk=false;
       if(typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&!e._captured&&Math.hypot(e.wx-s.x,e.wz-s.z)<((e.size||14)+BSZ+4)){ brk=true; break; } } }   // rolled into an enemy
       if(!brk && slamV>(window._BARREL_SLAM_BREAK||340)) brk=true;                                          // slammed a surface HARD
       if(!brk && typeof GS!=='undefined'&&GS.bullets){ for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b)continue; const bw=(b.wx!=null?b.wx:b.x)||0,bz=(b.wz!=null?b.wz:b.z)||0; if(Math.hypot(bw-s.x,bz-s.z)<(BSZ+6)&&Math.abs(((b.y!=null?b.y:9))-s.y)<(BSZ+12)){ if(b.remove)b.remove(); GS.bullets.splice(bi,1); brk=true; break; } } }   // shot it
-      if(!brk && s._rollT>(window._BARREL_ROLL_T||7)) brk=true;                                             // safety: don't roll forever
-      if(brk) _breakBarrel(s,i);
+      if(brk){ _breakBarrel(s,i); continue; }                                                              // rammed an enemy / slammed hard / got shot -> burst
+      if((s._restT||0) > (window._BARREL_REST_T||0.5)){                                                     // rolled to a stop intact -> drop it back as a grabbable + shootable barrel (NO more roll-timer auto-explode; you have to throw it hard, shoot it, or blast it)
+        if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); }
+        if(typeof _spawnPU==='function') _spawnPU(s.x, Math.max(s.y,16), s.z, 'barrel', 0,0,0);
+        A.splice(i,1); continue;
+      }
       continue;
     }
 
@@ -11986,12 +12000,13 @@ function _updateGrabArrow(g, swap){
   const ref=g.ref;
   const bx=(ref.x!=null?ref.x:player.wx), bz=(ref.z!=null?ref.z:player.wz);
   let by;
-  if(g.kind==='weapon'||g.kind==='meleepad') by=46;                       // pads sit on the floor, emblem ~16 -> float above
-  else by=((ref.y!=null?ref.y:10))+34;                                    // items/crates/barrels float above their body
+  if(g.kind==='boots') by=42;                                            // floating boots sit ~24 -> float the marker above them
+  else if(g.kind==='weapon'||g.kind==='meleepad') by=46;                 // pads sit on the floor, emblem ~16 -> float above
+  else by=((ref.y!=null?ref.y:10))+34;                                   // items/crates/barrels float above their body
   const t=performance.now()*0.001;
   arrow.position.set(bx, by+Math.sin(t*3.2)*3.2, bz);                     // gentle bob
   if(typeof camera!=='undefined') arrow.quaternion.copy(camera.quaternion);   // billboard to camera
-  const col=swap?0xffd84a:((g.kind==='weapon')?((window._WPN_COLORS&&window._WPN_COLORS[ref.weapon])||0x39ffa0):(g.kind==='meleepad'?0xffd84a:0x39ffa0));
+  const col=swap?0xffd84a:((g.kind==='weapon')?((window._WPN_COLORS&&window._WPN_COLORS[ref.weapon])||0x39ffa0):(g.kind==='meleepad'?0xffd84a:(g.kind==='boots'?0x00ffaa:0x39ffa0)));
   arrow.material.color.setHex(col);
   arrow.material.opacity=0.8+0.2*Math.sin(t*6);
   arrow.visible=true;
@@ -16553,7 +16568,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-16) updateCityTest(dt);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
       player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); resolveBodyCollisions(player); player.draw(od); if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
-      if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_bmv) window._reorientGameBoots(); }
+      if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _ww=(typeof _cubeWalkOn==='function'&&_cubeWalkOn(player)&&player._cubeUp&&player._cubeUp.y<0.9); const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(_ww||!_bmv) window._reorientGameBoots(); }   // on a wall/ceiling re-aim the boots to the surface every frame; on the floor only when standing still (avoids stride jitter)
       if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
       if(typeof _updateHandWeapons==='function') _updateHandWeapons(dt);
@@ -18879,6 +18894,8 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   let pf;
   { const _cu=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1); _cu.addScaledVector(N,-_cu.dot(N));   // camera-UP projected onto the surface = "up on screen" -> stick-up runs up the wall, and it EASES as the camera flips (no snap-reversal on the ground->wall transition)
     if((player&&(player._cubeCamAuth||window._ballCam)) && _cu.lengthSq()>0.04){ pf=_cu.normalize(); }
+    else if(player&&player._cubeCamAuth){ pf=new THREE.Vector3(0,1,0); pf.addScaledVector(N,-pf.dot(N));   // camera-up collapsed (cam swung overhead on the wall->floor arc) -> anchor "up" to WORLD-up projected on the surface (= up the wall toward the ceiling). camera-INDEPENDENT, so the surface "down" stays toward the floor and the character can't spin around as the cam swings/flips
+      if(pf.lengthSq()<0.02){ pf=new THREE.Vector3().crossVectors(N,prr); } pf.normalize(); }
     else { pf=new THREE.Vector3().crossVectors(N,prr); if(pf.lengthSq()<1e-5){ pf.copy(P._cwLastTN||new THREE.Vector3(0,0,1)); pf.addScaledVector(N,-pf.dot(N)); } pf.normalize(); } }   // floor (or degenerate): forward = N × right
   if(inMag>0.05){
     tanDir=pf.clone().multiplyScalar(-sz).addScaledVector(prr,sx);
@@ -19048,9 +19065,9 @@ function _cubeWallCam(P, N, dt){
   // ease the up vector over time -> soft pole + soft quadrant/chamfer transitions
   if(!_cwUpSmooth){ _cwUpSmooth=up.clone(); } else { _cwUpSmooth.lerp(up, Math.min(1,dt*(window._CUBE_CEIL_EASE||6))); if(_cwUpSmooth.lengthSq()>1e-4)_cwUpSmooth.normalize(); else _cwUpSmooth.copy(up); }
   up=_cwUpSmooth;
-  const LIFT=(window._CUBE_WALLCAM_LIFT!=null?window._CUBE_WALLCAM_LIFT:120);
+  const LIFT=lerp((window._CUBE_WALLCAM_LIFT!=null?window._CUBE_WALLCAM_LIFT:120), (window._CUBE_CEIL_LIFT!=null?window._CUBE_CEIL_LIFT:340), ceilK);   // on the CEILING ride much further along screen-up so the eye sits ~45° off the surface (looking down at an angle, reading the ground) instead of straight overhead
   let eye=P.clone().addScaledVector(Fout, D).addScaledVector(up, LIFT);          // X-RAY: OUTSIDE the surface, lifted along screen-up so it looks back at the player for perspective
-  if(floorK>0.001){ const oh=P.clone(); oh.y+=(D+LIFT)*(window._CUBE_WF_LIFT||0.95); const hb=new THREE.Vector3(camera.position.x-P.x,0,camera.position.z-P.z); if(hb.lengthSq()>1){ hb.normalize().multiplyScalar(window._CUBE_WF_BACK||180); oh.add(hb); } const k=Math.pow(floorK,(window._CUBE_WF_EASE||0.55)); eye.lerp(oh, k); eye.y=Math.max(eye.y, P.y+(window._CUBE_WF_MINH||110)*floorK); }   // pull the eye UP & BEHIND (overhead, angled down) as the floor flattens — ramps in early (pow<1) and a hard floor on eye.y so the cam can NEVER duck under the character's feet through the arc
+  if(floorK>0.001){ const BACK=(window._CUBE_WF_BACK||250); const oh=P.clone(); oh.y+=BACK*(window._CUBE_WF_LIFT||1.0); const hb=new THREE.Vector3(camera.position.x-P.x,0,camera.position.z-P.z); if(hb.lengthSq()>1){ hb.normalize().multiplyScalar(BACK); oh.add(hb); } const k=Math.pow(floorK,(window._CUBE_WF_EASE||0.55)); eye.lerp(oh, k); eye.y=Math.max(eye.y, P.y+(window._CUBE_WF_MINH||90)*floorK); }   // ride to a ~45° BEHIND-and-ABOVE framing (height≈back, NOT straight overhead) so the cam never ducks under the feet AND keeps a horizontal look-component -> the surface-relative "down" stays stable through the arc (no spin-around)
   if(!_cwLook) _cwLook=P.clone();
   _cwLook.lerp(P,0.14);
   if(_cwCamBlend<1){ _cwCamBlend=Math.min(1,_cwCamBlend+dt/(window._CUBE_CAM_BLEND||0.9)); const e=_cwCamBlend<0.5?2*_cwCamBlend*_cwCamBlend:1-Math.pow(-2*_cwCamBlend+2,2)/2; camera.position.lerpVectors(_cwCamFrom,eye,e); }
@@ -22574,8 +22591,9 @@ function _orientGameBoot(boot,foot,side){
   if(!player||!player.model||!foot) return;
   player.model.updateWorldMatrix(true,true);
   const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
-  let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6) fwd.set(0,0,1); fwd.normalize();
-  const up=new THREE.Vector3(0,1,0);
+  const _ww=(typeof _cubeWalkOn==='function' && _cubeWalkOn(player) && player._cubeUp && player._cubeUp.y<0.99);   // on a wall/ceiling -> build the boot's "up" from the SURFACE normal so it tracks the rotated feet (world-up pinned them flat before)
+  const up=_ww?player._cubeUp.clone().normalize():new THREE.Vector3(0,1,0);
+  let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); if(_ww){ fwd.addScaledVector(up,-fwd.dot(up)); } else { fwd.y=0; } if(fwd.lengthSq()<1e-6) fwd.set(0,0,1); fwd.normalize();
   const right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6) right.set(1,0,0); right.normalize();
   const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
   const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
@@ -22626,18 +22644,20 @@ function _spawnBootStation(x,z){
   const ring2=new THREE.Mesh(new THREE.TorusGeometry(9,0.7,8,28),new THREE.MeshBasicMaterial({color:0x66ffdd,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})); ring2.rotation.x=-Math.PI/2; ring2.position.y=2.2; grp.add(ring2);
   const disc=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshBasicMaterial({color:0x00aa77,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); disc.rotation.x=-Math.PI/2; disc.position.y=0.5; grp.add(disc);
   const col=new THREE.Mesh(new THREE.CylinderGeometry(5,8,42,16,1,true),new THREE.MeshBasicMaterial({color:0x00ffaa,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); col.position.y=21; grp.add(col);
-  const bL=_makeRoboBoot(-1), bR=_makeRoboBoot(1); const sc=3.0; bL.scale.setScalar(sc); bR.scale.setScalar(sc);
-  bL.position.set(-7,24,0); bR.position.set(7,24,0); bL.rotation.y=0; bR.rotation.y=0;   // parallel pair, same facing -> reads clearly as boots
+  const bL=_makeRoboBoot(-1), bR=_makeRoboBoot(1); const sc=(window._BOOT_PU_SCALE||4.35); bL.scale.setScalar(sc); bR.scale.setScalar(sc);   // match the EQUIPPED boot world size (on-feet boots scale by ~4.35)
+  const _bsep=(window._BOOT_PU_SEP||4.6); bL.position.set(-_bsep,24,0); bR.position.set(_bsep,24,0); bL.rotation.y=0; bR.rotation.y=0;   // tighter parallel pair -> reads clearly as a pair of boots
   grp.add(bL); grp.add(bR); scene.add(grp);
   window._bootStation={grp,ring,ring2,col,bL,bR,x,z,t:0,collected:false};
 }
 function _removeBootStation(){ const st=window._bootStation; if(!st) return; if(st.grp){ scene.remove(st.grp); st.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } window._bootStation=null; }
 function _updateBootStation(dt){
-  const st=window._bootStation; if(!st||st.collected||!player) return;
+  const st=window._bootStation; if(!st||st.collected||!player){ window._nearBoots=null; return; }
   st.t+=dt; st.ring.rotation.z+=dt*0.7; st.ring2.rotation.z-=dt*1.1;
   const bob=Math.sin(st.t*2.2)*1.8; st.bL.position.y=24+bob; st.bR.position.y=24+bob;   // bob in sync (parallel), not opposed
   st.grp.rotation.y += dt*0.5;                                                          // slowly turn the whole pair together so both sides show
-  if(Math.hypot(player.wx-st.x,player.wz-st.z)<17 && player.py<16) _collectBoots();
+  const near=(Math.hypot(player.wx-st.x,player.wz-st.z)<(window._BOOT_GRAB_R||56));     // RIGHT-STICK grab now (no auto walk-over pickup)
+  window._nearBoots = near ? st : null;
+  const glow=near?1:0.34; st.ring.material.opacity=0.45+0.45*glow; st.ring2.material.opacity=0.4+0.35*glow;   // ready-glow swells when you're in range
 }
 // ════════ NEON ROBOT SLEDGEHAMMER — test power-up (equips to the right hand bone) ════════
 const _HAMMER_FIX=new THREE.Euler(-0.6,0,0);          // resting tilt/roll around the handle (tunable)
@@ -23374,15 +23394,15 @@ function _makeWeaponEmblem(weapon){
 function _makeAmmoLabel(){
   const cv=document.createElement('canvas'); cv.width=128; cv.height=64;
   const tex=new THREE.CanvasTexture(cv); tex.minFilter=THREE.LinearFilter;
-  const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,depthTest:false,toneMapped:false}));
-  spr.scale.set(26,13,1); spr.renderOrder=42; spr._cv=cv; spr._tex=tex; spr._last='';
+  const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,opacity:0.9,depthWrite:false,depthTest:false,toneMapped:false}));
+  spr.scale.set(15,7.5,1); spr.renderOrder=42; spr._cv=cv; spr._tex=tex; spr._last='';
   return spr;
 }
 function _setAmmoLabel(spr,text,hex){
   if(!spr||spr._last===text+hex)return; spr._last=text+hex;
   const cv=spr._cv, c=cv.getContext('2d'); c.clearRect(0,0,cv.width,cv.height);
-  c.font='900 46px system-ui,Arial,sans-serif'; c.textAlign='center'; c.textBaseline='middle';
-  c.lineWidth=8; c.strokeStyle='rgba(0,0,0,0.92)'; c.strokeText(text,64,34);
+  c.font='700 38px system-ui,Arial,sans-serif'; c.textAlign='center'; c.textBaseline='middle';
+  c.lineWidth=5; c.strokeStyle='rgba(0,0,0,0.6)'; c.strokeText(text,64,34);
   c.fillStyle=hex||'#fff'; c.fillText(text,64,34); spr._tex.needsUpdate=true;
 }
 function _padAmmoText(st){   // {text,hex} for a gun pad's remaining ammo (full default if it was never fired)
@@ -23400,8 +23420,8 @@ function _spawnWeaponPad(x,z,weapon,ammo){
   const ring2=new THREE.Mesh(new THREE.TorusGeometry(9,0.7,8,28),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false})); ring2.rotation.x=-Math.PI/2; ring2.position.y=2.2; grp.add(ring2);
   const disc=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.15,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); disc.rotation.x=-Math.PI/2; disc.position.y=0.5; grp.add(disc);
   const colm=new THREE.Mesh(new THREE.CylinderGeometry(5,8,42,16,1,true),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); colm.position.y=21; grp.add(colm);
-  const emblem=_makeWeaponEmblem(weapon); emblem.scale.setScalar(weapon==='rockets'?1.5:1.0); emblem.position.y=16; grp.add(emblem);
-  const label=_makeAmmoLabel(); label.position.set(0,30,0); grp.add(label);
+  const emblem=_makeWeaponEmblem(weapon); emblem.scale.setScalar(weapon==='rockets'?2.0:1.5); emblem.position.y=16; grp.add(emblem);
+  const label=_makeAmmoLabel(); label.position.set(0,34,0); grp.add(label);
   scene.add(grp);
   const st={grp,ring,ring2,emblem,label,x,z,weapon,ammo:(ammo!=null?ammo:null),t:0,cd:0,_col:[((col>>16)&255)/255,((col>>8)&255)/255,(col&255)/255]};
   const at=_padAmmoText(st); _setAmmoLabel(label,at.text,at.hex);
