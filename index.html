@@ -1048,6 +1048,7 @@ function updateCamera(dt){
   if(window._enemyCam && player && GS.state==='playing' && !(typeof _cubeWalkOn==='function' && _cubeWalkOn(player))){
     const _ep=new THREE.Vector3(player.wx,(player.py||0),player.wz), _et=_enemyCamTargetPos(_ep);
     if(_et){ _enemyCam(_ep,_et,dt); return; }
+    else { if(typeof _camFxBegin==='function')_camFxBegin(); window._enemyCam=false; }   // target gone (boss died / last enemy cleared) -> capture the pose and EASE into the normal cam instead of a hard pop
   }
   if(typeof camera!=='undefined' && (camera.up.x!==0||camera.up.z!==0)) camera.up.set(0,1,0);   // a wall/ceiling cam may have left the up-vector tilted; the normal cam is always world-up (fixes the 90°-tilt when you take boots off mid-wall)
   CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
@@ -2154,6 +2155,17 @@ function loadBlueDragonGLB(){
 }
 loadBlueDragonGLB(); // preload
 
+const THREE_HEADED_DOG_GLB='models/3_headed_dog.glb';
+let _dogGltf=null, _dogLoadPromise=null;
+function loadThreeHeadedDogGLB(){
+  if(_dogLoadPromise) return _dogLoadPromise;
+  _dogLoadPromise=new Promise((resolve)=>{ const loader=new GLTFLoader();
+    loader.load(THREE_HEADED_DOG_GLB, gltf=>{ _dogGltf=gltf; console.log('3-headed dog loaded. Animations:', gltf.animations.map(a=>a.name)); resolve(gltf); },
+      undefined, ()=>{ console.warn('3_headed_dog.glb failed to load (loads on the live site only)'); resolve(null); }); });
+  return _dogLoadPromise;
+}
+loadThreeHeadedDogGLB(); // preload
+
 // ── INTERACTIVE DOOR — proximity open/close, driven by the GLB's "open"/"closed" clips ──
 function _makeInteractiveDoor(target=130, glowHex=0x66ccff){
   const wrap=_makeDoorModel(target,glowHex);
@@ -2874,19 +2886,20 @@ class DragonFireball{
       ps._spawn(this.wx+rand(-3,3), this.y+rand(-3,3), this.wz+rand(-3,3), this.vx*0.18+Math.cos(a)*rand(10,42), this.vy*0.18+rand(8,60), this.vz*0.18+Math.sin(a)*rand(10,42), cl[0], cl[1]*(0.7+h*0.3), cl[2]+h*0.1, 0.08+rand(0.05)); } }
     this.grp.position.set(this.wx,this.y,this.wz);
     const pulse=0.85+0.18*Math.sin(this.t*22); this.core.scale.setScalar(pulse); this.glow.material.opacity=0.3+0.2*Math.sin(this.t*16);
-    // MELEE DEFLECT — blade-tip sweep (precise) + a forgiving swing-proximity bat (works even with fists)
+    // MELEE DEFLECT — the WEAPON must actually COLLIDE with the fireball (blade-tip sweep, like the ball system). With a blade you must connect; bare fists get a tight body-block. No more loose proximity bubble that batted it back before it reached you.
     if(!this._deflected && this.hitCd<=0){
       const ud=player&&player.model&&player.model.userData, swinging=!!(ud&&(ud._meleeTimer>0||ud._swActive));
       if(swinging && player){
-        let hit=false;
-        if(typeof _slashBladePoints==='function'){ const bp=_slashBladePoints();
-          if(bp&&bp[0]&&bp[1]){ const base=bp[0], tip=bp[1], seg=tip.clone().sub(base), sl2=Math.max(seg.lengthSq(),1e-4), fb=new THREE.Vector3(this.wx,this.y,this.wz);
-            const tp=Math.max(0,Math.min(1,fb.clone().sub(base).dot(seg)/sl2)), closest=base.clone().addScaledVector(seg,tp), dd=closest.distanceTo(fb);
-            if(dd < this.R+(window._FIREBALL_DEFLECT_R||30)) hit=true;   // blade sweep (radius bumped 16 -> 30)
-          }
-        }
-        if(!hit){ const sx=this.wx-player.wx, sy=this.y-((player.py||0)+16), sz=this.wz-player.wz, sr=(window._FIREBALL_SWING_R||52)+this.R;   // forgiving: any swing near you bats it
-          if(sx*sx+sy*sy+sz*sz < sr*sr) hit=true;
+        let hit=false, bp=null;
+        if(typeof _slashBladePoints==='function') bp=_slashBladePoints();
+        if(bp&&bp[0]&&bp[1]){ const base=bp[0], tip=bp[1], seg=tip.clone().sub(base), sl2=Math.max(seg.lengthSq(),1e-4), fb=new THREE.Vector3(this.wx,this.y,this.wz);
+          const tp=Math.max(0,Math.min(1,fb.clone().sub(base).dot(seg)/sl2)), closest=base.clone().addScaledVector(seg,tp), dd=closest.distanceTo(fb);
+          if(dd < this.R+(window._FIREBALL_DEFLECT_R||26)) hit=true;   // REAL blade collision — the fireball has to reach the swinging blade
+        } else {   // FISTS only (no blade mesh): a tight body-block in front, not a wide bubble
+          const fa=(typeof player.aim==='number'?player.aim:0), fx=Math.cos(fa), fz=Math.sin(fa);
+          const cx=player.wx+fx*(window._FIREBALL_FIST_REACH||22), cz=player.wz+fz*(window._FIREBALL_FIST_REACH||22), cy=(player.py||0)+16;
+          const dx=this.wx-cx, dy=this.y-cy, dz=this.wz-cz, fr=(window._FIREBALL_FIST_R||26)+this.R;
+          if(dx*dx+dy*dy+dz*dz < fr*fr) hit=true;
         }
         if(hit) this._deflect();
       }
@@ -3001,17 +3014,18 @@ class BlueDragon extends Enemy{
     this._enter('entrance');
   }
   _buildModel(){
-    const target=window._DRAGON_TARGET||36;
-    if(!_dragonGltf){   // dev file: GLB only loads on the live site -> wireframe placeholder so the AI is still testable
+    const target=this._target||window._DRAGON_TARGET||36;
+    const _G=this._gltf||_dragonGltf;
+    if(!_G){   // dev file: GLB only loads on the live site -> wireframe placeholder so the AI is still testable
       const ph=new THREE.Mesh(new THREE.IcosahedronGeometry(16,0), new THREE.MeshBasicMaterial({color:0x0d2a4a}));
       ph.add(new THREE.LineSegments(new THREE.EdgesGeometry(ph.geometry), new THREE.LineBasicMaterial({color:0x44aaff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending})));
       ph.position.y=16; this.mesh.add(ph); this._model=ph; return;
     }
-    let m; try{ m=SkeletonUtils.clone(_dragonGltf.scene); }catch(e){ m=_dragonGltf.scene.clone(true); }
+    let m; try{ m=SkeletonUtils.clone(_G.scene); }catch(e){ m=_G.scene.clone(true); }
     const box=new THREE.Box3().setFromObject(m); const sz=new THREE.Vector3(); box.getSize(sz);
     const sc=target/(sz.y||1); m.scale.setScalar(sc);
     const ctr=new THREE.Vector3(); box.getCenter(ctr); m.position.set(-ctr.x*sc, -box.min.y*sc, -ctr.z*sc);   // feet sit on the group origin (y=0)
-    const glow=new THREE.Color(window._DRAGON_GLOW!=null?window._DRAGON_GLOW:0x2aa2ff);
+    const glow=new THREE.Color(this._glowHex!=null?this._glowHex:(window._DRAGON_GLOW!=null?window._DRAGON_GLOW:0x2aa2ff));
     const wireOp=(window._DRAGON_WIRE_OP!=null?window._DRAGON_WIRE_OP:0.4);
     const wires=[];
     m.traverse(c=>{ if(c.isMesh||c.isSkinnedMesh){ c.frustumCulled=false; c.renderOrder=2;
@@ -3039,9 +3053,13 @@ class BlueDragon extends Enemy{
     wires.forEach(({src,w})=>{ if(src.parent) src.parent.add(w); });   // attach as siblings (same transform context as their source mesh)
     this._headBone=null; try{ m.traverse(o=>{ if(!this._headBone && o.isBone){ const nm=(o.name||''); if(nm==='Bip001 Head' || /head$/i.test(nm)) this._headBone=o; } }); }catch(_){}   // fire breath emits from here
     this.mesh.add(m); this._model=m;
-    const clips=(_dragonGltf.animations)||[];
+    const clips=(_G.animations)||[];
     if(clips.length){
       const mx=new THREE.AnimationMixer(m); this._mixer=mx;
+      this._matchClips(clips, mx);
+    }
+  }
+  _matchClips(clips, mx){
       const find=(kw)=>clips.find(c=>c.name&&c.name.toLowerCase()===kw) || clips.find(c=>c.name&&c.name.toLowerCase().includes(kw));
       const findAny=(kws)=>{ for(const kw of kws){ const c=find(kw); if(c) return c; } return null; };
       const ALIAS={
@@ -3060,7 +3078,6 @@ class BlueDragon extends Enemy{
       if(!this._act.run){ this._act.run=this._act.idle||this._act.casual||null; if(this._act.run)this._dur.run=this._dur.idle||this._dur.casual||1; }   // no walk/run clip -> at least play idle instead of sliding on a frozen pose
       if(!this._act.idle){ this._act.idle=this._act.casual||this._act.run||null; if(this._act.idle)this._dur.idle=this._dur.casual||this._dur.run||1; }
       try{ console.log('[dragon] clips:', clips.map(c=>c.name), '| matched ->', Object.keys(this._act)); }catch(_){}
-    }
   }
   _play(name,{loop=THREE.LoopRepeat, fade=0.18, speed=1, clamp=false}={}){
     const a=this._act[name]; if(!a) return null;
@@ -3134,7 +3151,7 @@ class BlueDragon extends Enemy{
         const _m=this.mesh;
         try{ if(this._mixer){ this._mixer.timeScale=0; if(_da){ _da.paused=true; _da.time=Math.max(0,_dd-0.001); } } }catch(_){}   // FREEZE the current (last-frame) pose — do NOT stopAllAction(), that snaps the rig back to its bind/idle pose
         try{ if(this._hpBar&&_m){ _m.remove(this._hpBar); this._hpBar=null; } }catch(_){}          // don't beam the HP bar up with the body
-        try{ if(typeof _robitDeconstruct==='function') _robitDeconstruct(this.wx,(this._curY||0)+12,this.wz,(window._DRAGON_GLOW||0x2aa2ff), _m); }catch(_){}   // hand the MODEL to the effect -> bits cover it, then it fades + beams out
+        try{ if(typeof _robitDeconstruct==='function') _robitDeconstruct(this.wx,(this._curY||0)+12,this.wz,(this._deconHex!=null?this._deconHex:(window._DRAGON_GLOW||0x2aa2ff)), _m); }catch(_){}   // hand the MODEL to the effect -> bits cover it, then it fades + beams out
         this._mixer=null;                                                                         // drop our mixer ref so remove()'s stopAllAction can't snap the beamed-out body back to bind/idle
         this.mesh=null; this.remove(); return;                                                    // null the mesh so remove() doesn't yank the model the effect now owns
       }   // death clip done -> bit deconstruct beam-out
@@ -3167,7 +3184,10 @@ class BlueDragon extends Enemy{
           ps.burst(this.wx+dx/d*meleeR, this.wz+dz/d*meleeR, this.glow, 12, 90); addTrauma(0.05); }
         if(this._stateT>=dur+0.05){ this._enter(this._aggro?'chase':'idle'); } break; }
       case 'attack_air': { const dur=this._dur.attack_air||1.6, k=this._stateT/dur;
-        this._curY=Math.sin(Math.min(1,k)*Math.PI)*(window._DRAGON_AIR_LIFT||26); this.vx*=0.9; this.vz*=0.9;
+        // rise quickly, HOLD up through the fire-breath, then a quick land at the end — the old symmetric sine spent the whole back half slowly drifting down
+        const _up=(window._DRAGON_AIR_RISE||0.22), _land=(window._DRAGON_AIR_LAND||0.78);
+        let _lift; if(k<_up) _lift=k/_up; else if(k<_land) _lift=1; else _lift=Math.max(0,1-(k-_land)/Math.max(1e-3,1-_land));
+        this._curY=_lift*(window._DRAGON_AIR_LIFT||26); this.vx*=0.9; this.vz*=0.9;
         const bAt=dur*(window._DRAGON_BREATH_FRAC||0.4);
         if(this._stateT>=bAt && this._stateT<bAt+(window._DRAGON_BREATH_DUR||0.55)){ this._breatheFire(dx,dz,d, this._firedBreath); this._firedBreath=true; }
         if(this._stateT>=dur){ this._curY=0; this._enter(this._aggro?'chase':'idle'); } break; }
@@ -3216,6 +3236,68 @@ window._spawnBlueDragon=function(n=1){
     const e=new BlueDragon(sx,sz,2); e.addToScene(); GS.enemies.push(e);
     if(typeof announce==='function') announce('BLUE DRAGON','#44aaff');
   }catch(err){ console.warn('spawn dragon',err); } }
+};
+// ════════ THREE-HEADED DOG (Cerberus) — ground-only seeker boss. Reuses the dragon's proven state machine + bit-deconstruct evaporation; just a different GLB, three random idles, two alternating ground attacks, and NO fire/air attack. ════════
+class ThreeHeadedDog extends BlueDragon{
+  constructor(wx,wz,wave){
+    super(wx,wz,wave);   // BlueDragon ctor builds the model (our _buildModel override loads the dog GLB) + enters 'entrance'
+    this._robitId='three_headed_dog'; this._robitName='Cerberus';
+    this.glow=[1,0.5,0.2]; this.score=(window._DOG_SCORE||360); this.size=20; this._tall=(window._DOG_TARGET||34);
+    this.hp=(window._DOG_HP||60)+(wave||1)*4; this.maxHp=this.hp;
+    this._walkSpd=window._DOG_WALK||92; this._runSpd=window._DOG_RUN||214;
+    this._deconHex=(window._DOG_GLOW!=null?window._DOG_GLOW:0xff7a2a);   // evaporate in its own ember color
+  }
+  _buildModel(){ this._gltf=_dogGltf; this._target=(window._DOG_TARGET||34); this._glowHex=(window._DOG_GLOW!=null?window._DOG_GLOW:0xff7a2a); super._buildModel(); }
+  _matchClips(clips, mx){
+    const find=(kw)=>clips.find(c=>c.name&&c.name.toLowerCase()===kw) || clips.find(c=>c.name&&c.name.toLowerCase().includes(kw));
+    const findAny=(kws)=>{ for(const kw of kws){ const c=find(kw); if(c) return c; } return null; };
+    const ALIAS={
+      death:['death','die','dead','dying','defeat'],
+      hit:['hit','hurt','flinch','impact','pain','react','damage','stagger'],
+      run:['run','running','walk','walking','jog','move','moving','locomotion','prowl','trot','gallop','lope'],
+      dizzy:['dizzy','stun','stunned','daze','dazed','woozy','groggy','tired'],
+      entrance:['entrance','spawn','emerge','intro','appear','rise','dig','burrow','wake'],
+      idle_1:['idle_1','idle1','idle_01','idle'],
+      idle_2:['idle_2','idle2','idle_02'],
+      idle_3:['idle_3','idle3','idle_03'],
+      attack_1:['attack_1','attack1','attack_01','attack','bite','claw','lunge','maul'],
+      attack_2:['attack_2','attack2','attack_02','pounce','swipe','slam','chomp']
+    };
+    this._actAll={}; this._durAll={};
+    for(const nm in ALIAS){ const cl=findAny(ALIAS[nm]); if(cl){ this._actAll[nm]=mx.clipAction(cl); this._durAll[nm]=cl.duration; } }
+    const set=(slot,key)=>{ if(this._actAll[key]){ this._act[slot]=this._actAll[key]; this._dur[slot]=this._durAll[key]; } };
+    set('death','death'); set('hit','hit'); set('run','run'); set('dizzy','dizzy'); set('entrance','entrance');
+    set('idle','idle_1'); set('attack_ground','attack_1');
+    this._idleKeys=['idle_1','idle_2','idle_3'].filter(k=>this._actAll[k]);
+    this._atkKeys=['attack_1','attack_2'].filter(k=>this._actAll[k]);
+    this._act.casual=null; this._act.attack_air=null;   // dog: no casual-swap, and NO air/fire attack -> the dragon update's air branch self-skips (ground-only)
+    if(!this._act.run){ this._act.run=this._act.idle||null; if(this._act.run)this._dur.run=this._dur.idle||1; }   // no run clip -> at least don't slide on a frozen pose
+    if(!this._act.idle && this._idleKeys.length){ set('idle',this._idleKeys[0]); }
+    try{ console.log('[3-headed-dog] clips:', clips.map(c=>c.name), '| idles:', this._idleKeys, '| attacks:', this._atkKeys, '| matched ->', Object.keys(this._actAll)); }catch(_){}
+  }
+  _enter(state){
+    // randomly pick which of the 3 idles / 2 attacks plays each time, then run the inherited entry
+    if(state==='idle' && this._idleKeys && this._idleKeys.length){ const k=this._idleKeys[(Math.random()*this._idleKeys.length)|0]; this._act.idle=this._actAll[k]; this._dur.idle=this._durAll[k]; }
+    else if(state==='attack_ground' && this._atkKeys && this._atkKeys.length){ const k=this._atkKeys[(Math.random()*this._atkKeys.length)|0]; this._act.attack_ground=this._actAll[k]; this._dur.attack_ground=this._durAll[k]; }
+    super._enter(state);
+  }
+  hit(dmg, hx, hz, hy){
+    const r=super.hit(dmg, hx, hz, hy);   // damage/feedback/death/energy-flinch all inherited
+    // EXTRA: when it's getting close to dying, wobble into the dizzy animation (on a cooldown)
+    if(!this._dying && this.maxHp && this.hp>0 && (this.hp/this.maxHp)<=(window._DOG_DIZZY_HP||0.3) && this._dizzyCD<=0 && this._state!=='dizzy' && this._state!=='entrance'){
+      this._dizzyCD=window._DOG_DIZZY_CD||7; this._dizzyT=window._DOG_DIZZY_T||2.0; this._enter('dizzy');
+    }
+    return r;
+  }
+}
+window._spawnThreeHeadedDog=function(n=1){
+  for(let k=0;k<n;k++){ try{
+    let sx,sz;
+    if(typeof player!=='undefined'&&player){ const a=Math.random()*TAU, r=150+Math.random()*70; sx=player.wx+Math.cos(a)*r; sz=player.wz+Math.sin(a)*r; }
+    else { sx=140; sz=140; }
+    const e=new ThreeHeadedDog(sx,sz,2); e.addToScene(); GS.enemies.push(e);
+    if(typeof announce==='function') announce('CERBERUS','#ff7a2a');
+  }catch(err){ console.warn('spawn dog',err); } }
 };
 function _makeBouncerBot(glowHex=0x44aaff){
   const g=new THREE.Group(); const dark=0x081826;
@@ -8343,7 +8425,15 @@ function _updateBootsToggle(playing){
   if(!el){ el=document.createElement('button'); el.id='boots-equip-toggle'; el.setAttribute('aria-label','Wall Boots');
     el.style.cssText='position:fixed;width:52px;height:52px;border-radius:10px;z-index:121;display:none;flex-direction:column;align-items:center;justify-content:center;gap:2px;pointer-events:all;font-family:inherit;background:rgba(0,0,0,0.4);border:1.5px solid #00ffaa88;color:#00ffaa;box-shadow:0 0 12px #00ffaa33;-webkit-tap-highlight-color:transparent;cursor:pointer;right:calc(max(env(safe-area-inset-right), 22px) + 75px - 26px);bottom:calc(max(env(safe-area-inset-bottom),28px) + 118px + 48px + 64px);';
     el.innerHTML='<svg width="24" height="22" viewBox="0 0 24 22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 3 L13 3 L13 13 L19 13 Q21 13 21 15.5 L21 18 L8 18 Z" fill="currentColor" opacity="0.92"/><path d="M13 14.6 L20.6 14.6" stroke="#04140e" stroke-width="1" opacity="0.55"/><path d="M5.6 5 L3.6 9.4 L5.3 9.4 L4.1 12.8" stroke="#ffe600" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/></svg><span id="bteq-tx" style="font-size:6px;letter-spacing:1px;text-transform:uppercase;opacity:0.85">BOOTS</span>';
-    const tap=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); if(player&&player._hasBoots){ player._bootsEquipped=!player._bootsEquipped; if(player._boots){ for(const b of player._boots) b.visible=player._bootsEquipped; } if(player._wallClimb&&!player._bootsEquipped) player._wallClimb=null; if(typeof Audio!=='undefined')Audio.blip(player._bootsEquipped?660:300,0.08,'square',0.14,player._bootsEquipped?900:200); } };
+    const tap=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); if(player&&player._hasBoots){
+        const _wwBefore=(typeof _cubeWalkOn==='function')?_cubeWalkOn(player):false;   // were we wall-walking? (wall de-equip already hops via the dislodge fall)
+        player._bootsEquipped=!player._bootsEquipped;
+        if(player._boots){ for(const b of player._boots) b.visible=player._bootsEquipped; }
+        if(player._wallClimb&&!player._bootsEquipped) player._wallClimb=null;
+        if(!_wwBefore){ try{ const HOP=(window._BOOT_HOP||130); player.py=(player.py||0)+(window._BOOT_HOP_LIFT||7); player.pvy=Math.max(player.pvy||0,HOP); }catch(_){} }   // HAPPY-ACCIDENT made intentional: a subtle upward kick so he pops into the air/float pose for a beat — like hopping to pull the boots on/off
+        if(typeof _camFxBegin==='function') _camFxBegin();   // ease the camera across the transition (equipping used to glitch the cam to a near-but-different pose when _cubeWalkOn flipped)
+        if(typeof Audio!=='undefined')Audio.blip(player._bootsEquipped?660:300,0.08,'square',0.14,player._bootsEquipped?900:200);
+      } };
     el.addEventListener('touchstart',tap,{passive:false}); el.addEventListener('click',tap);
     document.body.appendChild(el); }
   const show=!!playing && player && player._hasBoots;
@@ -10060,6 +10150,13 @@ class Player{
         const horiz=Math.hypot(tx-spawnX,tz-spawnZ)||1; _droneVY=(tyy-y0)/Math.max(horiz/bspd,1e-4); _useDroneVY=true;
       }
     }
+    // ── VERTICAL AIM-ASSIST: find the nearest enemy near this shot's line and the vy needed to meet its height, so point-blank shots stop sailing over short enemies (spiders). Horizontal aim is untouched. ──
+    let _assistVY=null;
+    if(window._AIM_ASSIST_V!==false && typeof GS!=='undefined' && GS.enemies && GS.enemies.length){
+      const cax=Math.cos(a), caz=Math.sin(a); let bestT=null,bestPerp=1e9,bestEY=9;
+      for(const e of GS.enemies){ if(!e||!e.alive||e._captured)continue; const ex=e.wx-spawnX, ez=e.wz-spawnZ; const t=ex*cax+ez*caz; if(t<8||t>(window._AIM_ASSIST_R||300))continue; const perp=Math.abs(-ex*caz+ez*cax); if(perp<((e.size||12)*0.7+(window._AIM_ASSIST_CONE||30)) && perp<bestPerp){ bestPerp=perp; bestT=t; bestEY=(e.mesh?e.mesh.position.y:9); } }
+      if(bestT!=null){ const ty=bestEY+(window._AIM_ASSIST_YOFF||4); _assistVY=(ty-y0)/Math.max(bestT/bspd,1e-4); }   // vy so the bullet descends/rises to the target height over its horizontal flight
+    }
     const fire=(ang,kind)=>{
       if(_droneAimDir){                                          // DRONE LOCK: straight at the selected target in 3D, regardless of the drone's position
         const off=ang-ab, ca=Math.cos(off), sa=Math.sin(off);
@@ -10070,12 +10167,12 @@ class Player{
       if(this._aim3DActive && this._aim3D && !isGalaxy){          // desktop: fire toward the 3D crosshair (up / down / level)
         const off=ang-a, ca=Math.cos(off), sa=Math.sin(off), d=this._aim3D;
         const dx=d.x*ca-d.z*sa, dz=d.x*sa+d.z*ca;
-        GS.bullets.push(new Bullet(spawnX,spawnZ,dx*bspd,dz*bspd,kind,y0,d.y*bspd,true));
+        const _b=new Bullet(spawnX,spawnZ,dx*bspd,dz*bspd,kind,y0,d.y*bspd,true); if(_assistVY!=null)_b.vy=_assistVY; GS.bullets.push(_b);
       } else if(isGalaxy){
         const d3=dir3FromAngle(ang)||new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
         GS.bullets.push(new Bullet(spawnX,spawnZ,d3.x*bspd,d3.z*bspd,kind,y0,d3.y*bspd,true));
       } else {
-        const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0); _b.vy=_useDroneVY?_droneVY:pvy; GS.bullets.push(_b);   // ballistic: stick magnitude sets launch pitch; arcs + bounces off the ground
+        const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0); _b.vy=_useDroneVY?_droneVY:(_assistVY!=null?_assistVY:pvy); GS.bullets.push(_b);   // ballistic: stick magnitude sets launch pitch; arcs + bounces off the ground. assist biases vy toward the target's height so close shots stop sailing over short enemies
       }
       if(_roofFire) GS.bullets[GS.bullets.length-1]._noOrbit=true;   // rooftop shots ignore building gravity
     };
@@ -11837,11 +11934,48 @@ function _spawnPU(x,y,z,type,vx,vy,vz){
   g.position.set(x,y,z); scene.add(g);
   window._itemPU.push({grp:g,cube,ring,x,y,z,vx,vy,vz,type,settled:false,t:Math.random()*6});
 }
+// A thrown barrel that rolled to a stop -> drop it back LYING ON ITS SIDE (where it landed), grabbable + shootable. Does NOT snap upright.
+function _spawnRestedBarrel(x,y,z){
+  if(!window._itemPU)window._itemPU=[];
+  const def=_ITEMDEF.barrel, BSZ=(window._BARREL_SIZE||11);
+  const g=new THREE.Group();
+  const cube=_makePUModel('barrel'); cube.scale.setScalar(window._BARREL_PU_SCALE||1.3); cube.rotation.z=Math.PI/2;   // tip it onto its side
+  g.add(cube);
+  const ring=new THREE.Mesh(new THREE.RingGeometry(18,22,40), new THREE.MeshBasicMaterial({color:def.glow,transparent:true,opacity:0.0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=-(BSZ-2); g.add(ring);
+  const yy=(y!=null?Math.min(y,BSZ+2):BSZ);
+  g.position.set(x,yy,z); scene.add(g);
+  window._itemPU.push({grp:g,cube,ring,x,y:yy,z,vx:0,vy:0,vz:0,type:'barrel',settled:true,_lying:true,t:Math.random()*6});
+}
+// Barrel solid-body collisions: barrel<->barrel (rolling shots + resting pickups) and barrel<->local-player.
+// Low closing speed -> they stop on / shove each other. High closing speed -> BOTH burst. Returns true if `s` should burst.
+function _barrelCollide(s, i, A, BSZ){
+  const BREAK=(window._BARREL_HIT_BREAK||190); let burst=false;
+  if(player){ const pd0=Math.hypot(s.x-player.wx,s.z-player.wz); if(pd0>(BSZ+34+(window._BARREL_PLAYER_R||18))) s._leftPlayer=true; }   // grace: can't hit the thrower until it has left their vicinity once (so it CAN hit you when it rolls back)
+  const lists=[A, window._itemPU];
+  for(const L of lists){ if(!L)continue; for(const o of L){ if(!o||o===s||o.type!=='barrel'||o._cooking>0)continue;
+    const oy=(o.y!=null?o.y:BSZ), dx=s.x-o.x, dz=s.z-o.z, dd=Math.hypot(dx,dz);
+    if(dd>0.01 && dd<(BSZ*2) && Math.abs(s.y-oy)<(BSZ*2.2)){
+      const nx=dx/dd, nz=dz/dd, impact=Math.hypot(s.vx-(o.vx||0), s.vz-(o.vz||0));
+      if(impact>BREAK){ if(L===window._itemPU){ o._cooking=(window._BARREL_FUSE||0.12); } else { o._break=true; } burst=true; }   // hard hit -> both burst
+      else { const ov=(BSZ*2-dd); s.x+=nx*ov*0.5; s.z+=nz*ov*0.5; if(!o.settled&&o.vx!==undefined){ o.x-=nx*ov*0.5; o.z-=nz*ov*0.5; o.vx=(o.vx||0)-nx*impact*0.25; o.vz=(o.vz||0)-nz*impact*0.25; } const vn=s.vx*nx+s.vz*nz; if(vn<0){ s.vx-=nx*vn; s.vz-=nz*vn; } s.vx*=0.6; s.vz*=0.6; }   // gentle -> separate + stop on each other
+    }
+  } }
+  if(player && player.alive!==false && s._leftPlayer){
+    const pdx=s.x-player.wx, pdz=s.z-player.wz, pdd=Math.hypot(pdx,pdz), pr=(window._BARREL_PLAYER_R||18);
+    if(pdd<(BSZ+pr) && Math.abs(s.y-((player.py||0)+10))<(BSZ+22)){
+      const impact=Math.hypot(s.vx,s.vz);
+      if(impact>BREAK){ if((player.inv||0)<=0){ if(player.shieldActive&&player.shieldHit){ player.shieldHit(20,'blast'); } else if(window._BARREL_HURTS_PLAYER!==false && typeof playerDie==='function'){ player._burnT=Math.max(player._burnT||0,1); playerDie(1,'#ff8c1a'); } } burst=true; }   // hard hit -> hurt + burst
+      else { const nx=pdx/(pdd||1), nz=pdz/(pdd||1); player.wx-=nx*4; player.wz-=nz*4; const vn=s.vx*nx+s.vz*nz; if(vn<0){ s.vx-=nx*vn; s.vz-=nz*vn; } s.vx*=0.5; s.vz*=0.5; }   // gentle -> shove the player + stop
+    }
+  }
+  return burst;
+}
 function _updatePU(dt){
   const A=window._itemPU; if(!A){window._nearOrb=null;return;}
   // ── BARRELS: take a bullet -> cook off; cook-off timer -> explode (chain handled in _detonateItem) ──
   for(let i=A.length-1;i>=0;i--){ const p=A[i]; if(!p||p.type!=='barrel')continue;
     if(!(p._cooking>0) && p.settled && typeof GS!=='undefined' && GS.bullets){ for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b)continue; const bw=(b.wx!=null?b.wx:b.x)||0, bz=(b.wz!=null?b.wz:b.z)||0; if(Math.hypot(bw-p.x,bz-p.z)<(window._BARREL_HIT_R||16) && Math.abs(((b.y!=null?b.y:9))-(p.y||7))<28){ if(b.remove)b.remove(); GS.bullets.splice(bi,1); p._cooking=(window._BARREL_FUSE||0.12); break; } } }
+    if(!(p._cooking>0) && p.settled){ const ud=player&&player.model&&player.model.userData; if(ud&&ud._meleeTimer>0 && player && Math.hypot(p.x-player.wx,p.z-player.wz)<(window._BARREL_MELEE_R||40)){ p._cooking=(window._BARREL_FUSE||0.12); if(typeof ps!=='undefined')ps.ring(p.x,p.z,[1,0.6,0.2],5,40); if(typeof Audio!=='undefined'){try{Audio.blip(150,0.09,'square',0.16,90);}catch(_){}} } }   // MELEE / FIST breaks a resting barrel
     if(p._cooking>0){ p._cooking-=dt; if(typeof ps!=='undefined'&&Math.random()<0.6)ps.spark(p.x+rand(-5,5),p.z+rand(-5,5),[1,0.5,0.1],(p.y||7)+rand(4,16)); if(p.cube)p.cube.scale.setScalar(1+0.12*Math.sin(performance.now()*0.05));
       if(p._cooking<=0){ if(p.grp){scene.remove(p.grp); p.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} A.splice(i,1); if(p===window._nearOrb)window._nearOrb=null; _detonateItem('barrel',p.x,p.z,false); } }
   }
@@ -11856,8 +11990,9 @@ function _updatePU(dt){
       p.grp.position.set(p.x, 2+k*5, p.z);
       if(p._unfoldT<=0){ _unfoldLootBall(p); continue; }
     }
+    else if(p._lying){ p.grp.position.set(p.x,p.y,p.z); }   // a barrel that rolled to a stop -> stays lying on its side where it landed (no bob, no upright snap)
     else { p.grp.position.y=7+Math.sin(p.t*2.4)*1.4; p.cube.rotation.y+=dt*1.4; }
-    if(p.type==='barrel'&&p.cube){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // barrels stand UPRIGHT on the ground — no tumble/tilt, just the gentle spin
+    if(p.type==='barrel'&&p.cube&&!p._lying){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // upright barrels stand straight; a LYING (rolled-to-rest) barrel keeps its side pose
     if(player&&!player._carryPayload&&p.settled&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z); if(d<(window._GRAB_R_ITEM||60)&&d<nd){nd=d;near=p;} }
   }
   window._nearOrb=near;
@@ -11901,6 +12036,7 @@ function _updateItemShots(dt){
 
     // ── BARREL ROLL PHASE — rolls on the cube's INNER SHELL (climbs the curved chamfer/walls + rolls back down); breaks only when actually HIT ──
     if(s.type==='barrel' && s._rolling){
+      if(s._break){ _breakBarrel(s,i); continue; }                                  // another barrel/collision flagged this one to burst
       s._rollT=(s._rollT||0)+dt;
       s.vy-=(window._BARREL_ROLL_GRAV||560)*dt;                                   // world gravity rolls it back down the curves
       s.x+=s.vx*dt; s.y+=s.vy*dt; s.z+=s.vz*dt;
@@ -11922,10 +12058,12 @@ function _updateItemShots(dt){
       if(typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&!e._captured&&Math.hypot(e.wx-s.x,e.wz-s.z)<((e.size||14)+BSZ+4)){ brk=true; break; } } }   // rolled into an enemy
       if(!brk && slamV>(window._BARREL_SLAM_BREAK||340)) brk=true;                                          // slammed a surface HARD
       if(!brk && typeof GS!=='undefined'&&GS.bullets){ for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b)continue; const bw=(b.wx!=null?b.wx:b.x)||0,bz=(b.wz!=null?b.wz:b.z)||0; if(Math.hypot(bw-s.x,bz-s.z)<(BSZ+6)&&Math.abs(((b.y!=null?b.y:9))-s.y)<(BSZ+12)){ if(b.remove)b.remove(); GS.bullets.splice(bi,1); brk=true; break; } } }   // shot it
-      if(brk){ _breakBarrel(s,i); continue; }                                                              // rammed an enemy / slammed hard / got shot -> burst
-      if((s._restT||0) > (window._BARREL_REST_T||0.5)){                                                     // rolled to a stop intact -> drop it back as a grabbable + shootable barrel (NO more roll-timer auto-explode; you have to throw it hard, shoot it, or blast it)
+      if(!brk){ const ud=player&&player.model&&player.model.userData; if(ud&&ud._meleeTimer>0 && player && Math.hypot(s.x-player.wx,s.z-player.wz)<(window._BARREL_MELEE_R||40)) brk=true; }   // melee'd / punched it
+      if(!brk && typeof _barrelCollide==='function' && _barrelCollide(s,i,A,BSZ)) brk=true;   // rammed another barrel / the player HARD
+      if(brk){ _breakBarrel(s,i); continue; }                                                              // rammed an enemy / slammed hard / got shot / hard barrel-hit -> burst
+      if((s._restT||0) > (window._BARREL_REST_T||0.5)){                                                     // rolled to a stop intact -> drop it back as a grabbable + shootable barrel LYING on its side (no upright snap, no roll-timer auto-explode)
         if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); }
-        if(typeof _spawnPU==='function') _spawnPU(s.x, Math.max(s.y,16), s.z, 'barrel', 0,0,0);
+        if(typeof _spawnRestedBarrel==='function') _spawnRestedBarrel(s.x, s.y, s.z);
         A.splice(i,1); continue;
       }
       continue;
@@ -11942,6 +12080,8 @@ function _updateItemShots(dt){
     if(s.type==='barrel'){
       s._fAge=(s._fAge||0)+dt;
       if(hit){ _breakBarrel(s,i); continue; }                                     // hit an enemy mid-air
+      if(typeof _barrelCollide==='function' && _barrelCollide(s,i,A,BSZ)){ _breakBarrel(s,i); continue; }   // flat throw straight into a barrel/player -> burst (gentle contact just nudges)
+      { const ud=player&&player.model&&player.model.userData; if(ud&&ud._meleeTimer>0 && player && Math.hypot(s.x-player.wx,s.z-player.wz)<(window._BARREL_MELEE_R||40)){ _breakBarrel(s,i); continue; } }   // batted out of the air
       let contact=false;
       if(GS.zone===-19){ contact=(typeof _cubeSDF==='function') && _cubeSDF(s.x,s.y,s.z) > -BSZ; }
       else { contact=(s.y<=BSZ); }
@@ -15938,13 +16078,21 @@ function loop(ts){ requestAnimationFrame(loop);
           if(tc && !(ud._rollingTimer>0)){
             const tname=Object.keys(ud.clips).find(k=>ud.clips[k]===tc)||'throw_bomb';
             const tdur=((tc._clip&&tc._clip.duration)||0.5)/1.15;
-            tc.reset(); tc.setEffectiveWeight(1); tc.setEffectiveTimeScale(1.15); tc.setLoop(THREE.LoopOnce,1); tc.clampWhenFinished=true; tc.play();
-            Object.values(ud.clips).forEach(a=>{ if(a!==tc){ a.stop(); a.setEffectiveWeight(0); } });
-            ud.currentClip=tname; ud._rollingTimer=tdur;
-            setTimeout(()=>{ if(!player||!ud.clips)return; ud._rollingTimer=0; ud.currentClip='_post_throw';
-              const back=ud.clips['idle']||Object.values(ud.clips)[0];
-              if(back){ Object.values(ud.clips).forEach(a=>a.fadeOut(0.12)); if(!back.isRunning())back.reset(); back.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.12).play(); }
-            }, tdur*1000);
+            const addT=(window._throwUpperBody!==false && typeof _buildAdditiveMelee==='function')?_buildAdditiveMelee(ud,tname):null;
+            if(addT){   // UPPER-BODY additive throw: arms/torso throw OVER the running/floating legs; Hips/Leg tracks are dropped -> no walk-forward, no origin drift, no locomotion lock
+              if(player._throwAdditive && player._throwAdditive!==addT){ try{player._throwAdditive.stop();}catch(_){} }
+              addT.reset(); addT.setEffectiveWeight(1); addT.setEffectiveTimeScale(1.15); addT.setLoop(THREE.LoopOnce,1); addT.clampWhenFinished=true; addT.play();
+              player._throwAdditive=addT;
+              setTimeout(()=>{ if(player&&player._throwAdditive===addT){ try{player._throwAdditive.fadeOut(0.16);}catch(_){} player._throwAdditive=null; } }, tdur*1000);
+            } else {
+              tc.reset(); tc.setEffectiveWeight(1); tc.setEffectiveTimeScale(1.15); tc.setLoop(THREE.LoopOnce,1); tc.clampWhenFinished=true; tc.play();
+              Object.values(ud.clips).forEach(a=>{ if(a!==tc){ a.stop(); a.setEffectiveWeight(0); } });
+              ud.currentClip=tname; ud._rollingTimer=tdur;
+              setTimeout(()=>{ if(!player||!ud.clips)return; ud._rollingTimer=0; ud.currentClip='_post_throw';
+                const back=ud.clips['idle']||Object.values(ud.clips)[0];
+                if(back){ Object.values(ud.clips).forEach(a=>a.fadeOut(0.12)); if(!back.isRunning())back.reset(); back.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.12).play(); }
+              }, tdur*1000);
+            }
           }
         }
 
@@ -18286,6 +18434,11 @@ function _ballHitPlayer(b, dt){
   const dxx=b.pos.x-bodyC.x, dyy=b.pos.y-bodyC.y, dzz=b.pos.z-bodyC.z, bd=Math.hypot(dxx,dyy,dzz);
   if(bd < PR+b.R){
     const n=bd>1e-4?new THREE.Vector3(dxx/bd,dyy/bd,dzz/bd):new THREE.Vector3(0,1,0);
+    if(n.y > (window._BALL_DEFLECT_THRESH||0.82)){   // near dead-center drop straight onto the head -> a rounded body would never hold it there; nudge the normal off-axis so it SHOOTS OFF sideways instead of bouncing straight up forever
+      let hx=player.vx||0, hz=player.vz||0, hl=Math.hypot(hx,hz);
+      if(hl<1){ const a=Math.random()*TAU; hx=Math.cos(a); hz=Math.sin(a); hl=1; }   // standing still -> random horizontal kick
+      const bias=(window._BALL_DEFLECT_BIAS||0.6); n.x+=hx/hl*bias; n.z+=hz/hl*bias; n.normalize();
+    }
     b.pos.copy(bodyC).addScaledVector(n,PR+b.R+1);
     const pv=new THREE.Vector3(player.vx||0,player.pvy||0,player.vz||0), along=Math.max(0,pv.dot(n));
     const ud0=player.model&&player.model.userData, melee0=!!(ud0&&ud0._meleeTimer&&ud0._meleeTimer>0);
@@ -18571,10 +18724,11 @@ function _updateCamBtn(playing){
     btn.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 116px);right:14px;z-index:13;padding:8px 12px;font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:2px;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;min-width:92px;display:flex;align-items:center;justify-content:center;gap:6px';
     let _hold=null,_held=false;
     const tap=()=>{ _setCamMode(_nextCamMode()); _paintCamBtn(btn); if(typeof Audio!=='undefined')Audio.blip(560,0.06,'square',0.12,600); };
-    const down=(e)=>{ e.preventDefault(); e.stopPropagation(); _held=false; if(_hold)clearTimeout(_hold); _hold=setTimeout(()=>{ _held=true; _openCamSel(); if(typeof Audio!=='undefined')Audio.blip(720,0.05,'square',0.1,520); }, 360); };
+    const down=(e)=>{ e.preventDefault(); e.stopPropagation(); _held=false; if(_hold)clearTimeout(_hold); _hold=setTimeout(()=>{ _held=true; _openCamSel(); if(typeof Audio!=='undefined')Audio.blip(720,0.05,'square',0.1,520); }, (window._CAM_HOLD_MS||450)); };   // CLICK = cycle modes; PRESS-AND-HOLD = open the picker
     const up=(e)=>{ e.preventDefault(); e.stopPropagation(); if(_hold){clearTimeout(_hold);_hold=null;} if(!_held) tap(); };
-    btn.addEventListener('touchstart',down,{passive:false}); btn.addEventListener('touchend',up,{passive:false});
-    btn.addEventListener('mousedown',down); btn.addEventListener('mouseup',up);
+    const cancel=()=>{ if(_hold){clearTimeout(_hold);_hold=null;} };   // finger slid off -> abort the hold (don't pop the menu)
+    btn.addEventListener('touchstart',down,{passive:false}); btn.addEventListener('touchend',up,{passive:false}); btn.addEventListener('touchmove',cancel,{passive:false}); btn.addEventListener('touchcancel',cancel,{passive:false});
+    btn.addEventListener('mousedown',down); btn.addEventListener('mouseup',up); btn.addEventListener('mouseleave',cancel);
     document.body.appendChild(btn);
     cyc=document.createElement('button'); cyc.id='enemycam-cyc';
     cyc.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 116px);right:118px;z-index:13;padding:8px 11px;font-family:Orbitron,sans-serif;font-size:13px;color:#ff8844;background:rgba(28,14,8,0.78);border:1.5px solid #ff884477;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;display:none';
@@ -19004,7 +19158,7 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
 let _cwLook=null, _cwCamBlend=1, _cwCamFrom=new THREE.Vector3(), _cwAuthPrev=false, _cwCeilE=null, _cwUpSmooth=null;
 function _cubeCam(P, dt){
   if(window._ballCam){ _ballCam(P,dt); if(player)player._cubeCamAuth=false; _cwAuthPrev=false; return; }
-  if(window._enemyCam){ const _t=_enemyCamTargetPos(P); if(_t){ let _dir=_t.clone().sub(P); _dir.y=0; if(_dir.lengthSq()>1){ _dir.normalize(); CAM.yaw=Math.atan2(-_dir.x,-_dir.z); CAM.tyaw=CAM.yaw; } _enemyCam(P,_t,dt); if(player)player._cubeCamAuth=false; _cwAuthPrev=false; return; } }   // ENEMY CAM works in the cube too (frame the dragon/swarm); align CAM.yaw so floor/wall movement still reads with the view
+  if(window._enemyCam){ const _t=_enemyCamTargetPos(P); if(_t){ let _dir=_t.clone().sub(P); _dir.y=0; if(_dir.lengthSq()>1){ _dir.normalize(); CAM.yaw=Math.atan2(-_dir.x,-_dir.z); CAM.tyaw=CAM.yaw; } _enemyCam(P,_t,dt); if(player)player._cubeCamAuth=false; _cwAuthPrev=false; return; } else { if(typeof _camFxBegin==='function')_camFxBegin(); window._enemyCam=false; } }   // ENEMY CAM works in the cube too; when the target's gone, ease back to the normal/wall cam instead of popping
   const Fout=new THREE.Vector3(); _cubeGrad(P.x,P.y,P.z,Fout); Fout.normalize();
   const N=Fout.clone().multiplyScalar(-1);                 // player up = toward the room centre
   // HYSTERESIS: hold the current mode through the chamfer so floor<->wall doesn't flicker (which made the cam thrash on the way down).
@@ -19066,14 +19220,27 @@ function _cubeWallCam(P, N, dt){
   if(!_cwUpSmooth){ _cwUpSmooth=up.clone(); } else { _cwUpSmooth.lerp(up, Math.min(1,dt*(window._CUBE_CEIL_EASE||6))); if(_cwUpSmooth.lengthSq()>1e-4)_cwUpSmooth.normalize(); else _cwUpSmooth.copy(up); }
   up=_cwUpSmooth;
   const LIFT=lerp((window._CUBE_WALLCAM_LIFT!=null?window._CUBE_WALLCAM_LIFT:120), (window._CUBE_CEIL_LIFT!=null?window._CUBE_CEIL_LIFT:340), ceilK);   // on the CEILING ride much further along screen-up so the eye sits ~45° off the surface (looking down at an angle, reading the ground) instead of straight overhead
-  let eye=P.clone().addScaledVector(Fout, D).addScaledVector(up, LIFT);          // X-RAY: OUTSIDE the surface, lifted along screen-up so it looks back at the player for perspective
+  const _liftSign=lerp(1, (window._CUBE_CEIL_LIFT_SIGN||-1), ceilK);   // wall: lift up-the-wall (+). CEILING: lean the eye the OTHER way so the look-down slant is correct (the ceiling slant was 180° off). flip the default sign if it's still wrong.
+  let eye=P.clone().addScaledVector(Fout, D).addScaledVector(up, LIFT*_liftSign);          // X-RAY: OUTSIDE the surface, lifted along screen-up so it looks back at the player for perspective
   if(floorK>0.001){ const BACK=(window._CUBE_WF_BACK||250); const oh=P.clone(); oh.y+=BACK*(window._CUBE_WF_LIFT||1.0); const hb=new THREE.Vector3(camera.position.x-P.x,0,camera.position.z-P.z); if(hb.lengthSq()>1){ hb.normalize().multiplyScalar(BACK); oh.add(hb); } const k=Math.pow(floorK,(window._CUBE_WF_EASE||0.55)); eye.lerp(oh, k); eye.y=Math.max(eye.y, P.y+(window._CUBE_WF_MINH||90)*floorK); }   // ride to a ~45° BEHIND-and-ABOVE framing (height≈back, NOT straight overhead) so the cam never ducks under the feet AND keeps a horizontal look-component -> the surface-relative "down" stays stable through the arc (no spin-around)
   if(!_cwLook) _cwLook=P.clone();
   _cwLook.lerp(P,0.14);
   if(_cwCamBlend<1){ _cwCamBlend=Math.min(1,_cwCamBlend+dt/(window._CUBE_CAM_BLEND||0.9)); const e=_cwCamBlend<0.5?2*_cwCamBlend*_cwCamBlend:1-Math.pow(-2*_cwCamBlend+2,2)/2; camera.position.lerpVectors(_cwCamFrom,eye,e); }
   else camera.position.lerp(eye,0.12);
   camera.up.copy(up);
-  camera.lookAt(_cwLook.x,_cwLook.y,_cwLook.z);
+  // ── AIM-LOOK NUDGE: rotate the view toward the side you're aiming (right stick) so off-screen side enemies come into view. Look-only — never touches movement/aim controls. ──
+  let _lkx=_cwLook.x,_lky=_cwLook.y,_lkz=_cwLook.z;
+  { let panTarget=0;
+    if(window._WALL_AIM_NUDGE!==false && player._aim3DActive && player._aim3D){
+      const fwdN=P.clone().sub(eye); if(fwdN.lengthSq()>1e-4){ fwdN.normalize();
+        const right=new THREE.Vector3().crossVectors(fwdN, up);
+        if(right.lengthSq()>1e-5){ right.normalize(); const lat=Math.max(-1,Math.min(1, player._aim3D.dot(right))); panTarget=lat*(window._WALL_AIM_NUDGE_AMT||84); }   // 84 ≈ ~13° of view rotation at this cam distance
+      }
+    }
+    player._cwAimPan=(player._cwAimPan||0)+(panTarget-(player._cwAimPan||0))*Math.min(1,dt*(window._WALL_AIM_NUDGE_EASE||5));   // ease in/out so it glides, never snaps
+    if(Math.abs(player._cwAimPan)>0.4){ const fwdN2=P.clone().sub(eye); if(fwdN2.lengthSq()>1e-4){ fwdN2.normalize(); const right2=new THREE.Vector3().crossVectors(fwdN2, up); if(right2.lengthSq()>1e-5){ right2.normalize(); _lkx+=right2.x*player._cwAimPan; _lky+=right2.y*player._cwAimPan; _lkz+=right2.z*player._cwAimPan; } } }
+  }
+  camera.lookAt(_lkx,_lky,_lkz);
   if(typeof CAM!=='undefined'){ CAM.focus.copy(_cwLook); CAM.tfocus.copy(_cwLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }
 }
 // ── fade any cube face that sits between the camera and the player so you can always see yourself ──
@@ -22747,6 +22914,7 @@ let _MELEE_TRIM_START=0;  // sec skipped off the START of each swing. 0 = play f
 let _MELEE_TRIM_END=0;    // sec cut off the END. 0 = let the follow-through finish before locomotion resumes. tune: window._MELEE_TRIM_END
 let _MELEE_FLICK_WINDOW_MS=160;  // a flick must snap out AND return within this many ms; holding longer = aim/fire instead
 if(typeof window!=='undefined' && window._meleeUpperBody===undefined) window._meleeUpperBody=false;   // FULL-BODY swing (legs+torso play the whole clip). set true for the upper-body additive split.
+if(typeof window!=='undefined' && window._throwUpperBody===undefined) window._throwUpperBody=true;   // THROW plays as an upper-body additive (arms/torso only) so the legs keep running/floating AND the Hips track is dropped -> no walk-forward / origin drift. set false for the old full-body throw.
 if(typeof window!=='undefined' && window._meleeLandLock===undefined) window._meleeLandLock=false;     // default: CARRY momentum through the swing. set true to PLANT in place instead
 if(typeof window!=='undefined' && window._meleeOnLeftStick===undefined) window._meleeOnLeftStick=false; // melee = RIGHT-stick flick (moved back off the left stick)
 if(typeof window!=='undefined' && window._MELEE_AUTOAIM_R===undefined) window._MELEE_AUTOAIM_R=90;      // TAP melee auto-faces the nearest enemy within this range
@@ -23486,6 +23654,7 @@ function _equipMeleeType(type){
   const hand=bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']||(function(){ for(const k in bones){ if(/hand/i.test(k)&&!/finger|thumb|index|middle|ring|pinky/i.test(k)) return bones[k]; } return null; })();
   if(!hand) return false;
   if(player._hammer&&player._hammer.parent) player._hammer.parent.remove(player._hammer);   // drop the old weapon before swapping
+  if(player._stowedMesh){ if(player._stowedMesh.parent)player._stowedMesh.parent.remove(player._stowedMesh); player._stowedMesh=null; }   // pull any back-slung weapon off too
   const hm=_makeMeleeWeapon(type); hm._hand=hand;
   let _db=bones['weapon_direction']||bones['mixamorig_weapon_direction']; if(!_db){ for(const k in bones){ if(/weapon.*dir/i.test(k)){ _db=bones[k]; break; } } } if(!_db&&player.model){ player.model.traverse(o=>{ if(!_db && /weapon.*dir/i.test(o.name||'')) _db=o; }); }
   hm._dirBone=_db||null; window._hammerDirBone=!!_db; hand.add(hm); player._hammer=hm; player._meleeType=type; player._stowedType=type; player._meleeStowed=false; _orientHammer();
@@ -23505,16 +23674,45 @@ function _collectHammer(st){
   if(typeof _updateStowButton==='function') _updateStowButton();
   return ok;
 }
+function _stowMeleeOnBack(hm, back){
+  if(!hm||!back||!player||!player.model) return false;
+  player.model.updateWorldMatrix(true,true);
+  const wsBefore=hm.getWorldScale(new THREE.Vector3());                 // remember world size so it doesn't resize across the reparent
+  if(hm.parent)hm.parent.remove(hm); back.add(hm);
+  const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
+  const upW=new THREE.Vector3(0,1,0).applyQuaternion(mq).normalize();
+  const fwdW=new THREE.Vector3(0,0,1).applyQuaternion(mq).normalize();
+  const tilt=(window._STOW_TILT||35)*Math.PI/180;                       // slung diagonally ~25-45°
+  const yA=upW.clone().applyAxisAngle(fwdW, tilt).normalize();          // weapon handle (+Y) points up-the-back, tilted
+  let xA=new THREE.Vector3().crossVectors(yA,fwdW); if(xA.lengthSq()<1e-5)xA.set(1,0,0); xA.normalize();
+  const zA=new THREE.Vector3().crossVectors(xA,yA).normalize();
+  const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,yA,zA));
+  const bq=back.getWorldQuaternion(new THREE.Quaternion());
+  hm.quaternion.copy(bq.clone().invert().multiply(desired));            // local rot that yields the desired world pose on the back bone
+  const off=upW.clone().multiplyScalar(window._STOW_UP||4).addScaledVector(fwdW,-(window._STOW_BACK||5));   // behind + slightly up
+  const bp=back.getWorldPosition(new THREE.Vector3()).add(off);
+  hm.position.copy(back.worldToLocal(bp));
+  const bsBack=back.getWorldScale(new THREE.Vector3());                 // preserve the world size
+  hm.scale.set((wsBefore.x/(bsBack.x||1))*(window._STOW_SCALE||1), (wsBefore.y/(bsBack.y||1))*(window._STOW_SCALE||1), (wsBefore.z/(bsBack.z||1))*(window._STOW_SCALE||1));
+  return true;
+}
 function _toggleMeleeStow(){
   if(!player) return;
-  if(player._hammer){                                            // STOW -> hide the weapon, free the hands for guns
-    if(player._hammer.parent) player._hammer.parent.remove(player._hammer);
+  if(player._hammer){                                            // STOW -> sling the weapon onto the back (frees the hands for guns) instead of vanishing
+    const hm=player._hammer;
+    const bones=player.model&&player.model.userData&&player.model.userData.bones;
+    const back=(typeof _chestBone==='function')?_chestBone(bones):null;
+    let slung=false;
+    if(back && window._MELEE_STOW_BACK!==false){ try{ slung=_stowMeleeOnBack(hm, back); }catch(e){ slung=false; } }
+    if(slung){ player._stowedMesh=hm; }
+    else { if(hm.parent)hm.parent.remove(hm); player._stowedMesh=null; }   // fallback: just hide it
     player._hammer=null; player._meleeType=null; player._meleeStowed=true;
     const ud=player.model&&player.model.userData; if(ud){ ud._meleeTimer=0; ud.currentClip=null; }
     if(player._meleeAdditive){ try{player._meleeAdditive.stop();}catch(e){} player._meleeAdditive=null; }
     if(typeof announce==='function') announce('WEAPON STOWED','#9fd0ff');
     if(typeof Audio!=='undefined') Audio.blip(300,0.08,'square',0.16,140);
   } else if(player._stowedType){                                 // DRAW -> bring the same weapon back out
+    if(player._stowedMesh){ if(player._stowedMesh.parent)player._stowedMesh.parent.remove(player._stowedMesh); player._stowedMesh=null; }   // pull it off the back
     const ok=_equipMeleeType(player._stowedType);
     if(typeof announce==='function') announce(ok?'WEAPON DRAWN':'NO HAND BONE','#33ffdd');
     if(typeof Audio!=='undefined') Audio.blip(520,0.08,'square',0.16,820);
@@ -25795,7 +25993,7 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
 <!-- ════ WORKSHOP / DRESS ROOM ════ -->
 <style>#workshop-overlay .ws-nudge{background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:12px monospace;padding:7px 11px;border-radius:6px;min-width:36px;}#workshop-overlay .ws-nudge:active{background:#1e4a6e;}#workshop-overlay button{cursor:pointer;}</style>
 <div id="workshop-overlay" style="display:none;position:fixed;inset:0;z-index:200000;background:radial-gradient(ellipse at 50% 38%,#0a1426 0%,#04060c 68%,#000 100%);font-family:Orbitron,monospace;"><canvas id="workshop-canvas" style="position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;"></canvas><div style="position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:10px 14px;pointer-events:none;"><div style="color:#00ffc8;font-size:15px;letter-spacing:2px;text-shadow:0 0 10px #00ffc8;">⚙ WORKSHOP</div><button id="ws-close" style="pointer-events:all;background:#ff447722;border:1px solid #ff4477aa;color:#ff6699;font:15px monospace;padding:5px 13px;border-radius:8px;">✕</button></div><div id="ws-poses" style="position:absolute;top:46px;left:0;right:0;display:flex;gap:7px;overflow-x:auto;padding:6px 12px;-webkit-overflow-scrolling:touch;"></div><div style="position:absolute;bottom:0;left:0;right:0;padding:10px 12px 18px;background:linear-gradient(0deg,rgba(2,6,14,0.94),rgba(2,6,14,0));"><div style="display:flex;gap:9px;justify-content:center;margin-bottom:10px;"><button id="ws-spin" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:11px Orbitron,monospace;padding:8px 14px;border-radius:8px;">↻ SPIN</button><button id="ws-boots" style="opacity:0.5;background:#00ffaa22;border:1px solid #00ffaa77;color:#00ffaa;font:11px Orbitron,monospace;padding:8px 14px;border-radius:8px;">BOOTS</button><button id="ws-zoom-out" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:14px monospace;padding:8px 14px;border-radius:8px;">−</button><button id="ws-zoom-in" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:14px monospace;padding:8px 14px;border-radius:8px;">+</button><button id="ws-fit" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:10px Orbitron,monospace;padding:8px 12px;border-radius:8px;">FIT</button></div><div id="ws-rot" style="max-width:520px;margin:0 auto;background:rgba(0,8,16,0.72);border:1px solid #1e3a52;border-radius:12px;padding:10px 12px;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;"><span style="color:#7fb4d8;font-size:11px;">BOOT:</span><button id="ws-side-L" style="background:#00ffc822;border:1px solid #00ffc877;color:#00ffc8;font:11px monospace;padding:5px 13px;border-radius:7px;">LEFT</button><button id="ws-side-R" style="background:#ff993322;border:1px solid #ff993377;color:#ffb866;font:11px monospace;padding:5px 13px;border-radius:7px;">RIGHT</button><span style="color:#7fb4d8;font-size:10px;margin-left:6px;">MODE</span><button id="ws-mode-rot" style="background:#9fdcff22;border:1px solid #9fdcff66;color:#9fdcff;font:10px monospace;padding:5px 9px;border-radius:7px;">ROT</button><button id="ws-mode-pos" style="background:#9fdcff22;border:1px solid #9fdcff66;color:#9fdcff;font:10px monospace;padding:5px 9px;border-radius:7px;">POS</button><button id="ws-reset" style="margin-left:auto;background:#ff447722;border:1px solid #ff447766;color:#ff7799;font:10px monospace;padding:5px 11px;border-radius:7px;">RESET</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#ff6b6b;font-size:13px;font-weight:bold;">X</span><button class="ws-nudge" data-axis="x" data-deg="-5">−5</button><button class="ws-nudge" data-axis="x" data-deg="-1">−1</button><button class="ws-nudge" data-axis="x" data-deg="1">+1</button><button class="ws-nudge" data-axis="x" data-deg="5">+5</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#7bff7b;font-size:13px;font-weight:bold;">Y</span><button class="ws-nudge" data-axis="y" data-deg="-5">−5</button><button class="ws-nudge" data-axis="y" data-deg="-1">−1</button><button class="ws-nudge" data-axis="y" data-deg="1">+1</button><button class="ws-nudge" data-axis="y" data-deg="5">+5</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#6bb4ff;font-size:13px;font-weight:bold;">Z</span><button class="ws-nudge" data-axis="z" data-deg="-5">−5</button><button class="ws-nudge" data-axis="z" data-deg="-1">−1</button><button class="ws-nudge" data-axis="z" data-deg="1">+1</button><button class="ws-nudge" data-axis="z" data-deg="5">+5</button></div><div style="margin-top:9px;font-size:11px;color:#9fdcff;text-align:center;">L: <span id="ws-read-L">0°, 0°, 0°</span> &nbsp;·&nbsp; R: <span id="ws-read-R">0°, 0°, 0°</span></div><div style="margin-top:4px;font-size:10px;color:#7fd0ff;text-align:center;">pos L: <span id="ws-pos-L">0.00, 0.00, 0.00</span> &nbsp;·&nbsp; R: <span id="ws-pos-R">0.00, 0.00, 0.00</span></div></div></div></div>
-<button id="dbg-shop" onclick="window.openWorkshop&&window.openWorkshop()" style="position:fixed;bottom:0;right:60px;background:#00ffc822;border:1px solid #00ffc866;color:#00ffc8;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">SHOP</button><button id="dbg-enemy" style="position:fixed;bottom:0;right:124px;background:#ff66cc22;border:1px solid #ff66cc66;color:#ff66cc;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">ENEMY</button><div id="dbg-enemy-menu" style="display:none;position:fixed;bottom:30px;right:96px;z-index:100001;flex-direction:column;gap:5px;background:rgba(4,10,18,0.95);border:1px solid #ff66cc55;border-radius:8px;padding:6px;"><button class="dbg-enemy-pick" data-kind="spdr" style="background:#ff66cc22;border:1px solid #ff66cc66;color:#ff66cc;font:11px monospace;padding:6px 16px;border-radius:6px;">SPIDER</button><button class="dbg-enemy-pick" data-kind="droid" style="background:#ff772244;border:1px solid #ff882266;color:#ff8844;font:11px monospace;padding:6px 16px;border-radius:6px;">DROID</button><button class="dbg-enemy-pick" data-kind="ghost" style="background:#33ffcc22;border:1px solid #33ffcc66;color:#33ffcc;font:11px monospace;padding:6px 16px;border-radius:6px;">GHOST</button><button class="dbg-enemy-pick" data-kind="dragon" style="background:#2a7aff22;border:1px solid #44aaff88;color:#66bbff;font:11px monospace;padding:6px 16px;border-radius:6px;">DRAGON</button></div><button id="dbg-bot" onclick="window._botSpawnTap&&window._botSpawnTap(this)" style="position:fixed;bottom:0;right:196px;background:#ff447722;border:1px solid #ff447788;color:#ff6688;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">+BOT·D</button>
+<button id="dbg-shop" onclick="window.openWorkshop&&window.openWorkshop()" style="position:fixed;bottom:0;right:60px;background:#00ffc822;border:1px solid #00ffc866;color:#00ffc8;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">SHOP</button><button id="dbg-enemy" style="position:fixed;bottom:0;right:124px;background:#ff66cc22;border:1px solid #ff66cc66;color:#ff66cc;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">ENEMY</button><div id="dbg-enemy-menu" style="display:none;position:fixed;bottom:30px;right:96px;z-index:100001;flex-direction:column;gap:5px;background:rgba(4,10,18,0.95);border:1px solid #ff66cc55;border-radius:8px;padding:6px;"><button class="dbg-enemy-pick" data-kind="spdr" style="background:#ff66cc22;border:1px solid #ff66cc66;color:#ff66cc;font:11px monospace;padding:6px 16px;border-radius:6px;">SPIDER</button><button class="dbg-enemy-pick" data-kind="droid" style="background:#ff772244;border:1px solid #ff882266;color:#ff8844;font:11px monospace;padding:6px 16px;border-radius:6px;">DROID</button><button class="dbg-enemy-pick" data-kind="ghost" style="background:#33ffcc22;border:1px solid #33ffcc66;color:#33ffcc;font:11px monospace;padding:6px 16px;border-radius:6px;">GHOST</button><button class="dbg-enemy-pick" data-kind="dragon" style="background:#2a7aff22;border:1px solid #44aaff88;color:#66bbff;font:11px monospace;padding:6px 16px;border-radius:6px;">DRAGON</button><button class="dbg-enemy-pick" data-kind="dog" style="background:#ff7a2a22;border:1px solid #ff7a2a88;color:#ff9a4a;font:11px monospace;padding:6px 16px;border-radius:6px;">DOG</button></div><button id="dbg-bot" onclick="window._botSpawnTap&&window._botSpawnTap(this)" style="position:fixed;bottom:0;right:196px;background:#ff447722;border:1px solid #ff447788;color:#ff6688;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">+BOT·D</button>
 <script>
 (function(){
   const panel=document.getElementById('dbg-panel');
@@ -25827,6 +26025,7 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
         else if(k==='droid'&&window._spawnDroids) window._spawnDroids(2);
         else if(k==='ghost'&&window._spawnGhosts) window._spawnGhosts(5);
         else if(k==='dragon'&&window._spawnBlueDragon) window._spawnBlueDragon(1);
+        else if(k==='dog'&&window._spawnThreeHeadedDog) window._spawnThreeHeadedDog(1);
         enemyMenu.style.display='none';
       });
     });
