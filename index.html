@@ -3044,10 +3044,22 @@ class BlueDragon extends Enemy{
       const mx=new THREE.AnimationMixer(m); this._mixer=mx;
       const find=(kw)=>clips.find(c=>c.name&&c.name.toLowerCase()===kw) || clips.find(c=>c.name&&c.name.toLowerCase().includes(kw));
       const findAny=(kws)=>{ for(const kw of kws){ const c=find(kw); if(c) return c; } return null; };
-      const ALIAS={ death:['death','die','dead','dying','defeat'], hit:['hit','hurt','flinch','impact','pain','react','damage'] };   // the death clip is often named "die"; match it (and hit variants) so the reaction/death anims actually fire
+      const ALIAS={
+        death:['death','die','dead','dying','defeat'],
+        hit:['hit','hurt','flinch','impact','pain','react','damage','stagger'],
+        run:['run','running','walk','walking','jog','move','moving','locomotion','prowl','stalk','forward','step','trot'],
+        idle:['idle','idle1','idle_01','idle_a','breath','breathing','rest','stand','standing','ready','neutral'],
+        attack_ground:['attack_ground','ground_attack','groundattack','attack_01','attack1','bite','claw','clawattack','melee','stomp','swipe','maul','slam'],
+        attack_air:['attack_air','air_attack','airattack','fireball','fire_breath','firebreath','flyattack','flying_attack','attack_02','attack2','breath_attack'],
+        entrance:['entrance','spawn','emerge','intro','appear','roar','rise','wake','wake_up','wakeup'],
+        dizzy:['dizzy','stun','stunned','daze','dazed','tired','exhausted','groggy'],
+        casual:['casual','idle2','idle_02','look','taunt','growl','snarl']
+      };   // GLB clips are named all sorts of ways -> match common variants so the run/attack/death anims actually fire
       ['attack_ground','attack_air','casual','death','dizzy','hit','idle','entrance','run','wake_up'].forEach(nm=>{
         const cl=ALIAS[nm]?findAny(ALIAS[nm]):find(nm); if(cl){ this._act[nm]=mx.clipAction(cl); this._dur[nm]=cl.duration; } });
-      try{ if(!this._act.death){ console.warn('dragon: no death clip found among', clips.map(c=>c.name)); } }catch(_){}
+      if(!this._act.run){ this._act.run=this._act.idle||this._act.casual||null; if(this._act.run)this._dur.run=this._dur.idle||this._dur.casual||1; }   // no walk/run clip -> at least play idle instead of sliding on a frozen pose
+      if(!this._act.idle){ this._act.idle=this._act.casual||this._act.run||null; if(this._act.idle)this._dur.idle=this._dur.casual||this._dur.run||1; }
+      try{ console.log('[dragon] clips:', clips.map(c=>c.name), '| matched ->', Object.keys(this._act)); }catch(_){}
     }
   }
   _play(name,{loop=THREE.LoopRepeat, fade=0.18, speed=1, clamp=false}={}){
@@ -3066,7 +3078,7 @@ class BlueDragon extends Enemy{
     else if(state==='attack_air'){ this._firedBreath=false; this._play('attack_air',{loop:THREE.LoopOnce,clamp:true,fade:0.1}); }
     else if(state==='hit'){ this.hitFlash=6; this._play('hit',{loop:THREE.LoopOnce,clamp:true,fade:0.05}); }
     else if(state==='dizzy'){ this._play('dizzy',{fade:0.15}); }
-    else if(state==='death'){ try{ for(const k in this._act){ if(this._act[k]&&k!=='death')this._act[k].stop(); } }catch(_){} this._play('death',{loop:THREE.LoopOnce,clamp:true,fade:0.1}); }   // stop every other clip so nothing fades the body back to a standing pose mid-death
+    else if(state==='death'){ this._play('death',{loop:THREE.LoopOnce,clamp:true,fade:(window._DRAGON_DEATH_FADE||0.22)}); }   // crossfade INTO death from whatever he was doing — hard-stopping every clip snapped him to bind first (the "pop to the beginning")
   }
   knock(){ /* the dragon is far too massive to be shoved around — it just plays its hit reaction */ }
   hit(dmg=1, hx, hz, hy){
@@ -3108,7 +3120,7 @@ class BlueDragon extends Enemy{
     if(this._meleeCD>0)this._meleeCD-=dt; if(this._airCD>0)this._airCD-=dt; if(this._dizzyCD>0)this._dizzyCD-=dt;
     if(this._energy<1 && this._state!=='dizzy') this._energy=Math.min(1, this._energy+dt*(window._DRAGON_REGEN||0.25));
     const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1;
-    const aggroR=window._DRAGON_AGGRO||540, meleeR=window._DRAGON_MELEE_R||42, airR=window._DRAGON_AIR_R||270;
+    const aggroR=window._DRAGON_AGGRO||540, meleeR=window._DRAGON_MELEE_R||54, airR=window._DRAGON_AIR_R||270;
     this._aggro=(d<aggroR);
     if(this._dying){
       this._deadT+=dt;
@@ -18766,7 +18778,7 @@ function _cubeGrad(x,y,z,out){ if(!out)out=new THREE.Vector3(); const e=1.5, d=_
 // DISLODGED — a 2nd jump in the air drops you off the surface; you fall under TRUE-world gravity to the floor, upright.
 function _cubeDislodgeFall(P,rawX,rawZ,dt){
   dt=Math.min(dt,0.033);
-  P._glGrounded=false; P._inPlanetGravity=true;
+  P._glGrounded=false; P._inPlanetGravity=true; P._cwLeftByAir=true;   // left the wall through the AIR (jump/jet/dislodge) -> the wall->floor 180° cam flip must NOT fire on landing (that's only for WALKING the chamfer)
   P._cwDashT=0; P._wallDashRaw=null;                                   // left the surface -> drop any flip-drift so it can't resume (and override your stick) when you re-catch a wall
   const C=window._CUBE||_CUBE, RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
@@ -18919,6 +18931,7 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   _cubeGrad(P.wx,P.py,P.wz,_cwN); const d2=_cubeSDF(P.wx,P.py,P.wz), corr=d2+RIDE;   // re-snap to ride height
   P.wx-=_cwN.x*corr; P.py-=_cwN.y*corr; P.wz-=_cwN.z*corr;
   N=_cwN.clone().multiplyScalar(-1);
+  if(N.y < (window._CUBE_WALK_NY||0.7)) P._cwLeftByAir=false;   // grounded & walking on a wall/upper-chamfer -> this is a WALK exit (flip enabled); only a dislodge-fall keeps the air flag set onto the floor
   P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); window._cwSpeed=Math.round(v.length());
   _cubeWalkRender(P,N,tanDir,dt,grounded);
 }
@@ -18985,12 +18998,18 @@ function _cubeCam(P, dt){
     if(typeof camera!=='undefined') camera.up.set(0,1,0);   // clear any wall-cam tilt
     const _fy=4+Math.max(0,P.y)*0.55+Math.max(0,P.y-50)*0.45;   // SAME focus height the normal floor cam uses -> equipping boots on the floor matches the no-boots view (no jolt)
     if(player) player._camFocY=_fy;
-    if(_cwAuthPrev && typeof CAM!=='undefined'){            // wall -> floor: FLIP the cam a full 180° to face the wall you just left, so holding "down" keeps running you the SAME world direction (toward the camera); then you're free to orbit
+    if(_cwAuthPrev && typeof CAM!=='undefined'){            // wall -> floor handoff
       if(typeof _camFxBegin==='function') _camFxBegin();    // capture the wall-cam pose and ease into the floor framing instead of snapping
-      let hx=N.x, hz=N.z; const hl=Math.hypot(hx,hz);
       let yaw;
-      if(hl>1e-3){ yaw=Math.atan2(hx/hl, hz/hl); }          // exit dir = horizontal lean of "up toward centre" = away from the wall -> put the camera THERE (in front of your exit) so you run toward it, looking back at the wall
-      else { const dx=camera.position.x-P.x, dz=camera.position.z-P.z; yaw=Math.atan2(dx,dz)+Math.PI; }   // perfectly flat fallback
+      if(player && player._cwLeftByAir){
+        // JUMPED / dislodged / jetted off the wall -> the camera is ALREADY framed well (you reoriented away from it the instant you jumped). DON'T flip 180°; just continue the floor orbit from the camera's current bearing so air->land is seamless.
+        const dx=camera.position.x-P.x, dz=camera.position.z-P.z; yaw=Math.atan2(dx,dz);
+      } else {
+        // WALKED down the chamfer -> FLIP a full 180° to face the wall you just left, so holding "down" keeps running you the SAME world direction (toward the camera); then you're free to orbit
+        let hx=N.x, hz=N.z; const hl=Math.hypot(hx,hz);
+        if(hl>1e-3){ yaw=Math.atan2(hx/hl, hz/hl); }          // exit dir = horizontal lean of "up toward centre" = away from the wall -> put the camera THERE (in front of your exit) so you run toward it, looking back at the wall
+        else { const dx=camera.position.x-P.x, dz=camera.position.z-P.z; yaw=Math.atan2(dx,dz)+Math.PI; }   // perfectly flat fallback
+      }
       CAM.yaw=yaw; CAM.tyaw=yaw; CAM.focus.set(P.x,_fy,P.z);
     }
     _cwAuthPrev=false; if(typeof CAM!=='undefined'){ CAM.tfocus.set(P.x,_fy,P.z); CAM.dist=lerp(CAM.dist,230,0.03); CAM.height=lerp(CAM.height,200,0.03); }   // normal cam follows + orbits, eased to the same dist/height
@@ -19024,14 +19043,14 @@ function _cubeWallCam(P, N, dt){
   // ── WALL→FLOOR (lower chamfer): mirror the floor→wall handoff in reverse. As the surface flattens toward the floor (N.y rising),
   //    ease screen-up back to TRUE world-up and lift the cam ABOVE the player so it angles DOWN — instead of following Fout outward
   //    through the floor, which buried the camera under the character's feet during the transition.
-  const floorK=Math.max(0,Math.min(1,(N.y-(window._CUBE_WF_LO!=null?window._CUBE_WF_LO:0.42))/((window._CUBE_WF_HI||0.82)-(window._CUBE_WF_LO!=null?window._CUBE_WF_LO:0.42))));
+  const floorK=Math.max(0,Math.min(1,(N.y-(window._CUBE_WF_LO!=null?window._CUBE_WF_LO:0.42))/((window._CUBE_WF_HI||0.72)-(window._CUBE_WF_LO!=null?window._CUBE_WF_LO:0.42))));
   if(floorK>0.001){ const wu=new THREE.Vector3(0,1,0); const bu=up.clone().multiplyScalar(1-floorK).addScaledVector(wu,floorK); if(bu.lengthSq()>1e-4)up.copy(bu).normalize(); }
   // ease the up vector over time -> soft pole + soft quadrant/chamfer transitions
   if(!_cwUpSmooth){ _cwUpSmooth=up.clone(); } else { _cwUpSmooth.lerp(up, Math.min(1,dt*(window._CUBE_CEIL_EASE||6))); if(_cwUpSmooth.lengthSq()>1e-4)_cwUpSmooth.normalize(); else _cwUpSmooth.copy(up); }
   up=_cwUpSmooth;
   const LIFT=(window._CUBE_WALLCAM_LIFT!=null?window._CUBE_WALLCAM_LIFT:120);
   let eye=P.clone().addScaledVector(Fout, D).addScaledVector(up, LIFT);          // X-RAY: OUTSIDE the surface, lifted along screen-up so it looks back at the player for perspective
-  if(floorK>0.001){ const oh=P.clone(); oh.y+=(D+LIFT)*(window._CUBE_WF_LIFT||0.85); const hb=new THREE.Vector3(camera.position.x-P.x,0,camera.position.z-P.z); if(hb.lengthSq()>1){ hb.normalize().multiplyScalar(window._CUBE_WF_BACK||160); oh.add(hb); } eye.lerp(oh, floorK*floorK); }   // pull the eye up & behind (overhead, angled down) as the floor flattens — no more under-the-feet
+  if(floorK>0.001){ const oh=P.clone(); oh.y+=(D+LIFT)*(window._CUBE_WF_LIFT||0.95); const hb=new THREE.Vector3(camera.position.x-P.x,0,camera.position.z-P.z); if(hb.lengthSq()>1){ hb.normalize().multiplyScalar(window._CUBE_WF_BACK||180); oh.add(hb); } const k=Math.pow(floorK,(window._CUBE_WF_EASE||0.55)); eye.lerp(oh, k); eye.y=Math.max(eye.y, P.y+(window._CUBE_WF_MINH||110)*floorK); }   // pull the eye UP & BEHIND (overhead, angled down) as the floor flattens — ramps in early (pow<1) and a hard floor on eye.y so the cam can NEVER duck under the character's feet through the arc
   if(!_cwLook) _cwLook=P.clone();
   _cwLook.lerp(P,0.14);
   if(_cwCamBlend<1){ _cwCamBlend=Math.min(1,_cwCamBlend+dt/(window._CUBE_CAM_BLEND||0.9)); const e=_cwCamBlend<0.5?2*_cwCamBlend*_cwCamBlend:1-Math.pow(-2*_cwCamBlend+2,2)/2; camera.position.lerpVectors(_cwCamFrom,eye,e); }
