@@ -14571,7 +14571,39 @@ function updateAmmoHUD(){
   el.textContent=txt; el.style.color=col; el.style.textShadow=`0 0 6px ${col}`;
 }
 
+function _updateBigBars(){
+  if(typeof player==='undefined'||!player||typeof GS==='undefined') return;
+  let c=document.getElementById('hud-bars');
+  if(!c){
+    c=document.createElement('div'); c.id='hud-bars';
+    c.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 56px);left:50%;transform:translateX(-50%);z-index:9;width:min(70vw,560px);display:flex;flex-direction:column;gap:6px;pointer-events:none';
+    c.innerHTML=
+      '<div style="display:flex;align-items:center;gap:9px">'+
+        '<svg width="22" height="22" viewBox="0 0 24 24" fill="#ff4d6d" style="flex:none;filter:drop-shadow(0 0 4px #ff4d6d)"><path d="M12 21s-7-4.6-9.3-9C1 8.6 2.6 5 6 5c2 0 3.2 1.1 4 2.3C10.8 6.1 12 5 14 5c3.4 0 5 3.6 3.3 7-2.3 4.4-9.3 9-9.3 9z"/></svg>'+
+        '<div style="position:relative;flex:1;height:20px;border-radius:10px;background:rgba(4,12,16,0.8);border:1.5px solid rgba(255,255,255,0.2);overflow:hidden;box-shadow:0 0 10px rgba(0,0,0,0.45)">'+
+          '<div id="bb-health" style="position:absolute;left:0;top:0;height:100%;width:100%;background:linear-gradient(90deg,#19e08a,#39ffa0);transition:width 0.12s,background 0.2s"></div>'+
+          '<div id="bb-shield" style="position:absolute;left:0;top:0;height:100%;width:0;background:linear-gradient(90deg,rgba(51,224,255,0.9),rgba(140,242,255,0.78));box-shadow:inset 0 0 9px rgba(170,242,255,0.7);transition:width 0.12s"></div>'+
+        '</div>'+
+      '</div>'+
+      '<div style="display:flex;align-items:center;gap:9px;width:74%">'+
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="#00d9ff" style="flex:none;filter:drop-shadow(0 0 4px #00d9ff)"><path d="M13 2L4.5 13.5H11L9.5 22 19.5 9.5H13z"/></svg>'+
+        '<div style="position:relative;flex:1;height:11px;border-radius:6px;background:rgba(4,12,16,0.8);border:1px solid rgba(255,255,255,0.16);overflow:hidden">'+
+          '<div id="bb-boost" style="position:absolute;left:0;top:0;height:100%;width:100%;background:linear-gradient(90deg,#0090ff,#00d9ff);transition:width 0.08s"></div>'+
+        '</div>'+
+      '</div>';
+    document.body.appendChild(c);
+    ['health-bar','boost-bar-wrap','shield-bar-wrap'].forEach(id=>{ const e=document.getElementById(id); if(e)e.style.display='none'; });   // retire the old scattered bars
+  }
+  c.style.display=(GS.state==='playing')?'flex':'none';
+  if(GS.state!=='playing') return;
+  const hp=Math.max(0,GS.hp||0), mhp=Math.max(1,GS.maxHp||1), hpf=Math.min(1,hp/mhp);
+  const hbar=document.getElementById('bb-health'); if(hbar){ hbar.style.width=(hpf*100)+'%';
+    const col=hpf>0.5?'#19e08a,#39ffa0':(hpf>0.25?'#e0c019,#ffd84a':'#e0192e,#ff4d4d'); hbar.style.background='linear-gradient(90deg,'+col+')'; }
+  const sb=document.getElementById('bb-shield'); if(sb){ const up=(player.shieldActive||player._shieldRaised), shf=(up&&player.shieldHp>0)?Math.min(1,(player.shieldHp||0)/Math.max(1,player.shieldMax||100)):0; sb.style.width=(shf*100)+'%'; }
+  const bb=document.getElementById('bb-boost'); if(bb){ const bf=Math.min(1,(player.boostFuel||0)/Math.max(1,player.boostMax||100)); bb.style.width=(bf*100)+'%'; bb.style.opacity=bf<=0.001?'0.28':'1'; }
+}
 function updateUI(){
+  if(typeof _updateBigBars==='function')_updateBigBars();
   document.getElementById('mult-val').textContent='×'+GS.mult;
   const lv=document.getElementById('lives-display');
   if(lv.childElementCount!==GS.lives){ lv.innerHTML=''; for(let i=0;i<GS.lives;i++){const d=document.createElement('div');
@@ -18476,43 +18508,61 @@ function _updateWeaponCollider(dt){
     }
   } else { player._prevTip=null; }
 }
-function _updateBallCamBtn(playing){
-  let btn=document.getElementById('ballcam-btn');
-  const show=playing && GS.zone===-19;
-  if(!show){ if(btn)btn.style.display='none'; return; }
-  if(!btn){
-    btn=document.createElement('button'); btn.id='ballcam-btn';
-    btn.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 116px);right:14px;z-index:13;padding:8px 12px;font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:2px;color:#33e0ff;background:rgba(8,20,28,0.72);border:1.5px solid #33e0ff77;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent';
-    btn.textContent='BALL CAM';
-    const flip=(e)=>{ e.preventDefault(); e.stopPropagation(); if(typeof _camFxBegin==='function')_camFxBegin(); window._ballCam=!window._ballCam; btn.style.color=window._ballCam?'#06141a':'#33e0ff'; btn.style.background=window._ballCam?'rgba(51,224,255,0.9)':'rgba(8,20,28,0.72)'; if(typeof Audio!=='undefined')Audio.blip(window._ballCam?660:330,0.08,'square',0.14,800); };
-    btn.addEventListener('click',flip); btn.addEventListener('touchstart',flip,{passive:false});
-    document.body.appendChild(btn);
-  }
-  btn.style.display='block';
+function _camMode(){ return window._enemyCam?'enemy':(window._ballCam?'ball':'normal'); }
+function _setCamMode(mode){
+  if(typeof _camFxBegin==='function')_camFxBegin();
+  if(mode==='ball'){ window._ballCam=true; window._enemyCam=false; }
+  else if(mode==='enemy'){ window._enemyCam=true; window._ballCam=false; window._enemyCamFocus=null; }
+  else { window._ballCam=false; window._enemyCam=false; }
 }
-function _updateEnemyCamBtn(playing){
-  let btn=document.getElementById('enemycam-btn'), cyc=document.getElementById('enemycam-cyc');
-  if(!playing){ if(btn)btn.style.display='none'; if(cyc)cyc.style.display='none'; return; }
+const _CAM_CFG={ normal:{t:'CAM',c:'#9fe8ff',bg:'rgba(8,20,28,0.72)',bd:'#9fe8ff77'}, ball:{t:'BALL',c:'#06141a',bg:'rgba(51,224,255,0.92)',bd:'#33e0ff'}, enemy:{t:'ENEMY',c:'#1a0a04',bg:'rgba(255,136,68,0.94)',bd:'#ff8844'} };
+const _CAM_ICON='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>';
+function _camModesAvail(){ return (typeof GS!=='undefined'&&GS.zone===-19)?['normal','ball','enemy']:['normal','enemy']; }
+function _nextCamMode(){ const o=_camModesAvail(); let i=o.indexOf(_camMode()); if(i<0)i=0; return o[(i+1)%o.length]; }
+function _paintCamBtn(btn){ if(!btn)return; const cfg=_CAM_CFG[_camMode()]; btn.innerHTML=_CAM_ICON+'<span>'+cfg.t+'</span>'; btn.style.color=cfg.c; btn.style.background=cfg.bg; btn.style.border='1.5px solid '+cfg.bd; }
+function _openCamSel(){
+  const sel=document.getElementById('cam-sel'); if(!sel)return;
+  if(sel.style.display==='flex'){ sel.style.display='none'; return; }
+  sel.innerHTML=''; const labels={normal:'NORMAL',ball:'BALL CAM',enemy:'ENEMY CAM'};
+  for(const m of _camModesAvail()){ const cfg=_CAM_CFG[m]; const o=document.createElement('button');
+    const on=(m===_camMode());
+    o.style.cssText='padding:10px 12px;border-radius:8px;border:1.5px solid '+cfg.bd+';background:'+(on?cfg.bg:'rgba(8,18,24,0.85)')+';color:'+(on?cfg.c:cfg.bd)+';font:900 10px Orbitron,sans-serif;letter-spacing:2px;cursor:pointer;text-align:center;min-width:116px;pointer-events:all';
+    o.textContent=labels[m];
+    const pick=(e)=>{ e.preventDefault(); e.stopPropagation(); _setCamMode(m); _paintCamBtn(document.getElementById('cam-btn')); sel.style.display='none'; if(typeof Audio!=='undefined')Audio.blip(620,0.06,'square',0.12,700); };
+    o.addEventListener('click',pick); o.addEventListener('touchstart',pick,{passive:false});
+    sel.appendChild(o);
+  }
+  sel.style.display='flex';
+}
+function _updateCamBtn(playing){
+  let btn=document.getElementById('cam-btn'), cyc=document.getElementById('enemycam-cyc'), sel=document.getElementById('cam-sel');
+  if(!playing){ for(const e of [btn,cyc,sel]) if(e)e.style.display='none'; return; }
   if(!btn){
-    btn=document.createElement('button'); btn.id='enemycam-btn';
-    btn.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 158px);right:14px;z-index:13;padding:8px 12px;font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:2px;color:#ff8844;background:rgba(28,14,8,0.72);border:1.5px solid #ff884477;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent';
-    btn.textContent='ENEMY CAM';
-    const flip=(e)=>{ e.preventDefault(); e.stopPropagation(); if(typeof _camFxBegin==='function')_camFxBegin(); window._enemyCam=!window._enemyCam; if(window._enemyCam){ window._ballCam=false; window._enemyCamFocus=null; }   // turning on enemy cam frees the ball cam + resets to AVERAGE
-      btn.style.color=window._enemyCam?'#1a0a04':'#ff8844'; btn.style.background=window._enemyCam?'rgba(255,136,68,0.92)':'rgba(28,14,8,0.72)';
-      if(cyc) cyc.style.display=window._enemyCam?'block':'none';
-      if(typeof Audio!=='undefined')Audio.blip(window._enemyCam?660:330,0.08,'square',0.14,800); };
-    btn.addEventListener('click',flip); btn.addEventListener('touchstart',flip,{passive:false});
+    btn=document.createElement('button'); btn.id='cam-btn';
+    btn.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 116px);right:14px;z-index:13;padding:8px 12px;font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:2px;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;min-width:92px;display:flex;align-items:center;justify-content:center;gap:6px';
+    let _hold=null,_held=false;
+    const tap=()=>{ _setCamMode(_nextCamMode()); _paintCamBtn(btn); if(typeof Audio!=='undefined')Audio.blip(560,0.06,'square',0.12,600); };
+    const down=(e)=>{ e.preventDefault(); e.stopPropagation(); _held=false; if(_hold)clearTimeout(_hold); _hold=setTimeout(()=>{ _held=true; _openCamSel(); if(typeof Audio!=='undefined')Audio.blip(720,0.05,'square',0.1,520); }, 360); };
+    const up=(e)=>{ e.preventDefault(); e.stopPropagation(); if(_hold){clearTimeout(_hold);_hold=null;} if(!_held) tap(); };
+    btn.addEventListener('touchstart',down,{passive:false}); btn.addEventListener('touchend',up,{passive:false});
+    btn.addEventListener('mousedown',down); btn.addEventListener('mouseup',up);
     document.body.appendChild(btn);
     cyc=document.createElement('button'); cyc.id='enemycam-cyc';
-    cyc.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 158px);right:106px;z-index:13;padding:8px 11px;font-family:Orbitron,sans-serif;font-size:11px;color:#ff8844;background:rgba(28,14,8,0.72);border:1.5px solid #ff884477;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;display:none';
-    cyc.textContent='⟳';
+    cyc.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 116px);right:118px;z-index:13;padding:8px 11px;font-family:Orbitron,sans-serif;font-size:13px;color:#ff8844;background:rgba(28,14,8,0.78);border:1.5px solid #ff884477;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;display:none';
+    cyc.textContent='\u27f3';
     const cycle=(e)=>{ e.preventDefault(); e.stopPropagation(); if(typeof _enemyCamCycle==='function')_enemyCamCycle(); if(typeof Audio!=='undefined')Audio.blip(520,0.05,'square',0.1,400); };
     cyc.addEventListener('click',cycle); cyc.addEventListener('touchstart',cycle,{passive:false});
     document.body.appendChild(cyc);
+    sel=document.createElement('div'); sel.id='cam-sel';
+    sel.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 150px);right:14px;z-index:14;display:none;flex-direction:column;gap:5px;background:rgba(6,14,20,0.96);border:1px solid #9fe8ff55;border-radius:10px;padding:7px;box-shadow:0 0 24px rgba(0,180,255,0.25);pointer-events:all';
+    document.body.appendChild(sel);
   }
-  btn.style.display='block';
-  if(cyc) cyc.style.display=window._enemyCam?'block':'none';
+  btn.style.display='flex'; _paintCamBtn(btn);
+  if(cyc) cyc.style.display=(window._enemyCam)?'block':'none';
+  if(sel && sel.style.display==='flex' && !window._enemyCam && _camMode()!=='enemy'){ /* keep selector usable */ }
 }
+function _updateBallCamBtn(playing){ _updateCamBtn(playing); }   // back-compat shim — single unified button now
+function _updateEnemyCamBtn(playing){ /* folded into _updateCamBtn */ }
 function _doGravFlip(){
   if(typeof GS==='undefined'||GS.zone!==-19){ if(typeof announce==='function')announce('GRAVITY FLIP — CUBE ONLY','#9fe8ff'); return; }
   GS._gravFlip=!GS._gravFlip;
