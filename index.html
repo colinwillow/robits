@@ -23,7 +23,7 @@ canvas{display:block}
 #ui{position:absolute;inset:0;pointer-events:none;z-index:10}
 
 /* ── HUD — landscape: corners. portrait: top bar ── */
-#score-bar{display:flex;justify-content:space-between;align-items:flex-start;padding:max(env(safe-area-inset-top),10px) 14px 0;pointer-events:none}
+#score-bar{display:flex;justify-content:space-between;align-items:flex-start;padding:max(env(safe-area-inset-top),10px) calc(max(env(safe-area-inset-right),10px) + 44px) 0 calc(max(env(safe-area-inset-left),8px) + 44px);pointer-events:none}
 .hud-col{display:flex;flex-direction:column}
 .slabel{font-size:8px;letter-spacing:3px;color:#ffffff44;text-transform:uppercase;margin-bottom:1px}
 .sval{font-size:20px;letter-spacing:1px;color:#00ffc8;text-shadow:0 0 10px #00ffc8;font-weight:bold;font-variant-numeric:tabular-nums}
@@ -2999,7 +2999,7 @@ class BlueDragon extends Enemy{
   constructor(wx,wz,wave){
     super(wx,wz);
     this._robitId='blue_dragon'; this._robitName='Blue Dragon';
-    this.glow=[0.3,0.66,1]; this.score=400; this.size=22; this._barY=46; this._barW=42; this._tall=(window._DRAGON_TARGET||36);
+    this.glow=[0.3,0.66,1]; this.score=400; this.size=22; this._barY=(window._BOSS_BAR_Y||60); this._barW=(window._BOSS_BAR_W||90); this._tall=(window._DRAGON_TARGET||36);
     this._ballCapable=false; this._noKnock=true;   // too massive: melee must NOT fold him into a spinning ball, and nothing knocks him around (he plays his hit clip instead)
     this.hp=(window._DRAGON_HP||70)+(wave||1)*4; this.maxHp=this.hp;
     this._walkSpd=window._DRAGON_WALK||72; this._runSpd=window._DRAGON_RUN||178;
@@ -3120,7 +3120,7 @@ class BlueDragon extends Enemy{
     if(this._state!=='attack_air' && this._state!=='entrance' && this._state!=='dizzy'){
       if(this._energy<=0 && this._dizzyCD<=0){ this._dizzyCD=window._DRAGON_DIZZY_CD||6; this._dizzyT=window._DRAGON_DIZZY_T||1.8; this._hitAccum=0; this._enter('dizzy'); }
       else {
-        const thresh=(window._DRAGON_HIT_THRESH!=null?window._DRAGON_HIT_THRESH:10);   // pile up ~10 dmg before the big flinch (bullets 3 / rockets 5)
+        const thresh=(this._hitThresh!=null?this._hitThresh:(window._DRAGON_HIT_THRESH!=null?window._DRAGON_HIT_THRESH:6));   // pile up this much dmg before the big flinch (bullets ~1-2 / rockets ~5). lower = flinches more often
         const hitBusy=(this._state==='hit' && this._stateT < (this._dur.hit||0.5));      // let the current flinch play ALL the way through before it can fire again
         if(this._hitAccum>=thresh && !hitBusy){ this._hitAccum=0; this._hitRecoil=1; this._enter('hit'); }   // big flinch: clip (if any) + a strong procedural recoil
       }
@@ -3137,7 +3137,7 @@ class BlueDragon extends Enemy{
     if(this._meleeCD>0)this._meleeCD-=dt; if(this._airCD>0)this._airCD-=dt; if(this._dizzyCD>0)this._dizzyCD-=dt;
     if(this._energy<1 && this._state!=='dizzy') this._energy=Math.min(1, this._energy+dt*(window._DRAGON_REGEN||0.25));
     const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1;
-    const aggroR=window._DRAGON_AGGRO||540, meleeR=window._DRAGON_MELEE_R||54, airR=window._DRAGON_AIR_R||270;
+    const aggroR=this._aggroR||window._DRAGON_AGGRO||540, meleeR=window._DRAGON_MELEE_R||54, airR=window._DRAGON_AIR_R||270;
     this._aggro=(d<aggroR);
     if(this._dying){
       this._deadT+=dt;
@@ -3167,7 +3167,7 @@ class BlueDragon extends Enemy{
         this._curY=-(window._DRAGON_EMERGE!=null?window._DRAGON_EMERGE:0)*(1-k);   // the entrance CLIP already rises from underground -> add no extra lift by default (was double-lifting -> looked like he floated then settled). Set window._DRAGON_EMERGE>0 to add lift.
         if(this._stateT>=dur){ this._curY=0; this._enter(this._aggro?'chase':'idle'); } break; }
       case 'idle': { this._curY=0; this.vx*=0.8; this.vz*=0.8;
-        if(this._stateT>(window._DRAGON_IDLE_SWAP||4)){ this._play((this._curName==='idle'&&this._act.casual)?'casual':'idle',{fade:0.4}); this._stateT=0; }
+        if(this._stateT>(window._DRAGON_IDLE_SWAP||4)){ this._enter('idle'); }   // re-enter -> re-picks a fresh idle (the dog cycles its 3 idle clips; the dragon re-rolls idle/casual)
         if(this._aggro) this._enter('chase'); break; }
       case 'chase': { this._curY=0;
         if(!this._aggro){ this._enter('idle'); break; }
@@ -3175,7 +3175,7 @@ class BlueDragon extends Enemy{
         if(d<airR && d>meleeR+10 && this._airCD<=0 && this._act.attack_air && Math.random()<(window._DRAGON_AIR_CHANCE||0.035)){ this._airCD=window._DRAGON_AIR_CD||3.2; this._enter('attack_air'); break; }
         const spd=(d>airR)?this._runSpd:this._walkSpd;
         this.vx=dx/d*spd; this.vz=dz/d*spd; this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._clampZone();
-        const sp=Math.hypot(this.vx,this.vz), ra=this._act.run; if(ra) ra.timeScale=Math.max(0.4, sp/(window._DRAGON_RUN_REF||150));
+        const sp=Math.hypot(this.vx,this.vz), ra=this._act.run; if(ra){ ra.timeScale=Math.max(0.4, sp/(window._DRAGON_RUN_REF||150)); if(sp>4 && this._curName!=='run') this._play('run'); }   // moving but not playing run (got interrupted) -> re-assert the run clip
         break; }
       case 'attack_ground': { this._curY=0; this.vx*=0.6; this.vz*=0.6;
         const dur=this._dur.attack_ground||0.9, hitAt=dur*(window._DRAGON_PUNCH_FRAC||0.45);
@@ -3245,6 +3245,8 @@ class ThreeHeadedDog extends BlueDragon{
     this.glow=[1,0.5,0.2]; this.score=(window._DOG_SCORE||360); this.size=20; this._tall=(window._DOG_TARGET||34);
     this.hp=(window._DOG_HP||60)+(wave||1)*4; this.maxHp=this.hp;
     this._walkSpd=window._DOG_WALK||92; this._runSpd=window._DOG_RUN||214;
+    this._aggroR=(window._DOG_APPROACH||300);   // beyond this it idles (cycling its 3 idle clips); within it, it runs toward you
+    this._hitThresh=(window._DOG_HIT_THRESH||3);   // flinch readily so the hit anim actually shows
     this._deconHex=(window._DOG_GLOW!=null?window._DOG_GLOW:0xff7a2a);   // evaporate in its own ember color
   }
   _buildModel(){ this._gltf=_dogGltf; this._target=(window._DOG_TARGET||34); this._glowHex=(window._DOG_GLOW!=null?window._DOG_GLOW:0xff7a2a); super._buildModel(); }
@@ -8647,6 +8649,11 @@ class Missile{
     // Home in on target — FULL 3D. A rocket fired from a rooftop flies on its launch trajectory and arcs toward
     // wherever the enemy ACTUALLY is (incl. a spider partway up a wall) instead of dumping its altitude to the floor.
     this._findTarget(enemies);
+    if(window._ROCKET_SEEK_BARRELS!==false && !this.target && !this._homePlayer && !this._homeBack){   // no enemy lock -> heat-seek a barrel if one is within a tight radius
+      const lists=[window._itemPU, window._itemShots]; let bb=null, bbd=(window._ROCKET_BARREL_SEEK||110);
+      for(const L of lists){ if(!L)continue; for(const o of L){ if(!o||o.type!=='barrel'||o._cooking>0||o._break)continue; const oy=(o.y!=null?o.y:11); const dd=Math.hypot(o.x-this.wx,oy-this.y,o.z-this.wz); if(dd<bbd){ bbd=dd; bb=o; } } }
+      if(bb){ this.target={wx:bb.x, wz:bb.z, mesh:{position:{y:(bb.y!=null?bb.y:11)}}, size:14, _barrel:bb}; }
+    }
     if(this._homePlayer && player && player.alive!==false){ this.target=player; }   // cannon rocket: lock onto the player so it flies at you to be deflected
     if(this._homeBack && this._homeBackTarget){ this.target=this._homeBackTarget; }   // deflected rocket: heat-seek back at whoever shot it
     if(GS.zone===-19 && typeof _cubeBall!=='undefined' && _cubeBall && !this.target){ const _bd=Math.hypot(_cubeBall.pos.x-this.wx,_cubeBall.pos.y-this.y,_cubeBall.pos.z-this.wz); if(_bd<(window._BALL_SEEK_R||120)){ this.target={wx:_cubeBall.pos.x, wz:_cubeBall.pos.z, mesh:{position:{y:_cubeBall.pos.y}}}; } }   // CUBE: only lock the ball if the rocket passes CLOSE to it (tight seek radius), like enemy acquisition
@@ -8703,6 +8710,8 @@ class Missile{
     if(_arenaObstacles.length){ for(const o of _arenaObstacles){ if(o.t>=0.5 && (this.y||0)<o.h && Math.abs(this.wx-o.x)<o.w*0.5+8 && Math.abs(this.wz-o.z)<o.d*0.5+8){ this._explode(); return 0; } } }
     if(GRID_SHEETS.length){ const _hs=gridSheetHit(this.wx,this.y,this.wz,this.wx-this.vx*dt,this.y,this.wz-this.vz*dt); if(_hs){ if(_glSheets.indexOf(_hs.sheet)>=0){ _hs.sheet.impactLocal(_hs.lu,_hs.lv,2.2); } else { this._explode(); return 0; } } }   // lab shape = flyby (deform, don't explode); floor/walls still detonate
 
+    // Hit barrels (resting or rolling) -> cook them off + impact mark, then detonate the rocket
+    if(window._ROCKET_SEEK_BARRELS!==false){ const blists=[window._itemPU, window._itemShots]; for(const L of blists){ if(!L)continue; for(const o of L){ if(!o||o.type!=='barrel'||o._cooking>0||o._break)continue; const oy=(o.y!=null?o.y:11); if(Math.hypot(this.wx-o.x,this.y-oy,this.wz-o.z)<(window._ROCKET_BARREL_HIT||26)){ if(typeof _barrelImpactMark==='function')_barrelImpactMark(o,[1,0.7,0.2]); if(L===window._itemShots){o._break=true;} else {o._cooking=(window._BARREL_FUSE||0.12);} this._explode(); return 0; } } } }
     // Hit enemy
     if(this.target){
       const ey=this.target.mesh?this.target.mesh.position.y:10;
@@ -9644,6 +9653,7 @@ class Player{
     if(total>0)Audio.bigDie(); updateUI(); return true; }
   update(rawX,rawZ,avx,avz,dt,firing,od,aiming){
     if(!this.alive)return;
+    if(this._meleeType==='mace'){ this._maceRX=avx||0; this._maceRZ=avz||0; firing=false; od=false; }   // FLAIL is two-handed: the right stick drives the chain, no projectile fire
     this._plasmaWantFire=(this.primaryWeapon==='plasma'&&!!firing); this._plasmaOD=!!od; this._flameWantFire=(this.primaryWeapon==='flamethrower'&&!!firing); this._flameOD=!!od; this._aimMag=Math.hypot(avx||0,avz||0);
     if(this._bombCool>0) this._bombCool=Math.max(0,this._bombCool-dt);
     if(this._crateCool>0) this._crateCool=Math.max(0,this._crateCool-dt);   // bomb reload cooldown
@@ -11885,13 +11895,19 @@ function _updateCrates(dt){
 function _makePUModel(type){
   const g=new THREE.Group();
   if(type==='nuke'){
-    const dark=new THREE.MeshStandardMaterial({color:0x303036,emissive:0x140805,roughness:0.5,metalness:0.7});
-    const body=new THREE.Mesh(new THREE.CylinderGeometry(4,4,9,16),dark); body.rotation.z=Math.PI/2; g.add(body);
-    const nose=new THREE.Mesh(new THREE.ConeGeometry(4,5,16),dark); nose.rotation.z=-Math.PI/2; nose.position.x=7; g.add(nose);
-    const band=new THREE.Mesh(new THREE.CylinderGeometry(4.15,4.15,2.4,16), new THREE.MeshStandardMaterial({color:0xff5a3c,emissive:0xff5a3c,emissiveIntensity:1.5,roughness:0.4,toneMapped:false})); band.rotation.z=Math.PI/2; band.position.x=-1.5; g.add(band);
-    const fmat=new THREE.MeshStandardMaterial({color:0xff7a44,emissive:0x3a1505,roughness:0.5,metalness:0.5});
-    for(let k=0;k<4;k++){ const fin=new THREE.Mesh(new THREE.BoxGeometry(3.6,0.5,4),fmat); fin.position.x=-5.5; fin.rotation.x=k*Math.PI/2; fin.position.y=Math.cos(k*Math.PI/2)*3; fin.position.z=Math.sin(k*Math.PI/2)*3; g.add(fin); }
-    g.rotation.z=0.5; g.scale.setScalar(0.85);
+    // classic old-school aerial bomb — fat football body, rounded nose, tail fins, bright warning bands (lit so it reads, not a tiny black blob)
+    const shell=new THREE.MeshStandardMaterial({color:0x5b6650,emissive:0x2c3a22,emissiveIntensity:0.6,roughness:0.45,metalness:0.55,toneMapped:false});   // olive-grey body
+    const body=new THREE.Mesh(new THREE.SphereGeometry(5,20,14),shell); body.scale.set(1.7,1,1); g.add(body);     // football body (long axis = x)
+    const tail=new THREE.Mesh(new THREE.ConeGeometry(4.6,8,18),shell); tail.rotation.z=Math.PI/2; tail.position.x=-9.6; g.add(tail);   // tapered tail
+    const nose=new THREE.Mesh(new THREE.SphereGeometry(2.2,14,10),shell); nose.position.x=8.4; g.add(nose);        // rounded nose cap
+    const warn=new THREE.MeshStandardMaterial({color:0xffb020,emissive:0xff7a10,emissiveIntensity:1.9,roughness:0.4,metalness:0.3,toneMapped:false});   // bright warning rings
+    for(const bx of [3.2,-1.6]){ const ring=new THREE.Mesh(new THREE.TorusGeometry(4.55,0.95,8,26),warn); ring.rotation.y=Math.PI/2; ring.position.x=bx; g.add(ring); }
+    const fmat=new THREE.MeshStandardMaterial({color:0x3a4636,emissive:0x182414,emissiveIntensity:0.5,roughness:0.6,metalness:0.4,toneMapped:false});   // tail fins
+    for(let k=0;k<4;k++){ const fin=new THREE.Mesh(new THREE.BoxGeometry(6.5,0.7,5.2),fmat); fin.position.x=-11.6; fin.rotation.x=k*Math.PI/2; fin.position.y=Math.cos(k*Math.PI/2)*3.3; fin.position.z=Math.sin(k*Math.PI/2)*3.3; g.add(fin); }
+    const finRing=new THREE.Mesh(new THREE.TorusGeometry(3.5,0.5,8,18),fmat); finRing.rotation.y=Math.PI/2; finRing.position.x=-12.6; g.add(finRing);
+    const pip=new THREE.Mesh(new THREE.SphereGeometry(1.4,10,8), new THREE.MeshBasicMaterial({color:0xfff0a0,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false})); pip.position.x=10.5; g.add(pip);   // bright nose pip
+    const glow=new THREE.Mesh(new THREE.SphereGeometry(6.2,16,12), new THREE.MeshBasicMaterial({color:0xffa030,transparent:true,opacity:0.12,blending:THREE.AdditiveBlending,depthWrite:false})); glow.scale.set(1.85,1,1); g.add(glow);   // soft halo so it pops
+    g.rotation.z=0.32;
   } else if(type==='singularity'){
     const core=new THREE.Mesh(new THREE.IcosahedronGeometry(2.6,0), new THREE.MeshStandardMaterial({color:0x16001f,emissive:0x7a14b0,emissiveIntensity:1.3,roughness:0.3,toneMapped:false})); g.add(core);
     const cube=new THREE.Mesh(new THREE.BoxGeometry(5.4,5.4,5.4), new THREE.MeshBasicMaterial({color:0xb060ff,wireframe:true,transparent:true,opacity:0.85})); g.add(cube);
@@ -11924,6 +11940,8 @@ function _makePUModel(type){
     const brk=new THREE.MeshStandardMaterial({color:0x39ffc9,emissive:0x39ffc9,emissiveIntensity:1.1,roughness:0.4,metalness:0.7});
     const h=S/2-0.9; for(const sx of [-1,1])for(const sy of [-1,1])for(const sz of [-1,1]){ const b=new THREE.Mesh(new THREE.BoxGeometry(2,2,2),brk); b.position.set(sx*h,sy*h,sz*h); g.add(b); }
   }
+  // throwable items scaled up for visibility (nuke's new model is already ~2x; singularity/quake doubled). tunable: window._THROW_ITEM_SCALE={nuke,singularity,quake}
+  { const _ts=window._THROW_ITEM_SCALE||{}; const _sc=(type==='nuke')?(_ts.nuke||1.0):(type==='singularity')?(_ts.singularity||2.0):(type==='quake')?(_ts.quake||2.0):1.0; if(_sc!==1.0) g.scale.multiplyScalar(_sc); }
   return g;
 }
 function _spawnPU(x,y,z,type,vx,vy,vz){
@@ -11970,12 +11988,24 @@ function _barrelCollide(s, i, A, BSZ){
   }
   return burst;
 }
+// ── visible impact on a barrel when shot / rocketed / meleed: spark flash + a small persistent scorch on the body ──
+function _barrelImpactMark(p, col){
+  try{
+    const yy=(p.y!=null?p.y:11), c=col||[1,0.55,0.12];
+    if(typeof ps!=='undefined'){ ps.burst(p.x,p.z,c,10,95,yy); if(ps._spawn){ for(let k=0;k<7;k++){ const a=rand(TAU); ps._spawn(p.x,yy,p.z,Math.cos(a)*rand(30,95),rand(20,85),Math.sin(a)*rand(30,95),0.18,0.14,0.1,0.05+rand(0.05)); } } }
+    if(typeof Audio!=='undefined')Audio.blip(180,0.07,'square',0.18,120);
+    if(p.cube && (p._marks||0)<6){ p._marks=(p._marks||0)+1; const R=(window._BARREL_SIZE||11);
+      const sc=new THREE.Mesh(new THREE.CircleGeometry(rand(2.6,4.4),8), new THREE.MeshBasicMaterial({color:0x140a05,transparent:true,opacity:0.88,depthWrite:false,side:THREE.DoubleSide}));
+      const a=rand(TAU), h=rand(-0.55,0.55); sc.position.set(Math.cos(a)*R*0.92, h*R, Math.sin(a)*R*0.92); sc.lookAt(sc.position.clone().multiplyScalar(2)); p.cube.add(sc);
+    }
+  }catch(_){}
+}
 function _updatePU(dt){
   const A=window._itemPU; if(!A){window._nearOrb=null;return;}
   // ── BARRELS: take a bullet -> cook off; cook-off timer -> explode (chain handled in _detonateItem) ──
   for(let i=A.length-1;i>=0;i--){ const p=A[i]; if(!p||p.type!=='barrel')continue;
-    if(!(p._cooking>0) && p.settled && typeof GS!=='undefined' && GS.bullets){ for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b)continue; const bw=(b.wx!=null?b.wx:b.x)||0, bz=(b.wz!=null?b.wz:b.z)||0; if(Math.hypot(bw-p.x,bz-p.z)<(window._BARREL_HIT_R||16) && Math.abs(((b.y!=null?b.y:9))-(p.y||7))<28){ if(b.remove)b.remove(); GS.bullets.splice(bi,1); p._cooking=(window._BARREL_FUSE||0.12); break; } } }
-    if(!(p._cooking>0) && p.settled){ const ud=player&&player.model&&player.model.userData; if(ud&&ud._meleeTimer>0 && player && Math.hypot(p.x-player.wx,p.z-player.wz)<(window._BARREL_MELEE_R||40)){ p._cooking=(window._BARREL_FUSE||0.12); if(typeof ps!=='undefined')ps.ring(p.x,p.z,[1,0.6,0.2],5,40); if(typeof Audio!=='undefined'){try{Audio.blip(150,0.09,'square',0.16,90);}catch(_){}} } }   // MELEE / FIST breaks a resting barrel
+    if(!(p._cooking>0) && p.settled && typeof GS!=='undefined' && GS.bullets){ for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b)continue; const bw=(b.wx!=null?b.wx:b.x)||0, bz=(b.wz!=null?b.wz:b.z)||0; if(Math.hypot(bw-p.x,bz-p.z)<(window._BARREL_HIT_R||16) && Math.abs(((b.y!=null?b.y:9))-(p.y||7))<32){ if(b.remove)b.remove(); GS.bullets.splice(bi,1); _barrelImpactMark(p,[1,0.85,0.3]); p._cooking=(window._BARREL_FUSE||0.12); break; } } }
+    if(!(p._cooking>0) && p.settled){ const ud=player&&player.model&&player.model.userData; if(ud&&ud._meleeTimer>0 && player && Math.hypot(p.x-player.wx,p.z-player.wz)<(window._BARREL_MELEE_R||44)){ _barrelImpactMark(p); p._cooking=(window._BARREL_FUSE||0.12); if(typeof ps!=='undefined')ps.ring(p.x,p.z,[1,0.6,0.2],5,40); } }   // MELEE / FIST breaks a resting barrel (works before pickup)
     if(p._cooking>0){ p._cooking-=dt; if(typeof ps!=='undefined'&&Math.random()<0.6)ps.spark(p.x+rand(-5,5),p.z+rand(-5,5),[1,0.5,0.1],(p.y||7)+rand(4,16)); if(p.cube)p.cube.scale.setScalar(1+0.12*Math.sin(performance.now()*0.05));
       if(p._cooking<=0){ if(p.grp){scene.remove(p.grp); p.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} A.splice(i,1); if(p===window._nearOrb)window._nearOrb=null; _detonateItem('barrel',p.x,p.z,false); } }
   }
@@ -16715,7 +16745,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-5) updateTransition(dt);
       if(GS.zone===-16) updateCityTest(dt);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
-      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); resolveBodyCollisions(player); player.draw(od); if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
+      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); resolveBodyCollisions(player); player.draw(od); if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt);
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _ww=(typeof _cubeWalkOn==='function'&&_cubeWalkOn(player)&&player._cubeUp&&player._cubeUp.y<0.9); const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(_ww||!_bmv) window._reorientGameBoots(); }   // on a wall/ceiling re-aim the boots to the surface every frame; on the floor only when standing still (avoids stride jitter)
       if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
@@ -18303,7 +18333,7 @@ let _cubeGroup=null;
 let _cubeSheets=[];
 const _CUBE={hx:560, hz:560, h:900, cham:130};
 function _disposeCubeSheets(){ if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets){ try{ const idx=GRID_SHEETS.indexOf(s); if(idx>=0)GRID_SHEETS.splice(idx,1); if(s.group){ scene.remove(s.group); s.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){} } } _cubeSheets=[]; }
-function _disposeCubeArena(){ if(typeof _hideBallEdgeArrow==='function')_hideBallEdgeArrow(); if(typeof _showColliderMenu==='function')_showColliderMenu(false); if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
+function _disposeCubeArena(){ if(typeof _disposeMaceChain==='function')_disposeMaceChain(); if(typeof _hideBallEdgeArrow==='function')_hideBallEdgeArrow(); if(typeof _showColliderMenu==='function')_showColliderMenu(false); if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
 // ════════ ROCKET-LEAGUE BALL — floaty sphere you knock around with the character collider (and melee) ════════
 let _cubeBall=null;
 function _disposeCubeBall(){ if(typeof _ballFX!=='undefined')_ballFX=[]; if(_cubeBall){ if(_cubeBall.grp){ scene.remove(_cubeBall.grp); _cubeBall.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } _cubeBall=null; } }
@@ -18877,7 +18907,7 @@ function buildCubeArena(){
   } }catch(_){}
   // ── pickups: boots + melee + guns to test with ──
   try{ if(typeof _spawnBootStation==='function') _spawnBootStation(0, -hz+ch+90); }catch(e){ console.warn('boot station',e); }
-  try{ if(typeof _spawnHammerStation==='function'){ const ms=['sword','hammer','axe','spear','scythe']; ms.forEach((m,i)=>_spawnHammerStation(-200+i*100, hz-ch-90, m)); } }catch(e){ console.warn('hammer stations',e); }
+  try{ if(typeof _spawnHammerStation==='function'){ const ms=['sword','hammer','axe','spear','scythe','mace']; ms.forEach((m,i)=>_spawnHammerStation(-200+i*100, hz-ch-90, m)); } }catch(e){ console.warn('hammer stations',e); }
   try{ if(typeof _spawnWeaponPad==='function'){ const gs=['rockets','plasma','grenade','boomerang']; gs.forEach((w,i)=>_spawnWeaponPad(-hx+ch+90, -150+i*100, w)); } }catch(e){ console.warn('weapon pads',e); }
   // ── spawn robot at center floor, normal controls ──
   player.wx=0; player.wz=0; player.py=0; player.pvy=0; player.vx=0; player.vz=0; player._inPlanetGravity=false; if(player.model)player.model.visible=true;
@@ -19007,7 +19037,8 @@ function _syncCollider(pl, quat){
   if(!pl._dbgBox || pl._dbgBoxH!==_mh){
     if(pl._dbgBox){ scene.remove(pl._dbgBox); if(pl._dbgBox.geometry)pl._dbgBox.geometry.dispose(); }
     const H=window._COLLIDER_H||_mh, W=window._COLLIDER_W||H*(window._COLLIDER_WR||0.4), D=window._COLLIDER_D||H*(window._COLLIDER_DR||0.4);
-    pl._dbgBox=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(W,H,D)), new THREE.LineBasicMaterial({color:0x00ff88,depthTest:false,transparent:true,opacity:0.85}));
+    let _dbgGeo; try{ const _r=Math.min(W,D)/2, _l=Math.max(0.1, H-2*_r); _dbgGeo=new THREE.WireframeGeometry(new THREE.CapsuleGeometry(_r,_l,4,12)); }catch(_){ _dbgGeo=new THREE.EdgesGeometry(new THREE.BoxGeometry(W,H,D)); }   // capsule viz (the body deflects like a capsule); falls back to a box if CapsuleGeometry is unavailable
+    pl._dbgBox=new THREE.LineSegments(_dbgGeo, new THREE.LineBasicMaterial({color:0x00ff88,depthTest:false,transparent:true,opacity:0.8}));
     pl._dbgBox.renderOrder=998; pl._dbgBox.frustumCulled=false; pl._dbgBoxH=_mh; try{scene.add(pl._dbgBox);}catch(_){}
   }
   pl._dbgBox.visible=true;
@@ -19155,7 +19186,7 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
 //  • FLOOR  -> hand off to the NORMAL updateCamera (rotatable, shoot spins it = normal gameplay).
 //  • WALL/CEILING -> AUTHORITATIVE cam (inverted lab cube): sits INSIDE the room pulled toward centre from the player, world-up,
 //    looking outward at the player on the wall. Dictated by position, so the right stick shoots/swipes WITHOUT spinning the view.
-let _cwLook=null, _cwCamBlend=1, _cwCamFrom=new THREE.Vector3(), _cwAuthPrev=false, _cwCeilE=null, _cwUpSmooth=null;
+let _cwLook=null, _cwCamBlend=1, _cwCamFrom=new THREE.Vector3(), _cwAuthPrev=false, _cwCeilE=null, _cwUpSmooth=null, _cwCeilQuad=null;
 function _cubeCam(P, dt){
   if(window._ballCam){ _ballCam(P,dt); if(player)player._cubeCamAuth=false; _cwAuthPrev=false; return; }
   if(window._enemyCam){ const _t=_enemyCamTargetPos(P); if(_t){ let _dir=_t.clone().sub(P); _dir.y=0; if(_dir.lengthSq()>1){ _dir.normalize(); CAM.yaw=Math.atan2(-_dir.x,-_dir.z); CAM.tyaw=CAM.yaw; } _enemyCam(P,_t,dt); if(player)player._cubeCamAuth=false; _cwAuthPrev=false; return; } else { if(typeof _camFxBegin==='function')_camFxBegin(); window._enemyCam=false; } }   // ENEMY CAM works in the cube too; when the target's gone, ease back to the normal/wall cam instead of popping
@@ -19204,20 +19235,37 @@ function _cubeWallCam(P, N, dt){
   // the unavoidable singularity at the exact centre is a gentle swing, not a pop.
   const ceilK=Math.max(0,Math.min(1, Fout.y));                  // 1 = ceiling (outward = +Y), 0 = wall
   if(ceilK>0.001){
-    let ex=P.x, ez=P.z; const el=Math.hypot(ex,ez);
-    if(el>(window._CUBE_CEIL_POLE||60)){ _cwCeilE=new THREE.Vector3(ex/el,0,ez/el); }   // outside the centre pole -> dominant edge dir; inside -> hold the last one
-    const e=_cwCeilE||new THREE.Vector3(0,0,1);
+    // DISCRETE quadrant: align the ceiling cam to the nearest of the 4 wall edges (±X / ±Z) instead of continuously rotating.
+    // Hysteresis: keep the current quadrant while inside an inner square (grace zone), and only switch AXIS when the other clearly
+    // dominates -> running across the middle stays continuous, then flips 90° (onto an adjacent side) or 180° (across to the opposite side).
+    const hx=(_CUBE&&_CUBE.hx)||560;
+    const inner=hx*(window._CUBE_CEIL_INNER||0.34), marg=hx*(window._CUBE_CEIL_QUAD_MARG||0.10);
+    const ax=Math.abs(P.x), az=Math.abs(P.z);
+    if(_cwCeilQuad==null) _cwCeilQuad = (ax>=az) ? (P.x>=0?0:1) : (P.z>=0?2:3);
+    if(ax>inner || az>inner){                                   // outside the grace square -> re-evaluate the dominant edge
+      const xAxis=(_cwCeilQuad===0||_cwCeilQuad===1);
+      if(xAxis){ _cwCeilQuad = (az>ax+marg) ? (P.z>=0?2:3) : (P.x>=0?0:1); }   // stay on X until Z clearly leads (then 90°), update sign within X (180° across centre)
+      else      { _cwCeilQuad = (ax>az+marg) ? (P.x>=0?0:1) : (P.z>=0?2:3); }
+    }
+    const e=(_cwCeilQuad===0)?new THREE.Vector3(1,0,0):(_cwCeilQuad===1)?new THREE.Vector3(-1,0,0):(_cwCeilQuad===2)?new THREE.Vector3(0,0,1):new THREE.Vector3(0,0,-1);
+    _cwCeilE=e;
     const ceilUp=new THREE.Vector3(-e.x,0,-e.z);                // toward centre -> screen-down lands on the dominant edge
     const bu=up.clone().multiplyScalar(1-ceilK).addScaledVector(ceilUp,ceilK);   // blend wall<->ceiling across the chamfer
     if(bu.lengthSq()>1e-4){ up.copy(bu).normalize(); }
-  }
+  } else { _cwCeilQuad=null; }   // left the ceiling -> forget the quadrant so re-entry picks fresh
   // ── WALL→FLOOR (lower chamfer): mirror the floor→wall handoff in reverse. As the surface flattens toward the floor (N.y rising),
   //    ease screen-up back to TRUE world-up and lift the cam ABOVE the player so it angles DOWN — instead of following Fout outward
   //    through the floor, which buried the camera under the character's feet during the transition.
   const floorK=Math.max(0,Math.min(1,(N.y-(window._CUBE_WF_LO!=null?window._CUBE_WF_LO:0.42))/((window._CUBE_WF_HI||0.72)-(window._CUBE_WF_LO!=null?window._CUBE_WF_LO:0.42))));
   if(floorK>0.001){ const wu=new THREE.Vector3(0,1,0); const bu=up.clone().multiplyScalar(1-floorK).addScaledVector(wu,floorK); if(bu.lengthSq()>1e-4)up.copy(bu).normalize(); }
   // ease the up vector over time -> soft pole + soft quadrant/chamfer transitions
-  if(!_cwUpSmooth){ _cwUpSmooth=up.clone(); } else { _cwUpSmooth.lerp(up, Math.min(1,dt*(window._CUBE_CEIL_EASE||6))); if(_cwUpSmooth.lengthSq()>1e-4)_cwUpSmooth.normalize(); else _cwUpSmooth.copy(up); }
+  if(!_cwUpSmooth){ _cwUpSmooth=up.clone(); }
+  else { const _ek=Math.min(1,dt*(window._CUBE_CEIL_EASE||6));
+    if(ceilK>0.7 && Math.abs(up.y)<0.4 && _cwUpSmooth.x*_cwUpSmooth.x+_cwUpSmooth.z*_cwUpSmooth.z>1e-5){   // near-full ceiling: up is ~horizontal -> ROTATE around vertical so a 180° quadrant flip swings through 90° instead of collapsing through zero
+      let ca=Math.atan2(_cwUpSmooth.z,_cwUpSmooth.x), ta=Math.atan2(up.z,up.x); let da=ta-ca; while(da>Math.PI)da-=TAU; while(da<-Math.PI)da+=TAU;
+      const na=ca+da*_ek, yy=_cwUpSmooth.y+(up.y-_cwUpSmooth.y)*_ek; _cwUpSmooth.set(Math.cos(na),yy,Math.sin(na)); if(_cwUpSmooth.lengthSq()>1e-4)_cwUpSmooth.normalize();
+    } else { _cwUpSmooth.lerp(up, _ek); if(_cwUpSmooth.lengthSq()>1e-4)_cwUpSmooth.normalize(); else _cwUpSmooth.copy(up); }
+  }
   up=_cwUpSmooth;
   const LIFT=lerp((window._CUBE_WALLCAM_LIFT!=null?window._CUBE_WALLCAM_LIFT:120), (window._CUBE_CEIL_LIFT!=null?window._CUBE_CEIL_LIFT:340), ceilK);   // on the CEILING ride much further along screen-up so the eye sits ~45° off the surface (looking down at an angle, reading the ground) instead of straight overhead
   const _liftSign=lerp(1, (window._CUBE_CEIL_LIFT_SIGN||-1), ceilK);   // wall: lift up-the-wall (+). CEILING: lean the eye the OTHER way so the look-down slant is correct (the ceiling slant was 180° off). flip the default sign if it's still wrong.
@@ -19331,15 +19379,18 @@ function _enemyCamTargetPos(P){
 function _enemyCam(P, tgt, dt){
   if(typeof camera==='undefined') return;
   let dir=tgt.clone().sub(P); dir.y=0; if(dir.lengthSq()<1)dir.set(0,0,1); dir.normalize();   // horizontal: player -> target
-  const D=(window._ENEMYCAM_DIST||window._CUBE_CAM_DIST||330), H=(window._ENEMYCAM_H||240);
-  const eye=P.clone().addScaledVector(dir,-D); eye.y+=H;                                       // behind the player, looking toward the enemy/centroid
+  const sep=P.distanceTo(tgt);
+  const D=(window._ENEMYCAM_DIST||window._CUBE_CAM_DIST||330) + sep*(window._ENEMYCAM_ZOOM_K||0.55);   // zoom OUT as hero & enemy separate so BOTH stay framed
+  const H=(window._ENEMYCAM_H||240) + sep*(window._ENEMYCAM_H_K||0.14);
+  const mid=P.clone().add(tgt).multiplyScalar(0.5);                                            // frame the MIDPOINT so the hero never slides off when you run away
+  const eye=mid.clone().addScaledVector(dir,-D); eye.y+=H;
   camera.up.set(0,1,0);
   camera.position.lerp(eye,(window._ENEMYCAM_POS_LERP||0.09));
-  const look=P.clone().lerp(tgt,(window._ENEMYCAM_BIAS!=null?window._ENEMYCAM_BIAS:0.45));
+  const look=mid.clone(); look.y+=(P.y!=null?(P.y- mid.y):0)*0.3;
   if(!_enemyCamLook) _enemyCamLook=look.clone();
   _enemyCamLook.lerp(look,(window._ENEMYCAM_LOOK_LERP||0.14));
   camera.lookAt(_enemyCamLook.x,_enemyCamLook.y,_enemyCamLook.z);
-  if(typeof CAM!=='undefined'){ CAM.focus.copy(_enemyCamLook); CAM.tfocus.copy(_enemyCamLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }
+  if(typeof CAM!=='undefined'){ CAM.yaw=Math.atan2(-dir.x,-dir.z); CAM.tyaw=CAM.yaw; CAM.focus.copy(_enemyCamLook); CAM.tfocus.copy(_enemyCamLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }   // sync the movement yaw to the cam facing so the left stick isn't inverted in enemy cam
 }
 function _enemyCamCycle(){   // step the pinned focus through alive enemies, then back to AVERAGE
   const E=(typeof GS!=='undefined'&&GS.enemies)?GS.enemies.filter(e=>e&&e.alive&&!e._captured):[];
@@ -21262,7 +21313,7 @@ class GridSheet{
       const fidx=[];
       for(let r=0;r<this.nz-1;r++) for(let c=0;c<this.nx-1;c++){ const i=r*this.nx+c; fidx.push(i,i+this.nx,i+this.nx+1, i,i+this.nx+1,i+1); }
       this.fillGeo.setIndex(fidx);
-      this.fill=new THREE.Mesh(this.fillGeo, new THREE.MeshBasicMaterial({color:0x000000, side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:1.5, polygonOffsetUnits:2}));
+      this.fill=new THREE.Mesh(this.fillGeo, new THREE.MeshBasicMaterial({color:0x000000, side:THREE.DoubleSide, transparent:true, opacity:(window._CUBE_SHEET_FILL_OPACITY!=null?window._CUBE_SHEET_FILL_OPACITY:0.5), depthWrite:false, polygonOffset:true, polygonOffsetFactor:1.5, polygonOffsetUnits:2}));   // semi-transparent backing so you can see THROUGH the grid (esp. the ceiling). tunable _CUBE_SHEET_FILL_OPACITY
       this.group.add(this.fill);
     }
     scene.add(this.group);
@@ -22842,7 +22893,8 @@ window._MELEE_STATS = window._MELEE_STATS || {
   hammer: { dmg:20, reach:33, speed:0.72, eForce:11, eLift:1.7, eAir:16, eStun:60, bMag:22, bLift:300, bStn:50, hitStop:7, trauma:0.38, thud:58,  slow:0.35, slowH:16, zoom:0.9 },     // SLEDGEHAMMER: freeze + heavy shake + camera punch + slow-mo
   axe:    { dmg:12, reach:30, speed:0.88, eForce:7,  eLift:1.2, eAir:11, eStun:46, bMag:15, bLift:210, bStn:38, hitStop:5, trauma:0.18, thud:90,  slow:0.6,  slowH:8,  zoom:0.5 },     // heavy cleave, brief slow
   spear:  { dmg:7,  reach:42, speed:1.10, eForce:5,  eLift:0.7, eAir:5,  eStun:30, bMag:8,  bLift:110, bStn:22, hitStop:2, trauma:0.05, thud:140 },                                   // long poke, light
-  scythe: { dmg:9,  reach:35, speed:0.95, eForce:6,  eLift:1.0, eAir:9,  eStun:52, bMag:12, bLift:180, bStn:40, hitStop:4, trauma:0.12, thud:110 }                                    // wide reap, big stun (crowd control)
+  scythe: { dmg:9,  reach:35, speed:0.95, eForce:6,  eLift:1.0, eAir:9,  eStun:52, bMag:12, bLift:180, bStn:40, hitStop:4, trauma:0.12, thud:110 },                                    // wide reap, big stun (crowd control)
+  mace:   { dmg:14, reach:40, speed:1.0,  eForce:9,  eLift:1.3, eAir:12, eStun:48, bMag:16, bLift:220, bStn:40, hitStop:3, trauma:0.12, thud:80, twoHanded:true }                       // FLAIL: physics chain, right-stick driven, two-handed (no projectiles); damage handled in _updateMace
 };
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -23018,6 +23070,7 @@ function _deflectProjectiles(){
 }
 function _doMeleeFlick(ud, dirAngle, comboOverride){
   if(!ud||!ud.clips||!player) return;
+  if(player._meleeType==='mace') return;   // FLAIL doesn't swing on a flick — the right stick drives the chain continuously
   if(ud._meleeTimer && ud._meleeTimer>0){ player._meleeBuf={dir:(typeof dirAngle==='number'?dirAngle:null),combo:comboOverride}; return; }   // swing in progress -> buffer ONE, fired on finish (1 swing = 1 hit)
   if(player._meleeType && player._meleeDur!=null){ player._meleeDur--; if(typeof updateAmmoHUD==='function')updateAmmoHUD(); if(player._meleeDur<=0) player._meleeBreakPending=true; }   // each swing wears the weapon
   if(typeof dirAngle==='number') player.aim=dirAngle;                       // flicks pass null -> DON'T turn the character
@@ -23096,6 +23149,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
 }
 function _doMeleeTap(){
   if(!player||!player.model||!player.model.userData) return;
+  if(player._meleeType==='mace') return;   // FLAIL: no tap-swing
   const ud=player.model.userData;
   if(ud._meleeTimer && ud._meleeTimer>0){ player._meleeBuf={tap:true}; return; }   // chain: re-target + re-lunge when the current swing finishes
   if(player._meleeType && player._meleeDur!=null){ player._meleeDur--; if(typeof updateAmmoHUD==='function')updateAmmoHUD(); if(player._meleeDur<=0) player._meleeBreakPending=true; }   // each swing wears the weapon; it shatters when the swing finishes
@@ -23241,8 +23295,110 @@ function _makeRoboScythe(){
 }
 window._meleeModel=window._meleeModel||'sword';   // default world weapon
 function _makeMeleeWeapon(type){ const m=type||window._meleeModel;
-  switch(m){ case 'hammer': return _makeRoboHammer(); case 'axe': return _makeRoboAxe(); case 'spear': return _makeRoboSpear(); case 'scythe': return _makeRoboScythe(); default: return _makeRoboSword(); } }
-window._MELEE_NAMES={sword:'\u2694 SWORD',hammer:'\u2692 SLEDGEHAMMER',axe:'\u2694 WAR AXE',spear:'\u2191 SPEAR',scythe:'\u263e SCYTHE'};
+  switch(m){ case 'hammer': return _makeRoboHammer(); case 'axe': return _makeRoboAxe(); case 'spear': return _makeRoboSpear(); case 'scythe': return _makeRoboScythe(); case 'mace': return _makeRoboMace(); default: return _makeRoboSword(); } }
+window._MELEE_NAMES={sword:'\u2694 SWORD',hammer:'\u2692 SLEDGEHAMMER',axe:'\u2694 WAR AXE',spear:'\u2191 SPEAR',scythe:'\u263e SCYTHE',mace:'\u26d3 FLAIL MACE'};
+// ════════════════════════════════════════════════════════════════════════════════
+//  FLAIL MACE — a handle in the hand + a real verlet PHYSICS chain with a spiky ball.
+//  Two-handed: the right stick drives the ball (push to fling, circle to spin); firing is off while equipped.
+// ════════════════════════════════════════════════════════════════════════════════
+function _makeRoboMace(){   // just the HANDLE/grip held in the hand; the chain+ball live in world space
+  const g=new THREE.Group();
+  const grip=new THREE.MeshStandardMaterial({color:0x394048,emissive:0x0a0e12,roughness:0.6,metalness:0.7});
+  const accent=new THREE.MeshStandardMaterial({color:0xff8c1a,emissive:0xff8c1a,emissiveIntensity:1.2,roughness:0.4,metalness:0.5,toneMapped:false});
+  g.add(new THREE.Mesh(new THREE.CylinderGeometry(1.5,1.8,16,12),grip));                                  // grip along +Y
+  const pommel=new THREE.Mesh(new THREE.SphereGeometry(2.2,12,10),grip); pommel.position.y=-8.5; g.add(pommel);
+  const collar=new THREE.Mesh(new THREE.TorusGeometry(2.0,0.6,8,18),accent); collar.rotation.x=Math.PI/2; collar.position.y=7.5; g.add(collar);
+  const eye=new THREE.Mesh(new THREE.TorusGeometry(1.9,0.55,8,16),grip); eye.position.y=10.5; g.add(eye);  // ring the chain mounts to
+  g.userData.chainAnchorY=11;
+  return g;
+}
+function _makeMaceBall(){
+  const g=new THREE.Group();
+  const steel=new THREE.MeshStandardMaterial({color:0x55606b,emissive:0x101418,roughness:0.45,metalness:0.85,toneMapped:false});
+  const spikeMat=new THREE.MeshStandardMaterial({color:0xbfc8d2,emissive:0x2a3340,emissiveIntensity:0.5,roughness:0.35,metalness:0.9,toneMapped:false});
+  const R=(window._MACE_BALL_R||8);
+  g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(R,1),steel));
+  const dirs=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1],[0.6,0.6,0.6],[-0.6,0.6,-0.6],[0.6,-0.6,0.6],[-0.6,-0.6,-0.6]];
+  for(const d of dirs){ const v=new THREE.Vector3(d[0],d[1],d[2]).normalize(); const sp=new THREE.Mesh(new THREE.ConeGeometry(R*0.32,R*0.95,6),spikeMat); sp.position.copy(v.clone().multiplyScalar(R*0.9)); sp.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),v); g.add(sp); }
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.5,12,10), new THREE.MeshBasicMaterial({color:0xff7a2a,transparent:true,opacity:0.0,blending:THREE.AdditiveBlending,depthWrite:false})));   // hit-flash shell
+  g.userData.flash=g.children[g.children.length-1];
+  return g;
+}
+function _maceAnchor(out){   // world position the chain hangs from (top of the handle)
+  out=out||new THREE.Vector3();
+  const hm=player&&player._hammer;
+  if(hm){ try{ hm.updateWorldMatrix(true,false); out.set(0,(hm.userData&&hm.userData.chainAnchorY)||11,0); hm.localToWorld(out); return out; }catch(_){} }
+  if(player) out.set(player.wx,(player.py||0)+24,player.wz);
+  return out;
+}
+function _initMaceChain(){
+  if(player._maceChain) _disposeMaceChain();
+  const N=Math.max(3,(window._MACE_LINKS||7)), total=(window._MACE_LEN||64), L=total/N;
+  const a=_maceAnchor(new THREE.Vector3());
+  const pts=[]; for(let i=0;i<=N;i++){ const p=a.clone(); p.y-=L*i; pts.push({pos:p.clone(), prev:p.clone()}); }
+  const grp=new THREE.Group(); grp.renderOrder=18;
+  const linkMat=new THREE.MeshStandardMaterial({color:0x8a939c,emissive:0x141a20,roughness:0.4,metalness:0.9,toneMapped:false});
+  const links=[]; for(let i=1;i<N;i++){ const lk=new THREE.Mesh(new THREE.TorusGeometry(1.7,0.6,6,12),linkMat); if(i%2)lk.rotation.x=Math.PI/2; grp.add(lk); links.push(lk); }
+  const ball=_makeMaceBall(); grp.add(ball);
+  try{ scene.add(grp); }catch(_){}
+  player._maceChain={N,L,pts,grp,links,ball,hitCd:0,_init:true};
+}
+function _disposeMaceChain(){
+  const mc=player&&player._maceChain; if(!mc) return;
+  try{ if(mc.grp){ scene.remove(mc.grp); mc.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){}
+  player._maceChain=null;
+}
+function _updateMace(dt){
+  if(!player || player._meleeType!=='mace'){ if(player&&player._maceChain)_disposeMaceChain(); return; }
+  if(!player._maceChain) _initMaceChain();
+  const mc=player._maceChain; if(!mc) return;
+  const a=_maceAnchor(new THREE.Vector3());
+  const pts=mc.pts, N=mc.N, L=mc.L, h=Math.min(dt,0.033);
+  const G=(window._MACE_GRAV||900), damp=(window._MACE_DAMP||0.92), drive=(window._MACE_DRIVE||2600);
+  // right stick -> world-horizontal force on the BALL (push = fling, circle = spin)
+  const rx=player._maceRX||0, rz=player._maceRZ||0;
+  pts[0].pos.copy(a); pts[0].prev.copy(a);
+  for(let i=1;i<=N;i++){ const p=pts[i];
+    const vx=(p.pos.x-p.prev.x)*damp, vy=(p.pos.y-p.prev.y)*damp, vz=(p.pos.z-p.prev.z)*damp;
+    p.prev.copy(p.pos);
+    p.pos.x+=vx; p.pos.y+=vy - G*h*h; p.pos.z+=vz;
+    if(i===N){ p.pos.x+=rx*drive*h*h; p.pos.z+=rz*drive*h*h; }   // drive the ball
+  }
+  for(let it=0; it<(window._MACE_ITER||6); it++){
+    pts[0].pos.copy(a);
+    for(let i=1;i<=N;i++){ const A=pts[i-1].pos, B=pts[i].pos; const dx=B.x-A.x,dy=B.y-A.y,dz=B.z-A.z; let dd=Math.hypot(dx,dy,dz)||1e-4; const diff=(dd-L)/dd;
+      if(i-1===0){ B.x-=dx*diff; B.y-=dy*diff; B.z-=dz*diff; }
+      else { A.x+=dx*diff*0.5; A.y+=dy*diff*0.5; A.z+=dz*diff*0.5; B.x-=dx*diff*0.5; B.y-=dy*diff*0.5; B.z-=dz*diff*0.5; }
+    }
+  }
+  // keep it above the ground a touch
+  const floorY=(window._MACE_FLOOR||4); for(let i=1;i<=N;i++){ if(pts[i].pos.y<floorY){ pts[i].pos.y=floorY; pts[i].prev.y=floorY; } }
+  // render links + ball
+  for(let i=0;i<mc.links.length;i++){ mc.links[i].position.copy(pts[i+1].pos); }
+  const ballP=pts[N].pos; mc.ball.position.copy(ballP);
+  const bvx=ballP.x-pts[N].prev.x, bvy=ballP.y-pts[N].prev.y, bvz=ballP.z-pts[N].prev.z; const bspd=Math.hypot(bvx,bvy,bvz)/Math.max(h,1e-3);
+  mc.ball.rotation.y+=dt*6; mc.ball.rotation.x+=dt*3;
+  if(mc.ball.userData.flash) mc.ball.userData.flash.material.opacity=Math.max(0, (mc.ball.userData.flash.material.opacity||0)-dt*3);
+  // contact damage: fast ball hits enemies
+  if(mc.hitCd>0)mc.hitCd-=dt;
+  const minSpd=(window._MACE_HIT_SPD||140), R=(window._MACE_BALL_R||8), dmg=(window._MACE_DMG||14);
+  if(bspd>minSpd && mc.hitCd<=0 && typeof GS!=='undefined' && GS.enemies){
+    for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive||e._captured||e._invulnerable)continue; const ey=e.mesh?e.mesh.position.y:9;
+      if(Math.hypot(ballP.x-e.wx, ballP.y-ey, ballP.z-e.wz) < R+(e.size||12)+4){
+        if(e.hit){ const s=e.hit(dmg, e.wx, e.wz, ey); if(e.knock){ const kl=Math.hypot(bvx,bvz)||1; e.knock(bvx/kl, bvz/kl, (window._MACE_KNOCK||16), 1.2, 26); }
+          if(s>0){ GS.score+=s*GS.mult; if(GS.mult<25)GS.mult++; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } }
+        if(mc.ball.userData.flash)mc.ball.userData.flash.material.opacity=0.8;
+        if(typeof ps!=='undefined')ps.burst(ballP.x,ballP.z,[1,0.7,0.2],14,140,ballP.y);
+        if(typeof Audio!=='undefined'){try{Audio.blip(90,0.12,'square',0.26,70);}catch(_){}}
+        if(typeof addTrauma==='function')addTrauma(0.12); if(typeof hitStop==='function')hitStop(3);
+        mc.hitCd=(window._MACE_HIT_CD||0.12); break;
+      }
+    }
+    // also smash a resting barrel it swings into
+    if(window._itemPU){ for(const p of window._itemPU){ if(!p||p.type!=='barrel'||p._cooking>0)continue; if(Math.hypot(ballP.x-p.x,ballP.z-p.z)<R+(window._BARREL_SIZE||11)+2 && Math.abs(ballP.y-(p.y||7))<24){ if(typeof _barrelImpactMark==='function')_barrelImpactMark(p); p._cooking=(window._BARREL_FUSE||0.12); } } }
+  }
+}
+window._equipMace=function(){ if(typeof _equipMeleeType==='function'){ const ok=_equipMeleeType('mace'); if(typeof announce==='function')announce(ok?'FLAIL MACE — right stick swings it':'NO HAND','#ff8c1a'); return ok; } };
 function _orientHammer(){
   const h=player&&player._hammer; if(!h||!player.model||!h._hand) return;
   player.model.updateWorldMatrix(true,true);
@@ -23588,7 +23744,7 @@ function _spawnWeaponPad(x,z,weapon,ammo){
   const ring2=new THREE.Mesh(new THREE.TorusGeometry(9,0.7,8,28),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false})); ring2.rotation.x=-Math.PI/2; ring2.position.y=2.2; grp.add(ring2);
   const disc=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.15,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); disc.rotation.x=-Math.PI/2; disc.position.y=0.5; grp.add(disc);
   const colm=new THREE.Mesh(new THREE.CylinderGeometry(5,8,42,16,1,true),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); colm.position.y=21; grp.add(colm);
-  const emblem=_makeWeaponEmblem(weapon); emblem.scale.setScalar(weapon==='rockets'?2.0:1.5); emblem.position.y=16; grp.add(emblem);
+  const emblem=_makeWeaponEmblem(weapon); emblem.scale.setScalar((window._WEAPON_EMBLEM_SCALE&&window._WEAPON_EMBLEM_SCALE[weapon])||window._WEAPON_EMBLEM_SCALE_ALL||2.2); emblem.position.y=16; grp.add(emblem);   // all projectile-weapon pickups doubled up (rocket was the only one bumped before). per-weapon override via window._WEAPON_EMBLEM_SCALE={plasma:2.6,...}
   const label=_makeAmmoLabel(); label.position.set(0,34,0); grp.add(label);
   scene.add(grp);
   const st={grp,ring,ring2,emblem,label,x,z,weapon,ammo:(ammo!=null?ammo:null),t:0,cd:0,_col:[((col>>16)&255)/255,((col>>8)&255)/255,(col&255)/255]};
@@ -23655,9 +23811,11 @@ function _equipMeleeType(type){
   if(!hand) return false;
   if(player._hammer&&player._hammer.parent) player._hammer.parent.remove(player._hammer);   // drop the old weapon before swapping
   if(player._stowedMesh){ if(player._stowedMesh.parent)player._stowedMesh.parent.remove(player._stowedMesh); player._stowedMesh=null; }   // pull any back-slung weapon off too
+  if(player._meleeType==='mace' && type!=='mace' && typeof _disposeMaceChain==='function') _disposeMaceChain();   // swapping AWAY from the mace -> drop its chain
   const hm=_makeMeleeWeapon(type); hm._hand=hand;
   let _db=bones['weapon_direction']||bones['mixamorig_weapon_direction']; if(!_db){ for(const k in bones){ if(/weapon.*dir/i.test(k)){ _db=bones[k]; break; } } } if(!_db&&player.model){ player.model.traverse(o=>{ if(!_db && /weapon.*dir/i.test(o.name||'')) _db=o; }); }
   hm._dirBone=_db||null; window._hammerDirBone=!!_db; hand.add(hm); player._hammer=hm; player._meleeType=type; player._stowedType=type; player._meleeStowed=false; _orientHammer();
+  if(type==='mace'){ if(typeof _initMaceChain==='function')_initMaceChain(); player._meleeDur=Infinity; if(typeof updateAmmoHUD==='function')updateAmmoHUD(); return true; }   // mace: spin-to-swing, doesn't wear out per-swing
   player._meleeDur=(window._WPN_MELEE_DUR&&window._WPN_MELEE_DUR[type]!=null)?window._WPN_MELEE_DUR[type]:20;   // fresh melee weapon = full durability
   if(typeof updateAmmoHUD==='function')updateAmmoHUD();
   return true;
@@ -23700,6 +23858,7 @@ function _toggleMeleeStow(){
   if(!player) return;
   if(player._hammer){                                            // STOW -> sling the weapon onto the back (frees the hands for guns) instead of vanishing
     const hm=player._hammer;
+    if(player._meleeType==='mace' && typeof _disposeMaceChain==='function') _disposeMaceChain();   // mace: drop the physics chain when stowed (don't sling a flail on the back)
     const bones=player.model&&player.model.userData&&player.model.userData.bones;
     const back=(typeof _chestBone==='function')?_chestBone(bones):null;
     let slung=false;
