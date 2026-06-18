@@ -269,6 +269,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
+<button id="menu-btn" aria-label="menu" style="position:fixed;top:10px;right:10px;z-index:1000;width:42px;height:42px;border-radius:10px;border:1px solid #00ffc855;background:rgba(6,16,20,0.72);color:#00ffc8;display:none;align-items:center;justify-content:center;cursor:pointer;pointer-events:all;box-shadow:0 0 12px rgba(0,255,200,0.2)"><svg width="22" height="22" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
 
 <div id="ui">
@@ -15695,6 +15696,7 @@ function loop(ts){ requestAnimationFrame(loop);
     loop._fpAcc -= 16.6667; if(loop._fpAcc > 33) loop._fpAcc = 33;   // consume one 60Hz tick; clamp backlog after a stall
   }
   { const playing=(typeof GS!=='undefined'&&GS.state==='playing');
+    { const _mb=document.getElementById('menu-btn'); if(_mb){ const _d=playing?'flex':'none'; if(_mb.style.display!==_d)_mb.style.display=_d; } }
     const _ct=document.getElementById('crate-toggle');
     if(_ct){ const _ds=playing?'flex':'none'; if(_ct.style.display!==_ds)_ct.style.display=_ds; if(playing&&player){ const _txt='CRATE '+(player.crates||0); if(_ct.textContent!==_txt)_ct.textContent=_txt; const _on=(player._bombMode==='crate'&&player.bombArmed); const _bg=_on?'rgba(20,64,76,0.82)':'rgba(6,16,20,0.66)'; if(_ct.style.background!==_bg)_ct.style.background=_bg; } }
     const _dep=document.getElementById('ally-deploy'), _cyc=document.getElementById('ally-cycle');
@@ -15722,11 +15724,11 @@ function loop(ts){ requestAnimationFrame(loop);
     }
   }
   try{
-    { const _lb=document.getElementById('lightmode-btn'), _gb=document.getElementById('gfx-btn'), _ov=document.getElementById('overlay');
-      const _show=(_ov && _ov.style.display!=='none')?'none':'block';
-      if(_lb) _lb.style.display=_show; if(_gb) _gb.style.display=_show; }
+    { const _lb=document.getElementById('lightmode-btn'), _gb=document.getElementById('gfx-btn'), _cb=document.getElementById('dbg-col-btn');
+      if(_lb&&_lb.style.display!=='none') _lb.style.display='none'; if(_gb&&_gb.style.display!=='none') _gb.style.display='none'; if(_cb&&_cb.style.display!=='none') _cb.style.display='none'; }   // these moved into the pause menu
     let rawDt=Math.min((ts-lastT)/1000,0.033);lastT=ts;frame++;
     updateTime(); const dt=rawDt*TIME.scale;
+    if(window._menuPaused){ try{ renderer.render(scene,camera); }catch(_){} return; }   // PAUSE: hold the frame under the menu overlay (lastT already advanced -> no dt spike on resume)
     _updateStarfield(dt);
     _updateSkyViz(dt);
     _perfFps=_perfFps*0.9+(rawDt>0?1/rawDt:60)*0.1; if(frame%20===0) _updatePerfHud();
@@ -24945,6 +24947,44 @@ window.toggleMuteSfx=function(){
   if(btn){btn.style.borderColor=_sfxMuted?'#ff444488':'#ffffff33';btn.style.color=_sfxMuted?'#ff4444aa':'#ffffffaa';const _l=document.getElementById('ms-lbl');if(_l)_l.textContent=_sfxMuted?'MUTED':'SFX';}
 };
 ['btn-mute-music','btn-mute-sfx'].forEach(id=>{ const b=document.getElementById(id); if(b) b.addEventListener('touchstart',e=>{ e.stopPropagation(); e.preventDefault(); (id==='btn-mute-music'?window.toggleMuteMusic:window.toggleMuteSfx)(); },{passive:false}); });   // mobile: handle tap directly so the joystick layer can't swallow it
+
+// ════════ PAUSE / SETTINGS MENU — one button absorbs the scattered top-bar controls; opening it freezes the game ════════
+function _initPauseMenu(){
+  if(document.getElementById('pause-menu')) return;
+  ['btn-mute-music','btn-mute-sfx','lightmode-btn','gfx-btn','dbg-col-btn','btn-home'].forEach(id=>{ const e=document.getElementById(id); if(e)e.style.display='none'; });   // these live in the menu now
+  const ov=document.createElement('div'); ov.id='pause-menu';
+  ov.style.cssText='position:fixed;inset:0;z-index:100050;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(2,8,12,0.74);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);pointer-events:all';
+  const panel=document.createElement('div');
+  panel.style.cssText='min-width:266px;max-width:86vw;background:rgba(6,14,20,0.97);border:1px solid #00ffc855;border-radius:18px;padding:20px 18px;box-shadow:0 0 44px rgba(0,255,200,0.18);display:flex;flex-direction:column;gap:9px';
+  panel.innerHTML='<div style="font:900 16px monospace;letter-spacing:5px;color:#00ffc8;text-align:center;text-shadow:0 0 12px #00ffc8;margin-bottom:8px">PAUSED</div>';
+  ov.appendChild(panel); document.body.appendChild(ov);
+  const mkBtn=(label,onClick,accent)=>{ const b=document.createElement('button');
+    b.style.cssText='width:100%;padding:13px 15px;border-radius:11px;border:1px solid '+(accent||'#ffffff2e')+';background:rgba(8,18,24,0.82);color:'+(accent||'#cfeef0')+';font:900 12px monospace;letter-spacing:2px;cursor:pointer;text-align:left;display:flex;justify-content:space-between;align-items:center;pointer-events:all';
+    b.innerHTML='<span>'+label+'</span>'; b.onclick=onClick;
+    b.addEventListener('touchstart',e=>{ e.stopPropagation(); e.preventDefault(); onClick(); },{passive:false});
+    panel.appendChild(b); return b; };
+  const setState=(b,txt,col)=>{ let s=b.querySelector('.st'); if(!s){ s=document.createElement('span'); s.className='st'; b.appendChild(s);} s.textContent=txt; s.style.cssText='font:900 11px monospace;padding:3px 11px;border-radius:7px;background:'+col+';color:#001018'; };
+  mkBtn('\u25b6  RESUME', ()=>window._closeMenu(), '#00ffc8');
+  const mb=mkBtn('MUSIC',    ()=>{ if(window.toggleMuteMusic)window.toggleMuteMusic(); refresh(); });
+  const sb=mkBtn('SOUND FX', ()=>{ if(window.toggleMuteSfx)window.toggleMuteSfx(); refresh(); });
+  const tb=mkBtn('THEME',    ()=>{ if(window._toggleLightMode)window._toggleLightMode(); refresh(); });
+  const gb=mkBtn('GRAPHICS', ()=>{ if(window._toggleGfx)window._toggleGfx(); refresh(); });
+  mkBtn('COLLIDERS', ()=>{ const p=document.getElementById('dbg-col-pop'); if(p){ const show=(p.style.display==='none'||!p.style.display); p.style.display=show?'block':'none'; if(show)p.style.zIndex='100060'; } else if(typeof announce==='function'){ announce('COLLIDERS: enter the cube arena','#9fe8ff'); } });
+  mkBtn('\u2302  HOME', ()=>{ window._closeMenu(); try{ if(typeof GS!=='undefined')GS.state='menu'; if(typeof exitAimMode==='function')exitAimMode(); }catch(_){}; location.reload(); }, '#ff8888');
+  function muted(g){ return !(g&&g.gain&&g.gain.value>0.01); }
+  function refresh(){
+    setState(mb, muted(typeof Audio!=='undefined'&&Audio.musicGain)?'OFF':'ON', muted(typeof Audio!=='undefined'&&Audio.musicGain)?'#5a6a72':'#39ffa0');
+    setState(sb, muted(typeof Audio!=='undefined'&&Audio.sfxGain)?'OFF':'ON', muted(typeof Audio!=='undefined'&&Audio.sfxGain)?'#5a6a72':'#39ffa0');
+    setState(tb, window.LIGHT_MODE?'LIGHT':'DARK', '#9fd8ff');
+    setState(gb, window._gfxPerf?'FAST':'HIGH', '#ffd84a');
+  }
+  window._openMenu=function(){ ov.style.display='flex'; window._menuPaused=true; refresh(); };
+  window._closeMenu=function(){ ov.style.display='none'; window._menuPaused=false; const p=document.getElementById('dbg-col-pop'); if(p)p.style.display='none'; };
+  ov.addEventListener('click', e=>{ if(e.target===ov) window._closeMenu(); });
+  const mbtn=document.getElementById('menu-btn');
+  if(mbtn){ const open=e=>{ if(e){e.stopPropagation();e.preventDefault();} window._openMenu(); }; mbtn.onclick=open; mbtn.addEventListener('touchstart',open,{passive:false}); }
+}
+try{ _initPauseMenu(); }catch(e){ console.warn('pause menu',e); }
 
 // Auto-resume when page visible or user touches screen
 function _resumeAll(){
