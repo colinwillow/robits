@@ -390,7 +390,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
     <!-- Robot 3D viewer -->
     <div style="height:200px;display:flex;align-items:center;justify-content:center;position:relative;perspective:520px">
       <!-- Ground ring under the robot's feet — tilted into perspective so it reads as a disc on the floor receding into the distance -->
-      <div style="position:absolute;bottom:-58px;left:50%;width:168px;height:168px;border:2px solid #00ffc855;border-radius:50%;
+      <div style="position:absolute;bottom:-72px;left:50%;width:150px;height:150px;border:2px solid #00ffc855;border-radius:50%;
         background:radial-gradient(circle,#00ffc814,transparent 68%);
         box-shadow:0 0 34px #00ffc822, inset 0 0 26px #00ffc818;pointer-events:none;z-index:0;
         transform:translateX(-50%) rotateX(74deg);transform-origin:center center"></div>
@@ -9424,7 +9424,7 @@ class Player{
       else if(this._bombMode==='item'){ const _ct=this._carryPayload&&this._carryPayload.type;
         if(_ct==='barrel'){ this._bombMesh.rotation.set(0, (player&&player.model?player.model.rotation.y:0), Math.PI/2); }   // barrel: lie it on its side, no spin
         else if(this._carryPayload&&this._carryPayload.kind==='crate'){ if(player&&player.model){ this._bombMesh.rotation.set(0, player.model.rotation.y, 0); } }
-        else { if(player&&player.model){ this._bombMesh.rotation.set(0, player.model.rotation.y, 0); } } }   // nuke / singularity / quake: held steady facing forward, no spin
+        else { if(player&&player.model){ this._bombMesh.quaternion.copy(player.model.quaternion); } } }   // nuke / singularity / quake: held steady but ROTATE WITH the character (was locked to a stale yaw)
       else { this._bombBodyMat&&this._bombBodyMat.color.setRGB(1,g,0); }
       if(this._carryPayload && /barrel/i.test(this._carryPayload.type||'')){ this._bombMesh.rotation.set(0, (player&&player.model?player.model.rotation.y:0)+(window._BARREL_HOLD_YAW||0), Math.PI/2); }   // barrels ALWAYS lie horizontal, whatever branch tagged the carry
       if(this._bombCoreMesh) this._bombCoreMesh.scale.setScalar(0.8+0.4*Math.sin(t*6));
@@ -9805,7 +9805,7 @@ class Player{
         if(this._dashDir&&Math.random()<0.7) ps.spark(this.wx-this._dashDir[0]*rand(4,18),this.wz-this._dashDir[1]*rand(4,18),[0,0.9,1]);
       } else if(GS.zone===-8){ this._skateHoriz(rawX,rawZ,dt); } else if(GS.zone===-10){ this._pipeHoriz(rawX,rawZ,dt); } else {
 
-      const top=MOVE.topSpeed*(window._SPEED_SCALE||0.5)*speedMult*(od?1.25:1);   // global 0.5 so boots-on and boots-off match and neither is breakneck
+      const top=MOVE.topSpeed*(window._SPEED_SCALE||0.6)*speedMult*(od?1.25:1);   // global 0.5 so boots-on and boots-off match and neither is breakneck
       let tvx=this.inX*top, tvz=this.inZ*top;
       if(this._zapT>0){ this._zapT-=dt; tvx*=0.1; tvz*=0.1; if(typeof ps!=='undefined'&&Math.random()<0.55) ps.spark(this.wx+rand(-7,7),this.wz+rand(-7,7),[0.85,0.4,1],9+(this.py||0)+rand(0,20)); }   // electrocuted: held in place, jolting   // electrocuted: slowed + sparking
       const inMag=Math.hypot(rawX,rawZ);
@@ -11163,7 +11163,7 @@ class BotPilot{
 
   _dash(dx,dz){
     if(this._dashCD>0) return;
-    this._dashDir=[dx,dz]; this._dashRamp=8; this._dashPeak=MOVE.topSpeed*2.5;
+    this._dashDir=[dx,dz]; this._dashRamp=(window._DASH_RAMP||8); this._dashPeak=MOVE.topSpeed*(window._DASH_PEAK_K||1.9);   // ~75% of the old 2.5x burst -> slower + (same ramp) ~3/4 the distance
     this._dashCD=90;
     ps.ring(this.wx,this.wz,[1,0.4,0.1],8,70);
   }
@@ -16173,15 +16173,16 @@ function loop(ts){ requestAnimationFrame(loop);
           const tc=ud.clips['throw_bomb']||ud.clips['throw'];
           if(tc && !(ud._rollingTimer>0)){
             const tname=Object.keys(ud.clips).find(k=>ud.clips[k]===tc)||'throw_bomb';
-            const tdur=((tc._clip&&tc._clip.duration)||0.5)/1.15;
+            const _tts=(window._THROW_TIMESCALE||2.3), _tsf=(window._THROW_START_FRAC||0.12), _tcd=((tc._clip&&tc._clip.duration)||0.5);   // 2x speed + skip the first ~12% wind-up so the arm snaps FORWARD instead of cocking back first
+            const tdur=_tcd*(1-_tsf)/_tts;
             const addT=(window._throwUpperBody!==false && typeof _buildAdditiveMelee==='function')?_buildAdditiveMelee(ud,tname):null;
             if(addT){   // UPPER-BODY additive throw: arms/torso throw OVER the running/floating legs; Hips/Leg tracks are dropped -> no walk-forward, no origin drift, no locomotion lock
               if(player._throwAdditive && player._throwAdditive!==addT){ try{player._throwAdditive.stop();}catch(_){} }
-              addT.reset(); addT.setEffectiveWeight(1); addT.setEffectiveTimeScale(1.15); addT.setLoop(THREE.LoopOnce,1); addT.clampWhenFinished=true; addT.play();
+              addT.reset(); addT.time=_tcd*_tsf; addT.setEffectiveWeight(1); addT.setEffectiveTimeScale(_tts); addT.setLoop(THREE.LoopOnce,1); addT.clampWhenFinished=true; addT.play();
               player._throwAdditive=addT;
               setTimeout(()=>{ if(player&&player._throwAdditive===addT){ try{player._throwAdditive.fadeOut(0.16);}catch(_){} player._throwAdditive=null; } }, tdur*1000);
             } else {
-              tc.reset(); tc.setEffectiveWeight(1); tc.setEffectiveTimeScale(1.15); tc.setLoop(THREE.LoopOnce,1); tc.clampWhenFinished=true; tc.play();
+              tc.reset(); tc.time=_tcd*_tsf; tc.setEffectiveWeight(1); tc.setEffectiveTimeScale(_tts); tc.setLoop(THREE.LoopOnce,1); tc.clampWhenFinished=true; tc.play();
               Object.values(ud.clips).forEach(a=>{ if(a!==tc){ a.stop(); a.setEffectiveWeight(0); } });
               ud.currentClip=tname; ud._rollingTimer=tdur;
               setTimeout(()=>{ if(!player||!ud.clips)return; ud._rollingTimer=0; ud.currentClip='_post_throw';
@@ -16774,8 +16775,8 @@ function loop(ts){ requestAnimationFrame(loop);
           if(sm>0.08){ const ws=rotInput(shootIn.x,shootIn.y); worldX=ws.x; worldZ=ws.z; }
           player.updateBomb(dt,worldX,worldZ);
         }
-      } else if(player&&CAM.aimMode&&player.bombArmed){
-        // 3D aim mode: show trajectory arc along camera forward direction
+      } else if(player&&CAM.aimMode&&player.bombArmed&&sm>(window._AIM_SHOW_MIN||0.08)){
+        // 3D aim mode: show trajectory arc ONLY while the throw stick is pushed (was drawn persistently the whole time you held an item)
         player._hideAimer(); // hide ground ring/lines
         // Show trajectory dots along the 3D throw path
         if(player._trajDots&&CAM._aimFwdX!==undefined){
@@ -19193,7 +19194,7 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   // ── GROUNDED: DIRECT movement (no momentum/coast for now) — velocity = input dir × speed, hard stop on release ──
   P._glGrounded=true;
   P.boostFuel=Math.min(P.boostMax||100, (P.boostFuel||0)+(window._CUBE_JET_RECHARGE||40)*dt);   // refill jet fuel while standing on a surface
-  const TOP=(window._CUBE_MAXS||300)*(window._SPEED_SCALE||0.5);   // cube floor/wall walk speed — now honours the global speed scale (was bypassing it, which is why 75% felt unchanged in the cube)
+  const TOP=(window._CUBE_MAXS||300)*(window._SPEED_SCALE||0.6);   // cube floor/wall walk speed — now honours the global speed scale (was bypassing it, which is why 75% felt unchanged in the cube)
   if(dashDir){ v.copy(dashDir).multiplyScalar(P._cwDashSpd||(window._CUBE_DASH_SPD||820)); P._cwDashing=true; }   // gentle flip drift (or legacy dash speed if _cwDashSpd unset)
   else if(tanDir){ v.copy(tanDir).multiplyScalar(TOP*Math.min(1,inMag)); P._cwDashing=false; }   // move straight in the input direction
   else { v.set(0,0,0); P._cwDashing=false; }                            // release -> stop
@@ -23968,19 +23969,15 @@ function _stowMeleeOnBack(hm, back){
   hm.position.copy(back.worldToLocal(bp));
   const bsBack=back.getWorldScale(new THREE.Vector3());                 // preserve the world size
   hm.scale.set((wsBefore.x/(bsBack.x||1))*(window._STOW_SCALE||1), (wsBefore.y/(bsBack.y||1))*(window._STOW_SCALE||1), (wsBefore.z/(bsBack.z||1))*(window._STOW_SCALE||1));
-  if(window._STOW_CENTER!==false){   // mount from the MIDDLE of the weapon, not the hilt base — otherwise long weapons (spear/scythe) tower way over the shoulder
+  if(window._STOW_CENTER!==false){   // center the MIDDLE of the weapon on the back. Use the weapon's KNOWN length (its _baseY/_tipY trail anchors) and slide along its own axis — deterministic, can't fling off the body like the old world-bbox math did
     try{ hm.updateWorldMatrix(true,true);
-      const bb=new THREE.Box3().setFromObject(hm);
-      if(!bb.isEmpty() && isFinite(bb.min.x) && isFinite(bb.max.x)){
-        const wc=bb.getCenter(new THREE.Vector3());
-        const originW=back.localToWorld(hm.position.clone());
-        const delta=bp.clone().sub(wc);                                  // bbox-center -> mount point
-        const corr=yA.clone().multiplyScalar(delta.dot(yA));             // slide ONLY along the weapon's long axis (handle->tip) so it centers without ever flinging off the body sideways
-        corr.addScaledVector(yA, window._STOW_CENTER_BIAS||0);
-        const maxSlide=(window._STOW_CENTER_MAX||140);                   // long weapons need a big slide; the axis-projection above keeps it safe
-        if(corr.length()>maxSlide) corr.setLength(maxSlide);
-        hm.position.copy(back.worldToLocal(originW.add(corr)));
-      }
+      const ud2=hm.userData||{};
+      const midLocalY=(((ud2._baseY!=null?ud2._baseY:0)+(ud2._tipY!=null?ud2._tipY:18))*0.5)+(window._STOW_CENTER_BIAS||0);
+      const wsY=hm.getWorldScale(new THREE.Vector3()).y||1;
+      let shift=midLocalY*wsY*(window._STOW_CENTER_K||1);
+      const mxs=(window._STOW_CENTER_MAX||50); shift=Math.max(-mxs,Math.min(mxs,shift));   // bounded so a bad value can never throw it off the body
+      const w0=back.localToWorld(hm.position.clone());
+      hm.position.copy(back.worldToLocal(w0.addScaledVector(yA,-shift)));                  // slide DOWN its own handle axis so the midpoint lands on the mount
     }catch(e){ console.warn('[stow] centering skipped',e); }
   }
   return true;
