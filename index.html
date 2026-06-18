@@ -491,11 +491,13 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
         <div style="font-family:'Orbitron',sans-serif;font-size:8px;color:#7CFF6B66;letter-spacing:2px;margin-top:3px">ALIEN</div>
         <div style="margin-top:8px;font-family:'Orbitron',sans-serif;font-size:7px;color:#ffffff55;letter-spacing:1px">ATK ███░░<br>DEF ████░<br>SPD ████░</div>
       </div>
-      <div style="text-align:center;padding:20px 16px;border:2px solid #ffffff11;
-        background:#ffffff04;border-radius:12px;min-width:130px;opacity:0.4">
-        <div style="margin-bottom:8px;display:flex;justify-content:center"><svg width="40" height="40" viewBox="0 0 24 24" stroke="#ffffff55" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1.3"/></svg></div>
-        <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#ffffff44">UNIT-03</div>
-        <div style="font-family:'Orbitron',sans-serif;font-size:8px;color:#ffffff22;letter-spacing:2px;margin-top:3px">COMING SOON</div>
+      <!-- UNIT-03 — INTERCEPTOR (shares the robot rig) -->
+      <div onclick="window._selectChar(2)" id="char-2" style="cursor:pointer;text-align:center;padding:20px 16px;border:2px solid #ffffff22;
+        background:#ffffff04;border-radius:12px;min-width:130px;transition:all 0.2s">
+        <canvas id="char-interceptor-canvas-2" style="width:90px;height:130px;margin-bottom:4px"></canvas>
+        <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#4aa0ff">UNIT-03</div>
+        <div style="font-family:'Orbitron',sans-serif;font-size:8px;color:#4aa0ff66;letter-spacing:2px;margin-top:3px">INTERCEPTOR</div>
+        <div style="margin-top:8px;font-family:'Orbitron',sans-serif;font-size:7px;color:#ffffff55;letter-spacing:1px">ATK ████░<br>DEF ██░░░<br>SPD █████</div>
       </div>
     </div>
     <button onclick="window._deploy()" style="
@@ -2144,6 +2146,17 @@ function loadPlayerAlienGLB(){
 }
 loadPlayerAlienGLB(); // preload
 
+const INTERCEPTOR_GLB='models/interceptor.glb';
+let _interceptorGltf=null, _interceptorPromise=null;
+function loadInterceptorGLB(){   // alternate hero skin — shares the Mixamo robot rig, so the robot's clips retarget by bone name
+  if(_interceptorPromise) return _interceptorPromise;
+  _interceptorPromise=new Promise((resolve)=>{ const loader=new GLTFLoader();
+    loader.load(INTERCEPTOR_GLB, gltf=>{ _interceptorGltf=gltf; console.log('Interceptor loaded (shares robot rig). Anims:',gltf.animations.map(a=>a.name)); resolve(gltf); },
+      undefined, ()=>{ console.warn('interceptor.glb failed to load (loads on the live site only)'); resolve(null); }); });
+  return _interceptorPromise;
+}
+loadInterceptorGLB(); // preload
+
 // ── BLUE DRAGON — enemy GLB with its own clip set (idle/casual/run/attack_ground/attack_air/hit/dizzy/death/entrance/wake_up) ──
 const BLUE_DRAGON_GLB='models/blue_dragon.glb';
 let _dragonGltf=null, _dragonLoadPromise=null;
@@ -2280,6 +2293,8 @@ function _applySelectedCharacter(player, robotGltf){
     if(!rg) return;
     if(window._playerChar==='alien'){
       loadPlayerAlienGLB().then(ag=>{ _applyRobotModel(player, rg, ag||undefined); if(!ag) console.warn('alien.glb unavailable — using robot'); });
+    } else if(window._playerChar==='interceptor'){
+      loadInterceptorGLB().then(ig=>{ _applyRobotModel(player, rg, ig||undefined); if(!ig) console.warn('interceptor.glb unavailable — using robot'); });
     } else {
       _applyRobotModel(player, rg);
     }
@@ -25785,9 +25800,9 @@ window._deploy=function(){
 
 window._playerChar='robot';
 window._selectChar=function(idx){
-  window._playerChar = (idx===1) ? 'alien' : 'robot';
+  window._playerChar = (idx===1) ? 'alien' : (idx===2 ? 'interceptor' : 'robot');
   // highlight the chosen tile
-  [['char-0',0],['char-1',1]].forEach(([id,i])=>{ const el=document.getElementById(id); if(!el)return; const on=(i===idx);
+  [['char-0',0],['char-1',1],['char-2',2]].forEach(([id,i])=>{ const el=document.getElementById(id); if(!el)return; const on=(i===idx);
     el.style.borderColor = on?'#00ffc8':'#ffffff22'; el.style.boxShadow = on?'0 0 20px #00ffc833':'none'; el.style.background = on?'#00ffc808':'#ffffff04'; });
   // if a player already exists (re-selecting), swap the model live
   if(typeof player!=='undefined' && player && player.model){ window._playerGlbApplied=false; _applySelectedCharacter(player); window._playerGlbApplied=true; }
@@ -26077,7 +26092,44 @@ const _origShowScreen=window._showScreen;window._showScreen=function(name){
   if(name==='title') setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3}),100);
   if(name==='character') setTimeout(()=>_startRobotViewer('char-robot-canvas-0',{yOffset:-1.1,startRot:0.5,camZ:6.0,camLookY:0.0}),100);
   if(name==='character') setTimeout(()=>_startAlienViewer('char-alien-canvas-1',{yOffset:-1.1,camZ:6.0,camLookY:0.0}),140);
+  if(name==='character') setTimeout(()=>_startInterceptorViewer('char-interceptor-canvas-2',{yOffset:-1.1,camZ:6.0,camLookY:0.0}),180);
 };
+function _startInterceptorViewer(canvasId, opts={}){   // spinning preview for the interceptor tile (mirrors the alien viewer; idle anim from the robot rig)
+  const canvas=document.getElementById(canvasId);
+  if(!canvas||canvas._robotRunning) return; canvas._robotRunning=true;
+  const w=canvas.offsetWidth||90, h=canvas.offsetHeight||130;
+  canvas.width=w*2; canvas.height=h*2; canvas.style.width=w+'px'; canvas.style.height=h+'px';
+  const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true});
+  renderer.setSize(w*2,h*2,false); renderer.setClearColor(0x000000,0); renderer.outputColorSpace=THREE.SRGBColorSpace;
+  const sc=new THREE.Scene();
+  const cam=new THREE.PerspectiveCamera(45,w/h,0.1,100); cam.position.set(0,0.6,opts.camZ||5.5); cam.lookAt(0,opts.camLookY||0.1,0);
+  sc.add(new THREE.AmbientLight(0x88bbff,0.95));
+  const kl=new THREE.DirectionalLight(0x9fd0ff,1.4); kl.position.set(1,2,2); sc.add(kl);
+  const rl=new THREE.DirectionalLight(0x4aa0ff,0.8); rl.position.set(-2,1,-1); sc.add(rl);
+  let mixer=null, modelRoot=null, theModel=null;
+  function applyIdle(){
+    const rg=window._cachedRobotGltf; if(mixer||!theModel||!rg||!rg.animations||!rg.animations.length) return;
+    const anims=rg.animations, clips={}; anims.forEach(a=>{ const n=a.name.toLowerCase().split('|').pop().split(':').pop(); clips[n]=a; });
+    let idle=clips['idle']||clips['floating']||anims.find(a=>/idle/i.test(a.name))||anims.find(a=>!/flip|roll|dash|dive|skate/i.test(a.name))||anims[0];
+    try{ if(typeof _filterClipToScene==='function') idle=_filterClipToScene(idle,theModel)||idle; }catch(e){}
+    mixer=new THREE.AnimationMixer(theModel); try{ mixer.clipAction(idle).play(); }catch(e){}
+  }
+  function onGltf(gltf){
+    const model=SkeletonUtils.clone(gltf.scene);
+    const box=new THREE.Box3().setFromObject(model); const center=box.getCenter(new THREE.Vector3()); const size=box.getSize(new THREE.Vector3());
+    const s=1.8/Math.max(size.x,size.y,size.z); model.scale.setScalar(s); model.position.sub(center.multiplyScalar(s)); model.position.y+=(opts.yOffset||0);
+    model.traverse(c=>{ if(c.isSkinnedMesh||c.isMesh){ c.frustumCulled=false; c.material=new THREE.MeshStandardMaterial({color:0x3f7fd8,emissive:0x2a64c8,emissiveIntensity:1.3,roughness:0.45,metalness:0.2,side:THREE.DoubleSide,toneMapped:false}); } });
+    theModel=model; modelRoot=new THREE.Group(); modelRoot.add(model); sc.add(modelRoot); applyIdle();
+    if(!mixer && !window._cachedRobotGltf){ try{ const l2=new GLTFLoader(); l2.load('models/robot.glb', rg=>{ if(typeof _fixRobotMaterials==='function')_fixRobotMaterials(rg.scene); window._cachedRobotGltf=rg; applyIdle(); }, null, ()=>{}); }catch(e){} }
+  }
+  try{
+    if(window._cachedInterceptorGltf){ onGltf(window._cachedInterceptorGltf); }
+    else { const ldr=new GLTFLoader(); ldr.load('models/interceptor.glb', gltf=>{ window._cachedInterceptorGltf=gltf; onGltf(gltf); }, null, e=>{ canvas._robotRunning=false; }); }
+  }catch(e){ canvas._robotRunning=false; }
+  const clock=new THREE.Clock();
+  function render(){ if(!canvas._robotRunning)return; const dt=clock.getDelta(); if(mixer)mixer.update(dt); if(modelRoot)modelRoot.rotation.y+=dt*0.5; renderer.render(sc,cam); requestAnimationFrame(render); }
+  render();
+}
 
 // ══ SPLASH SEQUENCE ══
 (function(){
