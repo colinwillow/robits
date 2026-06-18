@@ -43,7 +43,7 @@ canvas{display:block}
   .sval{font-size:16px}
   #mult-val{font-size:15px}
   #lives-display{max-width:80px;gap:3px}
-  #weapon-hud{top:42px;opacity:0.6;transform:translateX(-50%) scale(0.85)}
+  #weapon-hud{top:42px;opacity:0.92;transform:translateX(-50%) scale(0.92)}
   #score-bar{padding-top:max(env(safe-area-inset-top),8px)}
 }
 
@@ -288,8 +288,8 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <div id="weapon-hud" style="position:absolute;top:calc(env(safe-area-inset-top,0px) + 110px);left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:2px;z-index:12;pointer-events:none">
 
     <!-- ACTIVE WEAPON — single weapon shown clearly -->
-    <div style="display:flex;flex-direction:row;align-items:center;gap:9px">
-      <div id="secondary-weapon-icon" style="width:44px;height:52px;display:flex;align-items:center;justify-content:center;position:relative">
+    <div style="display:flex;flex-direction:row;align-items:center;gap:11px;background:rgba(6,12,18,0.62);border:1.5px solid rgba(120,200,255,0.28);border-radius:12px;padding:6px 16px 6px 11px;box-shadow:0 0 18px rgba(0,120,200,0.18)">
+      <div id="secondary-weapon-icon" style="width:44px;height:52px;display:flex;align-items:center;justify-content:center;position:relative;transform:scale(1.32);transform-origin:center">
         <!-- BOMB icon (shown when bomb selected) -->
         <svg id="icon-bomb" width="44" height="52" viewBox="0 0 44 52" fill="none" xmlns="http://www.w3.org/2000/svg" style="position:absolute">
           <!-- Fuse spark -->
@@ -345,9 +345,9 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <!-- Weapon name + ammo, stacked beside the icon -->
       <div style="display:flex;flex-direction:column;align-items:flex-start;gap:1px">
-        <div style="font-size:7px;letter-spacing:2px;color:#ffffff55;text-transform:uppercase">WEAPON</div>
-        <div id="weapon-name" style="font-size:12px;font-weight:900;letter-spacing:2px;color:#ff6600;text-shadow:0 0 8px #ff6600;text-transform:uppercase;text-align:left">BOMB</div>
-        <div id="weapon-ammo" style="font-size:15px;font-weight:900;letter-spacing:1px;color:#fff;text-shadow:0 0 7px #00ccff;text-align:left">&#8734;</div>
+        <div style="font-size:8px;letter-spacing:2.5px;color:#ffffff66;text-transform:uppercase">WEAPON</div>
+        <div id="weapon-name" style="font-size:20px;font-weight:900;letter-spacing:2px;color:#ff6600;text-shadow:0 0 12px #ff6600,0 1px 2px rgba(0,0,0,0.6);text-transform:uppercase;text-align:left;line-height:1.05">BOMB</div>
+        <div id="weapon-ammo" style="font-size:22px;font-weight:900;letter-spacing:1px;color:#fff;text-shadow:0 0 9px #00ccff,0 1px 2px rgba(0,0,0,0.6);text-align:left;line-height:1">&#8734;</div>
       </div>
     </div>
 
@@ -1051,7 +1051,8 @@ function updateCamera(dt){
     else { if(typeof _camFxBegin==='function')_camFxBegin(); window._enemyCam=false; }   // target gone (boss died / last enemy cleared) -> capture the pose and EASE into the normal cam instead of a hard pop
   }
   if(typeof camera!=='undefined' && (camera.up.x!==0||camera.up.z!==0)) camera.up.set(0,1,0);   // a wall/ceiling cam may have left the up-vector tilted; the normal cam is always world-up (fixes the 90°-tilt when you take boots off mid-wall)
-  CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
+  let _yawK=0.045; if(player&&player._cwOrbitT>0){ player._cwOrbitT=Math.max(0,player._cwOrbitT-dt); _yawK=(window._CUBE_WF_ORBIT_K||0.14); }   // brief faster orbit while swinging around the character on a wall->floor exit
+  CAM.yaw=lerp(CAM.yaw,CAM.tyaw,_yawK);
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
   CAM.focus.lerp(CAM.tfocus,0.18);
 
@@ -7853,8 +7854,14 @@ class FlameThrower{
     this.flare2=new THREE.Mesh(new THREE.SphereGeometry(1,10,8),this.flareMat); this.flare2.frustumCulled=false; this.flare2.visible=false; scene.add(this.flare2);
     this.light=new THREE.PointLight(0xff6a1a,0,300,2); scene.add(this.light);
   }
-  _origin(pl){ let ox=pl.wx, oy=9+pl.py, oz=pl.wz; const bn=pl.model&&pl.model.userData&&pl.model.userData.bones; const hb=bn&&(bn['mixamorig_RightHand']||bn['mixamorig_LeftHand']); if(hb){ const hp=new THREE.Vector3(); hb.getWorldPosition(hp); ox=hp.x; oy=hp.y; oz=hp.z; } return [ox,oy,oz]; }
+  _origin(pl){ let ox=pl.wx, oy=9+pl.py, oz=pl.wz; if(typeof _stanceMuzzle==='function'){ const m=new THREE.Vector3(); if(_stanceMuzzle(pl,0,m)){ return [m.x,m.y,m.z]; } } const bn=pl.model&&pl.model.userData&&pl.model.userData.bones; const hb=bn&&(bn['mixamorig_RightHand']||bn['mixamorig_LeftHand']); if(hb){ const hp=new THREE.Vector3(); hb.getWorldPosition(hp); ox=hp.x; oy=hp.y; oz=hp.z; } return [ox,oy,oz]; }
   _origins(pl){ const bn=pl.model&&pl.model.userData&&pl.model.userData.bones; const out=[];
+    if(bn && typeof _stanceMuzzle==='function'){
+      const a=new THREE.Vector3(), b=new THREE.Vector3();
+      const ka=_stanceMuzzle(pl,0,a), kb=_stanceMuzzle(pl,1,b);   // stance-aware: no melee -> R/L hand; melee -> LEFT hand + shoulder cannon (right hand holds the weapon)
+      if(ka)out.push([a.x,a.y,a.z]); if(kb)out.push([b.x,b.y,b.z]);
+      if(out.length>=1) return out;
+    }
     if(bn){
       const find=(sd)=>{ const ex='mixamorig_'+sd+'Hand'; if(bn[ex])return bn[ex]; const ss=sd.toLowerCase(); for(const k in bn){ const lk=k.toLowerCase(); if(lk.endsWith('hand') && lk.indexOf(ss)>=0) return bn[k]; } return null; };   // wrist bone only (endsWith 'hand' skips finger bones)
       const rb=find('Right'), lb=find('Left');
@@ -8430,18 +8437,20 @@ function _updateBootsToggle(playing){
     const tap=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); if(player&&player._hasBoots){
         const _wwBefore=(typeof _cubeWalkOn==='function')?_cubeWalkOn(player):false;   // were we wall-walking? (wall de-equip already hops via the dislodge fall)
         player._bootsEquipped=!player._bootsEquipped;
-        if(player._boots){ for(const b of player._boots) b.visible=player._bootsEquipped; }
-        if(player._wallClimb&&!player._bootsEquipped) player._wallClimb=null;
+        const _eq=player._bootsEquipped;
+        if(player._boots){ for(const b of player._boots){ if(_eq){ b.visible=true; b.userData.unwrap=null; b.userData.grow=0; } else { b.userData.unwrap=true; } } }   // equip -> materialise from 0; de-equip -> peel off then hide (NOT an instant pop)
+        if(typeof _bootWrapFX==='function') _bootWrapFX(_eq);
+        if(player._wallClimb&&!_eq) player._wallClimb=null;
         if(!_wwBefore){ try{ const HOP=(window._BOOT_HOP||130); player.py=(player.py||0)+(window._BOOT_HOP_LIFT||7); player.pvy=Math.max(player.pvy||0,HOP); }catch(_){} }   // HAPPY-ACCIDENT made intentional: a subtle upward kick so he pops into the air/float pose for a beat — like hopping to pull the boots on/off
         if(typeof _camFxBegin==='function') _camFxBegin();   // ease the camera across the transition (equipping used to glitch the cam to a near-but-different pose when _cubeWalkOn flipped)
-        if(typeof Audio!=='undefined')Audio.blip(player._bootsEquipped?660:300,0.08,'square',0.14,player._bootsEquipped?900:200);
+        if(typeof Audio!=='undefined')Audio.blip(_eq?660:300,0.08,'square',0.14,_eq?900:200);
       } };
     el.addEventListener('touchstart',tap,{passive:false}); el.addEventListener('click',tap);
     document.body.appendChild(el); }
   const show=!!playing && player && player._hasBoots;
   if(!show){ if(el.style.display!=='none')el.style.display='none'; return; }
   const on=!!player._bootsEquipped;
-  if(player._boots){ for(const b of player._boots) b.visible=on; }   // toggle hides/shows the physical boots on the feet
+  if(player._boots){ for(const b of player._boots){ if(on) b.visible=true; } }   // keep equipped boots shown; de-equip hides via the de-wrap shrink (don't force an instant pop)
   el.style.display='flex';
   el.style.borderColor=on?'#00ffaa':'#557766';
   el.style.color=on?'#00ffaa':'#7faa99';
@@ -9354,7 +9363,7 @@ class Player{
       this._bombMesh.position.set(cx,cy,cz);
       if(this._bombCoreMesh) this._bombCoreMesh.position.set(cx,cy,cz);
       this._bombHandPos={x:cx,y:cy,z:cz}; // store for throw spawn
-      const _noPulse=(this._bombMode==='item' && this._carryPayload && this._carryPayload.type==='barrel');   // a barrel shouldn't breathe big/small — only the energy orbs pulse
+      const _noPulse=(this._bombMode==='item');   // held items (nuke/singularity/quake/barrel/crate) are carried steady — only the energy orb (bomb mode) breathes
       const pulse=_noPulse?1:(1+0.15*Math.sin(t*8));
       this._bombMesh.scale.setScalar(pulse);
       const rage=this._stickWasPushed?0.8:0.3;
@@ -9364,7 +9373,7 @@ class Player{
       else if(this._bombMode==='item'){ const _ct=this._carryPayload&&this._carryPayload.type;
         if(_ct==='barrel'){ this._bombMesh.rotation.set(0, (player&&player.model?player.model.rotation.y:0), Math.PI/2); }   // barrel: lie it on its side, no spin
         else if(this._carryPayload&&this._carryPayload.kind==='crate'){ if(player&&player.model){ this._bombMesh.rotation.set(0, player.model.rotation.y, 0); } }
-        else { this._bombMesh.rotation.y+=dt*2.2; this._bombMesh.rotation.x+=dt*1.1; } }
+        else { if(player&&player.model){ this._bombMesh.rotation.set(0, player.model.rotation.y, 0); } } }   // nuke / singularity / quake: held steady facing forward, no spin
       else { this._bombBodyMat&&this._bombBodyMat.color.setRGB(1,g,0); }
       if(this._bombCoreMesh) this._bombCoreMesh.scale.setScalar(0.8+0.4*Math.sin(t*6));
     } else if(!this.bombArmed&&this._bombMesh){
@@ -18472,8 +18481,10 @@ function _ballHitPlayer(b, dt){
     b.pos.copy(bodyC).addScaledVector(n,PR+b.R+1);
     const pv=new THREE.Vector3(player.vx||0,player.pvy||0,player.vz||0), along=Math.max(0,pv.dot(n));
     const ud0=player.model&&player.model.userData, melee0=!!(ud0&&ud0._meleeTimer&&ud0._meleeTimer>0);
-    const KN=(window._BALL_KNOCK||1.0)*(melee0?(window._BALL_MELEE_BOOST||2.0):1);
-    b.vel.addScaledVector(n,((window._BALL_BASE||8)+along*(window._BALL_VFAC||1.2))*KN); b.vel.addScaledVector(pv,0.3);
+    const dashing=(player._dashRamp>0);   // flick-dodge / dash gives a real hit
+    const passive=(melee0||dashing)?1:(window._BALL_BODY_PASSIVE||0.22);   // just walking into the ball barely nudges it; you have to strike or dodge into it
+    const KN=(window._BALL_KNOCK||1.0)*(melee0?(window._BALL_MELEE_BOOST||2.0):1)*passive;
+    b.vel.addScaledVector(n,((window._BALL_BASE||8)+along*(window._BALL_VFAC||1.2))*KN); b.vel.addScaledVector(pv,0.3*passive);
     if(b.vel.length()>2400)b.vel.setLength(2400);
     b.hitCd=0.1;
     if(typeof ps!=='undefined'){ for(let k=0;k<8;k++){ const a=Math.random()*6.28,sp=rand(40,120); ps._spawn(b.pos.x,b.pos.y,b.pos.z,Math.cos(a)*sp,rand(-30,80),Math.sin(a)*sp,0.2,1,0.9,0.4); } }
@@ -18731,7 +18742,10 @@ const _CAM_CFG={ normal:{t:'CAM',c:'#9fe8ff',bg:'rgba(8,20,28,0.72)',bd:'#9fe8ff
 const _CAM_ICON='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>';
 function _camModesAvail(){ return (typeof GS!=='undefined'&&GS.zone===-19)?['normal','ball','enemy']:['normal','enemy']; }
 function _nextCamMode(){ const o=_camModesAvail(); let i=o.indexOf(_camMode()); if(i<0)i=0; return o[(i+1)%o.length]; }
-function _paintCamBtn(btn){ if(!btn)return; const cfg=_CAM_CFG[_camMode()]; btn.innerHTML=_CAM_ICON+'<span>'+cfg.t+'</span>'; btn.style.color=cfg.c; btn.style.background=cfg.bg; btn.style.border='1.5px solid '+cfg.bd; }
+function _paintCamBtn(btn){ if(!btn)return; const cfg=_CAM_CFG[_camMode()]; const modes=_camModesAvail(), cur=_camMode();
+  let dots=''; for(const m of modes){ const mc=_CAM_CFG[m].c, on=(m===cur); dots+='<i style="display:inline-block;width:6px;height:6px;border-radius:50%;margin:0 2px;background:'+(on?mc:'transparent')+';border:1px solid '+mc+';opacity:'+(on?1:0.45)+';box-shadow:'+(on?'0 0 5px '+mc:'none')+'"></i>'; }
+  btn.innerHTML=_CAM_ICON+'<span style="margin:0 3px">'+cfg.t+'</span><span style="display:inline-flex;align-items:center;margin-left:1px">'+dots+'</span>';
+  btn.style.color=cfg.c; btn.style.background=cfg.bg; btn.style.border='1.5px solid '+cfg.bd; }
 function _openCamSel(){
   const sel=document.getElementById('cam-sel'); if(!sel)return;
   if(sel.style.display==='flex'){ sel.style.display='none'; return; }
@@ -18751,14 +18765,10 @@ function _updateCamBtn(playing){
   if(!playing){ for(const e of [btn,cyc,sel]) if(e)e.style.display='none'; return; }
   if(!btn){
     btn=document.createElement('button'); btn.id='cam-btn';
-    btn.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 116px);right:14px;z-index:13;padding:8px 12px;font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:2px;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;min-width:92px;display:flex;align-items:center;justify-content:center;gap:6px';
-    let _hold=null,_held=false;
-    const tap=()=>{ _setCamMode(_nextCamMode()); _paintCamBtn(btn); if(typeof Audio!=='undefined')Audio.blip(560,0.06,'square',0.12,600); };
-    const down=(e)=>{ e.preventDefault(); e.stopPropagation(); _held=false; if(_hold)clearTimeout(_hold); _hold=setTimeout(()=>{ _held=true; _openCamSel(); if(typeof Audio!=='undefined')Audio.blip(720,0.05,'square',0.1,520); }, (window._CAM_HOLD_MS||450)); };   // CLICK = cycle modes; PRESS-AND-HOLD = open the picker
-    const up=(e)=>{ e.preventDefault(); e.stopPropagation(); if(_hold){clearTimeout(_hold);_hold=null;} if(!_held) tap(); };
-    const cancel=()=>{ if(_hold){clearTimeout(_hold);_hold=null;} };   // finger slid off -> abort the hold (don't pop the menu)
-    btn.addEventListener('touchstart',down,{passive:false}); btn.addEventListener('touchend',up,{passive:false}); btn.addEventListener('touchmove',cancel,{passive:false}); btn.addEventListener('touchcancel',cancel,{passive:false});
-    btn.addEventListener('mousedown',down); btn.addEventListener('mouseup',up); btn.addEventListener('mouseleave',cancel);
+    btn.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 116px);right:14px;z-index:13;padding:8px 12px;font-family:Orbitron,sans-serif;font-size:10px;letter-spacing:2px;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;min-width:92px;display:flex;align-items:center;justify-content:center;gap:4px';
+    const tap=(e)=>{ if(e){ e.preventDefault(); e.stopPropagation(); } _setCamMode(_nextCamMode()); _paintCamBtn(btn); if(typeof Audio!=='undefined')Audio.blip(560,0.06,'square',0.12,600); };   // ONE tap = cycle to the next camera mode (no hold menu — the dots show what's available)
+    btn.addEventListener('touchstart',tap,{passive:false});
+    btn.addEventListener('click',(e)=>{ if(typeof IS_TOUCH!=='undefined'&&IS_TOUCH)return; tap(e); });   // desktop only — touch uses touchstart (preventDefault suppresses the ghost click)
     document.body.appendChild(btn);
     cyc=document.createElement('button'); cyc.id='enemycam-cyc';
     cyc.style.cssText='position:absolute;top:calc(env(safe-area-inset-top,0px) + 116px);right:118px;z-index:13;padding:8px 11px;font-family:Orbitron,sans-serif;font-size:13px;color:#ff8844;background:rgba(28,14,8,0.78);border:1.5px solid #ff884477;border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;display:none';
@@ -19202,17 +19212,23 @@ function _cubeCam(P, dt){
     if(player) player._camFocY=_fy;
     if(_cwAuthPrev && typeof CAM!=='undefined'){            // wall -> floor handoff
       if(typeof _camFxBegin==='function') _camFxBegin();    // capture the wall-cam pose and ease into the floor framing instead of snapping
-      let yaw;
+      let yaw, seedYaw=null;
       if(player && player._cwLeftByAir){
         // JUMPED / dislodged / jetted off the wall -> the camera is ALREADY framed well (you reoriented away from it the instant you jumped). DON'T flip 180°; just continue the floor orbit from the camera's current bearing so air->land is seamless.
         const dx=camera.position.x-P.x, dz=camera.position.z-P.z; yaw=Math.atan2(dx,dz);
       } else {
-        // WALKED down the chamfer -> FLIP a full 180° to face the wall you just left, so holding "down" keeps running you the SAME world direction (toward the camera); then you're free to orbit
+        // WALKED down the chamfer -> end facing the wall you just left (so holding "down" keeps the SAME world run dir), but ORBIT the camera AROUND the character to get there instead of cutting a straight chord through him.
         let hx=N.x, hz=N.z; const hl=Math.hypot(hx,hz);
-        if(hl>1e-3){ yaw=Math.atan2(hx/hl, hz/hl); }          // exit dir = horizontal lean of "up toward centre" = away from the wall -> put the camera THERE (in front of your exit) so you run toward it, looking back at the wall
+        if(hl>1e-3){ yaw=Math.atan2(hx/hl, hz/hl); }          // exit dir = horizontal lean of "up toward centre" = away from the wall
         else { const dx=camera.position.x-P.x, dz=camera.position.z-P.z; yaw=Math.atan2(dx,dz)+Math.PI; }   // perfectly flat fallback
+        const bx=camera.position.x-P.x, bz=camera.position.z-P.z;
+        seedYaw=(bx*bx+bz*bz>1)?Math.atan2(bx,bz):yaw;        // start the orbit from where the camera ACTUALLY is right now
+        while(yaw-seedYaw>Math.PI)yaw-=2*Math.PI; while(yaw-seedYaw<-Math.PI)yaw+=2*Math.PI;   // take the short consistent arc
+        if(Math.abs(Math.abs(yaw-seedYaw)-Math.PI)<0.04){ yaw+=(window._CUBE_WF_ORBIT_DIR||1)*0.04; }       // at a dead-on 180° pick an orbit side so it can't stall
       }
-      CAM.yaw=yaw; CAM.tyaw=yaw; CAM.focus.set(P.x,_fy,P.z);
+      CAM.focus.set(P.x,_fy,P.z);
+      if(seedYaw!=null){ CAM.yaw=seedYaw; CAM.tyaw=yaw; if(player)player._cwOrbitT=(window._CUBE_WF_ORBIT_T||0.85); }      // ORBIT: hold the current bearing, ease around to the flipped target (eye stays at fixed radius -> swings around him, never through)
+      else { CAM.yaw=yaw; CAM.tyaw=yaw; }
     }
     _cwAuthPrev=false; if(typeof CAM!=='undefined'){ CAM.tfocus.set(P.x,_fy,P.z); CAM.dist=lerp(CAM.dist,230,0.03); CAM.height=lerp(CAM.height,200,0.03); }   // normal cam follows + orbits, eased to the same dist/height
   } else { if(!_cwAuthPrev){ _cwCamBlend=0; _cwCamFrom.copy(camera.position); _cwLook=P.clone(); _cwUpSmooth=null; _cwAuthPrev=true; } _cubeWallCam(P,N,dt); }   // authoritative wall cam (seed a fresh blend + look target on entry so it eases instead of jumping)
@@ -19380,8 +19396,8 @@ function _enemyCam(P, tgt, dt){
   if(typeof camera==='undefined') return;
   let dir=tgt.clone().sub(P); dir.y=0; if(dir.lengthSq()<1)dir.set(0,0,1); dir.normalize();   // horizontal: player -> target
   const sep=P.distanceTo(tgt);
-  const D=(window._ENEMYCAM_DIST||window._CUBE_CAM_DIST||330) + sep*(window._ENEMYCAM_ZOOM_K||0.55);   // zoom OUT as hero & enemy separate so BOTH stay framed
-  const H=(window._ENEMYCAM_H||240) + sep*(window._ENEMYCAM_H_K||0.14);
+  const D=(window._ENEMYCAM_DIST||window._CUBE_CAM_DIST||430) + sep*(window._ENEMYCAM_ZOOM_K||0.72);   // zoom OUT as hero & enemy separate so BOTH stay framed (pulled back so the hero clears the bottom HUD)
+  const H=(window._ENEMYCAM_H||300) + sep*(window._ENEMYCAM_H_K||0.16);
   const mid=P.clone().add(tgt).multiplyScalar(0.5);                                            // frame the MIDPOINT so the hero never slides off when you run away
   const eye=mid.clone().addScaledVector(dir,-D); eye.y+=H;
   camera.up.set(0,1,0);
@@ -19389,6 +19405,12 @@ function _enemyCam(P, tgt, dt){
   const look=mid.clone(); look.y+=(P.y!=null?(P.y- mid.y):0)*0.3;
   if(!_enemyCamLook) _enemyCamLook=look.clone();
   _enemyCamLook.lerp(look,(window._ENEMYCAM_LOOK_LERP||0.14));
+  // WALL AIM-NUDGE: on a wall, pan the look toward where you're shooting so off-side targets come into frame (mirrors the normal wall cam)
+  if(window._ENEMYCAM_WALL_NUDGE!==false && player && player._aim3DActive && player._aim3D){
+    const lat=(-dir.z)*player._aim3D.x + (dir.x)*player._aim3D.z;   // aim component along camera-right (horizontal)
+    player._ecAimPan=(player._ecAimPan||0); player._ecAimPan += (lat*(window._ENEMYCAM_NUDGE_AMT||84) - player._ecAimPan)*Math.min(1,dt*(window._ENEMYCAM_NUDGE_EASE||5));
+    _enemyCamLook.x += (-dir.z)*player._ecAimPan; _enemyCamLook.z += (dir.x)*player._ecAimPan;
+  } else if(player){ player._ecAimPan=(player._ecAimPan||0)*0.9; }
   camera.lookAt(_enemyCamLook.x,_enemyCamLook.y,_enemyCamLook.z);
   if(typeof CAM!=='undefined'){ CAM.yaw=Math.atan2(-dir.x,-dir.z); CAM.tyaw=CAM.yaw; CAM.focus.copy(_enemyCamLook); CAM.tfocus.copy(_enemyCamLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }   // sync the movement yaw to the cam facing so the left stick isn't inverted in enemy cam
 }
@@ -22821,7 +22843,7 @@ function _orientGameBoot(boot,foot,side){
   const bs=new THREE.Vector3(); foot.getWorldScale(bs);
   const flip=(side<0)?_BOOT_FLIP_L:_BOOT_FLIP_R;
   const inv=((side<0)?(1/(bs.x||1)):(1/(Math.abs(bs.x)||1)))*4.35*flip;   // LEFT=signed RIGHT=abs : the two foot bones have OPPOSITE handedness (Mixamo quirk)
-  boot.userData.invScale=inv; const gr=(boot.userData.grow==null)?1:boot.userData.grow; boot.scale.setScalar(inv*(0.2+0.8*gr));
+  boot.userData.invScale=inv; const gr=(boot.userData.grow==null)?1:boot.userData.grow; boot.scale.setScalar(inv*(0.02+0.98*gr));
   { const Pf=foot.getWorldPosition(new THREE.Vector3()); const wo=(side<0?_BOOT_POS_L:_BOOT_POS_R).clone().applyQuaternion(mq).multiplyScalar(Math.abs(bs.x)||1); boot.position.copy(foot.worldToLocal(Pf.add(wo))); }
 }
 function _attachBoot(boot,foot,toe,side){
@@ -22850,6 +22872,8 @@ function _collectBoots(){
     try{ console.log('BOOT foot/toe bones:', Object.keys(bones).filter(k=>/foot|toe/i.test(k)), 'attached',nAttached); }catch(e){}
   }
   if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[0,1,0.7],34,170); ps.ring(player.wx,player.wz,[0,1,0.7],22,150); ps.ring(player.wx,player.wz,[0.6,1,1],12,90); }
+  if(nAttached>0){ try{ if(!(typeof _cubeWalkOn==='function'&&_cubeWalkOn(player))){ player.py=(player.py||0)+(window._BOOT_HOP_LIFT||7); player.pvy=Math.max(player.pvy||0,(window._BOOT_HOP||130)); } }catch(_){}
+    if(typeof _bootWrapFX==='function')_bootWrapFX(true); if(typeof _camFxBegin==='function')_camFxBegin(); }   // first equip: hop + materialise the boots onto the feet (no more silent poof)
   if(typeof Audio!=='undefined'){ Audio.blip(320,0.12,'square',0.25,1200); Audio.blip(640,0.2,'sine',0.22,40); Audio.blip(180,0.25,'sawtooth',0.18,60); }
   if(typeof addTrauma==='function') addTrauma(0.15);
   if(typeof announce==='function') announce(nAttached>0?('\u26a1 SPEED BOOTS \u00d7'+nAttached):'NO FOOT BONES FOUND', nAttached>0?'#00ffaa':'#ff5555');
@@ -22894,7 +22918,7 @@ window._MELEE_STATS = window._MELEE_STATS || {
   axe:    { dmg:12, reach:30, speed:0.88, eForce:7,  eLift:1.2, eAir:11, eStun:46, bMag:15, bLift:210, bStn:38, hitStop:5, trauma:0.18, thud:90,  slow:0.6,  slowH:8,  zoom:0.5 },     // heavy cleave, brief slow
   spear:  { dmg:7,  reach:42, speed:1.10, eForce:5,  eLift:0.7, eAir:5,  eStun:30, bMag:8,  bLift:110, bStn:22, hitStop:2, trauma:0.05, thud:140 },                                   // long poke, light
   scythe: { dmg:9,  reach:35, speed:0.95, eForce:6,  eLift:1.0, eAir:9,  eStun:52, bMag:12, bLift:180, bStn:40, hitStop:4, trauma:0.12, thud:110 },                                    // wide reap, big stun (crowd control)
-  mace:   { dmg:14, reach:40, speed:1.0,  eForce:9,  eLift:1.3, eAir:12, eStun:48, bMag:16, bLift:220, bStn:40, hitStop:3, trauma:0.12, thud:80, twoHanded:true }                       // FLAIL: physics chain, right-stick driven, two-handed (no projectiles); damage handled in _updateMace
+  mace:   { dmg:14, reach:40, speed:1.0,  eForce:9,  eLift:1.3, eAir:12, eStun:48, bMag:16, bLift:220, bStn:40, hitStop:3, trauma:0.12, thud:80, twoHanded:true, hands:2 }              // FLAIL: physics chain, right-stick driven, two-handed (no projectiles); damage handled in _updateMace
 };
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -23736,6 +23760,28 @@ function _padAmmoText(st){   // {text,hex} for a gun pad's remaining ammo (full 
   const frac=full?cur/full:1, hex=(frac<=0.25)?'#ff5555':(frac<=0.5?'#ffcc44':'#ffffff');
   return {text:''+(cur|0),hex};
 }
+const _WPN_LABEL={bullets:'BULLETS',rockets:'ROCKETS',plasma:'PLASMA',flamethrower:'FLAME',grenade:'GRENADE',singularity:'SINGULARITY',gridquake:'QUAKE',quake:'QUAKE',boomerang:'BOOMERANG',nuke:'NUKE',bow:'BOW'};
+function _curvedText(ctx,text,cx,cy,radius,color){   // draw text bent along the TOP arc of a circle (for a ground ring label)
+  ctx.font='800 30px Orbitron,system-ui,Arial,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  const chars=[...text]; let total=0; const ws=chars.map(ch=>{ const w=ctx.measureText(ch).width+2; total+=w; return w; });
+  const per=total/radius; let ang=-Math.PI/2 - per/2;            // centre the word at the top, spread clockwise
+  for(let i=0;i<chars.length;i++){ const w=ws[i]; ang+=(w/2)/radius;
+    ctx.save(); ctx.translate(cx+Math.cos(ang)*radius, cy+Math.sin(ang)*radius); ctx.rotate(ang+Math.PI/2);
+    ctx.lineWidth=6; ctx.strokeStyle='rgba(0,0,0,0.7)'; ctx.strokeText(chars[i],0,0);
+    ctx.fillStyle=color; ctx.fillText(chars[i],0,0); ctx.restore();
+    ang+=(w/2)/radius;
+  }
+}
+function _makePadGroundLabel(weapon){
+  const cv=document.createElement('canvas'); cv.width=256; cv.height=256; const ctx=cv.getContext('2d');
+  const name=_WPN_LABEL[weapon]||(''+weapon).toUpperCase();
+  const c=_WPN_COLORS[weapon]||0x00ccff; const hex='#'+('000000'+c.toString(16)).slice(-6);
+  _curvedText(ctx,name,128,128,98,hex);
+  const tex=new THREE.CanvasTexture(cv); tex.minFilter=THREE.LinearFilter;
+  const mat=new THREE.MeshBasicMaterial({map:tex,transparent:true,opacity:0.95,depthWrite:false,depthTest:true,side:THREE.DoubleSide,toneMapped:false});
+  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(50,50),mat); mesh.rotation.x=-Math.PI/2; mesh.position.y=0.6; mesh.renderOrder=20; mesh._tex=tex; mesh._mat=mat;
+  return mesh;
+}
 function _spawnWeaponPad(x,z,weapon,ammo){
   window._weaponPads=window._weaponPads||[];
   const col=_WPN_COLORS[weapon]||0x00ccff;
@@ -23746,6 +23792,7 @@ function _spawnWeaponPad(x,z,weapon,ammo){
   const colm=new THREE.Mesh(new THREE.CylinderGeometry(5,8,42,16,1,true),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); colm.position.y=21; grp.add(colm);
   const emblem=_makeWeaponEmblem(weapon); emblem.scale.setScalar((window._WEAPON_EMBLEM_SCALE&&window._WEAPON_EMBLEM_SCALE[weapon])||window._WEAPON_EMBLEM_SCALE_ALL||2.2); emblem.position.y=16; grp.add(emblem);   // all projectile-weapon pickups doubled up (rocket was the only one bumped before). per-weapon override via window._WEAPON_EMBLEM_SCALE={plasma:2.6,...}
   const label=_makeAmmoLabel(); label.position.set(0,34,0); grp.add(label);
+  const gl=_makePadGroundLabel(weapon); grp.add(gl);   // weapon name bent in an arc on the ground around the pad
   scene.add(grp);
   const st={grp,ring,ring2,emblem,label,x,z,weapon,ammo:(ammo!=null?ammo:null),t:0,cd:0,_col:[((col>>16)&255)/255,((col>>8)&255)/255,(col&255)/255]};
   const at=_padAmmoText(st); _setAmmoLabel(label,at.text,at.hex);
@@ -24022,10 +24069,34 @@ function _updateSlashArcs(dt){
   }
 }
 function _updateSlashFX(dt){ if(!player) return; _updateSlashTrail(dt); _updateSlashArcs(dt); }
+function _bootWrapFX(equipping){   // particles + a wrap-ring that sweeps the boot when it materialises (equip) or peels off (de-equip)
+  if(!player||!player._boots) return;
+  window._bootShells=window._bootShells||[];
+  const col=equipping?[0.12,1,0.7]:[1,0.55,0.16];
+  for(const b of player._boots){
+    b.updateWorldMatrix(true,false); const wp=new THREE.Vector3(); b.getWorldPosition(wp);
+    if(typeof ps!=='undefined' && ps._spawn){ for(let i=0;i<16;i++){ const a=Math.random()*TAU, r=equipping?16:3, dir=equipping?-1:1; ps._spawn(wp.x+Math.cos(a)*r, wp.y+2+Math.random()*12, wp.z+Math.sin(a)*r, Math.cos(a)*70*dir, 30+Math.random()*70, Math.sin(a)*70*dir, col[0],col[1],col[2], 0.03+Math.random()*0.025); } }
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(6,1.1,8,20), new THREE.MeshBasicMaterial({color:(equipping?0x33ffbb:0xff8a44),transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+    ring.rotation.x=Math.PI/2; ring.position.copy(wp); ring.renderOrder=22; scene.add(ring);
+    window._bootShells.push({ring,t:0,dur:(window._BOOT_WRAP_DUR||0.42),up:equipping,foot:b});
+  }
+  if(typeof Audio!=='undefined'){ if(equipping){Audio.blip(200,0.1,'square',0.22,1500);Audio.blip(720,0.2,'sine',0.18,70);} else {Audio.blip(440,0.1,'square',0.18,120);} }
+  if(typeof addTrauma==='function')addTrauma(0.06);
+}
 function _updateBoots(dt){
+  if(window._bootShells&&window._bootShells.length){   // animate the sweep rings (runs even if boots momentarily absent)
+    for(let i=window._bootShells.length-1;i>=0;i--){ const s=window._bootShells[i]; s.t+=dt; const f=Math.min(1,s.t/s.dur);
+      let bx=s.ring.position.x, bz=s.ring.position.z, by=s.ring.position.y;
+      if(s.foot){ try{ const wp=new THREE.Vector3(); s.foot.getWorldPosition(wp); bx=wp.x; bz=wp.z; by=wp.y; }catch(_){} }
+      const sweep=s.up?(-6+18*f):(12-18*f);
+      s.ring.position.set(bx,by+sweep,bz); s.ring.scale.setScalar(0.6+0.8*f); s.ring.material.opacity=0.95*(1-f);
+      if(f>=1){ scene.remove(s.ring); if(s.ring.geometry)s.ring.geometry.dispose(); if(s.ring.material)s.ring.material.dispose(); window._bootShells.splice(i,1); }
+    }
+  }
   if(!player||!player._boots) return;
   for(const b of player._boots){
-    if(b.userData.grow<1){ b.userData.grow=Math.min(1,b.userData.grow+dt*3.2); const e=b.userData.grow; b.scale.setScalar(b.userData.invScale*(0.2+0.8*e)); }
+    if(b.userData.unwrap){ b.userData.grow=Math.max(0,(b.userData.grow!=null?b.userData.grow:1)-dt*3.6); const e=b.userData.grow; b.scale.setScalar(b.userData.invScale*(0.02+0.98*e)); if(e<=0.021){ b.visible=false; b.userData.unwrap=null; } continue; }   // de-wrap: shrink off the foot, then hide
+    if(b.userData.grow<1){ b.userData.grow=Math.min(1,b.userData.grow+dt*3.2); const e=b.userData.grow; b.scale.setScalar(b.userData.invScale*(0.02+0.98*e)); }
     const jet=b.userData.jet; if(jet){ const f=(player._speedBoost>0)?(0.55+Math.random()*0.45):0.0; jet.material.opacity=f; jet.scale.z=0.6+f*0.9; }
   }
 }
