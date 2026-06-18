@@ -2871,14 +2871,21 @@ class DragonFireball{
       ps._spawn(this.wx+rand(-3,3), this.y+rand(-3,3), this.wz+rand(-3,3), this.vx*0.18+Math.cos(a)*rand(10,42), this.vy*0.18+rand(8,60), this.vz*0.18+Math.sin(a)*rand(10,42), cl[0], cl[1]*(0.7+h*0.3), cl[2]+h*0.1, 0.08+rand(0.05)); } }
     this.grp.position.set(this.wx,this.y,this.wz);
     const pulse=0.85+0.18*Math.sin(this.t*22); this.core.scale.setScalar(pulse); this.glow.material.opacity=0.3+0.2*Math.sin(this.t*16);
-    // MELEE DEFLECT — blade-tip sweep
+    // MELEE DEFLECT — blade-tip sweep (precise) + a forgiving swing-proximity bat (works even with fists)
     if(!this._deflected && this.hitCd<=0){
       const ud=player&&player.model&&player.model.userData, swinging=!!(ud&&(ud._meleeTimer>0||ud._swActive));
-      if(swinging && typeof _slashBladePoints==='function'){ const bp=_slashBladePoints();
-        if(bp&&bp[0]&&bp[1]){ const base=bp[0], tip=bp[1], seg=tip.clone().sub(base), sl2=Math.max(seg.lengthSq(),1e-4), fb=new THREE.Vector3(this.wx,this.y,this.wz);
-          const tp=Math.max(0,Math.min(1,fb.clone().sub(base).dot(seg)/sl2)), closest=base.clone().addScaledVector(seg,tp), dd=closest.distanceTo(fb);
-          if(dd < this.R+(window._FIREBALL_DEFLECT_R||16)){ this._deflect(); }
+      if(swinging && player){
+        let hit=false;
+        if(typeof _slashBladePoints==='function'){ const bp=_slashBladePoints();
+          if(bp&&bp[0]&&bp[1]){ const base=bp[0], tip=bp[1], seg=tip.clone().sub(base), sl2=Math.max(seg.lengthSq(),1e-4), fb=new THREE.Vector3(this.wx,this.y,this.wz);
+            const tp=Math.max(0,Math.min(1,fb.clone().sub(base).dot(seg)/sl2)), closest=base.clone().addScaledVector(seg,tp), dd=closest.distanceTo(fb);
+            if(dd < this.R+(window._FIREBALL_DEFLECT_R||30)) hit=true;   // blade sweep (radius bumped 16 -> 30)
+          }
         }
+        if(!hit){ const sx=this.wx-player.wx, sy=this.y-((player.py||0)+16), sz=this.wz-player.wz, sr=(window._FIREBALL_SWING_R||52)+this.R;   // forgiving: any swing near you bats it
+          if(sx*sx+sy*sy+sz*sz < sr*sr) hit=true;
+        }
+        if(hit) this._deflect();
       }
     }
     // HIT
@@ -3108,11 +3115,12 @@ class BlueDragon extends Enemy{
         if(this._cur!==_da){ try{ for(const k in this._act){ if(this._act[k]&&this._act[k]!==_da)this._act[k].stop(); } _da.enabled=true; _da.setEffectiveWeight(1); _da.setLoop(THREE.LoopOnce,1); _da.clampWhenFinished=true; if(!_da.isRunning())_da.play(); this._cur=_da; }catch(_){} }
         if(this._deadT>=_dd){ _da.paused=true; _da.time=Math.max(0,_dd-0.001); }   // clip done -> freeze on the LAST frame
       }
-      if(this._deadT >= _dd*(window._DRAGON_DECON_AT||0.5)){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1);   // beam-out begins about HALFWAY through the death fall (set _DRAGON_DECON_AT=1.05 to play it fully + hold the last frame first)
+      if(this._deadT >= _dd*(window._DRAGON_DECON_AT||1.1)){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1);   // plays the death fully, HOLDS the last frame, then beams out from that frozen pose (set _DRAGON_DECON_AT<1 to beam mid-fall)
         const _m=this.mesh;
-        try{ if(this._mixer)this._mixer.stopAllAction(); }catch(_){}                              // freeze the pose for the beam-out
+        try{ if(this._mixer){ this._mixer.timeScale=0; if(_da){ _da.paused=true; _da.time=Math.max(0,_dd-0.001); } } }catch(_){}   // FREEZE the current (last-frame) pose — do NOT stopAllAction(), that snaps the rig back to its bind/idle pose
         try{ if(this._hpBar&&_m){ _m.remove(this._hpBar); this._hpBar=null; } }catch(_){}          // don't beam the HP bar up with the body
         try{ if(typeof _robitDeconstruct==='function') _robitDeconstruct(this.wx,(this._curY||0)+12,this.wz,(window._DRAGON_GLOW||0x2aa2ff), _m); }catch(_){}   // hand the MODEL to the effect -> bits cover it, then it fades + beams out
+        this._mixer=null;                                                                         // drop our mixer ref so remove()'s stopAllAction can't snap the beamed-out body back to bind/idle
         this.mesh=null; this.remove(); return;                                                    // null the mesh so remove() doesn't yank the model the effect now owns
       }   // death clip done -> bit deconstruct beam-out
       this._applyMesh(); return;
