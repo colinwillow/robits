@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-FX</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-FY</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -15369,7 +15369,7 @@ function _seMakeGridBuilding(cx,cz,w,d,h){   // an elongated cube made of the SA
   return {clip, walls, marker};
 }
 function _seDisposeGrid(b){ if(b&&b.marker){ try{ scene.remove(b.marker); b.marker.geometry&&b.marker.geometry.dispose(); b.marker.material&&b.marker.material.dispose(); }catch(_){} b.marker=null; } if(b&&b.walls){ b.walls.forEach(s=>{ try{ if(s.dispose)s.dispose(); else { if(s.group)scene.remove(s.group); const gi=(typeof GRID_SHEETS!=='undefined')?GRID_SHEETS.indexOf(s):-1; if(gi>=0)GRID_SHEETS.splice(gi,1); } }catch(_){} }); b.walls.length=0; } }
-const _SE_ROUNDS=['buildings','sphere','buildings','floating','flat','buildings'];   // per-round ARENA TYPE cycle (override live via window._SE_ROUNDS)
+const _SE_ROUNDS=['buildings'];   // PIECE 1: one central building EVERY round so the construct/deconstruct loop is visible. The full arena-type progression (sphere/cube-in/cube-out/etc.) comes next. Override live via window._SE_ROUNDS
 let _SE_bform=0;
 function _seClearBuildings(){ _SE.buildings.forEach(b=>{ if(b.kind==='grid'){ _seDisposeGrid(b); } else if(b.mesh){ b.mesh.traverse(o=>{ o.geometry&&o.geometry.dispose&&o.geometry.dispose(); }); b.mesh.parent&&b.mesh.parent.remove(b.mesh); } }); _SE.buildings.length=0; }
 function _seSpawnFormation(){
@@ -15389,12 +15389,18 @@ function _seSpawnFormation(){
     if(typeof ps!=='undefined'&&ps.ring) ps.ring(0,0,[0.6,0.4,1],8,r);
     return;
   }
-  // 'buildings' round: ONE elongated grid-sheet building in the middle (rises out of the floor row by row, same neon grid as the cube)
-  const BW=(window._SE_BLD_W||150), BD=(window._SE_BLD_D||150), BH=(window._SE_BLD_H||340);
-  const gb=_seMakeGridBuilding(0,0,BW,BD,BH);
-  if(gb){ _SE.buildings.push({kind:'grid',walls:gb.walls,clip:gb.clip,marker:gb.marker,x:0,z:0,w:BW,d:BD,h:BH,state:'construct',t:0});
-    if(typeof announce==='function')announce('TOWER','#33e0ff');
-    if(typeof ps!=='undefined'&&ps.ring) ps.ring(0,0,[0.2,0.85,1],10,Math.max(BW,BD)); }
+  // 'buildings' round: ONE solid neon tower dead-center — rises out of the floor on construct, sinks on deconstruct. Reliable + always visible (the grid-sheet version is opt-in via window._SE_GRID_BLD)
+  const BW=(window._SE_BLD_W||150), BD=(window._SE_BLD_D||150), BH=(window._SE_BLD_H||300);
+  if(window._SE_GRID_BLD){
+    const gb=_seMakeGridBuilding(0,0,BW,BD,BH);
+    if(gb) _SE.buildings.push({kind:'grid',walls:gb.walls,clip:gb.clip,marker:gb.marker,x:0,z:0,w:BW,d:BD,h:BH,state:'construct',t:0});
+  } else {
+    const m=_seMakeBuilding(BW,BH,BD); m.position.set(0,0,0); m.scale.y=0.001; scene.add(m);
+    _SE.buildings.push({kind:'box',mesh:m,x:0,z:0,w:BW,d:BD,h:BH,state:'construct',t:0});
+    console.log('[seFormation] solid tower @center '+BW+'x'+BH+'x'+BD);
+  }
+  if(typeof announce==='function')announce('TOWER','#33e0ff');
+  if(typeof ps!=='undefined'&&ps.ring) ps.ring(0,0,[0.2,0.85,1],10,Math.max(BW,BD));
 }
 function _seDeconstruct(){ _SE.buildings.forEach(b=>{ if(b.state!=='deconstruct'){ b.state='deconstruct'; b.t=0; const sz=(b.kind==='sphere')?b.r*2:Math.max(b.w,b.d); if(typeof ps!=='undefined'&&ps.ring) ps.ring(b.x,b.z,[1,0.5,0.15],6,sz); } }); }
 function _seUpdateBuildings(dt){
