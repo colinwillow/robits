@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-FZ</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-GA</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -15342,22 +15342,22 @@ function _seMakeSphere(r){
   g.userData={bodyMat,edgeMat,winMat:glowMat,h:r*2};
   return g;
 }
-function _seMakeGridBuilding(cx,cz,w,d,h){   // an elongated cube made of the SAME deformable GridSheets as the cube walls; revealed bottom->top by a rising clip-plane (row by row)
+function _seMakeGridBuilding(cx,cz,w,d,h){   // a tower made of deformable GridSheets; constructs/deconstructs via a height-swept per-vertex plasma wave (same feel as the floor)
   if(typeof GridSheet==='undefined'){ console.warn('[seGrid] GridSheet missing'); return null; }
-  const noclip=(window._SE_GRID_CLIP!==true);   // clip OFF by default now (full building always visible); set window._SE_GRID_CLIP=true to re-enable the row-by-row reveal once we confirm it renders
-  try{ if(typeof renderer!=='undefined') renderer.localClippingEnabled=true; }catch(_){}
   const cell=(window._SE_GRID_CELL||30), pal=(window._SE_GRID_PAL||'cube'), sub=(typeof IS_MOBILE!=='undefined'&&IS_MOBILE?1:2);
-  // reveal mask: shows only y <= constant.  constant sweeps 0 -> h so the building appears from the floor up.
-  const clip=noclip?null:new THREE.Plane(new THREE.Vector3(0,-1,0), 2);
   const hw=w/2, hd=d/2, hh=h/2, Q=(ax,ay,az,ang)=>new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(ax,ay,az),ang);
-  // GUARANTEED-VISIBLE marker: a plain bright wireframe box at the building site (renders even if the GridSheets don't)
-  let marker=null;
-  try{ marker=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(w,h,d)), new THREE.LineBasicMaterial({color:0x00ffaa})); marker.position.set(cx,hh,cz); scene.add(marker); }catch(_){}
-  const walls=[];
+  const pop=(window._SE_POP||90);   // how far each vertex pops out along its sheet normal before the wave releases it
+  const walls=[]; let minY=Infinity, maxY=-Infinity; const _v=new THREE.Vector3();
   const face=(px,py,pz,quat,uHalf,vHalf)=>{
     const cols=Math.max(3,Math.round(uHalf*2/cell)+1), rows=Math.max(3,Math.round(vHalf*2/cell)+1);
     let s; try{ s=new GridSheet({cols,rows,cell,position:new THREE.Vector3(px,py,pz),quaternion:quat,palette:pal,fill:true,subdiv:sub,bright:1.2}); }catch(e){ console.warn('[seGrid] face',e); return; }
-    if(clip){ [s.lines&&s.lines.material, s.glowLines&&s.glowLines.material, s.fill&&s.fill.material].forEach(m=>{ if(m){ m.clippingPlanes=[clip]; m.needsUpdate=true; } }); }
+    s.group.updateMatrixWorld(true);
+    s._wy=new Float32Array(s.n);
+    for(let k=0;k<s.n;k++){ _v.set(s.ru[k],0,s.rv[k]).applyMatrix4(s.group.matrixWorld); s._wy[k]=_v.y; if(_v.y<minY)minY=_v.y; if(_v.y>maxY)maxY=_v.y;
+      s.y[k]=pop; s.ry[k]=pop; }   // start fully popped-out (dissolved)
+    s._pop=pop;
+    if(s.lines)s.lines.material.opacity=0; if(s.glowLines)s.glowLines.material.opacity=0; if(s.fill)s.fill.material.opacity=0;
+    try{ s._rebuild(); }catch(_){}
     walls.push(s);
   };
   face(cx, hh, cz+hd, Q(1,0,0,-Math.PI/2), hw, hh);   // +Z wall
@@ -15365,8 +15365,8 @@ function _seMakeGridBuilding(cx,cz,w,d,h){   // an elongated cube made of the SA
   face(cx+hw, hh, cz, Q(0,0,1, Math.PI/2), hh, hd);   // +X wall
   face(cx-hw, hh, cz, Q(0,0,1,-Math.PI/2), hh, hd);   // -X wall
   face(cx, h, cz, Q(1,0,0, Math.PI), hw, hd);         // top cap
-  console.log('[seGrid] tower @('+cx+','+cz+') walls='+walls.length+' marker='+(marker?'yes':'no')+(noclip?' (noclip)':' (clip)'));
-  return {clip, walls, marker};
+  console.log('[seGrid] grid tower @('+cx+','+cz+') walls='+walls.length+' Yrange='+minY.toFixed(0)+'..'+maxY.toFixed(0));
+  return { walls, minY, maxY };
 }
 function _seDisposeGrid(b){ if(b&&b.marker){ try{ scene.remove(b.marker); b.marker.geometry&&b.marker.geometry.dispose(); b.marker.material&&b.marker.material.dispose(); }catch(_){} b.marker=null; } if(b&&b.walls){ b.walls.forEach(s=>{ try{ if(s.dispose)s.dispose(); else { if(s.group)scene.remove(s.group); const gi=(typeof GRID_SHEETS!=='undefined')?GRID_SHEETS.indexOf(s):-1; if(gi>=0)GRID_SHEETS.splice(gi,1); } }catch(_){} }); b.walls.length=0; } }
 const _SE_ROUNDS=['buildings'];   // PIECE 1: one central building EVERY round so the construct/deconstruct loop is visible. The full arena-type progression (sphere/cube-in/cube-out/etc.) comes next. Override live via window._SE_ROUNDS
@@ -15402,15 +15402,14 @@ function _seSpawnFormation(force){
     if(typeof ps!=='undefined'&&ps.ring) ps.ring(0,0,[0.6,0.4,1],8,r);
     return;
   }
-  // 'buildings' round: ONE solid neon tower dead-center — rises out of the floor on construct, sinks on deconstruct. Reliable + always visible (the grid-sheet version is opt-in via window._SE_GRID_BLD)
+  // 'buildings' round: ONE grid-sheet tower dead-center — constructs/deconstructs via the per-vertex plasma wave (set window._SE_SOLID_BLD=true for the old primitive solid box)
   const BW=(window._SE_BLD_W||150), BD=(window._SE_BLD_D||150), BH=(window._SE_BLD_H||300);
-  if(window._SE_GRID_BLD){
-    const gb=_seMakeGridBuilding(0,0,BW,BD,BH);
-    if(gb) _SE.buildings.push({kind:'grid',walls:gb.walls,clip:gb.clip,marker:gb.marker,x:0,z:0,w:BW,d:BD,h:BH,state:'construct',t:0});
-  } else {
+  if(window._SE_SOLID_BLD){
     const m=_seMakeBuilding(BW,BH,BD); m.position.set(0,0,0); m.scale.y=0.001; scene.add(m);
     _SE.buildings.push({kind:'box',mesh:m,x:0,z:0,w:BW,d:BD,h:BH,state:'construct',t:0});
-    console.log('[seFormation] solid tower @center '+BW+'x'+BH+'x'+BD);
+  } else {
+    const gb=_seMakeGridBuilding(0,0,BW,BD,BH);
+    if(gb) _SE.buildings.push({kind:'grid',walls:gb.walls,minY:gb.minY,maxY:gb.maxY,x:0,z:0,w:BW,d:BD,h:BH,state:'construct',t:0});
   }
   if(typeof announce==='function')announce('TOWER','#33e0ff');
   if(typeof ps!=='undefined'&&ps.ring) ps.ring(0,0,[0.2,0.85,1],10,Math.max(BW,BD));
@@ -15420,11 +15419,21 @@ function _seUpdateBuildings(dt){
   if(!_SE.buildings.length) return;
   const CD=(window._SE_CONSTRUCT_DUR||0.9), DD=(window._SE_DECON_DUR||0.8), PR=(window._SE_PUSH_R||20);
   for(let i=_SE.buildings.length-1;i>=0;i--){ const b=_SE.buildings[i]; b.t+=dt; const sph=(b.kind==='sphere');
-    if(b.kind==='grid'){   // GRID-SHEET tower: a rising clip-plane reveals it from the floor up (row by row); reverse + fade on deconstruct
-      const GD=(window._SE_GRID_DUR||1.6);
-      if(b.state==='construct'){ const k=Math.min(1,b.t/GD), e=1-Math.pow(1-k,3); if(b.clip)b.clip.constant=Math.max(2,e*b.h+6); if(k>=1) b.state='up'; }
-      else if(b.state==='up'){ if(b.clip)b.clip.constant=b.h+6; }
-      else if(b.state==='deconstruct'){ const k=Math.min(1,b.t/GD); if(b.clip)b.clip.constant=Math.max(0.5,(1-k)*b.h+6); const o=1-k; b.walls.forEach(s=>{ if(s.lines)s.lines.material.opacity=o; if(s.glowLines)s.glowLines.material.opacity=0.7*o; if(s.fill)s.fill.material.opacity=(window._CUBE_SHEET_FILL_OPACITY!=null?window._CUBE_SHEET_FILL_OPACITY:0.5)*o; }); if(k>=1){ _seDisposeGrid(b); _SE.buildings.splice(i,1); continue; } }
+    if(b.kind==='grid'){   // GRID-SHEET tower: per-vertex plasma wave (height-swept) for construct/deconstruct — same lift→release→ripple feel as the floor
+      for(let wi=0;wi<b.walls.length;wi++){ try{ b.walls[wi].update(dt); }catch(_){} }   // MUST tick the sheets every frame (they're not in any other update group) so they render + spring
+      const WD=(window._SE_WAVE_DUR||1.7), band=(window._SE_WAVE_BAND||110), lo=(b.minY||0), hi=(b.maxY||b.h);
+      if(b.state==='construct'||b.state==='deconstruct'){
+        const k=Math.min(1,b.t/WD), span=(hi-lo)+band*2;
+        const front=(b.state==='construct') ? (lo-band + span*k) : (hi+band - span*k);   // construct sweeps bottom→top; deconstruct top→bottom
+        for(const s of b.walls){ const wy=s._wy, ry=s.ry, pop=s._pop||90;
+          for(let j=0;j<s.n;j++){ let rel=(front-wy[j])/band; rel=rel<0?0:rel>1?1:rel; const e=rel*rel*(3-2*rel);
+            ry[j]=(1-e)*pop + Math.sin((1-rel)*8 + wy[j]*0.05)*(1-e)*6; }   // settled→0, ahead→popped, with a travelling ripple
+          const op=(b.state==='construct')?k:(1-k);
+          if(s.lines)s.lines.material.opacity=op; if(s.glowLines)s.glowLines.material.opacity=0.7*op; if(s.fill)s.fill.material.opacity=(window._CUBE_SHEET_FILL_OPACITY!=null?window._CUBE_SHEET_FILL_OPACITY:0.5)*op;
+        }
+        if(k>=1){ if(b.state==='construct'){ b.state='up'; for(const s of b.walls){ for(let j=0;j<s.n;j++)s.ry[j]=0; if(s.lines)s.lines.material.opacity=1; if(s.glowLines)s.glowLines.material.opacity=0.7; if(s.fill)s.fill.material.opacity=(window._CUBE_SHEET_FILL_OPACITY!=null?window._CUBE_SHEET_FILL_OPACITY:0.5); } }
+          else { _seDisposeGrid(b); _SE.buildings.splice(i,1); continue; } }
+      }
       if(player && b.state!=='deconstruct'){ const hw=b.w*0.5+PR, hd=b.d*0.5+PR, dx=player.wx-b.x, dz=player.wz-b.z;
         if(Math.abs(dx)<hw && Math.abs(dz)<hd && (player.py||0)<b.h){ const px=hw-Math.abs(dx), pz=hd-Math.abs(dz); if(px<pz) player.wx=b.x+(dx>=0?1:-1)*hw; else player.wz=b.z+(dz>=0?1:-1)*hd; } }
       continue;
