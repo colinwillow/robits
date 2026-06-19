@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-FR</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-FS</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9188,6 +9188,7 @@ class Player{
   // ── HOVERBOARD RIDE — anti-grav glide. Default 'car': LEFT stick steers, RIGHT stick = throttle(fwd/back)+strafe. No pushing; it floats. ──
   _hoverboardHoriz(dt){
     if(this._skHeading===undefined||!this._hbInit){ this._skHeading=this.facing||0; this._skSpeed=0; this._skSteer=0; this._skLean=0; this._hbInit=true; }
+    { const _u=this.model&&this.model.userData; if(_u){ _u._landingTimer=0; _u._rollingTimer=0; _u._flippingTimer=0; _u._voidTumble=0; if(!window._meleeUpperBody)_u._meleeTimer=0; } }   // riding: don't let one-shots (landing/roll/flip) interrupt the idle
     const lx=moveIn.x, ly=moveIn.y, rx=shootIn.x, ry=shootIn.y;   // RAW sticks (not camera-rotated)
     let steerIn, throttle, strafe;
     if((window._HB_CTRL||'car')==='twin'){ steerIn=rx; throttle=-ly; strafe=lx; }   // 'twin' (funny): right stick drives
@@ -9208,7 +9209,7 @@ class Player{
     this._hbSway=Math.sin(performance.now()*0.001*(window._HB_SWAY_SPD||1.25))*(window._HB_SWAY_AMP||0.05);   // gentle idle roll
     const targetLean=clamp(this._skSteer*0.55 + strafe*0.35, -0.6, 0.6);
     this._skLean=lerp(this._skLean, targetLean, 0.12);
-    this.facing=nth; this.aim=-nth; this.inX=Math.sin(nth); this.inZ=Math.cos(nth);   // aim=-nth so the robot (rotation.y=-aim+π/2) faces the SAME way the board points
+    this.facing=nth; this.aim=-nth+(window._HB_RIDER_YAW!=null?window._HB_RIDER_YAW:Math.PI); this.inX=Math.sin(nth); this.inZ=Math.cos(nth);   // -nth tracks the board's turning; +PI faces him forward (set _HB_RIDER_YAW=0 if he ends up backward)
     // py/pvy (hover height + bob) owned by the gravity-override guard so it can't fight floor gravity
   }
   // ── GUN STICK TAP STATE MACHINE ──
@@ -17450,7 +17451,7 @@ function loop(ts){ requestAnimationFrame(loop);
             else if(th>0.12) want='push';                                   // pushing forward
             else if(th<-0.12) want='down';                                  // braking / back-lean
             else want = player._onHoverboard ? 'idle' : 'up';               // coasting: anti-grav = just stand, no kick
-            if(player._onHoverboard && window._HB_ALWAYS_IDLE) want='idle';  // option: never kick, always glide-stand
+            if(player._onHoverboard && window._HB_ALWAYS_IDLE!==false) want='idle';  // default for now: never kick, always glide-stand idle (lean states come later)
             if(want==='idle'){ targetClip = _find('idle')||_find('stand')||_find('ride')||_find('coast')||(ud.clips['idle']?'idle':null)||_find('up')||_find('push')||'idle'; }
             else { targetClip = _find(want) || _find('up') || _find('push') || 'idle'; }
             if(!ud._skLogged){ ud._skLogged=true; console.warn('SKATE clips found:', _ks.filter(n=>n.toLowerCase().includes('skate'))); }
@@ -18050,7 +18051,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(window._trHover){ const _h=window._trHover; const _hp=window._HOVER_POS||{x:210,z:-40};
         if(_h.userData.fans)for(let i=0;i<_h.userData.fans.length;i++)_h.userData.fans[i].rotation.y+=dt*((player&&player._onHoverboard)?16:10);
         if(player&&player._onHoverboard){
-          _h.position.set(player.wx,(player.py||0)-(window._HB_BOARD_DROP||4),player.wz);
+          _h.position.set(player.wx,(player.py||0)-(window._HB_BOARD_DROP!=null?window._HB_BOARD_DROP:0),player.wz);
           _h.rotation.y=(player._skHeading||0)+(window._HB_BOARD_YAW!=null?window._HB_BOARD_YAW:Math.PI/2);
           _h.rotation.z=(player._skLean||0)+(player._hbSway||0);
           _h.rotation.x=clamp(-(player._skThrottle||0)*0.1,-0.16,0.16);
