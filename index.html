@@ -14531,18 +14531,19 @@ function _seMakeSphere(r){
   g.userData={bodyMat,edgeMat,winMat:glowMat,h:r*2};
   return g;
 }
-function _seMakeGridBuilding(cx,cz,w,d,h){   // an elongated cube made of the SAME deformable GridSheets as the cube walls; rises out of the ground via a floor clip-plane (row by row)
-  if(typeof GridSheet==='undefined') return null;
+function _seMakeGridBuilding(cx,cz,w,d,h){   // an elongated cube made of the SAME deformable GridSheets as the cube walls; revealed bottom->top by a rising clip-plane (row by row)
+  if(typeof GridSheet==='undefined'){ console.warn('[seGrid] GridSheet missing'); return null; }
+  const noclip=!!window._SE_GRID_NOCLIP;   // debug: window._SE_GRID_NOCLIP=true shows the whole building with no reveal mask
   try{ if(typeof renderer!=='undefined') renderer.localClippingEnabled=true; }catch(_){}
   const cell=(window._SE_GRID_CELL||30), pal=(window._SE_GRID_PAL||'cube'), sub=(typeof IS_MOBILE!=='undefined'&&IS_MOBILE?1:2);
-  const clip=new THREE.Plane(new THREE.Vector3(0,1,0), 0);   // keep only y>=0 -> everything below the floor is hidden, so the grid emerges line by line as it rises
+  // reveal mask: shows only y <= constant.  constant sweeps 0 -> h so the building appears from the floor up.
+  const clip=noclip?null:new THREE.Plane(new THREE.Vector3(0,-1,0), 2);
   const hw=w/2, hd=d/2, hh=h/2, Q=(ax,ay,az,ang)=>new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(ax,ay,az),ang);
   const walls=[];
   const face=(px,py,pz,quat,uHalf,vHalf)=>{
     const cols=Math.max(3,Math.round(uHalf*2/cell)+1), rows=Math.max(3,Math.round(vHalf*2/cell)+1);
-    let s; try{ s=new GridSheet({cols,rows,cell,position:new THREE.Vector3(px,py,pz),quaternion:quat,palette:pal,fill:true,subdiv:sub,bright:1.2}); }catch(e){ console.warn('grid bld face',e); return; }
-    s._finalY=py;
-    [s.lines&&s.lines.material, s.glowLines&&s.glowLines.material, s.fill&&s.fill.material].forEach(m=>{ if(m){ m.clippingPlanes=[clip]; m.clipShadows=true; } });
+    let s; try{ s=new GridSheet({cols,rows,cell,position:new THREE.Vector3(px,py,pz),quaternion:quat,palette:pal,fill:true,subdiv:sub,bright:1.2}); }catch(e){ console.warn('[seGrid] face',e); return; }
+    if(clip){ [s.lines&&s.lines.material, s.glowLines&&s.glowLines.material, s.fill&&s.fill.material].forEach(m=>{ if(m){ m.clippingPlanes=[clip]; m.needsUpdate=true; } }); }
     walls.push(s);
   };
   face(cx, hh, cz+hd, Q(1,0,0,-Math.PI/2), hw, hh);   // +Z wall
@@ -14550,9 +14551,10 @@ function _seMakeGridBuilding(cx,cz,w,d,h){   // an elongated cube made of the SA
   face(cx+hw, hh, cz, Q(0,0,1, Math.PI/2), hh, hd);   // +X wall
   face(cx-hw, hh, cz, Q(0,0,1,-Math.PI/2), hh, hd);   // -X wall
   face(cx, h, cz, Q(1,0,0, Math.PI), hw, hd);         // top cap
+  console.log('[seGrid] tower @('+cx+','+cz+') walls='+walls.length+(noclip?' NOCLIP':''));
   return {clip, walls};
 }
-function _seDisposeGrid(b){ if(b&&b.walls){ b.walls.forEach(s=>{ try{ if(s.group)scene.remove(s.group); const gi=(typeof GRID_SHEETS!=='undefined')?GRID_SHEETS.indexOf(s):-1; if(gi>=0)GRID_SHEETS.splice(gi,1); s.group&&s.group.traverse(o=>{ o.geometry&&o.geometry.dispose&&o.geometry.dispose(); }); }catch(_){} }); b.walls.length=0; } }
+function _seDisposeGrid(b){ if(b&&b.walls){ b.walls.forEach(s=>{ try{ if(s.dispose)s.dispose(); else { if(s.group)scene.remove(s.group); const gi=(typeof GRID_SHEETS!=='undefined')?GRID_SHEETS.indexOf(s):-1; if(gi>=0)GRID_SHEETS.splice(gi,1); } }catch(_){} }); b.walls.length=0; } }
 const _SE_ROUNDS=['buildings','sphere','buildings','floating','flat','buildings'];   // per-round ARENA TYPE cycle (override live via window._SE_ROUNDS)
 let _SE_bform=0;
 function _seClearBuildings(){ _SE.buildings.forEach(b=>{ if(b.kind==='grid'){ _seDisposeGrid(b); } else if(b.mesh){ b.mesh.traverse(o=>{ o.geometry&&o.geometry.dispose&&o.geometry.dispose(); }); b.mesh.parent&&b.mesh.parent.remove(b.mesh); } }); _SE.buildings.length=0; }
@@ -14583,10 +14585,11 @@ function _seUpdateBuildings(dt){
   if(!_SE.buildings.length) return;
   const CD=(window._SE_CONSTRUCT_DUR||0.9), DD=(window._SE_DECON_DUR||0.8), PR=(window._SE_PUSH_R||20);
   for(let i=_SE.buildings.length-1;i>=0;i--){ const b=_SE.buildings[i]; b.t+=dt; const sph=(b.kind==='sphere');
-    if(b.kind==='grid'){   // GRID-SHEET tower: rise out of the floor on construct, sink back on deconstruct (clip-plane hides the underground part -> emerges row by row)
+    if(b.kind==='grid'){   // GRID-SHEET tower: a rising clip-plane reveals it from the floor up (row by row); reverse + fade on deconstruct
       const GD=(window._SE_GRID_DUR||1.6);
-      if(b.state==='construct'){ const k=Math.min(1,b.t/GD), e=1-Math.pow(1-k,3); b.walls.forEach(s=>{ s.group.position.y=s._finalY-b.h*(1-e); }); if(k>=1){ b.state='up'; b.walls.forEach(s=>{ s.group.position.y=s._finalY; }); } }
-      else if(b.state==='deconstruct'){ const k=Math.min(1,b.t/GD), e=k*k; b.walls.forEach(s=>{ s.group.position.y=s._finalY-b.h*e; const o=1-k; if(s.lines)s.lines.material.opacity=o; if(s.glowLines)s.glowLines.material.opacity=0.7*o; if(s.fill)s.fill.material.opacity=(window._CUBE_SHEET_FILL_OPACITY!=null?window._CUBE_SHEET_FILL_OPACITY:0.5)*o; }); if(k>=1){ _seDisposeGrid(b); _SE.buildings.splice(i,1); continue; } }
+      if(b.state==='construct'){ const k=Math.min(1,b.t/GD), e=1-Math.pow(1-k,3); if(b.clip)b.clip.constant=Math.max(2,e*b.h+6); if(k>=1) b.state='up'; }
+      else if(b.state==='up'){ if(b.clip)b.clip.constant=b.h+6; }
+      else if(b.state==='deconstruct'){ const k=Math.min(1,b.t/GD); if(b.clip)b.clip.constant=Math.max(0.5,(1-k)*b.h+6); const o=1-k; b.walls.forEach(s=>{ if(s.lines)s.lines.material.opacity=o; if(s.glowLines)s.glowLines.material.opacity=0.7*o; if(s.fill)s.fill.material.opacity=(window._CUBE_SHEET_FILL_OPACITY!=null?window._CUBE_SHEET_FILL_OPACITY:0.5)*o; }); if(k>=1){ _seDisposeGrid(b); _SE.buildings.splice(i,1); continue; } }
       if(player && b.state!=='deconstruct'){ const hw=b.w*0.5+PR, hd=b.d*0.5+PR, dx=player.wx-b.x, dz=player.wz-b.z;
         if(Math.abs(dx)<hw && Math.abs(dz)<hd && (player.py||0)<b.h){ const px=hw-Math.abs(dx), pz=hd-Math.abs(dz); if(px<pz) player.wx=b.x+(dx>=0?1:-1)*hw; else player.wz=b.z+(dz>=0?1:-1)*hd; } }
       continue;
