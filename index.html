@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-GZ</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-HB</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -2366,9 +2366,10 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
 
   const targetHeight=18;
   let autoScale=targetHeight/(size.y||1);
-  if(isInterceptor){ autoScale*=(window._INTERCEPTOR_SCALE!=null?window._INTERCEPTOR_SCALE:0.66); console.log('[char] interceptor measured height='+size.y.toFixed(2)+' -> autoScale='+autoScale.toFixed(3)+'  (window._INTERCEPTOR_SCALE to fine-tune)'); }
+  if(isInterceptor){ autoScale*=(window._INTERCEPTOR_SCALE!=null?window._INTERCEPTOR_SCALE:0.82); console.log('[char] interceptor measured height='+size.y.toFixed(2)+' -> autoScale='+autoScale.toFixed(3)+'  (window._INTERCEPTOR_SCALE to fine-tune)'); }
   robotScene.scale.setScalar(autoScale);
   robotScene.position.y=-bbox.min.y*autoScale;
+  if(isInterceptor) robotScene.position.y+=(window._INTERCEPTOR_Y!=null?window._INTERCEPTOR_Y:-2.5);   // bring interceptor down (bbox extends below visible feet)
 
   // Add lights so MeshStandardMaterial is visible
   if(!scene._robotLight){
@@ -2402,18 +2403,25 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
       c.castShadow=false;
       c.visible=true;
       if(isInterceptor){
-        // KEEP the interceptor's own baked texture. DoubleSide so single-sided faces don't get culled away; when a baked map exists, render it UNLIT (the lighting is painted into the texture) so it isn't double-lit by the scene.
+        // KEEP the interceptor's baked texture but give it a GLOW (like the robot's emissive): feed the texture into emissiveMap so its colours self-illuminate. Black stays dark (no glow); orange/yellow emit. DoubleSide so single-sided faces aren't culled.
         const mats=Array.isArray(c.material)?c.material:[c.material];
+        const glow=(window._INTERCEPTOR_GLOW!=null?window._INTERCEPTOR_GLOW:0.6);
         const out=mats.map(mt=>{ if(!mt) return mt;
-          if((window._INTERCEPTOR_UNLIT!==false) && mt.map){ const b=new THREE.MeshBasicMaterial({ map:mt.map, side:THREE.DoubleSide }); b.toneMapped=false; return b; }
-          mt.side=THREE.DoubleSide; if('toneMapped' in mt) mt.toneMapped=false; mt.needsUpdate=true; return mt; });
+          const m=new THREE.MeshStandardMaterial({ side:THREE.DoubleSide, roughness:0.5, metalness:0.2, emissiveIntensity:glow });
+          if(mt.map){ m.map=mt.map; m.emissiveMap=mt.map; m.emissive=new THREE.Color(0xffffff); }
+          else { try{ if(mt.color) m.color.copy(mt.color); }catch(_){ } m.emissive=new THREE.Color(window._INTERCEPTOR_GLOW_COL||0xff8a2a); }
+          m.toneMapped=false; m.needsUpdate=true; return m; });
         c.material=Array.isArray(c.material)?out:out[0];
       } else if(isAlien){
+        // Alien now ships its own baked texture — show it, with a gentle self-illuminating glow (emissiveMap) so it reads in the dark arena. Falls back to base colour if no map.
         const mats=Array.isArray(c.material)?c.material:[c.material];
-        mats.forEach(mt=>{ if(!mt) return;
-          if('emissive' in mt){ mt.emissive=new THREE.Color(0x0d56cc); mt.emissiveIntensity=2.85; if('toneMapped' in mt) mt.toneMapped=false; }
-          mt.needsUpdate=true;
-        });
+        const glow=(window._ALIEN_GLOW!=null?window._ALIEN_GLOW:0.7);
+        const out=mats.map(mt=>{ if(!mt) return mt;
+          const m=new THREE.MeshStandardMaterial({ side:THREE.DoubleSide, roughness:0.55, metalness:0.15, emissiveIntensity:glow });
+          if(mt.map){ m.map=mt.map; m.emissiveMap=mt.map; m.emissive=new THREE.Color(0xffffff); }
+          else { try{ if(mt.color) m.color.copy(mt.color); }catch(_){ } m.emissive=new THREE.Color(window._ALIEN_GLOW_COL||0x2bd24a); }
+          m.toneMapped=false; m.needsUpdate=true; return m; });
+        c.material=Array.isArray(c.material)?out:out[0];
       }
     }
   });
@@ -10545,7 +10553,7 @@ class Player{
 
     // Model position and rotation
     const bob=(this.model.userData.isRobot||this.py>1)?0:Math.sin(performance.now()*0.003)*1.5;   // procedural ship bobs; GLB robot does not
-    const shipY=9+this.py+bob;
+    const shipY=9+this.py+bob-(this._onHoverboard?(window._HB_RIDER_DROP!=null?window._HB_RIDER_DROP:8):0);   // drop rider down onto the deck (board sits at py; feet were ~9 above)
     this.model.position.set(this.wx,shipY,this.wz);
     if(this._glOrientBlend>0){
       this._glOrientBlend=Math.max(0,this._glOrientBlend-0.016);   // ease planet-aligned -> upright after a jetpack dislodge (draw() has no dt; ~0.5s @60fps)
@@ -27331,7 +27339,7 @@ function _startAlienViewer(canvasId, opts={}){
     const model=SkeletonUtils.clone(gltf.scene);
     const box=new THREE.Box3().setFromObject(model); const center=box.getCenter(new THREE.Vector3()); const size=box.getSize(new THREE.Vector3());
     const s=1.8/Math.max(size.x,size.y,size.z); model.scale.setScalar(s); model.position.sub(center.multiplyScalar(s)); model.position.y+=(opts.yOffset||0);
-    model.traverse(c=>{ if(c.isSkinnedMesh||c.isMesh){ c.frustumCulled=false; c.material=new THREE.MeshStandardMaterial({color:0x36a85a,emissive:0x1f8a32,emissiveIntensity:1.4,roughness:0.5,metalness:0.1,side:THREE.DoubleSide,toneMapped:false}); } });
+    model.traverse(c=>{ if(c.isSkinnedMesh||c.isMesh){ c.frustumCulled=false; const _src=Array.isArray(c.material)?c.material[0]:c.material; const _g=(window._ALIEN_GLOW!=null?window._ALIEN_GLOW:0.7); const _m=new THREE.MeshStandardMaterial({side:THREE.DoubleSide,roughness:0.55,metalness:0.15,emissiveIntensity:_g,toneMapped:false}); if(_src&&_src.map){ _m.map=_src.map; _m.emissiveMap=_src.map; _m.emissive=new THREE.Color(0xffffff); } else { _m.color.set(0x36a85a); _m.emissive=new THREE.Color(0x1f8a32); } c.material=_m; } });
     theModel=model; modelRoot=new THREE.Group(); modelRoot.add(model); sc.add(modelRoot);
     applyIdle();
     if(!mixer && !window._cachedRobotGltf){ try{ const l2=new GLTFLoader(); l2.load('models/robot.glb', rg=>{ if(typeof _fixRobotMaterials==='function')_fixRobotMaterials(rg.scene); window._cachedRobotGltf=rg; applyIdle(); }, null, ()=>{}); }catch(e){} }
@@ -27377,7 +27385,7 @@ function _startInterceptorViewer(canvasId, opts={}){   // spinning preview for t
   function onGltf(gltf){
     const model=SkeletonUtils.clone(gltf.scene);
     const box=new THREE.Box3().setFromObject(model); const center=box.getCenter(new THREE.Vector3()); const size=box.getSize(new THREE.Vector3());
-    const s=(1.7/Math.max(size.x,size.y,size.z))*(window._INTERCEPTOR_PREVIEW_SCALE!=null?window._INTERCEPTOR_PREVIEW_SCALE:0.66); model.scale.setScalar(s); model.position.sub(center.multiplyScalar(s)); model.position.y+=(opts.yOffset||0);
+    const s=(1.7/Math.max(size.x,size.y,size.z))*(window._INTERCEPTOR_PREVIEW_SCALE!=null?window._INTERCEPTOR_PREVIEW_SCALE:0.82); model.scale.setScalar(s); model.position.sub(center.multiplyScalar(s)); model.position.y+=(opts.yOffset||0)+(window._INTERCEPTOR_PREVIEW_Y!=null?window._INTERCEPTOR_PREVIEW_Y:-0.4);
     model.traverse(c=>{ if(c.isSkinnedMesh||c.isMesh){ c.frustumCulled=false;
       const mats=Array.isArray(c.material)?c.material:[c.material];
       const out=mats.map(mt=>{ if(!mt) return mt; if((window._INTERCEPTOR_UNLIT!==false)&&mt.map){ const b=new THREE.MeshBasicMaterial({map:mt.map,side:THREE.DoubleSide}); b.toneMapped=false; return b; } mt.side=THREE.DoubleSide; if('toneMapped' in mt)mt.toneMapped=false; return mt; });
