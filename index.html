@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-GT</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-GU</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -2330,6 +2330,20 @@ function _filterClipToScene(clip, root){
   if(tracks.length===clip.tracks.length) return clip;
   const c=clip.clone(); c.tracks=tracks; return c;
 }
+function _retargetRotationOnly(clip){
+  // Drive a DIFFERENTLY-PROPORTIONED skin (same Mixamo bone names) by ROTATION only. The source robot's clips bake a
+  // POSITION track per bone encoding the ROBOT's bone lengths; applied to another skeleton those stretch it to match.
+  // Keeping only the quaternion tracks lets each bone keep its OWN length and just rotate relative to its bind pose.
+  // Locomotion is code-driven (clips animate in place), so dropping the hips translation is fine.
+  const keepHips=(window._INTERCEPTOR_KEEP_HIPS===true);
+  const tracks=clip.tracks.filter(t=>{
+    if(/\.quaternion$/.test(t.name)) return true;
+    if(keepHips && /\.position$/.test(t.name) && /Hips/i.test(t.name)) return true;
+    return false;   // drop non-hips .position and all .scale -> no stretching
+  });
+  if(tracks.length===clip.tracks.length) return clip;
+  const c=clip.clone(); c.tracks=tracks; return c;
+}
 function _applyRobotModel(player, gltf, skinGltf, skinType){
   const isAlien=!!skinGltf;
   const isInterceptor=(skinType==='interceptor');   // shares the robot rig like the alien, BUT keeps its own baked texture instead of a flat colour
@@ -2422,7 +2436,7 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
     const raw=clip.name;
     const name=raw.split('|').pop().split(':').pop();   // strip "Armature|idle" / "rig:idle" -> "idle"
     if(raw==='CINEMA_4D_Main'||name.toLowerCase()==='main') return; // skip default/NLA take
-    const action=mixer.clipAction(isAlien?_filterClipToScene(clip,robotScene):clip);
+    const action=mixer.clipAction((()=>{ let _c = isAlien?_filterClipToScene(clip,robotScene):clip; if(isInterceptor && window._INTERCEPTOR_ROT_ONLY!==false) _c=_retargetRotationOnly(_c); return _c; })());
     const isOneShot=['landing','dive_roll','roll','dash','dive','flip_','throw_bomb','throw','roll_landing'].some(n=>name.includes(n));
     if(isOneShot){
       action.setLoop(THREE.LoopOnce,1);
@@ -10034,7 +10048,7 @@ class Player{
     if(typeof _cityLedgeHangPlayer==='function') _cityLedgeHangPlayer(this,dt);   // city ledge grab/hang (no boots needed)
     const _gflip=(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped));   // CUBE gravity-flip: boots-off = fall toward the CEILING
     if(this._onHoverboard){ this.pvy=0;
-      const _jet = window._HB_JET!==false && (this._skThrottle||0)>(window._HB_JET_THRESH||0.85) && this.boostFuel>0;   // slam throttle fully forward -> jetpack lift off the board (burns boost fuel)
+      const _jet = (window._HB_JET===true) && (this._skThrottle||0)>(window._HB_JET_THRESH||0.85) && this.boostFuel>0;   // throttle-jet OFF by default — pushing forward just goes forward; the upward boost comes from the JUMP button (_hbHop). Set window._HB_JET=true to restore slam-throttle lift.
       if(_jet){ this._hbHopVy=(this._hbHopVy||0)+(window._HB_JET_FORCE||640)*dt; this.boostFuel=Math.max(0,this.boostFuel-(window._HB_JET_BURN||55)*dt); this._jetting=true; if(typeof ps!=='undefined'&&Math.random()<0.6)ps.spark(this.wx+rand(-6,6),this.wz+rand(-6,6),[0.2,0.9,1],this.py); }
       else { this._hbHopVy=(this._hbHopVy||0)-(window._HB_HOP_GRAV||520)*dt; }
       this._hbHopY=(this._hbHopY||0)+this._hbHopVy*dt;
@@ -27298,6 +27312,7 @@ function _startInterceptorViewer(canvasId, opts={}){   // spinning preview for t
     const anims=rg.animations, clips={}; anims.forEach(a=>{ const n=a.name.toLowerCase().split('|').pop().split(':').pop(); clips[n]=a; });
     let idle=clips['idle']||clips['floating']||anims.find(a=>/idle/i.test(a.name))||anims.find(a=>!/flip|roll|dash|dive|skate/i.test(a.name))||anims[0];
     try{ if(typeof _filterClipToScene==='function') idle=_filterClipToScene(idle,theModel)||idle; }catch(e){}
+    try{ if(typeof _retargetRotationOnly==="function" && window._INTERCEPTOR_ROT_ONLY!==false) idle=_retargetRotationOnly(idle)||idle; }catch(e){}
     mixer=new THREE.AnimationMixer(theModel); try{ mixer.clipAction(idle).play(); }catch(e){}
   }
   function onGltf(gltf){
