@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-GE</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-GF</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -15390,12 +15390,13 @@ function _seMakeGridBuilding(cx,cz,w,d,h){   // a tower made of deformable GridS
     const cols=Math.max(3,Math.round(uHalf*2/cell)+1), rows=Math.max(3,Math.round(vHalf*2/cell)+1);
     let s; try{ s=new GridSheet({cols,rows,cell,position:new THREE.Vector3(px,py,pz),quaternion:quat,palette:pal,fill:true,subdiv:sub,bright:1.2}); }catch(e){ console.warn('[seGrid] face',e); return; }
     s.group.updateMatrixWorld(true);
-    s._wy=new Float32Array(s.n); s._dyOff=new Float32Array(s.n); s._dyVel=new Float32Array(s.n); s._noOff=new Float32Array(s.n); s._noVel=new Float32Array(s.n); s._rel=new Uint8Array(s.n);
+    s._wy=new Float32Array(s.n); s._dyOff=new Float32Array(s.n); s._dyVel=new Float32Array(s.n); s._noOff=new Float32Array(s.n); s._noVel=new Float32Array(s.n); s._rel=new Uint8Array(s.n); s._seed=Math.random()*6.2832;
     const _qi=new THREE.Quaternion(); s.group.getWorldQuaternion(_qi); const _qw=_qi.clone(); _qi.invert();
-    const _up=new THREE.Vector3(0,1,0).applyQuaternion(_qi); s._lux=_up.x; s._luy=_up.y; s._luz=_up.z;   // local axis that points world-up (move a vertex's WORLD height along it)
-    const _wn=new THREE.Vector3(0,1,0).applyQuaternion(_qw); s._nsign=((_wn.x*(px-cx)+_wn.z*(pz-cz))>=0?1:-1);   // +1 if local +Y points AWAY from building centre (outward bow direction)
+    const _up=new THREE.Vector3(0,1,0).applyQuaternion(_qi); s._lux=_up.x; s._luy=_up.y; s._luz=_up.z;   // local axis that points world-up
+    const _wn=new THREE.Vector3(0,1,0).applyQuaternion(_qw); s._nsign=((_wn.x*(px-cx)+_wn.z*(pz-cz))>=0?1:-1);   // +1 if local +Y points outward
+    const LIFT0=(window._SE_LIFT||130);
     for(let k=0;k<s.n;k++){ _v.set(s.ru[k],0,s.rv[k]).applyMatrix4(s.group.matrixWorld); s._wy[k]=_v.y; if(_v.y<minY)minY=_v.y; if(_v.y>maxY)maxY=_v.y;
-      s._dyOff[k]=-s._wy[k]; const off=s._dyOff[k]; s.u[k]=s.ru[k]+s._lux*off; s.y[k]=s._luy*off; s.v[k]=s.rv[k]+s._luz*off; }   // START COLLAPSED into the floor
+      s._noOff[k]=s._nsign*LIFT0; s.y[k]=s._noOff[k]; s.u[k]=s.ru[k]; s.v[k]=s.rv[k]; }   // START popped OUT off the wall surface — springs back + scatters in (never collapses to a line)
     if(s.lines)s.lines.material.opacity=0; if(s.glowLines)s.glowLines.material.opacity=0; if(s.fill)s.fill.material.opacity=0;
     try{ s._rebuild(); }catch(_){}
     walls.push(s);
@@ -15464,22 +15465,23 @@ function _seUpdateBuildings(dt){
   if(!_SE.buildings.length) return;
   const CD=(window._SE_CONSTRUCT_DUR||0.9), DD=(window._SE_DECON_DUR||0.8), PR=(window._SE_PUSH_R||20);
   for(let i=_SE.buildings.length-1;i>=0;i--){ const b=_SE.buildings[i]; b.t+=dt; const sph=(b.kind==='sphere');
-    if(b.kind==='grid'){   // GRID-SHEET tower: BANANA-PEEL — rows release bottom→top, bow OUTWARD on a parabolic arc, then slingshot home with damped rebound (same spring as the floor grid)
+    if(b.kind==='grid'){   // GRID-SHEET tower: vertices start popped off the wall + scattered, a RAGGED wavefront releases them, each springs home with overshoot (matches the floor grid's shimmer-settle, not a blind)
       const WD=(window._SE_WAVE_DUR||1.9), band=(window._SE_WAVE_BAND||70), maxY=(b.maxY||b.h);
-      const K=(window._SE_SPRING_K||0.055), D=(window._SE_SPRING_D||0.86), Kn=(window._SE_BOW_K||0.05), Dn=(window._SE_BOW_D||0.84), BOW=(window._SE_BOW||70), SWEEP=(window._SE_SWEEP||0.5), SHEAR=(window._SE_BOW_TWIST||0.2);
+      const K=(window._SE_SPRING_K||0.055), D=(window._SE_SPRING_D||0.86), LIFT=(window._SE_LIFT||130), SCAT=(window._SE_SCATTER||44), JIT=(window._SE_RELEASE_JIT||45), SWEEP=(window._SE_SWEEP||0.55);
       if(b.state==='construct'||b.state==='deconstruct'){
         const con=(b.state==='construct');
-        if(!con && !b._deconInit){ for(const s of b.walls){ for(let j=0;j<s.n;j++){ s._dyOff[j]=0; s._dyVel[j]=0; s._noOff[j]=0; s._noVel[j]=0; s._rel[j]=0; } } b._deconInit=true; }   // deconstruct starts from rest
+        if(!con && !b._deconInit){ for(const s of b.walls){ for(let j=0;j<s.n;j++){ s._noOff[j]=0; s._noVel[j]=0; s._dyOff[j]=0; s._dyVel[j]=0; s._rel[j]=0; } } b._deconInit=true; }   // deconstruct starts from rest
         const k=Math.min(1,b.t/WD), sweepK=Math.min(1,k/SWEEP), span=maxY+band*2;
         const front=con ? (-band + span*sweepK) : (maxY+band - span*sweepK);   // construct: rises floor→top; deconstruct: falls top→floor
-        for(const s of b.walls){ const wy=s._wy, ru=s.ru, rv=s.rv, lux=s._lux, luy=s._luy, luz=s._luz, ns=s._nsign;
+        for(const s of b.walls){ const wy=s._wy, ru=s.ru, rv=s.rv, ns=s._nsign, seed=s._seed;
           for(let j=0;j<s.n;j++){
-            if(!s._rel[j] && ((con && wy[j]<=front) || (!con && wy[j]>=front))){ s._rel[j]=1; s._noVel[j]=ns*BOW*(0.35+0.65*(wy[j]/(maxY||1))); }   // RELEASE: kick outward (taller rows bow more)
-            if(s._rel[j]){ const tgt=con?0:-wy[j];
-              s._dyVel[j]=(s._dyVel[j]+(tgt-s._dyOff[j])*K)*D; s._dyOff[j]+=s._dyVel[j];     // height spring → home, underdamped slingshot + rebound
-              s._noVel[j]=(s._noVel[j]+(0-s._noOff[j])*Kn)*Dn; s._noOff[j]+=s._noVel[j]; }   // outward bow rings back in
-            const sh=ns*s._noOff[j]*SHEAR*Math.sin(wy[j]*0.04+1.3);   // slight twist riding the bow
-            s.u[j]=ru[j]+lux*s._dyOff[j]+sh; s.v[j]=rv[j]+luz*s._dyOff[j]; s.y[j]=luy*s._dyOff[j]+s._noOff[j];
+            const thr=wy[j]+Math.sin(j*2.7+seed)*JIT;   // RAGGED release edge so it dissolves in, not a clean horizontal blind
+            if(!s._rel[j] && ((con&&thr<=front)||(!con&&thr>=front))){ s._rel[j]=1; if(!con)s._noVel[j]=ns*1.5; }
+            if(s._rel[j]){ const tgt=con?0:(ns*LIFT);
+              s._noVel[j]=(s._noVel[j]+(tgt-s._noOff[j])*K)*D; s._noOff[j]+=s._noVel[j]; }   // pop-out springs home with underdamped slingshot + rebound
+            const sc=Math.min(1,Math.abs(s._noOff[j])/LIFT);   // per-vertex scatter, proportional to how far off the wall it still is (clean once settled)
+            const su=Math.sin(j*1.3+seed)*SCAT*sc, sv=Math.cos(j*0.9+seed*1.7)*SCAT*sc;
+            s.u[j]=ru[j]+su; s.v[j]=rv[j]+sv; s.y[j]=s._noOff[j];
           }
           const op=con?Math.min(1,k*1.7):Math.max(0,1-k*1.15);
           if(s.lines)s.lines.material.opacity=op; if(s.glowLines)s.glowLines.material.opacity=0.7*op; if(s.fill)s.fill.material.opacity=(window._CUBE_SHEET_FILL_OPACITY!=null?window._CUBE_SHEET_FILL_OPACITY:0.5)*op;
