@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-HG</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-HI</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -2727,10 +2727,26 @@ function _makeDroidekaBody(){
   }
   return {group:g, legs:[], gait:0, t:Math.random()*TAU};
 }
+function _makeGLBCreatureBody(gltf, targetH, sMul){
+  // Clone a cached boss GLB (dragon/dog) into a normalized body so a captured creature deploys as ITSELF, not a spider.
+  if(!gltf||!gltf.scene) return _makeSpider(0x6fdcff);   // not loaded yet (sandbox/offline) -> safe fallback
+  let m; try{ m=SkeletonUtils.clone(gltf.scene); }catch(e){ try{ m=gltf.scene.clone(true); }catch(_){ return _makeSpider(0x6fdcff); } }
+  const g=new THREE.Group();
+  try{
+    const box=new THREE.Box3().setFromObject(m); const sz=box.getSize(new THREE.Vector3()); const ctr=box.getCenter(new THREE.Vector3());
+    const h=sz.y||targetH; const s=(targetH/h)*(sMul||1);
+    m.scale.setScalar(s); m.position.set(-ctr.x*s, -box.min.y*s, -ctr.z*s);   // centre horizontally, feet on the ground
+    m.traverse(o=>{ if(o.isMesh||o.isSkinnedMesh){ o.frustumCulled=false; } });
+  }catch(_){ }
+  g.add(m);
+  return {group:g, legs:[], gait:0, t:Math.random()*TAU, _glb:true};
+}
 function _makeRobitBody(species){
   if(species==='droideka') return _makeDroidekaBody();
   if(species==='droid') return _makeDroidBody();
   if(species==='ghost') return _makeGhostBody();
+  if(species==='blue_dragon' && typeof _dragonGltf!=='undefined' && _dragonGltf) return _makeGLBCreatureBody(_dragonGltf, (window._ALLY_DRAGON_H||34), (window._ALLY_DRAGON_S||1));
+  if(species==='three_headed_dog' && typeof _dogGltf!=='undefined' && _dogGltf) return _makeGLBCreatureBody(_dogGltf, (window._ALLY_DOG_H||30), (window._ALLY_DOG_S||1));
   return _makeSpider(0x6fdcff);   // crawler / default — brighter glowing blue
 }
 
@@ -6197,7 +6213,7 @@ const TUT={
 
 const TUTORIAL_STEPS=[
   {
-    id:'move',
+    id:'move', btn:'joystick-left',
     title:'MOVE',
     body:'Push the LEFT stick in any direction',
     check:()=>Math.hypot(player.vx,player.vz)>40,
@@ -6205,7 +6221,15 @@ const TUTORIAL_STEPS=[
     onPass:'Nice! You can move anywhere on the grid.',
   },
   {
-    id:'shoot',
+    id:'look', btn:'cam-btn',
+    title:'LOOK AROUND',
+    body:'Tap the CAM button (top-right) to change your view',
+    check:()=>TUT._camChanged,
+    onEnter:()=>{ TUT._camStart=(typeof _camMode==='function'?_camMode():'normal'); announce('Try the camera button — top-right','#7fd4ff'); },
+    onPass:'View changed — handy for scouting.',
+  },
+  {
+    id:'shoot', btn:'joystick-right',
     title:'SHOOT',
     body:'Hold RIGHT stick / LEFT MOUSE to fire',
     check:()=>TUT._shotFired,
@@ -6213,7 +6237,7 @@ const TUTORIAL_STEPS=[
     onPass:'Targets destroyed.',
   },
   {
-    id:'secondary',
+    id:'secondary', btn:'joystick-right',
     title:'SECONDARY WEAPON',
     body:'FLICK the right stick / RIGHT CLICK to throw a bomb',
     check:()=>TUT._bombThrown,
@@ -6221,7 +6245,7 @@ const TUTORIAL_STEPS=[
     onPass:'Boom! Flick fires your secondary weapon.',
   },
   {
-    id:'cycleWeapon',
+    id:'cycleWeapon', btn:'btn-cycle',
     title:'CYCLE WEAPON',
     body:'Press SHIFT / tap left stick to switch secondary',
     check:()=>TUT._weaponCycled,
@@ -6229,7 +6253,7 @@ const TUTORIAL_STEPS=[
     onPass:'Missile armed.',
   },
   {
-    id:'missile',
+    id:'missile', btn:'joystick-right',
     title:'FIRE MISSILE',
     body:'Flick RIGHT stick / RIGHT CLICK to fire a missile',
     check:()=>TUT._missileFired,
@@ -6237,7 +6261,7 @@ const TUTORIAL_STEPS=[
     onPass:'Direct hit!',
   },
   {
-    id:'jump',
+    id:'jump', btn:'joystick-left',
     title:'JUMP',
     body:'Press SPACE / tap left stick to jump',
     check:()=>player.py>25,
@@ -6245,7 +6269,7 @@ const TUTORIAL_STEPS=[
     onPass:'Great air!',
   },
   {
-    id:'boost',
+    id:'boost', btn:'joystick-left',
     title:'MID-AIR BOOST',
     body:'While airborne, SPACE again to boost upward',
     check:()=>player.py>80,
@@ -6281,14 +6305,15 @@ function buildTutorial(){
 }
 
 function TUT_enterStep(idx){
-  TUT.step=idx; TUT.stepComplete=false;
+  TUT.step=idx; TUT.stepComplete=false; TUT._forcePass=false; TUT._stepT=0; TUT._camChanged=false; TUT._camStart=null;
   const step=TUTORIAL_STEPS[idx];
   if(!step) return;
   // Slow time briefly so player can read
   TIME.scale=0.15;
   setTimeout(()=>{ if(GS.state==='playing') TIME.scale=1; },2200);
-  // Show step card
+  // Show step card + point at the real button
   TUT_showCard(step.title, step.body);
+  TUT_highlightButton(step.btn);
   if(step.onEnter) step.onEnter();
 }
 
@@ -6296,7 +6321,7 @@ function TUT_showCard(title,body){
   // Flash the announce with a longer persist
   const el=document.getElementById('announce');
   if(!el) return;
-  el.innerHTML=`<div style="font-size:0.55em;letter-spacing:4px;color:#00ffc8;margin-bottom:4px">${title}</div><div style="font-size:0.5em;letter-spacing:2px;color:#ffffff;opacity:0.85">${body}</div>`;
+  el.innerHTML=`<div style="font-size:0.55em;letter-spacing:4px;color:#00ffc8;margin-bottom:4px">${title}</div><div style="font-size:0.5em;letter-spacing:2px;color:#ffffff;opacity:0.85">${body}</div><div onclick="window.TUT_skip&&window.TUT_skip()" style="margin-top:8px;font-size:0.32em;letter-spacing:3px;color:#7fd4ff;opacity:0.6;cursor:pointer;pointer-events:auto">SKIP &#9656;</div>`;
   el.style.opacity='1';
   clearTimeout(el._tut_timeout);
   // Don't auto-hide — stays until next step
@@ -6306,6 +6331,17 @@ function TUT_hideCard(){
   const el=document.getElementById('announce');
   if(el){ el.style.opacity='0'; }
 }
+
+// ── visual direction: pulse the real on-screen button for the current lesson ──
+let _tutHi=null;
+function TUT_highlightButton(id){
+  TUT_clearHighlight(); if(!id) return;
+  if(!document.getElementById('tut-pulse-css')){ const st=document.createElement('style'); st.id='tut-pulse-css'; st.textContent='@keyframes tutPulse{0%,100%{box-shadow:0 0 0 2px #00ffc8,0 0 14px 4px rgba(0,255,200,0.55)}50%{box-shadow:0 0 0 3px #00ffc8,0 0 28px 10px rgba(0,255,200,0.95)}}.tut-pulse{animation:tutPulse 0.9s ease-in-out infinite!important;border-radius:14px!important}'; document.head.appendChild(st); }
+  const el=document.getElementById(id); if(!el) return; el.classList.add('tut-pulse'); _tutHi=el;
+}
+function TUT_clearHighlight(){ if(_tutHi){ try{_tutHi.classList.remove('tut-pulse');}catch(_){} _tutHi=null; } }
+function TUT_skip(){ if(typeof TUT!=='undefined' && !TUT.done) TUT._forcePass=true; }   // anti-softlock: skip the current lesson
+window.TUT_skip=TUT_skip;
 
 function TUT_spawnMoveArrows(){
   // Spawn 4 glowing ring targets at compass points to encourage movement
@@ -6404,9 +6440,13 @@ function updateTutorial(dt){
   if(GS.dropBombs.length>0) TUT._bombThrown=true;
   // Track missile fired
   if(GS.missiles.length>0) TUT._missileFired=true;
+  // Track camera/view change (LOOK lesson)
+  if(typeof _camMode==='function' && TUT._camStart && _camMode()!==TUT._camStart) TUT._camChanged=true;
+  // Anti-softlock failsafe: if a lesson somehow can't be completed, auto-advance after a while
+  TUT._stepT=(TUT._stepT||0)+dt; if(TUT._stepT>(step.failsafe||60)) TUT._forcePass=true;
 
-  // Check step condition
-  if(!TUT.stepComplete&&step.check&&step.check()){
+  // Check step condition (or skip/failsafe)
+  if(!TUT.stepComplete&&(((step.check&&step.check()))||TUT._forcePass)){
     TUT.stepComplete=true;
     // Flash checkmark and pass message
     TUT_hideCard();
@@ -6414,14 +6454,15 @@ function updateTutorial(dt){
     Audio.blip(880,0.3,'sine',0.2,1760);
     ps.ring(player.wx,player.wz,[0,1,0.5],16,80);
     TIME.scale=0.2;
+    if(typeof TUT_clearHighlight==='function') TUT_clearHighlight();
     setTimeout(()=>{
       TIME.scale=1;
       TUT.floatingLabels.forEach(l=>scene.remove(l)); TUT.floatingLabels=[];
       TUT.targets.forEach(t=>{ if(t.mesh) scene.remove(t.mesh); }); TUT.targets=[];
       // Reset per-step flags
-      TUT._shotFired=false; TUT._bombThrown=false; TUT._missileFired=false;
+      TUT._shotFired=false; TUT._bombThrown=false; TUT._missileFired=false; TUT._forcePass=false;
       if(TUT.step+1<TUTORIAL_STEPS.length) TUT_enterStep(TUT.step+1);
-      else TUT.done=true;
+      else { TUT.done=true; if(typeof TUT_clearHighlight==='function') TUT_clearHighlight(); }
     },1800);
   }
 }
@@ -7461,7 +7502,7 @@ class AllyBot{
     this._rx=null; this._ry=null; this._rz=null;
     this.mesh=new THREE.Group(); scene.add(this.mesh);
     this._spider=_makeRobitBody(this.species);
-    this._spider.group.scale.setScalar(this.species==='ghost'?0.82:((this.species==='droid'||this.species==='droideka')?1.0:1.1));
+    this._spider.group.scale.setScalar(this.species==='ghost'?0.82:((this.species==='droid'||this.species==='droideka')?1.0:((this.species==='blue_dragon'||this.species==='three_headed_dog')?1.0:1.1)));
     this.mesh.add(this._spider.group);   // render whatever you caught — ghost/droid/spider
     // floating segmented halo = health — kept world-upright & decoupled from the body so it stays level on walls
     this._halo=new THREE.Group(); this._haloSegs=[];
@@ -7702,7 +7743,10 @@ class AcidBlob{
       for(const b of this._blobs){ const w=this.t*9+b._ph; b.position.set(Math.cos(w)*b._rr, Math.sin(w*1.3)*b._rr*0.6, Math.sin(w)*b._rr); b.scale.setScalar(0.8+0.3*Math.sin(w*1.7)); }
       if(typeof ps!=='undefined'&&Math.random()<0.5) ps.spark(this.wx+rand(-2,2),this.wz+rand(-2,2),[0.45,1,0.18]);   // drip trail
       if(this.friendly){
-        for(const e of GS.enemies){ if(!e.alive||e._captured) continue; const ey=(e.mesh?e.mesh.position.y:9); if(Math.hypot(e.wx-this.wx,e.wz-this.wz)<((e.size||12)*0.5+this.r) && Math.abs(ey-this.y)<24){ this._splash(); return true; } }
+        for(let _i=GS.enemies.length-1;_i>=0;_i--){ const e=GS.enemies[_i]; if(!e||!e.alive||e._captured) continue; const ey=(e.mesh?e.mesh.position.y:9); if(Math.hypot(e.wx-this.wx,e.wz-this.wz)<((e.size||12)*0.5+this.r) && Math.abs(ey-this.y)<24){
+          const dmg=(window._ALLY_ACID_DMG||2); const pts=(e.hit?e.hit(dmg):0); if(typeof spawnDmgNum==='function')spawnDmgNum(e.wx,ey+18,e.wz,dmg,'#9dff55');
+          if(pts>0||!e.alive){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(_i,1); if(typeof registerKill==='function')registerKill(e); }
+          this._splash(); return true; } }
       } else if(player&&player.alive&&player.inv<=0&&(player.py||9)<46){
         if(Math.hypot(player.wx-this.wx,player.wz-this.wz)<(13+this.r) && Math.abs((player.py||9)-this.y)<26){ this._splash(); this._hitPlayer(); return true; }
       }
@@ -27060,7 +27104,7 @@ window._gameMode='freeroam';
 window._deploy=function(){
   const m=window._gameMode||'freeroam';
   if(m==='survival'){ window._launchSurvival(); }
-  else if(m==='training'){ window._launchLevel(-2); }
+  else if(m==='training'){ window._launchLevel(-1); }   // guided step-by-step walkthrough (zone -1). Free-play training room (-2) still reachable from the zone/debug menu.
   else if(m==='robitball'){ if(typeof startGameAtLevel==='function') startGameAtLevel(-19); }   // Robit Ball -> cube Rocket-League arena
   else { window._showScreen('levelselect'); }   // freeroam -> curated level list
 };
