@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-HS</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-HU</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10433,11 +10433,14 @@ class Player{
     // CITY TEST — box buildings: rooftop landing has PRIORITY (descent capture), walls only block below the roof
     if(GS.zone===-16 && _cityBoxes.length && !this._inPlanetGravity && !this._hang){
       const cap=Math.min(34, Math.max(8, Math.abs(this.pvy||0)*dt + 6));   // capture window scales with fall speed so fast drops still land
+      const _useRay=(window._CITY_RAYCOLLIDE!==false) && window._cityRayBuildings && window._cityRayBuildings.length;
+      const _rTop=_useRay ? _cityRoofY(this.wx,this.wz) : null;   // TRUE roof surface on the real mesh -> no floating on non-cube tops
       for(const b of _cityBoxes){
         const dx=this.wx-b.x, dz=this.wz-b.z, overFoot=(Math.abs(dx)<b.hw && Math.abs(dz)<b.hd);
-        if(overFoot && this.py >= b.top-cap){            // on/above roof (incl. landing descent) -> LAND, never push sideways
-          groundY=Math.max(groundY,b.top); if(Math.abs(this.py-b.top)<4) onSurface=true;
-        } else if(this.py < b.top-cap){                  // clearly below the roof -> wall blocks horizontally
+        const roofTop=(_rTop!=null && overFoot)?_rTop:b.top;
+        if(overFoot && this.py >= roofTop-cap){           // on/above roof -> LAND on the real surface
+          groundY=Math.max(groundY,roofTop); if(Math.abs(this.py-roofTop)<4) onSurface=true;
+        } else if(this.py < roofTop-cap){                 // clearly below the roof -> wall blocks horizontally
           const px=b.hw+9-Math.abs(dx), pz=b.hd+9-Math.abs(dz);
           if(px>0 && pz>0){ if(px<pz) this.wx=b.x+Math.sign(dx||1)*(b.hw+9); else this.wz=b.z+Math.sign(dz||1)*(b.hd+9); }
         }
@@ -25733,16 +25736,28 @@ function _buildMetroCity(){
 }
 // ============ REAL-ASSET CITY (mode 'assets') ============
 // Scale anchor: robot is 18u tall = ~1.8m  -> 1 metre = 10 units. Every asset is normalised to a real metre size.
+const _cityRayOrigin=new THREE.Vector3(), _cityRayDir=new THREE.Vector3(0,-1,0), _cityRayer=new THREE.Raycaster();
+function _cityRoofY(x,z){
+  const rbs=window._cityRayBuildings; if(!rbs||!rbs.length) return null;
+  let best=null;
+  for(const rb of rbs){ if(Math.abs(x-rb.x)>rb.hw+2||Math.abs(z-rb.z)>rb.hd+2) continue;
+    _cityRayOrigin.set(x,4000,z); _cityRayer.set(_cityRayOrigin,_cityRayDir); _cityRayer.far=8000;
+    const hits=_cityRayer.intersectObjects(rb.meshes,true);
+    if(hits.length){ const y=hits[0].point.y; if(best==null||y>best) best=y; } }
+  return best;
+}
 function _updateCityFade(){
   const fades=window._cityFadeables; if(!fades||!fades.length||typeof camera==='undefined'||!camera||typeof player==='undefined'||!player)return;
   const cxp=camera.position.x, czp=camera.position.z, pxp=player.wx, pzp=player.wz;
   const dx=pxp-cxp, dz=pzp-czp; const L=Math.hypot(dx,dz)||1, ux=dx/L, uz=dz/L;
+  const pad=(window._CITY_FADE_PAD!=null?window._CITY_FADE_PAD:34);
   for(const f of fades){
-    const rx=f.x-cxp, rz=f.z-czp; let t=rx*ux+rz*uz; t=Math.max(0,Math.min(L,t));
+    const rx=f.x-cxp, rz=f.z-czp; const proj=rx*ux+rz*uz, tn=proj/L; const t=Math.max(0,Math.min(L,proj));
     const ox=cxp+ux*t, oz=czp+uz*t; const dist=Math.hypot(f.x-ox,f.z-oz);
-    const block=(dist<(f.hw+f.hd)*0.6+26) && t>22 && t<L-12;
+    const radius=Math.hypot(f.hw,f.hd)+pad;
+    const block=(dist<radius) && tn>0.03 && tn<0.99;   // anywhere between camera and player on the sightline
     const want=block?(window._CITY_FADE!=null?window._CITY_FADE:0.22):1;
-    f._cur=(f._cur==null?1:f._cur)+ (want-(f._cur==null?1:f._cur))*0.18;
+    f._cur=(f._cur==null?1:f._cur); f._cur+=(want-f._cur)*0.2;
     const fading=f._cur<0.985;
     for(const m of f.mats){ m.transparent=fading; m.opacity=f._cur*(m.userData._op!=null?m.userData._op:1); m.depthWrite=!fading; }
   }
@@ -25750,7 +25765,7 @@ function _updateCityFade(){
 function _buildAssetCity(){
   if(typeof scene==='undefined')return;
   const G=new THREE.Group(); G.name='metroCity'; window._metroGroup=G; scene.add(G);
-  window._cityCars=[]; window._cityFadeables=[]; if(typeof _cityBoxes!=='undefined')_cityBoxes.length=0;
+  window._cityCars=[]; window._cityFadeables=[]; window._cityRayBuildings=[]; if(typeof _cityBoxes!=='undefined')_cityBoxes.length=0;
   const M=window._CITY_M||10, ASSET_DIR=window._ASSET_DIR||'models/';
   const env=scene.environment||null;
   const SM=(c,o)=>{ const m=new THREE.MeshStandardMaterial(Object.assign({color:c,metalness:0.08,roughness:0.92},o||{})); if(env)m.envMap=env; return m; };
@@ -25791,7 +25806,7 @@ function _buildAssetCity(){
   }
 
   const N=(typeof IS_MOBILE!=='undefined'&&IS_MOBILE)?4:6, ROAD=120, SW=28, BLOCK=300, PITCH=ROAD+BLOCK, ext=(N/2)*PITCH; window._metroExtent=ext+PITCH;
-  add(new THREE.HemisphereLight(0xbfd6ff,0x202830,(window._CITY_LIGHT!=null?window._CITY_LIGHT:1.15))); add(new THREE.AmbientLight(0xffffff,(window._CITY_AMBIENT!=null?window._CITY_AMBIENT:0.4))); const sun=new THREE.DirectionalLight(0xffe9c8,1.0); sun.position.set(300,500,200); add(sun);
+  add(new THREE.HemisphereLight(0xbfd6ff,0x202830,(window._CITY_LIGHT!=null?window._CITY_LIGHT:1.35))); add(new THREE.AmbientLight(0xffffff,(window._CITY_AMBIENT!=null?window._CITY_AMBIENT:0.55))); const sun=new THREE.DirectionalLight(0xffe9c8,1.3); sun.position.set(300,500,200); add(sun);
   // ground, roads, sidewalks (procedural, immediate)
   if(window._CITY_GROUND===true) add(flat(new THREE.PlaneGeometry(ext*2+PITCH*2,ext*2+PITCH*2),SM(0x3c4a38,{roughness:1}))).position.y=-0.4;
   const roadMat=new THREE.MeshBasicMaterial({color:0x161a1f,transparent:true,opacity:(window._CITY_ROAD_OPACITY!=null?window._CITY_ROAD_OPACITY:0.42),depthWrite:false}); const lineMat=new THREE.MeshBasicMaterial({color:0xf2d83a}); const swMat=SM(0x949aa2,{roughness:1,transparent:true,opacity:(window._CITY_SW_OPACITY!=null?window._CITY_SW_OPACITY:0.72),depthWrite:false});
@@ -25806,8 +25821,9 @@ function _buildAssetCity(){
   function lotSurface(cx,cz,col){ add(flat(new THREE.PlaneGeometry(BLOCK-2*SW,BLOCK-2*SW),SM(col,{roughness:1}))).position.set(cx,0.7,cz); }
   function placeBuilding(name,cx,cz,rot){ const b=instance(name); b.position.set(cx,b.position.y,cz); b.rotation.y=rot||0; add(b);
     const fp=b.userData.fp; _cityBoxes.push({x:cx,z:cz,hw:fp.hw,hd:fp.hd,top:fp.top,sheets:[]});
-    const mats=[]; b.traverse(o=>{ if(o.isMesh&&o.material){ const mm=Array.isArray(o.material)?o.material:[o.material]; for(const m of mm){ m.userData._op=(m.opacity!=null?m.opacity:1); mats.push(m);} } });
-    window._cityFadeables.push({root:b,x:cx,z:cz,hw:fp.hw,hd:fp.hd,mats}); return b; }
+    const mats=[],meshes=[]; b.traverse(o=>{ if(o.isMesh){ meshes.push(o); if(o.material){ const mm=Array.isArray(o.material)?o.material:[o.material]; for(const m of mm){ m.userData._op=(m.opacity!=null?m.opacity:1); mats.push(m);} } } });
+    window._cityFadeables.push({root:b,x:cx,z:cz,hw:fp.hw,hd:fp.hd,mats});
+    window._cityRayBuildings.push({x:cx,z:cz,hw:fp.hw,hd:fp.hd,top:fp.top,meshes}); return b; }
   function prop(name,x,z,rot){ const p=instance(name); p.position.set(x,p.position.y,z); p.rotation.y=rot||0; add(p); return p; }
   function carOn(name,lane,along,speed,fly){ const c=instance(name); const y=fly?rnd(90,170):0;
     if(along){ c.position.set(rnd(-ext,ext),y,lane+(speed>0?ROAD*0.2:-ROAD*0.2)); c.rotation.y=speed>0?0:Math.PI; window._cityCars.push({mesh:c,vx:speed,vz:0}); }
@@ -25912,7 +25928,7 @@ function _disposeCityTest(){
   if(typeof _disposeCityDome==='function') _disposeCityDome();
   for(const b of _cityBoxes){ if(b.sheets) for(const s of b.sheets) s.dispose(); }
   _cityBoxes=[];
-  if(window._metroGroup){ scene.remove(window._metroGroup); window._metroGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(Array.isArray(o.material))o.material.forEach(m=>m&&m.dispose&&m.dispose()); else o.material.dispose&&o.material.dispose(); } }); window._metroGroup=null; } window._cityCars=null; window._cityFadeables=null;
+  if(window._metroGroup){ scene.remove(window._metroGroup); window._metroGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(Array.isArray(o.material))o.material.forEach(m=>m&&m.dispose&&m.dispose()); else o.material.dispose&&o.material.dispose(); } }); window._metroGroup=null; } window._cityCars=null; window._cityFadeables=null; window._cityRayBuildings=null;
   if(_cityProps){
     for(const pu of _cityProps.powerups){ if(pu.mesh){ scene.remove(pu.mesh); pu.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }
     for(const ar of _cityProps.arches){ if(ar.remove) ar.remove(); }
