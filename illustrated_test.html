@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ILLUSTRATED — cel-shade (real models)</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0a0f14;font-family:'Trebuchet MS',system-ui,sans-serif;-webkit-user-select:none;user-select:none}
+  #sky{position:fixed;inset:0;background:linear-gradient(#a9e6e2 0%,#bfe9d8 38%,#e9efcf 70%,#f3e7c8 100%)}
+  #c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #title{position:fixed;top:14px;left:0;right:0;text-align:center;font-weight:900;letter-spacing:8px;font-size:13px;color:#2b3a33;opacity:.8;pointer-events:none}
+  #sub{position:fixed;top:34px;left:0;right:0;text-align:center;letter-spacing:3px;font-size:9px;color:#3a4a42;opacity:.6;pointer-events:none}
+  #msg{position:fixed;top:50%;left:0;right:0;text-align:center;font-size:13px;color:#2b3a33;opacity:.7;pointer-events:none}
+  #panel{position:fixed;left:0;right:0;bottom:18px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:0 12px}
+  .btn{font-family:inherit;font-weight:800;letter-spacing:1.5px;font-size:11px;color:#22302a;background:#ffffffcc;border:1.5px solid #2b3a3344;border-radius:11px;padding:9px 13px;cursor:pointer;box-shadow:0 3px 0 #2b3a3322}
+  .btn:active{transform:translateY(2px)}
+  .btn.off{opacity:.45}
+</style>
+</head>
+<body>
+<div id="sky"></div>
+<canvas id="c"></canvas>
+<div id="title">ILLUSTRATED</div>
+<div id="sub">CEL-SHADE + INK OUTLINE · three.js</div>
+<div id="msg">loading…</div>
+<div id="panel">
+  <button class="btn" id="bCel">CEL: ON</button>
+  <button class="btn" id="bOut">OUTLINE: ON</button>
+  <button class="btn" id="bChar">UNIT: ROBOT</button>
+  <button class="btn" id="bSpin">SPIN: ON</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const canvas=document.getElementById('c');
+const msg=document.getElementById('msg');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(2,devicePixelRatio));
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+
+const scene=new THREE.Scene();
+const cam=new THREE.PerspectiveCamera(38,1,0.1,200);
+
+scene.add(new THREE.AmbientLight(0xffe9c8,0.6));
+const key=new THREE.DirectionalLight(0xfff0d0,1.6); key.position.set(4,6,5); scene.add(key);
+const fill=new THREE.DirectionalLight(0x9fd8ff,0.55); fill.position.set(-5,2,-2); scene.add(fill);
+const rim=new THREE.DirectionalLight(0xffffff,0.9); rim.position.set(-2,4,-6); scene.add(rim);
+
+// stepped gradient = cel banding
+function gradientMap(steps){
+  const data=new Uint8Array(steps);
+  for(let i=0;i<steps;i++) data[i]=Math.round((i/(steps-1))*255);
+  const t=new THREE.DataTexture(data,steps,1,THREE.RedFormat);
+  t.magFilter=THREE.NearestFilter; t.minFilter=THREE.NearestFilter; t.generateMipmaps=false; t.needsUpdate=true;
+  return t;
+}
+const GRAD=gradientMap(window._BANDS||4);
+
+const TARGET_R=2.4;          // every model normalised to this bounding radius
+// CHARACTERS: shares relative paths with your repo
+const CHARS=[
+  {key:'robot',       label:'ROBOT',       url:'robot.glb'},
+  {key:'alien',       label:'ALIEN',       url:'models/alien_robit.glb'},
+  {key:'interceptor', label:'INTERCEPTOR', url:'models/interceptor.glb'},
+];
+const loader=new GLTFLoader();
+const cache={};                // key -> {pivot, mixer, toonList, outlineList, origList}
+let curKey=null, curIdx=0;
+let cel=true, outline=true, spin=true;
+
+function applyLook(root){
+  const meshes=[]; root.traverse(o=>{ if(o.isMesh) meshes.push(o); });
+  const toonList=[], outlineList=[], origList=[];
+  for(const o of meshes){
+    const old=o.material;
+    const map=(old&&old.map)?old.map:null;
+    const col=(old&&old.color)?old.color.clone():new THREE.Color(0xcfd6dd);
+    const toon=new THREE.MeshToonMaterial({color: map?0xffffff:col, map, gradientMap:GRAD});
+    o.userData._toon=toon; o.userData._orig=old; o.material=toon;
+    toonList.push(o); origList.push(o);
+
+    // skinned-aware inverted-hull outline
+    const omat=new THREE.MeshBasicMaterial({color:0x0c1116, side:THREE.BackSide});
+    omat.onBeforeCompile=(sh)=>{
+      sh.uniforms.oth={value:(window._OUTLINE!=null?window._OUTLINE:0.022)};
+      sh.vertexShader='uniform float oth;\n'+sh.vertexShader.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\n\ttransformed += normalize(objectNormal)*oth;'
+      );
+    };
+    let ol;
+    if(o.isSkinnedMesh){ ol=new THREE.SkinnedMesh(o.geometry,omat); ol.bind(o.skeleton,o.bindMatrix); }
+    else ol=new THREE.Mesh(o.geometry,omat);
+    ol.frustumCulled=false;
+    ol.position.copy(o.position); ol.quaternion.copy(o.quaternion); ol.scale.copy(o.scale);
+    o.parent.add(ol);
+    outlineList.push(ol);
+  }
+  return {toonList,outlineList,origList};
+}
+
+function prep(gltf){
+  const root=gltf.scene;
+  // normalise scale to a consistent radius
+  root.updateWorldMatrix(true,true);
+  let sph=new THREE.Box3().setFromObject(root).getBoundingSphere(new THREE.Sphere());
+  root.scale.setScalar(TARGET_R/(sph.radius||1));
+  root.position.set(0,0,0); root.updateWorldMatrix(true,true);
+  sph=new THREE.Box3().setFromObject(root).getBoundingSphere(new THREE.Sphere());
+  root.position.sub(sph.center);                 // centre on origin
+  const looks=applyLook(root);
+  const pivot=new THREE.Group(); pivot.add(root);
+  let mixer=null;
+  if(gltf.animations && gltf.animations.length){
+    mixer=new THREE.AnimationMixer(root);
+    const idle=gltf.animations.find(a=>/idle|breath|stand/i.test(a.name))||gltf.animations[0];
+    mixer.clipAction(idle).play();
+  }
+  return {pivot,mixer,...looks};
+}
+
+function show(key){
+  const c=cache[key]; if(!c) return;
+  for(const k in cache) cache[k].pivot.visible=(k===key);
+  curKey=key;
+  // (re)apply current toggles
+  for(const o of c.toonList) o.material = cel ? o.userData._toon : o.userData._orig;
+  for(const ol of c.outlineList) ol.visible = outline;
+  frameModel();
+  msg.style.display='none';
+}
+
+function loadChar(idx){
+  const def=CHARS[idx];
+  document.getElementById('bChar').textContent='UNIT: '+def.label;
+  if(cache[def.key]){ show(def.key); return; }
+  msg.style.display=''; msg.textContent='loading '+def.label.toLowerCase()+'…';
+  loader.load(def.url, gltf=>{
+    const built=prep(gltf);
+    built.pivot.visible=false; scene.add(built.pivot);
+    cache[def.key]=built;
+    if(CHARS[curIdx].key===def.key) show(def.key);
+  }, undefined, err=>{
+    msg.style.display=''; msg.textContent='couldn\u2019t load '+def.url+'\n(GLBs only load on the live site)';
+    console.warn('load fail',def.url,err);
+  });
+}
+
+function frameModel(){
+  const r=TARGET_R;
+  const fov=cam.fov*Math.PI/180, hfov=2*Math.atan(Math.tan(fov/2)*cam.aspect);
+  const dist=(r/Math.sin(Math.min(fov,hfov)/2))*(window._FIT_MARGIN||1.2);
+  cam.position.set(0,0,dist); cam.lookAt(0,0,0); cam.updateProjectionMatrix();
+}
+function resize(){
+  renderer.setSize(innerWidth,innerHeight);     // updateStyle TRUE — canvas CSS size matches screen
+  cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix();
+  frameModel();
+}
+resize(); addEventListener('resize',resize);
+setTimeout(resize,300); setTimeout(resize,1000);
+
+// buttons
+const bCel=document.getElementById('bCel'),bOut=document.getElementById('bOut'),bChar=document.getElementById('bChar'),bSpin=document.getElementById('bSpin');
+bCel.onclick=()=>{ cel=!cel; const c=cache[curKey]; if(c)for(const o of c.toonList)o.material=cel?o.userData._toon:o.userData._orig; bCel.textContent='CEL: '+(cel?'ON':'OFF'); bCel.classList.toggle('off',!cel); };
+bOut.onclick=()=>{ outline=!outline; const c=cache[curKey]; if(c)for(const ol of c.outlineList)ol.visible=outline; bOut.textContent='OUTLINE: '+(outline?'ON':'OFF'); bOut.classList.toggle('off',!outline); };
+bSpin.onclick=()=>{ spin=!spin; bSpin.textContent='SPIN: '+(spin?'ON':'OFF'); bSpin.classList.toggle('off',!spin); };
+bChar.onclick=()=>{ curIdx=(curIdx+1)%CHARS.length; loadChar(curIdx); };
+
+loadChar(0);   // robot first
+
+const clock=new THREE.Clock();
+function tick(){
+  const dt=clock.getDelta();
+  const c=cache[curKey];
+  if(c){
+    if(c.mixer) c.mixer.update(dt);
+    if(spin) c.pivot.rotation.y+=0.012;
+    c.pivot.position.y=Math.sin(clock.elapsedTime*1.6)*0.06;
+  }
+  renderer.render(scene,cam);
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+</body>
+</html>
