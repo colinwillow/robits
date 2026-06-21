@@ -107,14 +107,23 @@ function applyLook(root){
   return {toonList,outlineList,origList};
 }
 
+// SKINNED-SAFE bounds: Box3.setFromObject returns an EMPTY box for skinned meshes (radius~0 -> giant scale),
+// so sample the geometry's vertices in world space instead.
+function measureSphere(root){
+  root.updateWorldMatrix(true,true);
+  const box=new THREE.Box3(), v=new THREE.Vector3(); let found=false;
+  root.traverse(o=>{ const g=o.geometry; if(!g||!g.attributes||!g.attributes.position)return; const pos=g.attributes.position; const step=Math.max(1,Math.floor(pos.count/3000));
+    for(let i=0;i<pos.count;i+=step){ v.fromBufferAttribute(pos,i); v.applyMatrix4(o.matrixWorld); box.expandByPoint(v); found=true; } });
+  if(!found||!isFinite(box.min.x)) return null;
+  return box.getBoundingSphere(new THREE.Sphere());
+}
 function prep(gltf){
   const root=gltf.scene;
-  // normalise scale to a consistent radius
-  root.updateWorldMatrix(true,true);
-  let sph=new THREE.Box3().setFromObject(root).getBoundingSphere(new THREE.Sphere());
-  root.scale.setScalar(TARGET_R/(sph.radius||1));
-  root.position.set(0,0,0); root.updateWorldMatrix(true,true);
-  sph=new THREE.Box3().setFromObject(root).getBoundingSphere(new THREE.Sphere());
+  let sph=measureSphere(root);
+  const sc=(sph&&sph.radius>1e-4&&isFinite(sph.radius))? TARGET_R/sph.radius : 1;
+  root.scale.multiplyScalar(sc);
+  root.position.set(0,0,0);
+  sph=measureSphere(root)||{center:new THREE.Vector3(),radius:TARGET_R};
   root.position.sub(sph.center);                 // centre on origin
   const looks=applyLook(root);
   const pivot=new THREE.Group(); pivot.add(root);
