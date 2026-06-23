@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-IR</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-IS</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10517,9 +10517,10 @@ class Player{
         if(Math.abs(dx)<(b.w||0)*0.5 && Math.abs(dz)<(b.d||0)*0.5 && this.py<=top+2 && this.py>=top-_capSE && top>eFloor) eFloor=top; }
     }
     if(GS.zone===-2 && window._dojoPlatforms && window._dojoPlatforms.length && !this._inPlanetGravity && !this._hang){
-      const _capD=Math.max(12, Math.abs(this.pvy||0)*dt+8);
+      const _capD=Math.max(12, Math.abs(this.pvy||0)*dt+8); let _onPlat=false;
       for(const b of window._dojoPlatforms){ const dx=this.wx-b.x, dz=this.wz-b.z;
-        if(Math.abs(dx)<b.hw && Math.abs(dz)<b.hd && this.py<=b.top+2 && this.py>=b.top-_capD && b.top>eFloor) eFloor=b.top; }
+        if(Math.abs(dx)<b.hw && Math.abs(dz)<b.hd && this.py<=b.top+2 && this.py>=b.top-_capD && b.top>=eFloor){ eFloor=b.top; _onPlat=true; this._platformY=b.top; } }
+      if(_onPlat) this._onPlatform=true; else if(this.py>1) this._onPlatform=false;
     }
     const _arSolid = !window._arenaVoid || (typeof _arenaSolidAt!=='function') || _arenaSolidAt(this.wx,this.wz);
     if(window._arenaVoid && !_arSolid && this.py<=0 && eFloor<=0){
@@ -13229,6 +13230,19 @@ function _disposeDojoPlatform(){
   try{ if(window._dojoPlatformRoot && typeof scene!=='undefined'){ scene.remove(window._dojoPlatformRoot); window._dojoPlatformRoot.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(Array.isArray(o.material))o.material.forEach(m=>m.dispose()); else o.material.dispose(); } }); } }catch(_){}
   window._dojoPlatformRoot=null; window._dojoPlatforms=[];
   window._platDeform=[];
+  try{ if(window._dojoSheet){ if(typeof GRID_SHEETS!=='undefined'){ const i=GRID_SHEETS.indexOf(window._dojoSheet); if(i>=0)GRID_SHEETS.splice(i,1); } if(window._dojoSheet.group && typeof scene!=='undefined'){ scene.remove(window._dojoSheet.group); window._dojoSheet.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } } }catch(_){}
+  window._dojoSheet=null;
+}
+function _buildSheetPlatform(){
+  if(typeof GridSheet==='undefined') return false;
+  const pos=window._PLATFORM_POS||{x:-360,z:-90}; const Y=(window._PLATFORM_Y!=null?window._PLATFORM_Y:34);
+  const cols=(window._PLAT_COLS||13), rows=(window._PLAT_ROWS||13), cell=(window._PLAT_CELL||18);
+  const sub=(typeof IS_MOBILE!=='undefined'&&IS_MOBILE)?2:3;
+  const sh=new GridSheet({cols,rows,cell, position:new THREE.Vector3(pos.x,Y,pos.z), palette:(window._PLAT_PALETTE||'blue'), fill:true, subdiv:sub, bright:1.2});
+  window._dojoSheet=sh;
+  window._dojoPlatforms=[{ x:pos.x, z:pos.z, hw:sh.hw, hd:sh.hd, top:Y }];
+  if(typeof announce==='function') announce('grid-sheet platform · '+cols+'×'+rows,'#39ffd0');
+  return true;
 }
 function _dojoApplyDeformMesh(root){
   const FILL=new THREE.MeshBasicMaterial({color:(window._PLATFORM_FILL!=null?window._PLATFORM_FILL:0x06231c),transparent:true,opacity:(window._PLATFORM_FILL_OP||0.32),side:THREE.DoubleSide,depthWrite:false});
@@ -13264,6 +13278,8 @@ function _dojoPlaceAndCollide(root){
 }
 function _spawnDeformPlatform(){
   _disposeDojoPlatform();
+  const mode=(window._PLATFORM_MODE||'sheet');   // 'sheet' = real GridSheet (elegant, default) · 'mesh' = deform the imported platform_01.glb
+  if(mode==='sheet'){ try{ if(_buildSheetPlatform()) return; }catch(e){ console.warn('sheet platform:',e); } }
   const finish=(root)=>{ try{ window._dojoPlatformRoot=root; _dojoPlaceAndCollide(root); _dojoApplyDeformMesh(root); if(typeof scene!=='undefined')scene.add(root); }catch(e){ console.warn('platform finish:',e); } };
   const placeholder=()=>{ const g=new THREE.Group(); const seg=12; const geo=new THREE.PlaneGeometry(200,200,seg,seg); geo.rotateX(-Math.PI/2); const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0x06231c,transparent:true,opacity:0.32,side:THREE.DoubleSide})); m.name='placeholderPlate'; g.add(m); return g; };
   try{
@@ -13298,15 +13314,16 @@ function _updatePlatformDeform(dt){
 window._updatePlatformDeform=_updatePlatformDeform;
 function _updateDojoPlatform(dt){
   if(typeof GS==='undefined'||GS.zone!==-2) return;
-  _updatePlatformDeform(dt);
+  if(window._dojoSheet){ try{ window._dojoSheet.update(dt); }catch(_){} } else { _updatePlatformDeform(dt); }
   const P=window._dojoPlatforms; if(!P||!P.length||typeof player==='undefined'||!player) return;
+  const _sheet=window._dojoSheet, _blastR=(window._PLAT_BLAST_R||64);
   for(const b of P){
     const onTop = Math.abs(player.wx-b.x)<b.hw && Math.abs(player.wz-b.z)<b.hd && (player.py||0)<=b.top+5 && (player.py||0)>=b.top-7;
     if(onTop){
-      if(!b._wasOnTop) _platShock(player.wx,player.wz,(window._PLATFORM_LAND_STR||3.2));
+      if(!b._wasOnTop){ if(_sheet && typeof gridSheetsBlast==='function') gridSheetsBlast(player.wx,b.top,player.wz,(window._PLAT_SHEET_LAND||6),_blastR); else _platShock(player.wx,player.wz,(window._PLATFORM_LAND_STR||3.2)); }
       const dx=player.wx-(b._px!=null?b._px:player.wx), dz=player.wz-(b._pz!=null?b._pz:player.wz); const moved=Math.hypot(dx,dz);
       b._stepT=(b._stepT||0)-dt;
-      if(moved>1.2 && b._stepT<=0){ _platShock(player.wx,player.wz,(window._PLATFORM_STEP_STR||1.2)); b._stepT=(window._PLATFORM_STEP_INT||0.18); }
+      if(moved>1.2 && b._stepT<=0){ if(_sheet && typeof gridSheetsBlast==='function') gridSheetsBlast(player.wx,b.top,player.wz,(window._PLAT_SHEET_STEP||2),_blastR*0.7); else _platShock(player.wx,player.wz,(window._PLATFORM_STEP_STR||1.2)); b._stepT=(window._PLATFORM_STEP_INT||0.18); }
       b._wasOnTop=true;
     } else b._wasOnTop=false;
     b._px=player.wx; b._pz=player.wz;
