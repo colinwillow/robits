@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-IO</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-IP</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -13228,7 +13228,7 @@ window._dojoPlatforms = window._dojoPlatforms || [];
 function _disposeDojoPlatform(){
   try{ if(window._dojoPlatformRoot && typeof scene!=='undefined'){ scene.remove(window._dojoPlatformRoot); window._dojoPlatformRoot.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(Array.isArray(o.material))o.material.forEach(m=>m.dispose()); else o.material.dispose(); } }); } }catch(_){}
   window._dojoPlatformRoot=null; window._dojoPlatforms=[];
-  if(window._customDeform) window._customDeform=window._customDeform.filter(e=>!e._dojo);   // drop only the platform's deform entries
+  window._platDeform=[];
 }
 function _dojoApplyDeformMesh(root){
   const FILL=new THREE.MeshBasicMaterial({color:(window._PLATFORM_FILL!=null?window._PLATFORM_FILL:0x06231c),transparent:true,opacity:(window._PLATFORM_FILL_OP||0.32),side:THREE.DoubleSide,depthWrite:false});
@@ -13246,10 +13246,9 @@ function _dojoApplyDeformMesh(root){
     const aGrid=new Float32Array(np*3), aGN=new Float32Array(np*3); nm.getNormalMatrix(o.matrixWorld);
     for(let i=0;i<np;i++){ tv.fromBufferAttribute(pos,i).applyMatrix4(o.matrixWorld); aGrid[i*3]=tv.x;aGrid[i*3+1]=tv.y;aGrid[i*3+2]=tv.z;
       tv.fromBufferAttribute(nA,i).applyMatrix3(nm).normalize(); aGN[i*3]=tv.x;aGN[i*3+1]=tv.y;aGN[i*3+2]=tv.z; }
-    if(!window._customDeform)window._customDeform=[];
-    window._customDeform.push({ _dojo:true, mesh:o, posAttr:pos, restL:new Float32Array(pos.array), wRest:aGrid, wN:aGN, inv:new THREE.Matrix4().copy(o.matrixWorld).invert(), shocks:[], _dirty:false });
+    if(!window._platDeform)window._platDeform=[];
+    window._platDeform.push({ mesh:o, posAttr:pos, wRest:aGrid, wN:aGN, inv:new THREE.Matrix4().copy(o.matrixWorld).invert(), shocks:[], t:Math.random()*6.283 });
   }
-  window._customDeformOn=true;
   return meshes;
 }
 function _dojoPlaceAndCollide(root){
@@ -13273,17 +13272,39 @@ function _spawnDeformPlatform(){
   }catch(e){ console.warn('platform loader:',e); finish(placeholder()); }
 }
 window._spawnDeformPlatform=_spawnDeformPlatform;
+const _plV=new THREE.Vector3();
+function _platShock(wx,wz,str){ const D=window._platDeform; if(!D)return; for(const e of D){ if(e.shocks.length<8) e.shocks.push({x:wx,z:wz,r:0,str:str||1,life:1}); } }
+window._platShock=_platShock;
+function _updatePlatformDeform(dt){
+  const D=window._platDeform; if(!D||!D.length) return;
+  const IDLE=(window._PLAT_IDLE!==false), iAmp=(window._PLAT_IDLE_AMP!=null?window._PLAT_IDLE_AMP:1.7), FREQ=(window._PLAT_FREQ||0.05), iSpd=(window._PLAT_IDLE_SPD||1.4);
+  const RSPD=(window._PLAT_RING_SPD||150), BAND=(window._PLAT_RING_BAND||60), RLIFE=(window._PLAT_RING_LIFE||1.1), RWAVE=(window._PLAT_RING_WAVE||0.16), MAXD=(window._PLAT_MAXD||16);
+  for(const e of D){
+    const pos=e.posAttr, wR=e.wRest, wN=e.wN, inv=e.inv, n=pos.count; e.t=(e.t||0)+dt;
+    for(let s=e.shocks.length-1;s>=0;s--){ const sk=e.shocks[s]; sk.r+=RSPD*dt; sk.life-=dt/RLIFE; if(sk.life<=0)e.shocks.splice(s,1); }
+    const sk=e.shocks, t=e.t;
+    for(let i=0;i<n;i++){ const i3=i*3, wx=wR[i3],wy=wR[i3+1],wz=wR[i3+2]; let disp=0;
+      if(IDLE) disp += iAmp*Math.sin(wx*FREQ + t*iSpd)*Math.cos(wz*FREQ - t*iSpd*0.8);   // gentle always-on water ripple -> shows per-vertex easing
+      for(let q=0;q<sk.length;q++){ const S=sk[q], dx=wx-S.x, dz=wz-S.z, d=Math.sqrt(dx*dx+dz*dz), dr=d-S.r;
+        if(Math.abs(dr)<BAND){ const env=0.5*(1+Math.cos(Math.PI*dr/BAND)); disp += env*S.str*S.life*Math.sin(dr*RWAVE); } }   // cosine-bell envelope -> smooth ease in/out, no hard edge
+      if(disp>MAXD)disp=MAXD; else if(disp<-MAXD)disp=-MAXD;
+      _plV.set(wx+wN[i3]*disp, wy+wN[i3+1]*disp, wz+wN[i3+2]*disp).applyMatrix4(inv);
+      pos.array[i3]=_plV.x; pos.array[i3+1]=_plV.y; pos.array[i3+2]=_plV.z; }
+    pos.needsUpdate=true; e.mesh.geometry.boundingSphere=null;
+  }
+}
+window._updatePlatformDeform=_updatePlatformDeform;
 function _updateDojoPlatform(dt){
   if(typeof GS==='undefined'||GS.zone!==-2) return;
-  if(typeof _updateCustomGrid==='function') _updateCustomGrid(dt);
+  _updatePlatformDeform(dt);
   const P=window._dojoPlatforms; if(!P||!P.length||typeof player==='undefined'||!player) return;
   for(const b of P){
     const onTop = Math.abs(player.wx-b.x)<b.hw && Math.abs(player.wz-b.z)<b.hd && (player.py||0)<=b.top+5 && (player.py||0)>=b.top-7;
     if(onTop){
-      if(!b._wasOnTop && typeof window._customShock==='function') window._customShock(player.wx,b.top,player.wz,(window._PLATFORM_LAND_STR||2.4));
+      if(!b._wasOnTop) _platShock(player.wx,player.wz,(window._PLATFORM_LAND_STR||3.2));
       const dx=player.wx-(b._px!=null?b._px:player.wx), dz=player.wz-(b._pz!=null?b._pz:player.wz); const moved=Math.hypot(dx,dz);
       b._stepT=(b._stepT||0)-dt;
-      if(moved>1.2 && b._stepT<=0 && typeof window._customShock==='function'){ window._customShock(player.wx,b.top,player.wz,(window._PLATFORM_STEP_STR||0.8)); b._stepT=(window._PLATFORM_STEP_INT||0.16); }
+      if(moved>1.2 && b._stepT<=0){ _platShock(player.wx,player.wz,(window._PLATFORM_STEP_STR||1.2)); b._stepT=(window._PLATFORM_STEP_INT||0.18); }
       b._wasOnTop=true;
     } else b._wasOnTop=false;
     b._px=player.wx; b._pz=player.wz;
