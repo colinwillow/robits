@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-IS</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-IT</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -13244,6 +13244,23 @@ function _buildSheetPlatform(){
   if(typeof announce==='function') announce('grid-sheet platform · '+cols+'×'+rows,'#39ffd0');
   return true;
 }
+function _quadEdgesFromGeo(geo){
+  // Recover a QUAD wireframe from a triangulated mesh: each quad splits into 2 tris along a diagonal,
+  // and that diagonal is the LONGEST edge of each tri -> drop it, keep the two quad sides.
+  const pos=geo.attributes.position, idx=geo.index, out=[], seen=new Set();
+  const A=new THREE.Vector3(), B=new THREE.Vector3(), C=new THREE.Vector3();
+  const add=(a,b)=>{ const k=a<b?(a*16777619+b):(b*16777619+a); if(!seen.has(k)){seen.add(k);out.push(a,b);} };
+  const tris=idx?idx.count/3:pos.count/3;
+  for(let t=0;t<tris;t++){
+    const ia=idx?idx.getX(t*3):t*3, ib=idx?idx.getX(t*3+1):t*3+1, ic=idx?idx.getX(t*3+2):t*3+2;
+    A.fromBufferAttribute(pos,ia); B.fromBufferAttribute(pos,ib); C.fromBufferAttribute(pos,ic);
+    const dAB=A.distanceToSquared(B), dBC=B.distanceToSquared(C), dCA=C.distanceToSquared(A);
+    if(dAB>=dBC && dAB>=dCA){ add(ib,ic); add(ic,ia); }        // AB longest -> diagonal
+    else if(dBC>=dAB && dBC>=dCA){ add(ia,ib); add(ic,ia); }   // BC longest
+    else { add(ia,ib); add(ib,ic); }                            // CA longest
+  }
+  return out;
+}
 function _dojoApplyDeformMesh(root){
   const FILL=new THREE.MeshBasicMaterial({color:(window._PLATFORM_FILL!=null?window._PLATFORM_FILL:0x06231c),transparent:true,opacity:(window._PLATFORM_FILL_OP||0.32),side:THREE.DoubleSide,depthWrite:false});
   const WIRECOL=(window._PLATFORM_WIRE!=null?window._PLATFORM_WIRE:0x2bff9a);
@@ -13251,7 +13268,7 @@ function _dojoApplyDeformMesh(root){
   root.traverse(o=>{ if(o.isMesh && o.geometry){
     if(!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
     o.material=FILL; o.frustumCulled=false;
-    try{ const lg=new THREE.BufferGeometry(); lg.setAttribute('position',o.geometry.attributes.position); lg.setIndex(_edgeIndexFromGeo(o.geometry)); const wire=new THREE.LineSegments(lg, new THREE.LineBasicMaterial({color:WIRECOL,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false})); wire.frustumCulled=false; o.add(wire); }catch(_){}
+    try{ const eidx=(window._PLAT_QUAD_WIRE!==false)?_quadEdgesFromGeo(o.geometry):_edgeIndexFromGeo(o.geometry); const lg=new THREE.BufferGeometry(); lg.setAttribute('position',o.geometry.attributes.position); lg.setIndex(eidx); const wire=new THREE.LineSegments(lg, new THREE.LineBasicMaterial({color:WIRECOL,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false})); wire.frustumCulled=false; o.add(wire); }catch(_){}
     meshes.push(o);
   }});
   root.updateMatrixWorld(true);
@@ -13278,7 +13295,7 @@ function _dojoPlaceAndCollide(root){
 }
 function _spawnDeformPlatform(){
   _disposeDojoPlatform();
-  const mode=(window._PLATFORM_MODE||'sheet');   // 'sheet' = real GridSheet (elegant, default) · 'mesh' = deform the imported platform_01.glb
+  const mode=(window._PLATFORM_MODE||'mesh');   // 'mesh' = the imported platform_01.glb (your custom shape, quad wireframe) · 'sheet' = a clean rectangular GridSheet
   if(mode==='sheet'){ try{ if(_buildSheetPlatform()) return; }catch(e){ console.warn('sheet platform:',e); } }
   const finish=(root)=>{ try{ window._dojoPlatformRoot=root; _dojoPlaceAndCollide(root); _dojoApplyDeformMesh(root); if(typeof scene!=='undefined')scene.add(root); }catch(e){ console.warn('platform finish:',e); } };
   const placeholder=()=>{ const g=new THREE.Group(); const seg=12; const geo=new THREE.PlaneGeometry(200,200,seg,seg); geo.rotateX(-Math.PI/2); const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0x06231c,transparent:true,opacity:0.32,side:THREE.DoubleSide})); m.name='placeholderPlate'; g.add(m); return g; };
@@ -13295,7 +13312,7 @@ function _platShock(wx,wz,str){ const D=window._platDeform; if(!D)return; for(co
 window._platShock=_platShock;
 function _updatePlatformDeform(dt){
   const D=window._platDeform; if(!D||!D.length) return;
-  const IDLE=(window._PLAT_IDLE!==false), iAmp=(window._PLAT_IDLE_AMP!=null?window._PLAT_IDLE_AMP:1.3), FREQ=(window._PLAT_FREQ||0.05), iSpd=(window._PLAT_IDLE_SPD||1.4);
+  const IDLE=(window._PLAT_IDLE===true), iAmp=(window._PLAT_IDLE_AMP!=null?window._PLAT_IDLE_AMP:1.3), FREQ=(window._PLAT_FREQ||0.05), iSpd=(window._PLAT_IDLE_SPD||1.4);
   const RSPD=(window._PLAT_RING_SPD||150), BAND=(window._PLAT_RING_BAND||60), RLIFE=(window._PLAT_RING_LIFE||1.1), RWAVE=(window._PLAT_RING_WAVE||0.16), MAXD=(window._PLAT_MAXD||16);
   for(const e of D){
     const pos=e.posAttr, wR=e.wRest, rL=e.restL, uX=e.upL.x,uY=e.upL.y,uZ=e.upL.z, n=pos.count; e.t=(e.t||0)+dt;
@@ -13320,7 +13337,7 @@ function _updateDojoPlatform(dt){
   for(const b of P){
     const onTop = Math.abs(player.wx-b.x)<b.hw && Math.abs(player.wz-b.z)<b.hd && (player.py||0)<=b.top+5 && (player.py||0)>=b.top-7;
     if(onTop){
-      if(!b._wasOnTop){ if(_sheet && typeof gridSheetsBlast==='function') gridSheetsBlast(player.wx,b.top,player.wz,(window._PLAT_SHEET_LAND||6),_blastR); else _platShock(player.wx,player.wz,(window._PLATFORM_LAND_STR||3.2)); }
+      if(!b._wasOnTop){ if(_sheet && typeof gridSheetsBlast==='function') gridSheetsBlast(player.wx,b.top,player.wz,(window._PLAT_SHEET_LAND||6),_blastR); else _platShock(player.wx,player.wz,(window._PLATFORM_LAND_STR||4.5)); }
       const dx=player.wx-(b._px!=null?b._px:player.wx), dz=player.wz-(b._pz!=null?b._pz:player.wz); const moved=Math.hypot(dx,dz);
       b._stepT=(b._stepT||0)-dt;
       if(moved>1.2 && b._stepT<=0){ if(_sheet && typeof gridSheetsBlast==='function') gridSheetsBlast(player.wx,b.top,player.wz,(window._PLAT_SHEET_STEP||2),_blastR*0.7); else _platShock(player.wx,player.wz,(window._PLATFORM_STEP_STR||1.2)); b._stepT=(window._PLATFORM_STEP_INT||0.18); }
