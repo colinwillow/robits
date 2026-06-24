@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-MG14</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-MG15</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -13684,7 +13684,9 @@ function _buildMinigun(){
   const antTip=new THREE.Mesh(new THREE.SphereGeometry(0.35,10,8),glowA); antTip.position.set(-8.4,6.6,1.6); g.add(antTip);
 
   // EXACT muzzle: dead-center of the barrel cluster at its front face (same constants the geometry uses). Bullets spawn here.
-  const muzzle=new THREE.Object3D(); muzzle.position.set(bStart+barrelLen+0.3,0,0); g.add(muzzle); g.userData.muzzle=muzzle;
+  const muzzle=new THREE.Object3D(); muzzle.position.set(bStart+barrelLen+0.3,0,0);
+  if(window._MINIGUN_MUZZLE_VIS!==false){ const dbg=new THREE.Mesh(new THREE.SphereGeometry(0.9,12,10),new THREE.MeshBasicMaterial({color:0xff00ff,depthTest:false,transparent:true,opacity:0.95})); dbg.renderOrder=999; muzzle.add(dbg); }   // DEBUG: magenta dot marks the exact bullet-spawn point. window._MINIGUN_MUZZLE_VIS=false to hide.
+  g.add(muzzle); g.userData.muzzle=muzzle;
   const S=(window._MINIGUN_SCALE||1); g.scale.setScalar(S);
   return g;
 }
@@ -25907,8 +25909,8 @@ function _shoulderRig(side, want, weapon, bones, dt){
 function _stanceMuzzle(pl, slot, out){
   const bones=pl.model&&pl.model.userData&&pl.model.userData.bones; if(!bones) return null;
   const melee=!!pl._hammer, twoH=melee&&_meleeTwoHanded();
-  // two-handed rifle (minigun): the round leaves the BARREL TIP of the hand cannon, not the hand bone
-  if(!melee && typeof _isRifleWpn==='function' && _isRifleWpn()){ const hm=pl._handWpnR||pl._handWpnL, mz=hm&&hm.userData&&hm.userData._muzzle; if(mz){ mz.getWorldPosition(out); return 'hand'; } }
+  // two-handed rifle (minigun): the round leaves the BARREL TIP of the hand cannon, not the hand bone. Keyed off the gun actually IN HAND (only the minigun sets _muzzle), so it doesn't depend on the primaryWeapon string matching.
+  if(!melee){ const hm=pl._handWpnR||pl._handWpnL, mz=hm&&hm.userData&&hm.userData._muzzle; if(mz){ mz.getWorldPosition(out); return 'hand'; } }
   let kind; if(!melee) kind=(slot===0?'RH':'LH'); else if(twoH) kind=(slot===0?'RS':'LS'); else kind=(slot===0?'LH':'RS');
   if(kind==='RH'||kind==='LH'){ const b=bones[kind==='RH'?'mixamorig_RightHand':'mixamorig_LeftHand']; if(!b)return null; b.getWorldPosition(out); return 'hand'; }
   const rig=(kind==='RS')?pl._shR:pl._shL;
@@ -25926,7 +25928,7 @@ function _updateHandWeapons(dt){
   // ── LIVE on-screen debug: console.log isn't surfacing on device, so write minigun aim state straight into the visible build badge every frame ──
   if(weapon==='minigun' || (player._handWpnR&&player._handWpnR.userData&&player._handWpnR.userData._wpn==='minigun')){
     if(window._bbEl===undefined) window._bbEl=document.getElementById('build-badge')||null;
-    if(window._bbEl) window._bbEl.textContent='MG14 w='+weapon+' hR='+(player._handWpnR?'Y':'N')+' RH='+(RH?'Y':'N')+' | '+(player._mgAimDbg||'(orient not run)');
+    if(window._bbEl) window._bbEl.textContent='MG15 w='+weapon+' hR='+(player._handWpnR?'Y':'N')+' RH='+(RH?'Y':'N')+' | '+(player._mgAimDbg||'(orient not run)');
   }
   // weapon-swap transform: a particle pop + flip whenever the equipped gun changes
   if(player._lastHandWpn!==weapon){
