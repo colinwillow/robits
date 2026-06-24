@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-IT</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-IY</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -2460,7 +2460,7 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
   robotScene.userData.mixer=mixer;
 
   // Load all clips by name
-  const clipNames=['idle','run_forward','run_backward','floating','landing','strafe_right','strafe_left'];
+  const clipNames=['idle','run_forward','run_backward','floating','landing','strafe_right','strafe_left','ball','slide'];
   const clips={};
   gltf.animations.forEach(clip=>{
     const raw=clip.name;
@@ -10518,8 +10518,11 @@ class Player{
     }
     if(GS.zone===-2 && window._dojoPlatforms && window._dojoPlatforms.length && !this._inPlanetGravity && !this._hang){
       const _capD=Math.max(12, Math.abs(this.pvy||0)*dt+8); let _onPlat=false;
-      for(const b of window._dojoPlatforms){ const dx=this.wx-b.x, dz=this.wz-b.z;
-        if(Math.abs(dx)<b.hw && Math.abs(dz)<b.hd && this.py<=b.top+2 && this.py>=b.top-_capD && b.top>=eFloor){ eFloor=b.top; _onPlat=true; this._platformY=b.top; } }
+      for(const b of window._dojoPlatforms){ const dx=this.wx-b.x, dz=this.wz-b.z; if(Math.abs(dx)>=b.hw||Math.abs(dz)>=b.hd) continue;
+        let topY=b.top;
+        if(b.slope){ topY=b.slope.y0+((this.wx-b.slope.ox)*b.slope.nx+(this.wz-b.slope.oz)*b.slope.nz)*b.slope.perUnit; topY=Math.max(b.slope.y0,Math.min(b.slope.y1,topY)); }
+        else if(b.dome){ const dd=Math.hypot(this.wx-b.dome.cx,this.wz-b.dome.cz); if(dd>b.dome.R)continue; topY=b.dome.y0+b.dome.H*Math.cos(Math.min(dd/b.dome.R,1)*Math.PI/2); }
+        if(this.py<=topY+2 && this.py>=topY-_capD && topY>=eFloor){ eFloor=topY; _onPlat=true; this._platformY=topY; } }
       if(_onPlat) this._onPlatform=true; else if(this.py>1) this._onPlatform=false;
     }
     const _arSolid = !window._arenaVoid || (typeof _arenaSolidAt!=='function') || _arenaSolidAt(this.wx,this.wz);
@@ -13232,6 +13235,8 @@ function _disposeDojoPlatform(){
   window._platDeform=[];
   try{ if(window._dojoSheet){ if(typeof GRID_SHEETS!=='undefined'){ const i=GRID_SHEETS.indexOf(window._dojoSheet); if(i>=0)GRID_SHEETS.splice(i,1); } if(window._dojoSheet.group && typeof scene!=='undefined'){ scene.remove(window._dojoSheet.group); window._dojoSheet.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } } }catch(_){}
   window._dojoSheet=null;
+  try{ if(typeof _disposeCustomSheets==='function')_disposeCustomSheets(); }catch(_){}
+  window._customSheetMode=false;
 }
 function _buildSheetPlatform(){
   if(typeof GridSheet==='undefined') return false;
@@ -13296,6 +13301,11 @@ function _dojoPlaceAndCollide(root){
 function _spawnDeformPlatform(){
   _disposeDojoPlatform();
   const mode=(window._PLATFORM_MODE||'mesh');   // 'mesh' = the imported platform_01.glb (your custom shape, quad wireframe) · 'sheet' = a clean rectangular GridSheet
+  if(mode==='ngon'){ try{ if(window._buildNgonPlatform(window._NGON_OPTS||{})) return; }catch(e){ console.warn('ngon platform:',e); } }
+  if(mode==='ramp'){ try{ if(window._buildRamp(window._SHAPE_OPTS||{})) return; }catch(e){ console.warn('ramp:',e); } }
+  if(mode==='dome'){ try{ if(window._buildDome(window._SHAPE_OPTS||{})) return; }catch(e){ console.warn('dome:',e); } }
+  if(mode==='ring'){ try{ if(window._buildRing(window._SHAPE_OPTS||{})) return; }catch(e){ console.warn('ring:',e); } }
+  if(mode==='cylinder'){ try{ if(window._buildCylinder(window._SHAPE_OPTS||{})) return; }catch(e){ console.warn('cylinder:',e); } }
   if(mode==='sheet'){ try{ if(_buildSheetPlatform()) return; }catch(e){ console.warn('sheet platform:',e); } }
   const finish=(root)=>{ try{ window._dojoPlatformRoot=root; _dojoPlaceAndCollide(root); _dojoApplyDeformMesh(root); if(typeof scene!=='undefined')scene.add(root); }catch(e){ console.warn('platform finish:',e); } };
   const placeholder=()=>{ const g=new THREE.Group(); const seg=12; const geo=new THREE.PlaneGeometry(200,200,seg,seg); geo.rotateX(-Math.PI/2); const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0x06231c,transparent:true,opacity:0.32,side:THREE.DoubleSide})); m.name='placeholderPlate'; g.add(m); return g; };
@@ -13308,6 +13318,145 @@ function _spawnDeformPlatform(){
 }
 window._spawnDeformPlatform=_spawnDeformPlatform;
 window._platInfo=function(){ const D=window._platDeform||[]; return { meshes:window._platMeshes||0, verts:window._platVerts||0, deformEntries:D.length, inZone2:(typeof GS!=='undefined'&&GS.zone===-2), liveShocks:D.reduce((a,e)=>a+(e.shocks?e.shocks.length:0),0), top:(window._dojoPlatforms&&window._dojoPlatforms[0]?window._dojoPlatforms[0].top:null) }; };
+// ══ CUSTOM-SHAPE GRID SHEETS — turn a structured rows×cols point grid (from a 3D app) into a REAL deformable GridSheet —
+window._customSheetSet = window._customSheetSet || [];
+function _disposeCustomSheets(){
+  if(window._customSheetSet){ for(const sh of window._customSheetSet){ try{ if(typeof GRID_SHEETS!=='undefined'){ const i=GRID_SHEETS.indexOf(sh); if(i>=0)GRID_SHEETS.splice(i,1); } if(sh.group && typeof scene!=='undefined'){ scene.remove(sh.group); sh.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){} } }
+  window._customSheetSet=[];
+}
+window._disposeCustomSheets=_disposeCustomSheets;
+// Turn a raw QUAD patch (points + quad faces, any order) into an ordered rows×cols grid by marching quads.
+function _orderQuadPatch(points, quads){
+  if(!points||!quads||!quads.length) return null;
+  const eKey=(a,b)=>a<b?a+'_'+b:b+'_'+a;
+  const edgeQuads=new Map(), adj=new Map();
+  const addAdj=(a,b)=>{ if(!adj.has(a))adj.set(a,new Set()); adj.get(a).add(b); };
+  for(let qi=0;qi<quads.length;qi++){ const q=quads[qi]; if(q.length<4) continue; for(let i=0;i<4;i++){ const a=q[i],b=q[(i+1)%4]; const k=eKey(a,b); if(!edgeQuads.has(k))edgeQuads.set(k,[]); edgeQuads.get(k).push(qi); addAdj(a,b); addAdj(b,a); } }
+  const isB=(a,b)=>{ const e=edgeQuads.get(eKey(a,b)); return e && e.length===1; };
+  let corner=-1; for(const [p,d] of adj){ if(d.size===2){ corner=p; break; } }
+  if(corner<0) return null;
+  // first row = walk boundary from corner to the next corner
+  let prev=-1, cur=corner; const row0=[corner];
+  while(true){ const nb=[...adj.get(cur)].filter(n=>n!==prev && isB(cur,n)); if(!nb.length)break; const nx=nb[0]; row0.push(nx); if(adj.get(nx).size===2){ break; } prev=cur; cur=nx; if(row0.length>5000)break; }
+  const cols=row0.length; if(cols<2) return null;
+  const used=new Set(), grid=[row0]; let curRow=row0;
+  while(true){ const nextRow=new Array(cols).fill(-1); let adv=false;
+    for(let c=0;c<cols-1;c++){ const a=curRow[c], b=curRow[c+1], qs=edgeQuads.get(eKey(a,b)); if(!qs)continue;
+      let q=null,qid=-1; for(const x of qs){ if(!used.has(x)){ q=quads[x]; qid=x; break; } } if(!q)continue;
+      let ia=q.indexOf(a); if(ia<0)continue; const dir=(q[(ia+1)%4]===b)?1:-1; const g=off=>q[((ia+off*dir)%4+4)%4];
+      const bp=g(2), ap=g(3); nextRow[c]=ap; nextRow[c+1]=bp; used.add(qid); adv=true; }
+    if(!adv || nextRow.some(x=>x<0)) break; grid.push(nextRow); curRow=nextRow; if(grid.length>5000)break; }
+  const rows=grid.length; const out=[]; for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ const p=points[grid[r][c]]; out.push(p[0],p[1],p[2]); }
+  return { rows, cols, points:out };
+}
+window._orderQuadPatch=_orderQuadPatch;
+function _buildDeformGridFromPoints(rows, cols, pts, opts){
+  if(typeof GridSheet==='undefined') return null; opts=opts||{};
+  const sh=new GridSheet({ cols:cols, rows:rows, cell:1, palette:opts.palette||'blue', fill:opts.fill!==false, subdiv:opts.subdiv||1, bright:opts.bright||1.2, position:opts.position||new THREE.Vector3(0,0,0), quaternion:opts.quaternion });
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ const k=r*cols+c, i=k*3;
+    const px=pts[i]||0, py=pts[i+1]||0, pz=pts[i+2]||0;
+    sh.ru[k]=px; sh.rv[k]=pz; sh.u[k]=px; sh.v[k]=pz; sh.ry[k]=py; sh.y[k]=py; sh.vu[k]=0; sh.vv[k]=0; sh.vy[k]=0;
+  }
+  let minu=1e9,maxu=-1e9,minv=1e9,maxv=-1e9; for(let k=0;k<sh.n;k++){ const a=sh.ru[k],b=sh.rv[k]; if(a<minu)minu=a; if(a>maxu)maxu=a; if(b<minv)minv=b; if(b>maxv)maxv=b; }
+  sh.hw=Math.max(Math.abs(minu),Math.abs(maxu))||1; sh.hd=Math.max(Math.abs(minv),Math.abs(maxv))||1;
+  sh._uMin=minu; sh._uMax=maxu; sh._vMin=minv; sh._vMax=maxv;
+  try{ sh._rebuild(); }catch(_){}
+  return sh;
+}
+window._buildDeformGridFromPoints=_buildDeformGridFromPoints;
+function _pairs(flat){ const o=[]; for(let i=0;i<flat.length;i+=3)o.push([flat[i],flat[i+1],flat[i+2]]); return o; }
+function _quatFromNormalUp(normal, up){
+  const N=new THREE.Vector3(normal.x||0,normal.y||0,normal.z||0).normalize();
+  let UP=new THREE.Vector3((up&&up.x)||0,(up&&up.y!=null)?up.y:1,(up&&up.z)||0);
+  UP.addScaledVector(N,-UP.dot(N));   // orthogonalize the up hint against the normal
+  if(UP.lengthSq()<1e-6){ UP.set(1,0,0).addScaledVector(N,-N.x); if(UP.lengthSq()<1e-6)UP.set(0,0,1).addScaledVector(N,-N.z); }
+  const V=UP.normalize();                                    // local z -> up
+  const U=new THREE.Vector3().crossVectors(N,V).normalize(); // local x -> tangent; U x N = V (right-handed)
+  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(U,N,V));   // local x->U, y->N(normal), z->V(up)
+}
+window._buildCustomSheets=function(asset){
+  if(!asset||!asset.sections){ console.warn('asset needs .sections'); return 0; }
+  _disposeCustomSheets();
+  const base=asset.position?new THREE.Vector3(asset.position.x||0,asset.position.y||0,asset.position.z||0):new THREE.Vector3(-360,34,-90);
+  const SC=asset.scale||1;
+  let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9,maxY=-1e9;
+  for(let si=0;si<asset.sections.length;si++){
+    let sec=asset.sections[si];
+    if(sec.quads && !(sec.rows&&sec.cols)){ const ord=_orderQuadPatch(sec.points.length&&Array.isArray(sec.points[0])?sec.points:_pairs(sec.points), sec.quads); if(!ord){ console.warn('section',si,'could not be ordered (not a clean quad grid)'); continue; } sec={ rows:ord.rows, cols:ord.cols, points:ord.points, palette:sec.palette }; }
+    let pts=SC===1?sec.points.slice():sec.points.map(v=>v*SC);
+    if(asset.flipZ){ for(let i=2;i<pts.length;i+=3)pts[i]=-pts[i]; }
+    if(asset.flipX){ for(let i=0;i<pts.length;i+=3)pts[i]=-pts[i]; }
+    if(asset.swapYZ){ for(let i=0;i<pts.length;i+=3){ const y=pts[i+1]; pts[i+1]=pts[i+2]; pts[i+2]=y; } }
+    const secPos=base.clone(); if(sec.pos){ secPos.x+=(sec.pos.x||0)*SC; secPos.y+=(sec.pos.y||0)*SC; secPos.z+=(sec.pos.z||0)*SC; }
+    const oriented=!!sec.normal; const quat=oriented?_quatFromNormalUp(sec.normal, sec.up):undefined;
+    const sh=_buildDeformGridFromPoints(sec.rows, sec.cols, pts, { palette:sec.palette||asset.palette||'blue', position:secPos, quaternion:quat, subdiv:asset.subdiv||1, fill:asset.fill!==false });
+    if(sh){ window._customSheetSet.push(sh);
+      if(!oriented){ minX=Math.min(minX,secPos.x+sh._uMin); maxX=Math.max(maxX,secPos.x+sh._uMax);
+        minZ=Math.min(minZ,secPos.z+sh._vMin); maxZ=Math.max(maxZ,secPos.z+sh._vMax);
+        for(let k=0;k<sh.n;k++) maxY=Math.max(maxY,secPos.y+sh.ry[k]); } }
+  }
+  if(asset.walkable!==false && maxX>-1e8){ const cx=(minX+maxX)/2, cz=(minZ+maxZ)/2;
+    window._dojoPlatforms=[{ x:cx, z:cz, hw:(maxX-minX)/2||1, hd:(maxZ-minZ)/2||1, top:maxY }];
+    if(asset.collider) Object.assign(window._dojoPlatforms[0], asset.collider);
+  } else window._dojoPlatforms=[];
+  window._dojoSheet=null; window._customSheetMode=true;
+  if(typeof announce==='function') announce('custom asset · '+window._customSheetSet.length+' sheets','#39ffd0');
+  return window._customSheetSet.length;
+};
+// PROCEDURAL n-gon / disc platform: a radial (rings x spokes) grid warped to an n-gon, built from REAL deform GridSheets.
+// No import needed -- this is your hexagon, parametric. sides=6 hexagon, sides=64 ~ disc.
+window._buildNgonPlatform=function(opts){
+  opts=opts||{};
+  const sides=opts.sides||6, radius=opts.radius||120, innerR=(opts.innerRadius!=null?opts.innerRadius:radius*0.12), rings=opts.rings||5, perSide=opts.perSide||4;
+  const a=Math.PI/sides;
+  const ngonR=(theta)=>{ let t=((theta%(2*a))+2*a)%(2*a); return radius*Math.cos(a)/Math.cos(t-a); };   // n-gon boundary radius at an angle (apothem form)
+  const sections=[];
+  for(let s=0;s<sides;s++){ const points=[];
+    for(let ri=0;ri<=rings;ri++) for(let ci=0;ci<=perSide;ci++){
+      const theta=(s + ci/perSide)*(2*Math.PI/sides);
+      const Rout=ngonR(theta), rad=innerR + (ri/rings)*(Rout-innerR);
+      points.push(Math.cos(theta)*rad, 0, Math.sin(theta)*rad);   // y=0 flat; warp here for domes/ramps
+    }
+    sections.push({ rows:rings+1, cols:perSide+1, points:points });   // already ordered -> no quad-walk needed
+  }
+  return window._buildCustomSheets({ position:opts.position||{x:-360,y:34,z:-90}, palette:opts.palette||'blue', sections:sections });
+};
+// RAMP: flat grid that rises along +Z; sloped collider so you walk up it.
+window._buildRamp=function(o){ o=o||{}; const W=o.width||160, L=o.length||220, rise=(o.rise!=null?o.rise:60), rows=o.rows||6, cols=o.cols||6, base=o.position||{x:-360,y:20,z:-90};
+  const pts=[]; for(let r=0;r<=rows;r++) for(let c=0;c<=cols;c++){ pts.push(-W/2+(c/cols)*W, (r/rows)*rise, -L/2+(r/rows)*L); }
+  const n=window._buildCustomSheets({ position:base, palette:o.palette||'orange', walkable:false, sections:[{rows:rows+1, cols:cols+1, points:pts}] });
+  window._dojoPlatforms=[{ x:base.x, z:base.z, hw:W/2, hd:L/2, top:base.y+rise, slope:{ ox:base.x, oz:base.z-L/2, nx:0, nz:1, perUnit:rise/L, y0:base.y, y1:base.y+rise } }];
+  return n;
+};
+// DOME: radial grid, height peaks at the centre; radial collider follows the curve.
+window._buildDome=function(o){ o=o||{}; const R=o.radius||120, H=(o.height!=null?o.height:70), sides=o.sides||18, rings=o.rings||5, perSide=o.perSide||3, innerR=o.innerRadius||0, base=o.position||{x:-360,y:24,z:-90};
+  const a=Math.PI/sides, ngonR=(t)=>{ let tt=((t%(2*a))+2*a)%(2*a); return R*Math.cos(a)/Math.cos(tt-a); }; const sections=[];
+  for(let s=0;s<sides;s++){ const points=[]; for(let ri=0;ri<=rings;ri++) for(let ci=0;ci<=perSide;ci++){ const th=(s+ci/perSide)*(2*Math.PI/sides), Rout=ngonR(th), rad=innerR+(ri/rings)*(Rout-innerR), f=Math.min(rad/R,1); points.push(Math.cos(th)*rad, H*Math.cos(f*Math.PI/2), Math.sin(th)*rad); } sections.push({rows:rings+1, cols:perSide+1, points:points}); }
+  const n=window._buildCustomSheets({ position:base, palette:o.palette||'green', walkable:false, sections:sections });
+  window._dojoPlatforms=[{ x:base.x, z:base.z, hw:R, hd:R, top:base.y+H, dome:{ cx:base.x, cz:base.z, R:R, H:H, y0:base.y } }];
+  return n;
+};
+// RING: flat annulus (disc with a hole), optional torus bump across the band.
+window._buildRing=function(o){ o=o||{}; const R=o.outerRadius||140, ir=(o.innerRadius!=null?o.innerRadius:70), sides=o.sides||24, rings=o.rings||3, perSide=o.perSide||3, bump=o.bump||0, base=o.position||{x:-360,y:30,z:-90};
+  const a=Math.PI/sides, ngonR=(t)=>{ let tt=((t%(2*a))+2*a)%(2*a); return R*Math.cos(a)/Math.cos(tt-a); }; const sections=[];
+  for(let s=0;s<sides;s++){ const points=[]; for(let ri=0;ri<=rings;ri++) for(let ci=0;ci<=perSide;ci++){ const th=(s+ci/perSide)*(2*Math.PI/sides), Rout=ngonR(th), rad=ir+(ri/rings)*(Rout-ir), y=bump*Math.sin((ri/rings)*Math.PI); points.push(Math.cos(th)*rad, y, Math.sin(th)*rad); } sections.push({rows:rings+1, cols:perSide+1, points:points}); }
+  return window._buildCustomSheets({ position:base, palette:o.palette||'blue', sections:sections });
+};
+// CYLINDER: vertical wall panels (oriented so the ripple pushes radially, not up). walls = not walkable.
+window._buildCylinder=function(o){ o=o||{}; const R=o.radius||120, H=o.height||140, sides=o.sides||12, heightDivs=o.heightDivs||5, perSide=o.perSide||2, base=o.position||{x:-360,y:0,z:-90}; const TAU=Math.PI*2; const sections=[];
+  for(let s=0;s<sides;s++){ const th0=s/sides*TAU, th1=(s+1)/sides*TAU;
+    const A=new THREE.Vector3(Math.cos(th0)*R,0,Math.sin(th0)*R), B=new THREE.Vector3(Math.cos(th1)*R,0,Math.sin(th1)*R);
+    const ctr=new THREE.Vector3().addVectors(A,B).multiplyScalar(0.5); ctr.y=H/2;
+    const chord=A.distanceTo(B); const Nrm=new THREE.Vector3(ctr.x,0,ctr.z).normalize();   // outward radial
+    const points=[]; for(let hi=0;hi<=heightDivs;hi++) for(let ci=0;ci<=perSide;ci++){ const u=(ci/perSide-0.5)*chord, v=(hi/heightDivs-0.5)*H; points.push(u, 0, v); }
+    sections.push({ rows:heightDivs+1, cols:perSide+1, points:points, pos:{x:ctr.x,y:ctr.y,z:ctr.z}, normal:{x:Nrm.x,y:0,z:Nrm.z}, up:{x:0,y:1,z:0} });
+  }
+  return window._buildCustomSheets({ position:base, palette:o.palette||'green', walkable:false, sections:sections });
+};
+window._loadCustomAsset=function(url){
+  url=url||'models/platform_01.json';
+  fetch(url).then(r=>r.json()).then(j=>{ const n=window._buildCustomSheets(j); console.log('[custom asset] built',n,'sheets from',url); }).catch(e=>{ console.warn('load asset failed:',url,e); if(typeof announce==='function')announce('asset JSON load failed','#ff4466'); });
+};
 function _platShock(wx,wz,str){ const D=window._platDeform; if(!D)return; for(const e of D){ if(e.shocks.length<8) e.shocks.push({x:wx,z:wz,r:0,str:str||1,life:1}); } }
 window._platShock=_platShock;
 function _updatePlatformDeform(dt){
@@ -13331,16 +13480,16 @@ function _updatePlatformDeform(dt){
 window._updatePlatformDeform=_updatePlatformDeform;
 function _updateDojoPlatform(dt){
   if(typeof GS==='undefined'||GS.zone!==-2) return;
-  if(window._dojoSheet){ try{ window._dojoSheet.update(dt); }catch(_){} } else { _updatePlatformDeform(dt); }
+  if(window._customSheetSet && window._customSheetSet.length){ for(const sh of window._customSheetSet){ try{ sh.update(dt); }catch(_){} } } else if(window._dojoSheet){ try{ window._dojoSheet.update(dt); }catch(_){} } else { _updatePlatformDeform(dt); }
   const P=window._dojoPlatforms; if(!P||!P.length||typeof player==='undefined'||!player) return;
   const _sheet=window._dojoSheet, _blastR=(window._PLAT_BLAST_R||64);
   for(const b of P){
     const onTop = Math.abs(player.wx-b.x)<b.hw && Math.abs(player.wz-b.z)<b.hd && (player.py||0)<=b.top+5 && (player.py||0)>=b.top-7;
     if(onTop){
-      if(!b._wasOnTop){ if(_sheet && typeof gridSheetsBlast==='function') gridSheetsBlast(player.wx,b.top,player.wz,(window._PLAT_SHEET_LAND||6),_blastR); else _platShock(player.wx,player.wz,(window._PLATFORM_LAND_STR||4.5)); }
+      if(!b._wasOnTop){ if((_sheet||window._customSheetMode) && typeof gridSheetsBlast==='function') gridSheetsBlast(player.wx,b.top,player.wz,(window._PLAT_SHEET_LAND||6),_blastR); else _platShock(player.wx,player.wz,(window._PLATFORM_LAND_STR||4.5)); }
       const dx=player.wx-(b._px!=null?b._px:player.wx), dz=player.wz-(b._pz!=null?b._pz:player.wz); const moved=Math.hypot(dx,dz);
       b._stepT=(b._stepT||0)-dt;
-      if(moved>1.2 && b._stepT<=0){ if(_sheet && typeof gridSheetsBlast==='function') gridSheetsBlast(player.wx,b.top,player.wz,(window._PLAT_SHEET_STEP||2),_blastR*0.7); else _platShock(player.wx,player.wz,(window._PLATFORM_STEP_STR||1.2)); b._stepT=(window._PLATFORM_STEP_INT||0.18); }
+      if(moved>1.2 && b._stepT<=0){ if((_sheet||window._customSheetMode) && typeof gridSheetsBlast==='function') gridSheetsBlast(player.wx,b.top,player.wz,(window._PLAT_SHEET_STEP||2),_blastR*0.7); else _platShock(player.wx,player.wz,(window._PLATFORM_STEP_STR||1.2)); b._stepT=(window._PLATFORM_STEP_INT||0.18); }
       b._wasOnTop=true;
     } else b._wasOnTop=false;
     b._px=player.wx; b._pz=player.wz;
@@ -17167,6 +17316,7 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
     const t=e.changedTouches[0];
     jL._swipeHist.push({x:t.clientX,y:t.clientY,time:performance.now()});
     jL._tStart=performance.now(); jL._tX=t.clientX; jL._tY=t.clientY; jL._meleeFlicked=false;   // TAP (cycle melee) vs FLICK (directional) detection
+    if(window._BALL_ON){ clearTimeout(jL._ballTimer); jL._ballHolding=true; jL._ballTimer=setTimeout(()=>{ if(jL.id!==null && window._BALL_ON && !(window._BALL&&window._BALL.state) && jL._ballHolding && !jL._meleeFlicked){ const m=Math.hypot(moveIn.x||0,moveIn.y||0); if(m<(window._BALL_HOLD_DEAD||0.32)) window._ballChargeStart(); } }, (window._BALL_HOLD_T||170)); }
   };
   jL._move=function(e){
     origMoveL(e);
@@ -17177,8 +17327,11 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
       while(jL._swipeHist.length>1&&now-jL._swipeHist[0].time>80) jL._swipeHist.shift();
       break;
     }
+    if(window._BALL_ON){ const _bm=Math.hypot(moveIn.x||0,moveIn.y||0); if(_bm>=(window._BALL_HOLD_DEAD||0.32)){ clearTimeout(jL._ballTimer); jL._ballHolding=false; if(window._BALL&&window._BALL.state==='charging') window._ballExit(); } }
   };
   jL._end=function(e){
+    clearTimeout(jL._ballTimer); jL._ballHolding=false;
+    if(window._BALL_ON && window._BALL && window._BALL.state==='charging'){ window._ballChargeRelease(); }
     if(jL.id!==null){
       for(const t of e.changedTouches)if(t.identifier===jL.id){
         const hist=jL._swipeHist;
@@ -17190,7 +17343,8 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
           const spd=Math.hypot(svx,svy);
           if(spd>0.3&&elapsed<220){
             jL._meleeFlicked=true;
-            if(window._meleeOnLeftStick){
+            if(window._BALL_ON){ const _bcy=Math.cos(CAM.yaw),_bsy=Math.sin(CAM.yaw); window._ballQuickRoll(svx*_bcy+svy*_bsy, -svx*_bsy+svy*_bcy); jL._tapMoved=true; }
+            else if(window._meleeOnLeftStick){
               // ── LEFT-STICK FLICK MELEE — SURGICAL: turn toward the flicked direction and swing (cycles the combo) ──
               if(player.alive&&!player._wallClimb&&!player._hang&&!player._crestSeq&&GS.state==='playing'){
                 const _fcy=Math.cos(CAM.yaw), _fsy=Math.sin(CAM.yaw);
@@ -18605,7 +18759,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-16) updateCityTest(dt);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
       if(player&&player._onHoverboard){ firing=false; avx=0; avz=0; aiming=false; if(player._gcur)player._gcur.visible=false; }   // riding: right stick is throttle, not fire; no aim cursor
-      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); resolveBodyCollisions(player); player.draw(od); if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt);
+      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); resolveBodyCollisions(player); player.draw(od); if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt); if(window._BALL&&window._BALL.state&&window._ballUpdate)window._ballUpdate(dt);
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _ww=(typeof _cubeWalkOn==='function'&&_cubeWalkOn(player)&&player._cubeUp&&player._cubeUp.y<0.9); const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(_ww||!_bmv) window._reorientGameBoots(); }   // on a wall/ceiling re-aim the boots to the surface every frame; on the floor only when standing still (avoids stride jitter)
       if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
@@ -24852,6 +25006,73 @@ function _spawnProcSlash(aim){
   if(ps.ring)ps.ring(px,pz,[0.5,1,0.95],10,46);
 }
 window._fxSlash=_spawnProcSlash;
+// ══════════════════ SONIC BALL — charge · roll · launch ══════════════════
+// Pose-driven rolling ball. Centre of rotation = model origin (rotate the model itself).
+// Authoritative position lives in window._BALL and is written over the player AFTER draw(),
+// so it needs no internal gating and can't regress normal movement/facing.
+window._BALL = window._BALL || { state:null, charge:0, vx:0, vz:0, vy:0, px:0, pz:0, py:0, t:0, q:null };
+function _ballPose(on){
+  const ud=(typeof player!=='undefined'&&player&&player.model)?player.model.userData:null; if(!ud||!ud.clips)return;
+  if(on){ const a=ud.clips['ball'];
+    if(a){ try{ for(const k in ud.clips){ if(ud.clips[k]!==a) ud.clips[k].fadeOut(0.08); } a.reset(); a.setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true; a.enabled=true; a.setEffectiveWeight(1); a.play(); a.paused=true; a.time=0; ud.currentClip='ball'; ud._ballPose=true; }catch(_){} window._BALL.noQuat=false; }
+    else { // no 'ball' pose yet -> reuse the flick's flip/roll clip as a spinning placeholder; let the ANIM show, skip the roll-quaternion so they don't fight
+      const ph=ud.clips['flip_forward']||ud.clips['dive_roll']||ud.clips['roll']||ud.clips['flip_back']||ud.clips['landing']||ud.clips['floating'];
+      if(ph){ try{ for(const k in ud.clips){ if(ud.clips[k]!==ph) ud.clips[k].fadeOut(0.06); } ph.reset(); ph.setLoop(THREE.LoopRepeat,Infinity); ph.clampWhenFinished=false; ph.enabled=true; ph.setEffectiveWeight(1); ph.timeScale=(window._BALL_PH_SPEED||1.7); ph.play(); ud.currentClip='_ballph'; ud._ballPh=ph; }catch(_){} }
+      window._BALL.noQuat=true; ud._ballPose=true; }
+  } else { ud._ballPose=false; ud.currentClip=null;
+    if(ud._ballPh){ try{ ud._ballPh.setLoop(THREE.LoopOnce,1); ud._ballPh.clampWhenFinished=true; ud._ballPh.timeScale=1; ud._ballPh.fadeOut(0.12); }catch(_){} ud._ballPh=null; }
+    if(ud.clips['ball']){ try{ ud.clips['ball'].fadeOut(0.12); }catch(_){}} }
+}
+window._ballChargeStart=function(){
+  const B=window._BALL; if(typeof player==='undefined'||!player||!player.alive||B.state)return;
+  B.state='charging'; B.charge=0; B.px=player.wx; B.pz=player.wz; B.py=player.py||0; B.vx=B.vz=B.vy=0; B.t=0; B.q=new THREE.Quaternion();
+  player._ballActive=true; player.inv=Math.max(player.inv||0,4); _ballPose(true);
+  if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(150,0.12,'sawtooth',0.1,360);
+};
+window._ballChargeRelease=function(){ const B=window._BALL; if(B.state!=='charging')return; const a=player.aim||0; window._ballEnter(B.charge, Math.cos(a), Math.sin(a)); };
+window._ballQuickRoll=function(dx,dz){ if(typeof player==='undefined'||!player||!player.alive)return; const B=window._BALL; if(B.state==='rolling')return; window._ballEnter((window._BALL_QUICK_CHARGE!=null?window._BALL_QUICK_CHARGE:0.34), dx, dz); };
+window._ballEnter=function(charge, dx, dz){
+  const B=window._BALL; if(typeof player==='undefined'||!player)return;
+  const lo=(window._BALL_MIN_SPD||210), hi=(window._BALL_MAX_SPD||840);
+  const sp=lo + Math.max(0,Math.min(1,charge))*(hi-lo); const dl=Math.hypot(dx,dz)||1;
+  B.vx=dx/dl*sp; B.vz=dz/dl*sp; B.vy=0; B.px=player.wx; B.pz=player.wz; B.py=player.py||0; B.t=0; B.charge=charge; if(!B.q)B.q=new THREE.Quaternion();
+  B.state='rolling'; player._ballActive=true; player.aim=Math.atan2(dz,dx); if(!player.model.userData._ballPose)_ballPose(true);
+  player.inv=Math.max(player.inv||0,8);
+  if(typeof ps!=='undefined'){ ps.ring(player.wx,player.wz,[0.25,0.9,1],22,150); ps.burst(player.wx,player.wz,[0.3,0.95,1],16,120); }
+  if(typeof grid!=='undefined'&&grid.push)grid.push(player.wx,player.wz,-4,70);
+  if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(320,0.2,'sawtooth',0.14,1500); Audio.blip(620,0.12,'square',0.08,1900); }
+  if(typeof addTrauma==='function')addTrauma(0.05);
+};
+window._ballExit=function(){ const B=window._BALL; B.state=null; B.charge=0; if(typeof player!=='undefined'&&player)player._ballActive=false; _ballPose(false);
+  if(typeof ps!=='undefined'&&typeof player!=='undefined'&&player)ps.ring(player.wx,player.wz,[0.3,0.9,1],12,80); };
+window._ballUpdate=function(dt){
+  const B=window._BALL; if(!B.state||typeof player==='undefined'||!player||!player.model)return; if(dt>0.05)dt=0.05;
+  const R=(window._BALL_R||11);
+  if(B.state==='charging'){
+    player.wx=B.px; player.wz=B.pz; player.py=B.py; player.vx=0; player.vz=0; player.pvy=0;
+    B.charge=Math.min(1, B.charge + dt/(window._BALL_CHARGE_T||1.1));
+    if(!B.noQuat){ const rate=2 + B.charge*(window._BALL_CHARGE_SPIN||26); const aa=player.aim||0; const axis=new THREE.Vector3(-Math.sin(aa),0,Math.cos(aa)); B.q.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, rate*dt)); player.model.quaternion.copy(B.q); }
+    player.model.position.set(B.px,B.py,B.pz);
+    if(typeof ps!=='undefined'&&Math.random()<0.35)ps.spark(B.px+rand(-14,14),B.pz+rand(-14,14),[0.3,0.9,1]);
+    if(typeof addTrauma==='function'&&B.charge>0.5)addTrauma(0.004*B.charge);
+    return;
+  }
+  // rolling
+  B.t+=dt; B.px+=B.vx*dt; B.pz+=B.vz*dt; B.vy-=(window._BALL_GRAV||1100)*dt; B.py+=B.vy*dt;
+  if(B.py<=0){ B.py=0; if(B.vy<-40){ B.vy*=-0.42; } else B.vy=0; }
+  const fr=Math.pow((window._BALL_FRICTION||0.55), dt); B.vx*=fr; B.vz*=fr;
+  const AR=(typeof ARENA_R!=='undefined'?ARENA_R:240)-R, dd=Math.hypot(B.px,B.pz);
+  if(dd>AR && dd>0){ const nx=B.px/dd, nz=B.pz/dd; B.px=nx*AR; B.pz=nz*AR; const vd=B.vx*nx+B.vz*nz; if(vd>0){ B.vx-=1.7*vd*nx; B.vz-=1.7*vd*nz; } if(typeof ps!=='undefined')ps.ring(B.px,B.pz,[0.3,0.9,1],10,60); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(260,0.08,'square',0.08,520); }
+  player.wx=B.px; player.wz=B.pz; player.py=B.py; player.pvy=0; player.vx=B.vx; player.vz=B.vz; player._onPlatform=(B.py<=0);
+  const sp=Math.hypot(B.vx,B.vz);
+  if(sp>1 && !B.noQuat){ const dirx=B.vx/sp,dirz=B.vz/sp; const axis=new THREE.Vector3(-dirz,0,dirx); B.q.premultiply(new THREE.Quaternion().setFromAxisAngle(axis,(sp/R)*dt)); }
+  player.model.position.set(B.px,B.py,B.pz); if(!B.noQuat)player.model.quaternion.copy(B.q);
+  if(typeof GS!=='undefined'&&GS.enemies){ for(let i=0;i<GS.enemies.length;i++){ const e=GS.enemies[i]; if(!e||e.alive===false||e._captured)continue; const er=(e.R||e.size||14);
+    if(Math.hypot((e.wx||0)-B.px,(e.wz||0)-B.pz)<R+er){ const _nw=(typeof performance!=='undefined'?performance.now():Date.now()); if(_nw-(e._ballHitT||0)>(window._BALL_HIT_CD||280)){ e._ballHitT=_nw; if(typeof e.hit==='function'){ try{ e.hit((window._BALL_DMG||4), B.px, B.pz); }catch(_){}} B.vx*=0.86; B.vz*=0.86; if(typeof ps!=='undefined')ps.burst(e.wx,e.wz,[1,0.8,0.2],10,100); if(typeof addTrauma==='function')addTrauma(0.05); } } } }
+  if(typeof grid!=='undefined'&&grid.push&&Math.random()<0.9)grid.push(B.px,B.pz,-2,42);
+  if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(B.px+rand(-6,6),B.pz+rand(-6,6),[0.3,0.9,1]);
+  if((sp<(window._BALL_EXIT_SPD||80) && B.py<=0) || B.t>(window._BALL_MAX_T||7)) window._ballExit();
+};
 // procedural ship melee — fires when there is no animation rig (sandbox / model-less). Reusable.
 function _proceduralMelee(dirAngle){
   if(!player)return; const aim=(typeof dirAngle==='number')?dirAngle:(player.aim||0); player.aim=aim;
