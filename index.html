@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-JB</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-JC</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -17327,11 +17327,10 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
       while(jL._swipeHist.length>1&&now-jL._swipeHist[0].time>80) jL._swipeHist.shift();
       break;
     }
-    if(window._BALL_ON){ const _bm=Math.hypot(moveIn.x||0,moveIn.y||0); if(_bm>=(window._BALL_HOLD_DEAD||0.32)){ clearTimeout(jL._ballTimer); jL._ballHolding=false; if(window._BALL&&window._BALL.state==='charging') window._ballExit(); } }
+    if(window._BALL_ON){ const _bm=Math.hypot(moveIn.x||0,moveIn.y||0); if(_bm>=(window._BALL_HOLD_DEAD||0.32) && !(window._BALL&&window._BALL.state)){ clearTimeout(jL._ballTimer); jL._ballHolding=false; } }
   };
   jL._end=function(e){
     clearTimeout(jL._ballTimer); jL._ballHolding=false;
-    if(window._BALL_ON && window._BALL && window._BALL.state==='charging'){ window._ballChargeRelease(); }
     if(jL.id!==null){
       for(const t of e.changedTouches)if(t.identifier===jL.id){
         const hist=jL._swipeHist;
@@ -17343,7 +17342,9 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
           const spd=Math.hypot(svx,svy);
           if(spd>0.3&&elapsed<220){
             jL._meleeFlicked=true;
-            if(window._BALL_ON){ const _bcy=Math.cos(CAM.yaw),_bsy=Math.sin(CAM.yaw); window._ballQuickRoll(svx*_bcy+svy*_bsy, -svx*_bsy+svy*_bcy); jL._tapMoved=true; }
+            if(window._BALL_ON){ const _bcy=Math.cos(CAM.yaw),_bsy=Math.sin(CAM.yaw), _bwx=svx*_bcy+svy*_bsy, _bwz=-svx*_bsy+svy*_bcy;
+              if(window._BALL&&window._BALL.state==='charging'){ window._ballEnter(window._BALL.charge, _bwx, _bwz); }   // charged launch in the flicked direction
+              else { window._ballQuickRoll(_bwx, _bwz); } jL._tapMoved=true; }
             else if(window._meleeOnLeftStick){
               // ── LEFT-STICK FLICK MELEE — SURGICAL: turn toward the flicked direction and swing (cycles the combo) ──
               if(player.alive&&!player._wallClimb&&!player._hang&&!player._crestSeq&&GS.state==='playing'){
@@ -17443,6 +17444,7 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
         break;
       }
     }
+    if(window._BALL_ON && window._BALL && window._BALL.state==='charging'){ window._ballChargeRelease(); }   // released without flicking -> charged launch in aim dir
     origEndL(e);
   };
 }
@@ -25104,7 +25106,7 @@ window._listClips=function(){ const ud=(typeof player!=='undefined'&&player&&pla
 function _ballShell(){
   if(window._ballShellMesh) return window._ballShellMesh;
   if(typeof scene==='undefined'||!window._makeRLBall) return null;
-  const R=(window._BALL_VIS_R||22);
+  const R=(window._BALL_VIS_R||16);
   const ball=window._makeRLBall(R, (window._BALL_GLOW2||0x4cf0ff), true);
   if(ball.light)ball.light.visible=true;
   ball.grp.visible=false; scene.add(ball.grp);
@@ -25113,7 +25115,7 @@ function _ballShell(){
   return ball.grp;
 }
 function _ballShellTick(charge, speed, lifted){
-  const g=_ballShell(); if(!g||typeof player==='undefined'||!player)return; const P=window._ballShellParts; const R=(P&&P.R)||(window._BALL_VIS_R||22);
+  const g=_ballShell(); if(!g||typeof player==='undefined'||!player)return; const P=window._ballShellParts; const R=(P&&P.R)||(window._BALL_VIS_R||16);
   g.visible=true; g.position.set(player.wx, (player.py||0)+R, player.wz); if(window._BALL.q)g.quaternion.copy(window._BALL.q);   // rotate the whole detailed ball — reads clearly
   const lvl = lifted ? charge : Math.min(1, 0.45+speed/((window._BALL_MAX_SPD||840)));
   if(P){ if(P.glowShell&&P.glowShell.material) P.glowShell.material.opacity=0.1+lvl*0.5;
@@ -25172,7 +25174,7 @@ window._ballUpdate=function(dt){
     B.charge=Math.min(1, B.charge + dt/(window._BALL_CHARGE_T||1.1));
     const lift=(window._BALL_CHARGE_LIFT||12)*B.charge; B.py=lift;
     player.wx=B.px; player.wz=B.pz; player.py=lift; player.vx=0; player.vz=0; player.pvy=0;
-    const rate=3 + B.charge*(window._BALL_CHARGE_SPIN||30); const aa=player.aim||0; const axis=new THREE.Vector3(-Math.sin(aa),0,Math.cos(aa));
+    const rate=3 + B.charge*(window._BALL_CHARGE_SPIN||30); const aa=player.aim||0; const axis=new THREE.Vector3(Math.sin(aa),0,-Math.cos(aa));
     B.q.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, rate*dt));
     player.model.position.set(B.px,B.py,B.pz); if(!B.noQuat)player.model.quaternion.copy(B.q);
     _ballShellTick(B.charge, 0, true);
@@ -25191,12 +25193,12 @@ window._ballUpdate=function(dt){
   if(dd>AR && dd>0){ const nx=B.px/dd, nz=B.pz/dd; B.px=nx*AR; B.pz=nz*AR; const vd=B.vx*nx+B.vz*nz; if(vd>0){ B.vx-=1.7*vd*nx; B.vz-=1.7*vd*nz; } if(typeof ps!=='undefined')ps.ring(B.px,B.pz,[0.3,0.9,1],10,60); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(260,0.08,'square',0.08,520); }
   player.wx=B.px; player.wz=B.pz; player.py=B.py; player.pvy=0; player.vx=B.vx; player.vz=B.vz; player._onPlatform=(B.py<=0);
   const sp=Math.hypot(B.vx,B.vz);
-  if(sp>1){ const dirx=B.vx/sp,dirz=B.vz/sp; const axis=new THREE.Vector3(-dirz,0,dirx); B.q.premultiply(new THREE.Quaternion().setFromAxisAngle(axis,(sp/R)*dt)); }
+  if(sp>1){ const dirx=B.vx/sp,dirz=B.vz/sp; const axis=new THREE.Vector3(dirz,0,-dirx); B.q.premultiply(new THREE.Quaternion().setFromAxisAngle(axis,(sp/R)*dt)); }
   player.model.position.set(B.px,B.py,B.pz); if(!B.noQuat)player.model.quaternion.copy(B.q);
   _ballShellTick(1, sp, false);
   if(typeof GS!=='undefined'&&GS.enemies){ for(let i=0;i<GS.enemies.length;i++){ const e=GS.enemies[i]; if(!e||e.alive===false||e._captured)continue; const er=(e.R||e.size||14);
     if(Math.hypot((e.wx||0)-B.px,(e.wz||0)-B.pz)<R+er){ const _nw=(typeof performance!=='undefined'?performance.now():Date.now()); if(_nw-(e._ballHitT||0)>(window._BALL_HIT_CD||280)){ e._ballHitT=_nw; if(typeof e.hit==='function'){ try{ e.hit((window._BALL_DMG||4), B.px, B.pz); }catch(_){}} B.vx*=0.86; B.vz*=0.86; if(typeof ps!=='undefined')ps.burst(e.wx,e.wz,[1,0.8,0.2],10,100); if(typeof addTrauma==='function')addTrauma(0.05); } } } }
-  if(!B._lastPuff || Math.hypot(B.px-B._lastPuff[0], B.pz-B._lastPuff[1]) > (window._BALL_TRAIL_GAP||16)){ B._lastPuff=[B.px,B.pz]; _ballTrailPuff(B.px, B.py+(window._BALL_VIS_R||22), B.pz, (window._BALL_VIS_R||22)*0.72, window._BALL_GLOW2||0x4cf0ff); }
+  if(!B._lastPuff || Math.hypot(B.px-B._lastPuff[0], B.pz-B._lastPuff[1]) > (window._BALL_TRAIL_GAP||16)){ B._lastPuff=[B.px,B.pz]; _ballTrailPuff(B.px, B.py+(window._BALL_VIS_R||16), B.pz, (window._BALL_VIS_R||16)*0.72, window._BALL_GLOW2||0x4cf0ff); }
   if(typeof grid!=='undefined'&&grid.push&&Math.random()<0.9)grid.push(B.px,B.pz,-2,42);
   if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(B.px+rand(-6,6),B.pz+rand(-6,6),[0.3,0.9,1]);
   if((sp<(window._BALL_EXIT_SPD||80) && B.py<=0) || B.t>(window._BALL_MAX_T||7)) window._ballExit();
