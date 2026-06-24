@@ -25663,6 +25663,29 @@ function _orientHandLauncher(obj,bone,fore){
   obj.scale.setScalar((1/(Math.abs(bs.x)||1))*_LAUNCHER_SCALE);
   const swT=player._handSwapT||0; if(swT>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT/dur))*Math.PI*2)); }   // weapon-swap flip
 }
+// Minigun is a single TWO-HANDED cannon: aim its +Z barrel axis down the world line from the right hand
+// (back of the gun) to the weapon_direction bone (muzzle end) — the rifle stances pose weapon_direction out
+// at the left hand, so the gun lies along both hands. Mirrors _orientHammer's handle-aim. Runs after
+// _riflePoseTick, so the bones it reads are already in the rifle pose. Returns false if there's no dir bone.
+function _orientMinigun(obj,bone){
+  if(!obj||!bone||!player||!player.model) return false;
+  const db=(typeof _resolveGunDir==='function')?_resolveGunDir():null; if(!db) return false;
+  player.model.updateWorldMatrix(true,true);
+  const P0=bone.getWorldPosition(new THREE.Vector3());     // right hand = back of the gun
+  const P1=db.getWorldPosition(new THREE.Vector3());        // weapon_direction = muzzle end
+  const aim=P1.sub(P0); if(aim.lengthSq()<1e-8) return false; aim.normalize();
+  const _up=new THREE.Vector3(0,1,0);
+  let _right=new THREE.Vector3().crossVectors(_up,aim); if(_right.lengthSq()<1e-6)_right.set(1,0,0); _right.normalize();
+  const _up2=new THREE.Vector3().crossVectors(aim,_right).normalize();
+  const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(_right,_up2,aim));   // gun +Z -> aim line
+  const fx=window._MINIGUN_FIX; if(fx) desired.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(fx.x||0,fx.y||0,fx.z||0)));   // optional roll/tilt around the barrel
+  const bq=new THREE.Quaternion(); bone.getWorldQuaternion(bq);
+  obj.quaternion.copy(bq.clone().invert().multiply(desired));
+  const bs=new THREE.Vector3(); bone.getWorldScale(bs);
+  obj.scale.setScalar((1/(Math.abs(bs.x)||1))*_LAUNCHER_SCALE);
+  const swT=player._handSwapT||0; if(swT>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT/dur))*Math.PI*2)); }   // keep the weapon-swap flip
+  return true;
+}
 // ── per-weapon hand model factory (business end faces +Z, aligned to facing by _orientHandLauncher) ──
 function _makeWeaponHandModel(weapon,side){
   if(weapon==='rockets') return _makeHandLauncher(side);
@@ -25670,7 +25693,7 @@ function _makeWeaponHandModel(weapon,side){
     const w=new THREE.Group(); const mg=_buildMinigun();
     mg.rotation.y=-Math.PI/2;   // barrels fire +X -> rotate to +Z (hand-forward convention)
     mg.scale.setScalar(window._MINIGUN_HAND_SCALE||1.05);   // oversized -> he's lugging a giant cannon
-    const hp=window._MINIGUN_HAND_POS||{x:1.5,y:-3,z:14}; mg.position.set(hp.x,hp.y,hp.z);
+    const hp=window._MINIGUN_HAND_POS||{x:1.5,y:-3,z:2}; mg.position.set(hp.x,hp.y,hp.z);   // back of the gun sits at the hand; barrels run forward toward weapon_direction (was z:14 -> floated too far ahead)
     const hr=window._MINIGUN_HAND_ROT; if(hr){ mg.rotation.x+=hr.x||0; mg.rotation.y+=hr.y||0; mg.rotation.z+=hr.z||0; }
     const muz=new THREE.Object3D(); muz.position.set((window._MINIGUN_MUZZLE_X!=null?window._MINIGUN_MUZZLE_X:17),0,0); mg.add(muz); w.userData._muzzle=muz;   // barrel-tip spawn point (local +X is the barrel axis, before mg's -90° yaw); rounds leave here, not the hand
     w.userData._rotor=(mg.userData&&mg.userData.rotor)||null; w.add(mg); return w;
@@ -25882,7 +25905,7 @@ function _updateHandWeapons(dt){
   _ensureHandWeapon('L', !twoH && !player._shL, LH, weapon);
   _ensureHandWeapon('R', !meleeOut && !player._shR, RH, weapon);
   if(player._handWpnL&&LH) _orientHandLauncher(player._handWpnL,LH,LF);
-  if(player._handWpnR&&RH) _orientHandLauncher(player._handWpnR,RH,RF);
+  if(player._handWpnR&&RH){ if(weapon==='minigun' && _orientMinigun(player._handWpnR,RH)) { /* aimed along right_hand -> weapon_direction */ } else _orientHandLauncher(player._handWpnR,RH,RF); }
   _shoulderRig('R', meleeOut, weapon, bones, dt);   // right gun -> right shoulder when melee is out
   _shoulderRig('L', twoHMelee, weapon, bones, dt);  // left gun -> left shoulder ONLY for 2-handed melee (a 2-handed rifle like the minigun is held in-hand, so no shoulder copy)
 }
