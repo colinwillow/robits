@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-MG20</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-RB1</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -25208,13 +25208,22 @@ window._ballUpdate=function(dt){
   if(player.pvy>100 && B.py<=4){ B.vy=Math.max(B.vy,(window._BALL_JUMP_V||480)); player.pvy=0; }                                     // jump while rolling = ball-pop (stays in ball)
   if(B._lerpT>0){ const _lk=Math.min(1, dt/Math.max(0.001,B._lerpT)); B.vx+=((B._tgtVx!=null?B._tgtVx:B.vx)-B.vx)*_lk; B.vz+=((B._tgtVz!=null?B._tgtVz:B.vz)-B.vz)*_lk; B._lerpT-=dt; }   // smooth the redirect
   B.px+=B.vx*dt; B.pz+=B.vz*dt; B.vy-=(window._BALL_GRAV||1100)*dt; B.py+=B.vy*dt;
-  if(B.py<=0){ B.py=0; if(B.vy<-40){ B.vy*=-0.42; } else B.vy=0; }
+  if(GS.zone===-19 && typeof _cubeSDF==='function'){   // ROCKET LEAGUE: bounce off the cube walls/floor/ceiling/chamfers via the SAME SDF the arena ball uses (hero ball used to only know a flat floor + cylinder)
+    const _R=(window._BALL_HERO_R!=null?window._BALL_HERO_R:(window._BALL_VIS_R||16)), _rest=(window._BALL_HERO_REST!=null?window._BALL_HERO_REST:0.62), _grip=(window._BALL_WALL_GRIP||0.97);
+    const _cy=B.py+_R, N=player._ballN||(player._ballN=new THREE.Vector3()); _cubeGrad(B.px,_cy,B.pz,N); const d=_cubeSDF(B.px,_cy,B.pz);
+    if(d>-_R){ const push=-(d+_R); B.px+=N.x*push; B.py+=N.y*push; B.pz+=N.z*push;
+      const vn=B.vx*N.x+B.vy*N.y+B.vz*N.z;
+      if(vn>0){ B.vx-=(1+_rest)*vn*N.x; B.vy-=(1+_rest)*vn*N.y; B.vz-=(1+_rest)*vn*N.z;
+        const vn2=B.vx*N.x+B.vy*N.y+B.vz*N.z; B.vx=(B.vx-N.x*vn2)*_grip+N.x*vn2; B.vy=(B.vy-N.y*vn2)*_grip+N.y*vn2; B.vz=(B.vz-N.z*vn2)*_grip+N.z*vn2;   // tangential grip
+        if(Math.abs(vn)>140){ if(typeof ps!=='undefined')ps.ring(B.px,B.pz,[0.3,0.9,1],10,60); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(240,0.08,'square',0.08,500); } } }
+    if(B.py<0)B.py=0;
+  } else if(B.py<=0){ B.py=0; if(B.vy<-40){ B.vy*=-0.42; } else B.vy=0; }
   const fr=Math.pow((window._BALL_FRICTION||0.55), dt); B.vx*=fr; B.vz*=fr;
   { const sm=Math.hypot(moveIn.x||0,moveIn.y||0);   // left-stick steering while spun up
     if(sm>(window._BALL_STEER_DEAD||0.18)){ const cy=Math.cos(CAM.yaw),sy=Math.sin(CAM.yaw); let wx=(moveIn.x)*cy+(moveIn.y)*sy, wz=-(moveIn.x)*sy+(moveIn.y)*cy; const wl=Math.hypot(wx,wz)||1; wx/=wl; wz/=wl;
       const sp=Math.hypot(B.vx,B.vz)||1; let vdx=B.vx/sp,vdz=B.vz/sp; const turn=(window._BALL_STEER||3.2)*dt*Math.min(1,sm); vdx+=wx*turn; vdz+=wz*turn; const nl=Math.hypot(vdx,vdz)||1; B.vx=vdx/nl*sp; B.vz=vdz/nl*sp; player.aim=Math.atan2(B.vz,B.vx); } }
-  const AR=(typeof ARENA_R!=='undefined'?ARENA_R:240)-R, dd=Math.hypot(B.px,B.pz);
-  if(dd>AR && dd>0){ const nx=B.px/dd, nz=B.pz/dd; B.px=nx*AR; B.pz=nz*AR; const vd=B.vx*nx+B.vz*nz; if(vd>0){ B.vx-=1.7*vd*nx; B.vz-=1.7*vd*nz; } if(typeof ps!=='undefined')ps.ring(B.px,B.pz,[0.3,0.9,1],10,60); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(260,0.08,'square',0.08,520); }
+  if(GS.zone!==-19){ const AR=(typeof ARENA_R!=='undefined'?ARENA_R:240)-R, dd=Math.hypot(B.px,B.pz);   // cylindrical arena edge — only outside the cube (the cube uses its SDF walls above)
+    if(dd>AR && dd>0){ const nx=B.px/dd, nz=B.pz/dd; B.px=nx*AR; B.pz=nz*AR; const vd=B.vx*nx+B.vz*nz; if(vd>0){ B.vx-=1.7*vd*nx; B.vz-=1.7*vd*nz; } if(typeof ps!=='undefined')ps.ring(B.px,B.pz,[0.3,0.9,1],10,60); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(260,0.08,'square',0.08,520); } }
   player.wx=B.px; player.wz=B.pz; player.py=B.py; player.pvy=0; player.vx=B.vx; player.vz=B.vz; player._onPlatform=(B.py<=0);
   const sp=Math.hypot(B.vx,B.vz);
   if(sp>1){ const dirx=B.vx/sp,dirz=B.vz/sp; const axis=new THREE.Vector3(dirz,0,-dirx); B.q.premultiply(new THREE.Quaternion().setFromAxisAngle(axis,(sp/R)*dt)); }
