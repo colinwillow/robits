@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-RB1</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-RB2</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10238,6 +10238,7 @@ class Player{
     if(total>0)Audio.bigDie(); updateUI(); return true; }
   update(rawX,rawZ,avx,avz,dt,firing,od,aiming){
     if(!this.alive)return;
+    if(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped) && !this._ballActive){ rawX=-rawX; rawZ=-rawZ; }   // gravity flipped: standing on the ceiling, the whole view is upside down -> invert BOTH move axes
     if(this._meleeType==='mace'){ this._maceRX=avx||0; this._maceRZ=avz||0; }   // mace is a normal one-handed melee now — shooting stays enabled (gun routes to the shoulder like other melee)
     this._plasmaWantFire=(this.primaryWeapon==='plasma'&&!!firing); this._plasmaOD=!!od; this._flameWantFire=(this.primaryWeapon==='flamethrower'&&!!firing); this._flameOD=!!od; this._aimMag=Math.hypot(avx||0,avz||0);
     if(this._bombCool>0) this._bombCool=Math.max(0,this._bombCool-dt);
@@ -10485,6 +10486,7 @@ class Player{
 
     if(typeof _cityLedgeHangPlayer==='function') _cityLedgeHangPlayer(this,dt);   // city ledge grab/hang (no boots needed)
     const _gflip=(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped));   // CUBE gravity-flip: boots-off = fall toward the CEILING
+    this._gflipActive=_gflip;   // draw() reads this to flip the model upside-down (feet on the ceiling)
     if(this._onHoverboard){ this.pvy=0;
       const jetIn=clamp(this._hbJetInput||0,0,1), descIn=clamp(this._hbDescInput||0,0,1);   // right-stick UP = jet boost up, DOWN = sink/brake
       if(jetIn>0.06 && this.boostFuel>0){ this._hbHopVy=(this._hbHopVy||0)+(window._HB_JET_FORCE||760)*jetIn*dt; this.boostFuel=Math.max(0,this.boostFuel-(window._HB_JET_BURN||45)*jetIn*dt); this._jetting=true; if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(this.wx+rand(-6,6),this.wz+rand(-6,6),[0.2,0.9,1],this.py); }
@@ -11007,6 +11009,11 @@ class Player{
       const _rz=this.model.userData.isRobot?((GS.zone===-10)?(this._pipeLean||0):0):clamp(-this.pvy*0.0016,-0.35,0.35);
       const _tq=new THREE.Quaternion().setFromEuler(new THREE.Euler(0,-this.aim+Math.PI/2,_rz,'XYZ'));
       this.model.quaternion.slerp(_tq,0.14);
+    } else if(this.model.userData.isRobot && this._gflipActive){
+      // GRAVITY FLIPPED: stand on the ceiling — model up = world down (0,-1,0), still facing the aim. Slerp so the flip rolls over smoothly.
+      const a=this.aim; const F=(this._gfF||(this._gfF=new THREE.Vector3())).set(Math.cos(a),0,Math.sin(a)); const U=(this._gfU||(this._gfU=new THREE.Vector3())).set(0,-1,0); const R=(this._gfR||(this._gfR=new THREE.Vector3())).crossVectors(U,F).normalize();
+      const _tq=(this._gfQ||(this._gfQ=new THREE.Quaternion())).setFromRotationMatrix((this._gfM||(this._gfM=new THREE.Matrix4())).makeBasis(R,U,F));
+      this.model.quaternion.slerp(_tq, window._GFLIP_SLERP||0.18);
     } else if(this.model.userData.isRobot){
       this.model.rotation.x=0;
       this.model.rotation.y=-this.aim+Math.PI/2;
@@ -25204,6 +25211,7 @@ window._ballUpdate=function(dt){
   }
   // rolling
   B.t+=dt;
+  { const ud=player.model.userData; const a=(ud.clips&&ud.clips['ball'])||ud._ballPh||(ud.clips&&ud.clips['idle']); if(a && (!a.isRunning() || a.getEffectiveWeight()<0.05)){ try{ a.reset().setLoop(THREE.LoopRepeat,Infinity); a.clampWhenFinished=false; a.enabled=true; a.setEffectiveWeight(1); a.play(); ud.currentClip=(ud.clips&&ud.clips['ball']&&a===ud.clips['ball'])?'ball':ud.currentClip; }catch(_){} } }   // keep the ball pose alive — a long roll can let the skeleton drift to bind (the T-pose "Jesus roll")
   if(window._BALL_SHOOT_EXIT!==false && player._lastFiring && B.t>(window._BALL_FIRE_GRACE||0.18)){ window._ballExit(); return; }   // shooting cancels the ball
   if(player.pvy>100 && B.py<=4){ B.vy=Math.max(B.vy,(window._BALL_JUMP_V||480)); player.pvy=0; }                                     // jump while rolling = ball-pop (stays in ball)
   if(B._lerpT>0){ const _lk=Math.min(1, dt/Math.max(0.001,B._lerpT)); B.vx+=((B._tgtVx!=null?B._tgtVx:B.vx)-B.vx)*_lk; B.vz+=((B._tgtVz!=null?B._tgtVz:B.vz)-B.vz)*_lk; B._lerpT-=dt; }   // smooth the redirect
