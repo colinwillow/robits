@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-MG19</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-MG20</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -25928,7 +25928,7 @@ function _updateHandWeapons(dt){
   // ── on-screen minigun debug in the build badge — OFF by default now that it's working; set window._MINIGUN_DEBUG=true to bring it back ──
   if(window._MINIGUN_DEBUG===true && (weapon==='minigun' || (player._handWpnR&&player._handWpnR.userData&&player._handWpnR.userData._wpn==='minigun'))){
     if(window._bbEl===undefined) window._bbEl=document.getElementById('build-badge')||null;
-    if(window._bbEl) window._bbEl.textContent='MG19 w='+weapon+' hR='+(player._handWpnR?'Y':'N')+' | mz['+(player._mzDbg||'?')+'] '+(player._mgAimDbg||'');
+    if(window._bbEl) window._bbEl.textContent='MG20 w='+weapon+' hR='+(player._handWpnR?'Y':'N')+' | mz['+(player._mzDbg||'?')+'] '+(player._mgAimDbg||'');
   }
   // weapon-swap transform: a particle pop + flip whenever the equipped gun changes
   if(player._lastHandWpn!==weapon){
@@ -26121,6 +26121,17 @@ window._riflePoseTick=function(dt){
     player._leanF=(player._leanF==null)?_lfTgt:(player._leanF+(_lfTgt-player._leanF)*Math.min(1,(dt||0.016)*8));   // smooth so speed jitter doesn't twitch the torso
     const _lx=player._rifleXAxis||(player._rifleXAxis=new THREE.Vector3(1,0,0)); const _lq=player._rifleLeanQ||(player._rifleLeanQ=new THREE.Quaternion());
     _lq.setFromAxisAngle(_lx,(_rifleLean*Math.PI/180)*player._rifleW*player._leanF); ud._rifleLeanBone.quaternion.multiply(_lq);
+  }
+  // STRAFE TWIST: running sideways WHILE SHOOTING -> yaw the torso to face the aim (legs keep running sideways). sin(angleDiff) is +1/-1 at the two strafe sides, 0 forward/back, so it auto-scales and flips. Tunables: window._RIFLE_TWIST_MAX (deg, def 90), _RIFLE_TWIST_AXIS ('x'|'y'|'z', def 'y' = yaw), _RIFLE_TWIST_SIGN (±1 flip), _RIFLE_TWIST_SPD (run speed it's full by, def 25).
+  if(ud._rifleLeanBone && (player._shootBlend||0)>0.01){
+    const _spd2=Math.hypot(player.vx||0,player.vz||0);
+    if(_spd2>3){
+      const _ma=Math.atan2(player.vz||0,player.vx||0), _ad=((_ma-(player.aim||0)+Math.PI)%(Math.PI*2)+Math.PI*2)%(Math.PI*2)-Math.PI;
+      const _twMax=(window._RIFLE_TWIST_MAX!=null?window._RIFLE_TWIST_MAX:90)*Math.PI/180, _twSign=(window._RIFLE_TWIST_SIGN!=null?window._RIFLE_TWIST_SIGN:1);
+      const _twF=Math.min(1,_spd2/(window._RIFLE_TWIST_SPD||25));
+      const _tw=_twMax*_twSign*Math.sin(_ad)*(player._shootBlend||0)*_twF*player._rifleW;
+      if(Math.abs(_tw)>1e-4){ const _axn=(window._RIFLE_TWIST_AXIS||'y'); const _ax=player._rifleTwAxis||(player._rifleTwAxis=new THREE.Vector3()); _ax.set(_axn==='x'?1:0,_axn==='y'?1:0,_axn==='z'?1:0); const _tq=player._rifleTwQ||(player._rifleTwQ=new THREE.Quaternion()); _tq.setFromAxisAngle(_ax,_tw); ud._rifleLeanBone.quaternion.multiply(_tq); }
+    }
   }
 };
 window._PAD_RECHARGE=window._PAD_RECHARGE||4;   // seconds a grabbed pad stays gone before it recharges (test value; bump later)
