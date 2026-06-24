@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-RB3</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-RB4</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1137,9 +1137,8 @@ function updateCamera(dt){
   const lookAheadDist=isLandscape?100:40;
   const cx=CAM.focus.x+Math.sin(CAM.yaw)*d;
   const cz=CAM.focus.z+Math.cos(CAM.yaw)*d;
-  const _gfCam=(GS.zone===-19 && GS._gravFlip && player && !(player._hasBoots&&player._bootsEquipped));
-  GS._gfCamF=lerp(GS._gfCamF||0, _gfCam?1:0, 0.06);   // eased 0..1 gravity-flip factor — drives BOTH the vertical mirror and the view roll so they stay in sync
-  const cy=CAM.focus.y+(CAM.height*heightMult-CAM.zoom*20)*(1-2*GS._gfCamF);   // flipped: offset moves to the other (world-down) side so the camera sits "above" the ceiling-floor and pitches down
+  // GS._gfCamF (eased 0..1 gravity-flip factor) is computed in the main loop BEFORE updateCamera so it's available to BOTH this normal path and the boots/wall-walk path (which early-returns above). The view roll is applied universally AFTER updateCamera.
+  const cy=CAM.focus.y+(CAM.height*heightMult-CAM.zoom*20)*(1-2*(GS._gfCamF||0));   // flipped: offset moves to the other (world-down) side so the camera sits "above" the ceiling-floor and pitches down
   const sh=CAM.trauma*CAM.trauma*0.5, t=performance.now()*0.05;
   const shX=(Math.sin(t*1.7)+Math.sin(t*3.3))*0.5*sh*14;
   const shY=(Math.sin(t*2.1)+Math.sin(t*4.7))*0.5*sh*14;
@@ -1153,8 +1152,6 @@ function updateCamera(dt){
     camera.position.set(cx+shX,cy+shY,cz);
     camera.lookAt(aheadX, aheadY, aheadZ);
   }
-  { GS._camRoll=(GS._gfCamF||0)*Math.PI;   // GRAVITY-FLIP: roll the view 180° in sync with the vertical mirror so the ceiling reads as the floor
-    if(GS._camRoll>0.002 && typeof camera!=='undefined') camera.rotateZ(GS._camRoll); }
   CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
 }
 
@@ -10239,7 +10236,7 @@ class Player{
     if(total>0)Audio.bigDie(); updateUI(); return true; }
   update(rawX,rawZ,avx,avz,dt,firing,od,aiming){
     if(!this.alive)return;
-    if(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped) && !this._ballActive){ rawX=-rawX; rawZ=-rawZ; }   // gravity flipped: standing on the ceiling, the whole view is upside down -> invert BOTH move axes
+    if(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped) && !this._ballActive){ rawX=-rawX; }   // gravity flipped + camera rolled 180°: only left/right needs inverting (the camera's vertical mirror already handles forward/back)
     if(this._meleeType==='mace'){ this._maceRX=avx||0; this._maceRZ=avz||0; }   // mace is a normal one-handed melee now — shooting stays enabled (gun routes to the shoulder like other melee)
     this._plasmaWantFire=(this.primaryWeapon==='plasma'&&!!firing); this._plasmaOD=!!od; this._flameWantFire=(this.primaryWeapon==='flamethrower'&&!!firing); this._flameOD=!!od; this._aimMag=Math.hypot(avx||0,avz||0);
     if(this._bombCool>0) this._bombCool=Math.max(0,this._bombCool-dt);
@@ -18041,7 +18038,10 @@ function loop(ts){ requestAnimationFrame(loop);
     }
 
     _camRestoreTick();
+    // GRAVITY-FLIP view factor — computed here (before updateCamera) so the bootless mirror can read it, and applied as a universal 180° roll AFTER, so the view flips even when the boots/wall-walk camera owns the frame.
+    if(typeof GS!=='undefined'){ const _gfTgt=(GS.zone===-19 && GS._gravFlip && player && !player._ballActive)?1:0; GS._gfCamF=lerp(GS._gfCamF||0, _gfTgt, 0.06); }
     updateCamera(rawDt);
+    if(typeof GS!=='undefined' && (GS._gfCamF||0)>0.001 && typeof camera!=='undefined'){ camera.rotateZ((GS._gfCamF)*Math.PI); }   // roll the whole view 180° (always, incl. boots) so a flipped ceiling reads as the floor
     grid.update(dt); ps.update(dt); if(ps2)ps2.update(dt); if(GS.zone===-18 && typeof _updateCustomGrid==='function') _updateCustomGrid(dt); if(GS.zone===-2 && typeof _updateDojoPlatform==='function') _updateDojoPlatform(dt);
     for(const p of GS_portals){ if(GS.zone===-19){ if(p.group&&p.group.parent)scene.remove(p.group); } else { if(p.group&&!p.group.parent)scene.add(p.group); p.update(dt,player); } }   // no teleporters in the RL cube arena (removed from scene, restored elsewhere)
     // Tick robot animation mixer
