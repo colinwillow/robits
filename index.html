@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BM2</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BM3</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -25152,7 +25152,7 @@ function _ballShell(){
   if(ball.light)ball.light.visible=true;
   ball.grp.visible=false; scene.add(ball.grp);
   let shellMat=null; ball.core.traverse(o=>{ if(o.isMesh&&o.material&&o.material.color&&o.material.color.getHex&&o.material.color.getHex()===0xeef3f6) shellMat=o.material; });
-  window._ballShellMesh=ball.grp; window._ballShellParts={grp:ball.grp, core:ball.core, glowShell:ball.glowShell, runlights:ball.runlights, shellMat, R};
+  window._ballShellMesh=ball.grp; window._ballShellParts={grp:ball.grp, core:ball.core, glowShell:ball.glowShell, runlights:ball.runlights, shellMat, R, parts: ball.core.children.map(c=>({o:c, p:c.position.clone(), s:c.scale.clone()}))};   // parts = each primitive's HOME pos/scale, for the fold-out morph
   return ball.grp;
 }
 function _ballShellTick(charge, speed, lifted){
@@ -25170,7 +25170,16 @@ function _ballTrailPuff(x,y,z,r,glow){ if(typeof scene==='undefined')return; con
   if(window._ballTrail.length>(window._BALL_TRAIL_MAX||30)){ const old=window._ballTrail.shift(); if(old&&old.m){ scene.remove(old.m); old.m.geometry.dispose(); old.m.material.dispose(); } } }
 window._ballTrailTick=function(dt){ const T=window._ballTrail; if(!T||!T.length)return; const fade=(window._BALL_TRAIL_FADE||1.7);
   for(let i=T.length-1;i>=0;i--){ const p=T[i]; p.life-=dt*fade; if(p.life<=0){ if(p.m){ scene.remove(p.m); p.m.geometry.dispose(); p.m.material.dispose(); } T.splice(i,1); continue; } if(p.m){ p.m.material.opacity=0.5*p.life; p.m.scale.setScalar(1+(1-p.life)*0.9); } } };
-window._ballFrame=function(dt){ if(window._BALL&&window._BALL.state&&window._ballUpdate)window._ballUpdate(dt); if(window._ballTrailTick)window._ballTrailTick(dt); };
+function _ballApplyMorph(k){ const P=window._ballShellParts; if(!P||!P.parts)return; const e=k<=0?0:(k>=1?1:k*k*(3-2*k));   // smoothstep — parts fly out from the center (pos*e) and grow (scale*e)
+  for(const pt of P.parts){ pt.o.position.set(pt.p.x*e,pt.p.y*e,pt.p.z*e); pt.o.scale.set((pt.s.x||1)*e||1e-4,(pt.s.y||1)*e||1e-4,(pt.s.z||1)*e||1e-4); } }
+window._ballFrame=function(dt){
+  if(window._BALL&&window._BALL.state&&window._ballUpdate)window._ballUpdate(dt);
+  // FOLD-OUT MORPH: on enter the ball's primitives assemble out from the center; on exit they fold back in, then the shell hides
+  const _want=(window._BALL&&window._BALL.state)?1:0, _ms=dt/Math.max(0.05,(window._BALL_MORPH_T!=null?window._BALL_MORPH_T:0.45));
+  window._ballMorph=(window._ballMorph==null)?_want:(window._ballMorph<_want?Math.min(_want,window._ballMorph+_ms):Math.max(_want,window._ballMorph-_ms));
+  if(window._ballShellParts){ _ballApplyMorph(window._ballMorph); if(window._ballMorph<=0.001 && !_want) _ballShellHide(); }
+  if(window._ballTrailTick)window._ballTrailTick(dt);
+};
 function _ballPose(on){
   const ud=(typeof player!=='undefined'&&player&&player.model)?player.model.userData:null; if(!ud||!ud.clips)return;
   if(on){ const a=ud.clips['ball'];
@@ -25210,7 +25219,7 @@ window._ballEnter=function(charge, dx, dz){
 window._ballExit=function(){ const B=window._BALL; const _sp=Math.hypot(B.vx||0,B.vz||0); B.state=null; B.charge=0;
   if(typeof player!=='undefined'&&player){ player._ballActive=false; if(_sp>1)player.aim=Math.atan2(B.vz,B.vx);   // keep facing the way you were rolling
     if(player.model){ player.model.rotation.x=0; player.model.rotation.z=0; player.model.rotation.y=-(player.aim||0)+Math.PI/2; if(player._flip)player._flip=null; if(player._flipQ&&player._flipQ.identity)player._flipQ.identity(); } }
-  _ballPose(false); _ballShellHide();
+  _ballPose(false);   // shell is NOT hidden here — _ballFrame folds it back in, then hides when the morph reaches 0
   if(typeof ps!=='undefined'&&typeof player!=='undefined'&&player)ps.ring(player.wx,player.wz,[0.3,0.9,1],12,80); };
 window._ballUpdate=function(dt){
   const B=window._BALL; if(!B.state||typeof player==='undefined'||!player||!player.model)return; if(dt>0.05)dt=0.05;
