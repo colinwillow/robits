@@ -25672,6 +25672,7 @@ function _makeWeaponHandModel(weapon,side){
     mg.scale.setScalar(window._MINIGUN_HAND_SCALE||1.05);   // oversized -> he's lugging a giant cannon
     const hp=window._MINIGUN_HAND_POS||{x:1.5,y:-3,z:14}; mg.position.set(hp.x,hp.y,hp.z);
     const hr=window._MINIGUN_HAND_ROT; if(hr){ mg.rotation.x+=hr.x||0; mg.rotation.y+=hr.y||0; mg.rotation.z+=hr.z||0; }
+    const muz=new THREE.Object3D(); muz.position.set((window._MINIGUN_MUZZLE_X!=null?window._MINIGUN_MUZZLE_X:17),0,0); mg.add(muz); w.userData._muzzle=muz;   // barrel-tip spawn point (local +X is the barrel axis, before mg's -90° yaw); rounds leave here, not the hand
     w.userData._rotor=(mg.userData&&mg.userData.rotor)||null; w.add(mg); return w;
   }
   const COL=(typeof _WPN_COLORS!=='undefined'&&_WPN_COLORS[weapon])||0x00ccff;
@@ -25850,6 +25851,8 @@ function _shoulderRig(side, want, weapon, bones, dt){
 function _stanceMuzzle(pl, slot, out){
   const bones=pl.model&&pl.model.userData&&pl.model.userData.bones; if(!bones) return null;
   const melee=!!pl._hammer, twoH=melee&&_meleeTwoHanded();
+  // two-handed rifle (minigun): the round leaves the BARREL TIP of the hand cannon, not the hand bone
+  if(!melee && typeof _isRifleWpn==='function' && _isRifleWpn()){ const hm=pl._handWpnR||pl._handWpnL, mz=hm&&hm.userData&&hm.userData._muzzle; if(mz){ mz.getWorldPosition(out); return 'hand'; } }
   let kind; if(!melee) kind=(slot===0?'RH':'LH'); else if(twoH) kind=(slot===0?'RS':'LS'); else kind=(slot===0?'LH':'RS');
   if(kind==='RH'||kind==='LH'){ const b=bones[kind==='RH'?'mixamorig_RightHand':'mixamorig_LeftHand']; if(!b)return null; b.getWorldPosition(out); return 'hand'; }
   const rig=(kind==='RS')?pl._shR:pl._shL;
@@ -25994,21 +25997,39 @@ window._RIFLE_WEAPONS = window._RIFLE_WEAPONS || new Set(['minigun']);   // e.g.
 if(!window._WEAPON_EMBLEM_SCALE)window._WEAPON_EMBLEM_SCALE={}; if(window._WEAPON_EMBLEM_SCALE.minigun==null)window._WEAPON_EMBLEM_SCALE.minigun=0.62;
 function _isRifleWpn(){ return !!(player && player.primaryWeapon && window._RIFLE_WEAPONS && window._RIFLE_WEAPONS.has(player.primaryWeapon)); }
 window._equipRifle=function(name){ name=name||player&&player.primaryWeapon||'bullets'; if(!window._RIFLE_WEAPONS)window._RIFLE_WEAPONS=new Set(); window._RIFLE_WEAPONS.add(name); if(typeof _equipWeapon==='function')_equipWeapon(name); else if(player)player.primaryWeapon=name; };
+// Rifle stance = a TRUE upper-body override (not additive). Runs after the mixer (called at the end of the
+// per-frame player update), so it overwrites the torso-up bone rotations the locomotion clip just set, while
+// the legs/hips keep running idle/float/run untouched. Additive couldn't do this — it adds a fixed offset on
+// top of a moving base, so the arms kept their run/float swing. Here we sample the rifle_idle/rifle_shoot clip
+// and write its local rotations straight onto spine→head→arms (everything _MELEE_LOWER_RE doesn't exclude).
 window._riflePoseTick=function(dt){
-  if(typeof player==='undefined'||!player||!player.model)return; const ud=player.model.userData; if(!ud||!ud.clips)return;
+  if(typeof player==='undefined'||!player||!player.model)return; const ud=player.model.userData; if(!ud||!ud.clips||!ud.bones)return;
   if(player.primaryWeapon==='minigun'){ const _hm=player._handWpnR||player._handWpnL; const _ro=_hm&&_hm.userData&&_hm.userData._rotor; if(_ro){ player._mgSpin=(player._mgSpin||0)+((player._lastFiring?24:5))*dt; _ro.rotation.x=player._mgSpin; } }
+  // retire the old additive layer if it's still around from a previous build/equip (we drive bones directly now)
+  if(player._rifleAdd){ try{ player._rifleAdd.stop(); }catch(_){} player._rifleAdd=null; player._rifleAddName=null; }
   const busy=(ud._meleeTimer>0)||ud._slamHold||player._ballActive||player._meleeAdditive||player._wallClimb||player._hang;   // melee / ball / climb own the upper body
   const want=_isRifleWpn() && !busy;
-  if(!want){ if(player._rifleAdd){ try{ player._rifleAdd.fadeOut(window._RIFLE_FADE||0.16); }catch(_){} player._rifleAdd=null; player._rifleAddName=null; } return; }
+  // ease the override weight in/out so entering/leaving the stance (and busy interrupts) don't snap
+  const fade=(window._RIFLE_FADE!=null?window._RIFLE_FADE:0.16), tgt=want?1:0, step=dt/Math.max(0.001,fade);
+  player._rifleW=(player._rifleW||0); player._rifleW = player._rifleW<tgt ? Math.min(tgt,player._rifleW+step) : Math.max(tgt,player._rifleW-step);
+  if(player._rifleW<=0){ player._rifleClip=null; return; }
+  // pick the pose clip: rifle_shoot for a beat after each shot, else rifle_idle
   const nowf=(typeof performance!=='undefined'?performance.now():Date.now());
   if(player._lastFiring && ud.clips['rifle_shoot']) player._rifleFireT=nowf;
   const shooting=(nowf-(player._rifleFireT||0))<(window._RIFLE_SHOOT_HOLD||120);
-  const cname=(shooting && ud.clips['rifle_shoot'])?'rifle_shoot':'rifle_idle';
-  if(player._rifleAddName && player._rifleAddName!==cname && player._rifleAdd){ try{ player._rifleAdd.fadeOut(0.07); }catch(_){} player._rifleAdd=null; player._rifleAddName=null; }
-  if(!player._rifleAdd && ud.clips[cname] && typeof _buildAdditiveMelee==='function'){
-    const a=_buildAdditiveMelee(ud, cname);
-    if(a){ try{ a.reset().setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true; a.setEffectiveWeight(1); a.fadeIn(window._RIFLE_FADE||0.12).play(); }catch(_){} player._rifleAdd=a; player._rifleAddName=cname; }
-  }
+  let cname=(want&&shooting && ud.clips['rifle_shoot'])?'rifle_shoot':(want?'rifle_idle':player._rifleClip);
+  if(!cname || !ud.clips[cname]) cname=ud.clips['rifle_idle']?'rifle_idle':null;
+  const cd=cname&&ud.clips[cname], clip=cd&&cd._clip; if(!clip)return;
+  // cache one interpolant per upper-body quaternion track of each clip (bone names that survive _MELEE_LOWER_RE)
+  ud._rifleSamp=ud._rifleSamp||{};
+  let S=ud._rifleSamp[cname];
+  if(!S){ S=[]; for(const tr of clip.tracks){ if(!/\.quaternion$/.test(tr.name))continue; const bn=tr.name.replace(/\.quaternion$/,''); if(_MELEE_LOWER_RE.test(bn))continue; const bone=ud.bones[bn]; if(!bone)continue; try{ S.push({bone, ip:tr.createInterpolant()}); }catch(_){} } ud._rifleSamp[cname]=S; }
+  // advance clip time (rifle_idle loops, rifle_shoot plays once and clamps)
+  if(player._rifleClip!==cname){ player._rifleClip=cname; player._rifleT=0; }
+  player._rifleT=(player._rifleT||0)+dt; const dur=clip.duration||1;
+  const t=(cname==='rifle_shoot') ? Math.min(player._rifleT,dur-1e-3) : (player._rifleT%dur);
+  const w=player._rifleW, q=(player._rifleQt||(player._rifleQt=new THREE.Quaternion()));
+  for(const e of S){ const v=e.ip.evaluate(t); q.set(v[0],v[1],v[2],v[3]); if(w>=0.999){ e.bone.quaternion.copy(q); } else { e.bone.quaternion.slerp(q,w); } }
 };
 window._PAD_RECHARGE=window._PAD_RECHARGE||4;   // seconds a grabbed pad stays gone before it recharges (test value; bump later)
 function _padConsume(st){
