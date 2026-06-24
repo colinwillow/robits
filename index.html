@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-MG10</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-MG11</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -25723,7 +25723,7 @@ function _makeWeaponHandModel(weapon,side){
     const w=new THREE.Group(); const mg=_buildMinigun();
     mg.rotation.y=-Math.PI/2;   // barrels fire +X -> rotate to +Z (hand-forward convention)
     mg.scale.setScalar(window._MINIGUN_HAND_SCALE||1.05);   // oversized -> he's lugging a giant cannon
-    const hp=window._MINIGUN_HAND_POS||{x:1.5,y:-3,z:2}; mg.position.set(hp.x,hp.y,hp.z);   // back of the gun sits at the hand; barrels run forward toward weapon_direction (was z:14 -> floated too far ahead)
+    const hp=window._MINIGUN_HAND_POS||{x:1.5,y:-5,z:7}; mg.position.set(hp.x,hp.y,hp.z);   // y = down(-)/up(+), z = forward along the aim bone toward the left-hand tip. Tunable via window._MINIGUN_HAND_POS (re-equip to apply).
     const hr=window._MINIGUN_HAND_ROT; if(hr){ mg.rotation.x+=hr.x||0; mg.rotation.y+=hr.y||0; mg.rotation.z+=hr.z||0; }
     const muz=new THREE.Object3D(); muz.position.set((window._MINIGUN_MUZZLE_X!=null?window._MINIGUN_MUZZLE_X:17),0,0); mg.add(muz); w.userData._muzzle=muz;   // barrel-tip spawn point (local +X is the barrel axis, before mg's -90° yaw); rounds leave here, not the hand
     w.userData._rotor=(mg.userData&&mg.userData.rotor)||null; w.add(mg); return w;
@@ -25923,7 +25923,7 @@ function _updateHandWeapons(dt){
   // ── LIVE on-screen debug: console.log isn't surfacing on device, so write minigun aim state straight into the visible build badge every frame ──
   if(weapon==='minigun' || (player._handWpnR&&player._handWpnR.userData&&player._handWpnR.userData._wpn==='minigun')){
     if(window._bbEl===undefined) window._bbEl=document.getElementById('build-badge')||null;
-    if(window._bbEl) window._bbEl.textContent='MG10 w='+weapon+' hR='+(player._handWpnR?'Y':'N')+' RH='+(RH?'Y':'N')+' | '+(player._mgAimDbg||'(orient not run)');
+    if(window._bbEl) window._bbEl.textContent='MG11 w='+weapon+' hR='+(player._handWpnR?'Y':'N')+' RH='+(RH?'Y':'N')+' | '+(player._mgAimDbg||'(orient not run)');
   }
   // weapon-swap transform: a particle pop + flip whenever the equipped gun changes
   if(player._lastHandWpn!==weapon){
@@ -26078,24 +26078,33 @@ window._riflePoseTick=function(dt){
   // ease the override weight in/out so entering/leaving the stance (and busy interrupts) don't snap
   const fade=(window._RIFLE_FADE!=null?window._RIFLE_FADE:0.16), tgt=want?1:0, step=dt/Math.max(0.001,fade);
   player._rifleW=(player._rifleW||0); player._rifleW = player._rifleW<tgt ? Math.min(tgt,player._rifleW+step) : Math.max(tgt,player._rifleW-step);
-  if(player._rifleW<=0){ player._rifleClip=null; return; }
-  // pick the pose clip: rifle_shoot for a beat after each shot, else rifle_idle
+  if(player._rifleW<=0){ player._shootBlend=0; player._wasShoot=false; return; }
+  // SMOOTH idle<->shoot: blend the two poses by an eased _shootBlend instead of snapping between clips.
   const nowf=(typeof performance!=='undefined'?performance.now():Date.now());
-  if(player._lastFiring && ud.clips['rifle_shoot']) player._rifleFireT=nowf;
-  const shooting=(nowf-(player._rifleFireT||0))<(window._RIFLE_SHOOT_HOLD||120);
-  let cname=(want&&shooting && ud.clips['rifle_shoot'])?'rifle_shoot':(want?'rifle_idle':player._rifleClip);
-  if(!cname || !ud.clips[cname]) cname=ud.clips['rifle_idle']?'rifle_idle':null;
-  const cd=cname&&ud.clips[cname], clip=cd&&cd._clip; if(!clip)return;
-  // cache one interpolant per upper-body quaternion track of each clip (bone names that survive _MELEE_LOWER_RE)
-  ud._rifleSamp=ud._rifleSamp||{};
-  let S=ud._rifleSamp[cname];
-  if(!S){ S=[]; for(const tr of clip.tracks){ if(!/\.quaternion$/.test(tr.name))continue; const bn=tr.name.replace(/\.quaternion$/,''); if(_MELEE_LOWER_RE.test(bn))continue; const bone=ud.bones[bn]; if(!bone)continue; try{ S.push({bone, ip:tr.createInterpolant()}); }catch(_){} } ud._rifleSamp[cname]=S; }
-  // advance clip time (rifle_idle loops, rifle_shoot plays once and clamps)
-  if(player._rifleClip!==cname){ player._rifleClip=cname; player._rifleT=0; }
-  player._rifleT=(player._rifleT||0)+dt; const dur=clip.duration||1;
-  const t=(cname==='rifle_shoot') ? Math.min(player._rifleT,dur-1e-3) : (player._rifleT%dur);
-  const w=player._rifleW, q=(player._rifleQt||(player._rifleQt=new THREE.Quaternion()));
-  for(const e of S){ const v=e.ip.evaluate(t); q.set(v[0],v[1],v[2],v[3]); if(w>=0.999){ e.bone.quaternion.copy(q); } else { e.bone.quaternion.slerp(q,w); } }
+  if(want && player._lastFiring && ud.clips['rifle_shoot']) player._rifleFireT=nowf;
+  const shooting = want && !!ud.clips['rifle_shoot'] && (nowf-(player._rifleFireT||0) < (window._RIFLE_SHOOT_HOLD||120));
+  const sfade=(window._RIFLE_SHOOT_FADE!=null?window._RIFLE_SHOOT_FADE:0.10), sstep=dt/Math.max(0.001,sfade), sTgt=shooting?1:0;
+  player._shootBlend=(player._shootBlend||0); player._shootBlend = player._shootBlend<sTgt ? Math.min(sTgt,player._shootBlend+sstep) : Math.max(sTgt,player._shootBlend-sstep);
+  const idleClip=ud.clips['rifle_idle']&&ud.clips['rifle_idle']._clip, shootClip=ud.clips['rifle_shoot']&&ud.clips['rifle_shoot']._clip;
+  if(!idleClip&&!shootClip) return;
+  // clip times: idle loops; shoot advances while firing (restart on a fresh burst), clamped at its end
+  player._rifleIdleT=(player._rifleIdleT||0)+dt;
+  if(shooting&&!player._wasShoot) player._rifleShootT=0; player._wasShoot=shooting;
+  if(shooting) player._rifleShootT=(player._rifleShootT||0)+dt;
+  const tIdle=idleClip?(player._rifleIdleT%(idleClip.duration||1)):0;
+  const tShoot=shootClip?Math.min(player._rifleShootT||0,(shootClip.duration||1)-1e-3):0;
+  // per-bone interpolants for BOTH clips, cached: boneName -> {bone, idle?, shoot?}
+  if(!ud._rifleBoneMap){ const map={}; const add=(clip,key)=>{ if(!clip)return; for(const tr of clip.tracks){ if(!/\.quaternion$/.test(tr.name))continue; const bn=tr.name.replace(/\.quaternion$/,''); if(_MELEE_LOWER_RE.test(bn))continue; const bone=ud.bones[bn]; if(!bone)continue; if(!map[bn])map[bn]={bone,idle:null,shoot:null}; try{ map[bn][key]=tr.createInterpolant(); }catch(_){} } }; add(idleClip,'idle'); add(shootClip,'shoot'); ud._rifleBoneMap=map; }
+  const w=player._rifleW, sb=player._shootBlend;
+  const qA=player._rifleQa||(player._rifleQa=new THREE.Quaternion()), qB=player._rifleQb||(player._rifleQb=new THREE.Quaternion());
+  for(const bn in ud._rifleBoneMap){ const e=ud._rifleBoneMap[bn];
+    const iv=e.idle?e.idle.evaluate(tIdle):null, sv=e.shoot?e.shoot.evaluate(tShoot):null; let tgtQ=null, we=w;
+    if(iv&&sv){ qA.set(iv[0],iv[1],iv[2],iv[3]); qB.set(sv[0],sv[1],sv[2],sv[3]); qA.slerp(qB,sb); tgtQ=qA; }
+    else if(iv){ qA.set(iv[0],iv[1],iv[2],iv[3]); tgtQ=qA; }
+    else if(sv){ if(sb<=0.001) continue; qB.set(sv[0],sv[1],sv[2],sv[3]); tgtQ=qB; we=w*sb; }   // shoot-only bone: fade in with the shoot blend
+    else continue;
+    if(we>=0.999) e.bone.quaternion.copy(tgtQ); else e.bone.quaternion.slerp(tgtQ,we);
+  }
 };
 window._PAD_RECHARGE=window._PAD_RECHARGE||4;   // seconds a grabbed pad stays gone before it recharges (test value; bump later)
 function _padConsume(st){
