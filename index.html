@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-JK</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-MG3</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -25636,7 +25636,8 @@ function _resolveGunDir(){
   let db=bones['weapon_direction']||bones['mixamorig_weapon_direction']||null;
   if(!db){ for(const k in bones){ if(/weapon.*dir/i.test(k)){ db=bones[k]; break; } } }
   if(!db&&player.model){ player.model.traverse(o=>{ if(!db&&/weapon.*dir/i.test(o.name||'')) db=o; }); }
-  player._gunDirBone=db||null; player._gunDirBonesRef=bones; return player._gunDirBone;
+  if(db){ player._gunDirBone=db; player._gunDirBonesRef=bones; }   // only cache on success -> keep retrying each frame until the bone exists (was caching null permanently)
+  return db||null;
 }
 function _foreArmBone(bones,side){
   const want=side==='L'?'Left':'Right';
@@ -25669,11 +25670,28 @@ function _orientHandLauncher(obj,bone,fore){
 // _riflePoseTick, so the bones it reads are already in the rifle pose. Returns false if there's no dir bone.
 function _orientMinigun(obj,bone){
   if(!obj||!bone||!player||!player.model) return false;
-  const db=(typeof _resolveGunDir==='function')?_resolveGunDir():null; if(!db) return false;
+  const bones=player.model.userData&&player.model.userData.bones; if(!bones) return false;
   player.model.updateWorldMatrix(true,true);
   const P0=bone.getWorldPosition(new THREE.Vector3());     // right hand = back of the gun
-  const P1=db.getWorldPosition(new THREE.Vector3());        // weapon_direction = muzzle end
-  const aim=P1.sub(P0); if(aim.lengthSq()<1e-8) return false; aim.normalize();
+  // Muzzle-end target. weapon_direction is meant to be posed out at the LEFT hand in the rifle stances; but an
+  // un-posed helper sits right on the right hand and reads as "just forward of the hand" (= the forearm aim the
+  // user is seeing). So: use weapon_direction only when it's actually posed away, else aim at the left-hand bone
+  // (which IS the between-the-hands line). window._MINIGUN_AIM forces 'weapondir' | 'lefthand'.
+  const mode=window._MINIGUN_AIM||'auto';
+  const db=(typeof _resolveGunDir==='function')?_resolveGunDir():null;
+  const lh=bones['mixamorig_LeftHand']||null;
+  const wdP=db?db.getWorldPosition(new THREE.Vector3()):null;
+  const lhP=lh?lh.getWorldPosition(new THREE.Vector3()):null;
+  let P1=null, src='none';
+  if(mode==='lefthand'){ if(lhP){ P1=lhP; src='lefthand'; } }
+  else if(mode==='weapondir'){ if(wdP){ P1=wdP; src='weapondir'; } }
+  else { const far=(window._MINIGUN_AIM_MIN!=null?window._MINIGUN_AIM_MIN:8);
+    if(wdP && wdP.distanceTo(P0)>=far){ P1=wdP; src='weapondir'; }
+    else if(lhP){ P1=lhP; src='lefthand'; }
+    else if(wdP){ P1=wdP; src='weapondir'; } }
+  if(!P1) return false;
+  const aim=P1.clone().sub(P0); if(aim.lengthSq()<1e-8) return false; aim.normalize();
+  if(window._MINIGUN_DEBUG){ const n=(typeof performance!=='undefined'?performance.now():0); if(n-(player._mgDbgT||0)>1500){ player._mgDbgT=n; console.log('[minigun] aim src='+src+' wd='+(wdP?wdP.distanceTo(P0).toFixed(1):'none')+' lh='+(lhP?lhP.distanceTo(P0).toFixed(1):'none')+' dir=('+aim.x.toFixed(2)+','+aim.y.toFixed(2)+','+aim.z.toFixed(2)+')'); } }
   const _up=new THREE.Vector3(0,1,0);
   let _right=new THREE.Vector3().crossVectors(_up,aim); if(_right.lengthSq()<1e-6)_right.set(1,0,0); _right.normalize();
   const _up2=new THREE.Vector3().crossVectors(aim,_right).normalize();
