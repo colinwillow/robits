@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-RB2</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-RB3</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1137,7 +1137,9 @@ function updateCamera(dt){
   const lookAheadDist=isLandscape?100:40;
   const cx=CAM.focus.x+Math.sin(CAM.yaw)*d;
   const cz=CAM.focus.z+Math.cos(CAM.yaw)*d;
-  const cy=CAM.focus.y+CAM.height*heightMult-CAM.zoom*20;
+  const _gfCam=(GS.zone===-19 && GS._gravFlip && player && !(player._hasBoots&&player._bootsEquipped));
+  GS._gfCamF=lerp(GS._gfCamF||0, _gfCam?1:0, 0.06);   // eased 0..1 gravity-flip factor — drives BOTH the vertical mirror and the view roll so they stay in sync
+  const cy=CAM.focus.y+(CAM.height*heightMult-CAM.zoom*20)*(1-2*GS._gfCamF);   // flipped: offset moves to the other (world-down) side so the camera sits "above" the ceiling-floor and pitches down
   const sh=CAM.trauma*CAM.trauma*0.5, t=performance.now()*0.05;
   const shX=(Math.sin(t*1.7)+Math.sin(t*3.3))*0.5*sh*14;
   const shY=(Math.sin(t*2.1)+Math.sin(t*4.7))*0.5*sh*14;
@@ -1151,9 +1153,8 @@ function updateCamera(dt){
     camera.position.set(cx+shX,cy+shY,cz);
     camera.lookAt(aheadX, aheadY, aheadZ);
   }
-  { const _gf=(GS.zone===-19 && GS._gravFlip && player && !(player._hasBoots&&player._bootsEquipped));   // GRAVITY-FLIP: roll the whole view 180° so the ceiling reads as the floor
-    GS._camRoll=lerp(GS._camRoll||0, _gf?Math.PI:0, 0.05);
-    if(Math.abs(GS._camRoll)>0.002 && typeof camera!=='undefined') camera.rotateZ(GS._camRoll); }
+  { GS._camRoll=(GS._gfCamF||0)*Math.PI;   // GRAVITY-FLIP: roll the view 180° in sync with the vertical mirror so the ceiling reads as the floor
+    if(GS._camRoll>0.002 && typeof camera!=='undefined') camera.rotateZ(GS._camRoll); }
   CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
 }
 
@@ -10576,7 +10577,7 @@ class Player{
     } else {
       this._wasAirborne=true;
     }
-    if(_gflip){ const _cy=((window._CUBE||_CUBE).h)-(window._CUBE_PAD!=null?window._CUBE_PAD:22); if(this.py>=_cy-2){ this.py=_cy; if(this.pvy>0)this.pvy=0; this._wasAirborne=false; this._peakPy=0; this._jetting=false; this.boostFuel=Math.min(this.boostMax,this.boostFuel+GND_RECHARGE*dt); } else { this._wasAirborne=true; } }   // flipped gravity: the ceiling is now your floor
+    if(_gflip){ const _cy=((window._CUBE||_CUBE).h)-(window._CUBE_PAD!=null?window._CUBE_PAD:22); if(this.py>=_cy-2){ this.py=_cy; if(this.pvy>0)this.pvy=0; this._wasAirborne=false; this._peakPy=0; this._jetting=false; this.boostFuel=Math.min(this.boostMax,this.boostFuel+GND_RECHARGE*dt); this._gfGrounded=true; } else { this._wasAirborne=true; this._gfGrounded=false; } } else { this._gfGrounded=false; }   // flipped gravity: the ceiling is now your floor; _gfGrounded = standing on it
     if(this.py>3000){ this.py=3000; if(this.pvy>0)this.pvy=0; }   // ceiling raised way up; kill upward vel at the cap so a high boost never lodges
     this._dbgRate=0; this._dbgFloorY=0;
 
@@ -18090,8 +18091,8 @@ function loop(ts){ requestAnimationFrame(loop);
             angleDiff = si.x>0 ? Math.PI/2 : -Math.PI/2;
           }
         }
-        const onGround=player.py<=4||player._onPlatform||(player._inPlanetGravity&&player._glGrounded);   // planet/wall-walk: grounded means stuck to a surface, not py<=4
-        const airborne = player._inPlanetGravity ? !(player._glGrounded||player._onPlatform) : (!onGround&&player.py>8);   // on the planet: off the surface => 'floating' (galaxy walk marks ground via _onPlatform, grid-lab via _glGrounded)
+        const onGround=player._gfGrounded||player.py<=4||player._onPlatform||(player._inPlanetGravity&&player._glGrounded);   // planet/wall-walk: grounded means stuck to a surface, not py<=4. _gfGrounded = standing on the flipped ceiling.
+        const airborne = player._gfGrounded ? false : (player._inPlanetGravity ? !(player._glGrounded||player._onPlatform) : (!onGround&&player.py>8));   // on the planet: off the surface => 'floating' (galaxy walk marks ground via _onPlatform, grid-lab via _glGrounded)
 
         // ── DIVE ROLL — triggered by left stick flick dash ──
         if(player._diveRollDir&&ud.clips){
