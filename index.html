@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BLEND3</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-IK1</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -18944,6 +18944,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _ww=(typeof _cubeWalkOn==='function'&&_cubeWalkOn(player)&&player._cubeUp&&player._cubeUp.y<0.9); const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(_ww||!_bmv) window._reorientGameBoots(); }   // on a wall/ceiling re-aim the boots to the surface every frame; on the floor only when standing still (avoids stride jitter)
       if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
+      if(typeof _aimArmIK==='function'){ try{ _aimArmIK(dt); }catch(_ike){} }   // aim the gun arm at the shot dir (layered over the anim), BEFORE the gun is oriented to the hand
       if(typeof _updateHandWeapons==='function') _updateHandWeapons(dt);
       if(GS.zone!==-16){ if(typeof _updateWeaponPads==='function')_updateWeaponPads(dt); if(typeof _updateBootStation==='function')_updateBootStation(dt); if(typeof _updateHammerStation==='function')_updateHammerStation(dt); if(typeof _updateSpiderPackPads==='function')_updateSpiderPackPads(dt); }   // pads/stations update everywhere except city (city does it inside updateCityTest)
       if(typeof window._barrelTick==='function')window._barrelTick(dt);
@@ -26443,6 +26444,35 @@ function _equipWeapon(weapon,ammo){
 window._RIFLE_WEAPONS = window._RIFLE_WEAPONS || new Set(['minigun']);   // e.g. window._RIFLE_WEAPONS.add('bullets')
 if(!window._WEAPON_EMBLEM_SCALE)window._WEAPON_EMBLEM_SCALE={}; if(window._WEAPON_EMBLEM_SCALE.minigun==null)window._WEAPON_EMBLEM_SCALE.minigun=0.62;
 function _isRifleWpn(){ return !!(player && player.primaryWeapon && window._RIFLE_WEAPONS && window._RIFLE_WEAPONS.has(player.primaryWeapon)); }
+// ── PROCEDURAL AIM-IK ── point the gun arm at the shot direction, layered ON TOP of whatever animation is playing (wall-run, grind, jump, locomotion…). Only the upper-arm rotates (shoulder look-at: shoulder->hand aligned to aim); the forearm/hand keep their animated bend, so the held gun ends up pointing where you aim. Blends in while firing, out otherwise.
+const _ik={v1:new THREE.Vector3(),v2:new THREE.Vector3(),v3:new THREE.Vector3(),aw:new THREE.Vector3(),qW:new THREE.Quaternion(),qS:new THREE.Quaternion(),qT:new THREE.Quaternion(),qP:new THREE.Quaternion()};
+function _aimArmSolve(bones, upperName, handName, w){
+  const up=bones[upperName], hand=bones[handName]; if(!up||!hand||!up.parent) return;
+  const sp=up.getWorldPosition(_ik.v1), hp=hand.getWorldPosition(_ik.v2);
+  const cur=_ik.v3.subVectors(hp,sp); if(cur.lengthSq()<1e-4) return; cur.normalize();
+  const qW=_ik.qW.setFromUnitVectors(cur,_ik.aw);                 // world rotation that swings the arm onto the aim
+  const tgtW=_ik.qT.copy(qW).multiply(up.getWorldQuaternion(_ik.qS));
+  const tgtL=up.parent.getWorldQuaternion(_ik.qP).invert().multiply(tgtW);   // -> local
+  up.quaternion.slerp(tgtL, w);
+}
+function _aimArmIK(dt){
+  if(window._AIMIK_ON===false) return;
+  if(typeof player==='undefined'||!player||!player.model) return;
+  const ud=player.model.userData, bones=ud&&ud.bones; if(!bones) return;
+  const gunR=!!player._handWpnR, gunL=!!player._handWpnL;
+  const blockState=player._ballActive||player._wallClimb||player._hang||player._crestSeq||(ud._meleeTimer>0)||player._meleeAdditive||ud._slamHold;
+  const want=(player._lastFiring||player._aimIKHold)&&(gunR||gunL)&&!blockState&&!(window._AIMIK_SKIP_RIFLE!==false&&_isRifleWpn());
+  ud._aimIKBlend=(ud._aimIKBlend||0)+(((want?1:0)-(ud._aimIKBlend||0))*Math.min(1,dt*(window._AIMIK_EASE||14)));
+  if(ud._aimIKBlend<0.02) return;
+  player.model.updateWorldMatrix(true,true);
+  if(player._aim3DActive&&player._aim3D){ _ik.aw.set(player._aim3D.x,player._aim3D.y||0,player._aim3D.z); }
+  else { const a=player.aim||0; _ik.aw.set(Math.cos(a),(window._AIMIK_UP!=null?window._AIMIK_UP:0.1),Math.sin(a)); }
+  if(_ik.aw.lengthSq()<1e-5)_ik.aw.set(1,0,0); _ik.aw.normalize();
+  const w=ud._aimIKBlend*(window._AIMIK_STRENGTH!=null?window._AIMIK_STRENGTH:0.9);
+  if(gunR) _aimArmSolve(bones,'mixamorig_RightArm','mixamorig_RightHand',w);
+  if(gunL) _aimArmSolve(bones,'mixamorig_LeftArm','mixamorig_LeftHand',w);
+}
+window._aimArmIK=_aimArmIK;
 window._equipRifle=function(name){ name=name||player&&player.primaryWeapon||'bullets'; if(!window._RIFLE_WEAPONS)window._RIFLE_WEAPONS=new Set(); window._RIFLE_WEAPONS.add(name); if(typeof _equipWeapon==='function')_equipWeapon(name); else if(player)player.primaryWeapon=name; };
 // Rifle stance = a TRUE upper-body override (not additive). Runs after the mixer (called at the end of the
 // per-frame player update), so it overwrites the torso-up bone rotations the locomotion clip just set, while
