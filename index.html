@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BALL3</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BLEND1</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11101,7 +11101,8 @@ class Player{
       this.model.quaternion.slerp(_tq, window._GFLIP_SLERP||0.18);
     } else if(this.model.userData.isRobot){
       this.model.rotation.x=0;
-      this.model.rotation.y=-this.aim+Math.PI/2;
+      // EASED facing: turn smoothly toward the aim instead of snapping (e.g. when the right stick whips aim to a new direction while shooting). Bullets still use the instant this.aim, so aiming stays responsive — only the body visually catches up.
+      { const _ty=-this.aim+Math.PI/2; if(this._faceYaw===undefined)this._faceYaw=_ty; let _d=_ty-this._faceYaw; while(_d>Math.PI)_d-=TAU; while(_d<-Math.PI)_d+=TAU; const _k=(this._wallRun||this._sliding)?1:(window._FACE_TURN||0.35); this._faceYaw+=_d*_k; this.model.rotation.y=this._faceYaw; }
       this.model.rotation.z=this._onHoverboard?((this._skLean||0)+(this._hbSway||0)):((GS.zone===-10)?(this._pipeLean||0):0);
       if(GS.zone===-10 && this._pipeTrick){ const _ta=this._pipeTrick.dir*Math.PI*2*(this._pipeTrick.t/this._pipeTrick.dur); if(this._pipeTrick.kind==='spin') this.model.rotation.y+=_ta; else this.model.rotation.x+=_ta; }
     } else {
@@ -20509,7 +20510,8 @@ function _wallRunPose(on,left){
     if(a){ const _F=(window._WALLRUN_FADE!=null?window._WALLRUN_FADE:0.12); for(const k in ud.clips){ if(ud.clips[k]!==a) ud.clips[k].fadeOut(_F); } a.reset().setEffectiveWeight(1).setEffectiveTimeScale(window._WALLRUN_ANIM_SPD||2).setLoop(THREE.LoopRepeat,Infinity); a.clampWhenFinished=false; a.enabled=true; a.fadeIn(_F).play(); ud.currentClip=name; ud._wallRunClip=a; ud._wallRunPose=true; }
   } else {
     ud._wallRunPose=false;
-    if(ud._wallRunClip){ try{ ud._wallRunClip.fadeOut(0.14); }catch(_){} ud._wallRunClip=null; }
+    // fade the wall-run clip out and hand off to the locomotion selector (it will crossfade to floating/run next frame) -> smooth blend back to the air/ground, no idle-pop in between
+    if(ud._wallRunClip){ try{ ud._wallRunClip.fadeOut(window._WALLRUN_FADE_OUT||0.18); }catch(_){} ud._wallRunClip=null; }
     ud.currentClip=null;
   }
 }
@@ -20569,9 +20571,11 @@ function _updateWallRun(dt){
   player.wx+=B.tx*B.spd*dt; player.wz+=B.tz*B.spd*dt;
   if(B.axis==='x') player.wx=B.plane+B.nx*(window._WALLRUN_OFFSET||13); else player.wz=B.plane+B.nz*(window._WALLRUN_OFFSET||13);
   player.vx=0; player.vz=0; player.aim=Math.atan2(B.tz,B.tx); player._jetting=false;   // velocity restored on EXIT (below) so facing tracks travel again — no stuck orientation
-  // HOLD the wall-run clip dominant + link its play speed to along-wall travel (slow crawl = slow anim, fast = ~1)
+  // HOLD the wall-run clip dominant + link its play speed to along-wall travel (slow crawl = slow anim, fast = ~1).
+  // During the entry fade window (B.t < fade) DON'T force weights — let _wallRunPose's fadeIn crossfade smoothly from the air pose. After that, lock it dominant.
   { const ud=player.model&&player.model.userData; if(ud&&ud.clips){ let a=ud._wallRunClip; if(!a){ const nm=((B.left&&!window._WALLRUN_FLIP)||(!B.left&&window._WALLRUN_FLIP))?'left':'right'; a=ud.clips[nm]||ud.clips['wall_run_left']||ud.clips['wall_run_right']||ud.clips['left']||ud.clips['right']; ud._wallRunClip=a; ud.currentClip=nm; }
-      if(a){ const _as=Math.max((window._WALLRUN_ANIM_MIN||0.35),Math.min((window._WALLRUN_ANIM_MAX||1.4), Math.abs(B.spd)/(window._WALLRUN_ANIM_REF||200)))*(window._WALLRUN_ANIM_SPD||1); try{ if(!a.isRunning())a.reset().play(); a.enabled=true; a.setEffectiveWeight(1); a.setEffectiveTimeScale(_as); }catch(_){} for(const k in ud.clips){ const o=ud.clips[k]; if(o!==a && o.getEffectiveWeight&&o.getEffectiveWeight()>0.01){ try{o.setEffectiveWeight(0);}catch(_){} } } } } }
+      if(a){ const _as=Math.max((window._WALLRUN_ANIM_MIN||0.35),Math.min((window._WALLRUN_ANIM_MAX||1.4), Math.abs(B.spd)/(window._WALLRUN_ANIM_REF||200)))*(window._WALLRUN_ANIM_SPD||1); try{ if(!a.isRunning())a.reset().play(); a.enabled=true; a.setEffectiveTimeScale(_as); }catch(_){}
+        if(B.t>(window._WALLRUN_FADE!=null?window._WALLRUN_FADE:0.14)){ try{a.setEffectiveWeight(1);}catch(_){} for(const k in ud.clips){ const o=ud.clips[k]; if(o!==a && o.getEffectiveWeight&&o.getEffectiveWeight()>0.01){ try{o.setEffectiveWeight(0);}catch(_){} } } } } } }
   if(typeof ps!=='undefined'&&Math.random()<0.5) ps.spark(player.wx+B.nx*5,player.wz+B.nz*5,[0.4,0.9,1],(player.py||0)+rand(2,16));
   // ── EXIT ── (carry velocity back so the character keeps moving + facing correctly; min duration so it's never a 1-frame blip)
   const lateral=(B.axis==='x')?Math.abs(player.wz-B.cz):Math.abs(player.wx-B.cx), halfLat=(B.axis==='x')?B.hd:B.hw;
