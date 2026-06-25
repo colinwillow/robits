@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BLEND2</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BLEND3</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12505,6 +12505,18 @@ function _slamShockwave(x, z, o){
   return fx;
 }
 window._slamShockwave=_slamShockwave;
+// the full air-slam ground impact (grid carve, ring FX, damaging shockwave, shake/sfx) — fired ONCE per slam from whichever path detects the landing, so a quick repeat slam never misses its shockwave
+function _doSlamImpact(x,z,y){
+  if(typeof player!=='undefined'&&player){ player._slamImpactDone=true; player.vx=0; player.vz=0; player._dashDir=null; player._dashRamp=0; }
+  if(typeof grid!=='undefined'){ if(grid.push)grid.push(x,z,-(window._SLAM_GRID_DEPTH!=null?window._SLAM_GRID_DEPTH:16),(window._SLAM_GRID_R!=null?window._SLAM_GRID_R:230)); if(grid.shock)grid.shock(x,z,(window._SLAM_GRID_SHOCK!=null?window._SLAM_GRID_SHOCK:10)); if(grid.pulse)grid.pulse(0.5); }
+  if(typeof GRID_SHEETS!=='undefined'&&GRID_SHEETS.length&&typeof gridSheetsBlast==='function'){ try{ gridSheetsBlast(x,y||0,z,14,300); }catch(_){} }
+  if(typeof ps!=='undefined'){ ps.ring(x,z,[0.55,0.95,1],30,210); ps.ring(x,z,[1,1,1],16,140); ps.ring(x,z,[0.4,0.85,1],52,300); ps.burst(x,z,[0.7,0.92,1],46,210);
+    for(let k=0;k<26;k++){ const a=k/26*Math.PI*2, sp=rand(160,360); ps._spawn(x,(y||0)+2,z, Math.cos(a)*sp, rand(40,160), Math.sin(a)*sp, 0.55,0.92,1, 0.5); } }
+  if(typeof addTrauma==='function')addTrauma(0.36); if(typeof hitStop==='function')hitStop(7);
+  if(typeof Audio!=='undefined'){ try{ Audio.blip(58,0.55,'sawtooth',0.5,26); if(Audio.noise)Audio.noise(0.45,0.4,520); }catch(_){} }
+  if(window._SLAM_AOE!==false && typeof _slamShockwave==='function') _slamShockwave(x, z, {y:(y||0)+2});   // the damaging part
+}
+window._doSlamImpact=_doSlamImpact;
 // ── SLASH DECAL — a glowing claw/gash that sticks to a big enemy's body at the melee contact point, then fades.
 //    Parented to the enemy's mesh so it rides the body; offset just off the surface (depth-tested) so the far side is hidden.
 function _spawnSlashDecal(e, wx, wy, wz, ang){
@@ -18430,17 +18442,7 @@ function loop(ts){ requestAnimationFrame(loop);
           if(ud._flipClipName&&ud.clips[ud._flipClipName]){ ud.clips[ud._flipClipName].stop(); ud.clips[ud._flipClipName].setEffectiveWeight(0); }
           const _slam=!!player._airSlam; player._airSlam=false; ud._slamHold=false; player._swingAction=null;
           if(_slam){ ud._meleeTimer=0; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; player._rollAimLock=false; player._meleeBuf=null; if(player._meleeAdditive){ try{player._meleeAdditive.stop();}catch(_){} player._meleeAdditive=null; } ud.currentClip=null; }   // air slam skipped the normal swing-end cleanup (it was held) -> clear it now so running/idle resume after the landing clip
-          if(_slam && window._AIR_SLAM_STOP!==false){ player.vx=0; player.vz=0; player._dashDir=null; player._dashRamp=0;
-            // ── HEFTY SLAM SHOCKWAVE on ground impact ──
-            if(typeof grid!=='undefined'){ if(grid.push)grid.push(player.wx,player.wz,-(window._SLAM_GRID_DEPTH!=null?window._SLAM_GRID_DEPTH:16),(window._SLAM_GRID_R!=null?window._SLAM_GRID_R:230)); if(grid.shock)grid.shock(player.wx,player.wz,(window._SLAM_GRID_SHOCK!=null?window._SLAM_GRID_SHOCK:10)); if(grid.pulse)grid.pulse(0.5); }
-            if(typeof GRID_SHEETS!=='undefined'&&GRID_SHEETS.length&&typeof gridSheetsBlast==='function'){ try{ gridSheetsBlast(player.wx,player.py||0,player.wz,14,300); }catch(_){} }
-            // expanding ground ripple — concentric rings + radial particle spray
-            if(typeof ps!=='undefined'){ ps.ring(player.wx,player.wz,[0.55,0.95,1],30,210); ps.ring(player.wx,player.wz,[1,1,1],16,140); ps.ring(player.wx,player.wz,[0.4,0.85,1],52,300); ps.burst(player.wx,player.wz,[0.7,0.92,1],46,210);
-              for(let k=0;k<26;k++){ const a=k/26*Math.PI*2, sp=rand(160,360); ps._spawn(player.wx,(player.py||0)+2,player.wz, Math.cos(a)*sp, rand(40,160), Math.sin(a)*sp, 0.55,0.92,1, 0.5); } }   // low outward shockwave debris
-            if(typeof addTrauma==='function')addTrauma(0.36); if(typeof hitStop==='function')hitStop(7);
-            if(typeof Audio!=='undefined'){ try{ Audio.blip(58,0.55,'sawtooth',0.5,26); if(Audio.noise)Audio.noise(0.45,0.4,520); }catch(_){} }
-            if(window._SLAM_AOE!==false && typeof _slamShockwave==='function') _slamShockwave(player.wx, player.wz, {y:(player.py||0)+2});   // expanding shockwave ring + radial slashes that damage enemies as the front sweeps out, then dissipates (local radius)
-          }
+          if(_slam && window._AIR_SLAM_STOP!==false && !player._slamImpactDone){ _doSlamImpact(player.wx, player.wz, player.py||0); }   // fire the impact once per slam
           const _hardFall=!_slam && (ud._maxFallVy||0)<=-(window._ROLL_LAND_VY!=null?window._ROLL_LAND_VY:420);   // fast impact == big drop -> roll instead of soft land; never roll out of a slam
           const _landName=(_hardFall&&ud.clips['roll_landing'])?'roll_landing':'landing';
           if(ud.clips[_landName]){
@@ -18460,8 +18462,8 @@ function loop(ts){ requestAnimationFrame(loop);
           }
           ud._maxFallVy=0;
         }
-        // SLAM SAFETY — a fast slam can skip the debounced landing above; never let the flags stay set once we're on a surface
-        if(player._airSlam && onGround){ player._airSlam=false; ud._slamHold=false; player._swingAction=null; }
+        // SLAM SAFETY — a fast slam can skip the debounced landing above (landing-timer still running / never marked airborne); fire the impact here too so the shockwave NEVER gets skipped on a quick repeat slam, then clear the flags
+        if(player._airSlam && onGround){ if(window._AIR_SLAM_STOP!==false && !player._slamImpactDone && typeof _doSlamImpact==='function') _doSlamImpact(player.wx, player.wz, player.py||0); player._airSlam=false; ud._slamHold=false; player._swingAction=null; }
         // ── FLIP ON JUMP ──
         const justLeftGround=airborne&&ud._prevAirborne===false&&player.pvy>50;
         if(justLeftGround&&ud.clips&&!ud._flippingTimer){
@@ -20551,11 +20553,10 @@ function _updateWallRun(dt){
     const into=-(player.vx*f.nx+player.vz*f.nz);                             // >0 = heading toward the wall
     if(tang<(window._WALLRUN_MIN_SPD||55)) return;                           // need real along-wall speed (not straight into the wall)
     if(into<(window._WALLRUN_INTO_MIN!=null?window._WALLRUN_INTO_MIN:-30)) return;  // and not clearly peeling AWAY from it
-    const dl=spd||1, left=((player.vx/dl)*f.nz-(player.vz/dl)*f.nx)>0, off=(window._WALLRUN_OFFSET||13);
-    if(f.axis==='x') player.wx=f.plane+f.nx*off; else player.wz=f.plane+f.nz*off;
-    // PRESERVE trajectory: keep your current vertical velocity (up OR down) so you can wall-run on the way up AND on the downslope of your arc.
+    const dl=spd||1, left=((player.vx/dl)*f.nz-(player.vz/dl)*f.nx)>0;
+    // PRESERVE trajectory: keep your current vertical velocity (up OR down) so you can wall-run on the way up AND on the downslope of your arc. (Position + facing EASE onto the wall in the active branch — no entry snap.)
     player._wallRun={nx:f.nx,nz:f.nz,tx,tz,plane:f.plane,axis:f.axis,cx:f.cx,cz:f.cz,hw:f.hw,hd:f.hd,topY:f.topY,t:0,spd:Math.max(tang,(window._WALLRUN_SPD_MIN||90)),left,vy:(player.pvy||0),py:(player.py||0),gdir:_gr.gdir,rest:_gr.rest};
-    player.vx=tx*tang; player.vz=tz*tang; player.aim=Math.atan2(tz,tx); player._jumpTapped=false; player._jetting=false;
+    player.vx=tx*tang; player.vz=tz*tang; player._jumpTapped=false; player._jetting=false;
     _wallRunPose(true,left);
     _wrDbg('ENTER '+(left?'L':'R')+' '+f.axis+(f.cube?'(cube)':'')+' vy'+((player.pvy||0)|0)+' sp'+(tang|0));
     if(typeof ps!=='undefined') ps.ring(player.wx,player.wz,[0.4,0.9,1],14,80);
@@ -20580,8 +20581,11 @@ function _updateWallRun(dt){
   }
   player.py=B.py; player.pvy=B.vy;
   player.wx+=B.tx*B.spd*dt; player.wz+=B.tz*B.spd*dt;
-  if(B.axis==='x') player.wx=B.plane+B.nx*(window._WALLRUN_OFFSET||13); else player.wz=B.plane+B.nz*(window._WALLRUN_OFFSET||13);
-  player.vx=0; player.vz=0; player.aim=Math.atan2(B.tz,B.tx); player._jetting=false;   // velocity restored on EXIT (below) so facing tracks travel again — no stuck orientation
+  // EASE onto the wall plane for the first moments (smooth attach, no lateral pop), then lock the pin
+  { const _off=(window._WALLRUN_OFFSET||13), _sk=(B.t<(window._WALLRUN_SNAP_T||0.14))?(window._WALLRUN_SNAP_K||0.4):1;
+    if(B.axis==='x') player.wx+=((B.plane+B.nx*_off)-player.wx)*_sk; else player.wz+=((B.plane+B.nz*_off)-player.wz)*_sk; }
+  player.vx=0; player.vz=0; player._jetting=false;
+  player.aim=_easeAng(player.aim, Math.atan2(B.tz,B.tx), window._WALLRUN_FACE_K||0.3);   // ease facing to the wall tangent (smooth turn-in); velocity restored on EXIT so facing tracks travel after
   // HOLD the wall-run clip dominant + link its play speed to along-wall travel (slow crawl = slow anim, fast = ~1).
   // During the entry fade window (B.t < fade) DON'T force weights — let _wallRunPose's fadeIn crossfade smoothly from the air pose. After that, lock it dominant.
   { const ud=player.model&&player.model.userData; if(ud&&ud.clips){ let a=ud._wallRunClip; if(!a){ const nm=((B.left&&!window._WALLRUN_FLIP)||(!B.left&&window._WALLRUN_FLIP))?'left':'right'; a=ud.clips[nm]||ud.clips['wall_run_left']||ud.clips['wall_run_right']||ud.clips['left']||ud.clips['right']; ud._wallRunClip=a; ud.currentClip=nm; }
@@ -25613,7 +25617,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   { const _og=(player.py<=4)||player._onPlatform||(player._inPlanetGravity&&player._glGrounded); _airMelee = player._inPlanetGravity ? !player._glGrounded : (!_og && player.py>8); }
   let mname;
   if(_airMelee && ud.clips['air_to_ground_melee']){
-    mname='air_to_ground_melee'; player._meleeStep=-1; player._airSlam=true; ud._slamHold=true; if((player.pvy||0)>0)player.pvy*=0.2;   // air slam -> the last frame HOLDS until he lands; commit downward so he dives
+    mname='air_to_ground_melee'; player._meleeStep=-1; player._airSlam=true; player._slamImpactDone=false; ud._slamHold=true; if((player.pvy||0)>0)player.pvy*=0.2;   // air slam -> the last frame HOLDS until he lands; commit downward so he dives ( _slamImpactDone reset so this slam's shockwave is armed)
   } else {
     ud._slamHold=false;
     if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }
