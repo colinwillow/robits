@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BM5</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-SP1</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -8026,11 +8026,13 @@ window.AllyBot=AllyBot;
 
 // thrown containment ball — same trajectory/bounce as a bomb, but unfolds into a spider when it stops
 class DeployPod{
-  constructor(wx,wz,y,vx,vz,fuse,initVY,species){
+  constructor(wx,wz,y,vx,vz,fuse,initVY,species,count,color){
     this.wx=wx;this.wz=wz;this.y=y;this.vx=vx;this.vz=vz;this.vy=initVY!==undefined?initVY:60;
     this.species=species||'crawler'; this.timer=fuse||2.0; this.dead=false; this.t=0; this.phase='fly'; this._pt=0;
+    this.count=count||1; this.tint=(color!=null?color:null);   // count = how many allies unfold; tint = team color for them + the pod
+    const _bc=(color!=null?color:0x3aa0ff);
     const g=new THREE.Group();
-    this._ball=new THREE.Mesh(new THREE.SphereGeometry(7,12,10), new THREE.MeshBasicMaterial({color:0x3aa0ff,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false}));
+    this._ball=new THREE.Mesh(new THREE.SphereGeometry(7,12,10), new THREE.MeshBasicMaterial({color:_bc,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false}));
     this._wire=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(7,1)), new THREE.LineBasicMaterial({color:0x9ad0ff,transparent:true,opacity:0.9}));
     this._core=new THREE.Mesh(new THREE.SphereGeometry(2.4,8,8), new THREE.MeshBasicMaterial({color:0xcfe8ff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
     g.add(this._ball); g.add(this._wire); g.add(this._core);
@@ -8061,8 +8063,15 @@ class DeployPod{
       this.mesh.scale.setScalar(1+k*0.7);
       this._ball.material.opacity=0.5*(1-k); this._wire.material.opacity=0.9*(1-k); this._core.material.opacity=0.9*(1-k);
       if(this._pt>=0.2){
-        if(GS.allies.length<12 && typeof AllyBot!=='undefined') GS.allies.push(new AllyBot(this.wx,this.wz,this.species));
-        else if(typeof announce==='function') announce('ROBIT SQUAD FULL (3)','#ffaa33');
+        const _n=this.count||1;
+        for(let i=0;i<_n;i++){
+          if(GS.allies.length>=12){ if(typeof announce==='function') announce('ROBIT SQUAD FULL','#ffaa33'); break; }
+          if(typeof AllyBot==='undefined') break;
+          const _a=(i/Math.max(1,_n))*Math.PI*2, _rr=_n>1?16:0;
+          const _bot=new AllyBot(this.wx+Math.cos(_a)*_rr, this.wz+Math.sin(_a)*_rr, this.species);
+          if(this.tint!=null && typeof _tintAlly==='function') _tintAlly(_bot, this.tint);
+          GS.allies.push(_bot);
+        }
         this.dead=true; return false;
       }
       return true;
@@ -9018,6 +9027,26 @@ function _deployAlly(){
   if(typeof announce==='function')announce('DEPLOYED '+(rec?rec.name:id),'#44ff99');
 }
 window._deployAlly=_deployAlly;
+// ── SPIDER PACK power-up: throw a small green ball that bursts into a pack of allied spiders (colored to your team), which fight enemies for you ──
+function _tintAlly(bot, hex){ if(!bot)return; const c=new THREE.Color(hex);
+  const tint=(o)=>{ if(!o.material)return; const ms=Array.isArray(o.material)?o.material:[o.material]; for(const m of ms){ if(m.emissive&&m.emissive.isColor){ m.emissive.copy(c); } else if(m.color&&m.color.isColor&&m.isMeshBasicMaterial){ m.color.copy(c); } } };
+  try{ if(bot.mesh)bot.mesh.traverse(tint); if(bot._halo)bot._halo.traverse(tint); }catch(_){}
+}
+window._tintAlly=_tintAlly;
+window._throwSpiderPack=function(dirX,dirZ){
+  if(typeof player==='undefined'||!player||!player.alive||typeof GS==='undefined'||GS.state!=='playing'||typeof DeployPod==='undefined')return;
+  let a=player.aim||0; if(dirX!=null&&dirZ!=null&&(dirX||dirZ)) a=Math.atan2(dirZ,dirX);
+  const dx=Math.cos(a), dz=Math.sin(a);
+  const spawnX=player.wx+dx*14, spawnZ=player.wz+dz*14, spawnY=(player.py||0)+14;
+  const sp=(window._SPIDERPACK_SPD||260), vy=(window._SPIDERPACK_VY||120);
+  const color=(window._SPIDERPACK_COLOR!=null?window._SPIDERPACK_COLOR:0x66ff55), count=(window._SPIDERPACK_COUNT||3);
+  const b=new DeployPod(spawnX, spawnZ, spawnY, dx*sp, dz*sp, 1.8, vy, 'crawler', count, color);
+  if(GS.zone===-16 && player._onPlatform) b._noOrbit=true;
+  GS.crates.push(b);   // pods/crates update + render from GS.crates
+  if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.4,1,0.35],14,90);
+  if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(420,0.12,'square',0.16,720);
+  if(typeof announce==='function')announce('SPIDER PACK','#66ff55');
+};
 function _armAlly(){
   if(!player) return; const owned=_ownedSpecies();
   if(!owned.length){ if(typeof announce==='function')announce('NO ROBITS — CATCH ONE FIRST','#3aa0ff'); if(typeof Audio!=='undefined')Audio.blip(160,0.08,'square',0.12,120); return; }
@@ -16965,6 +16994,7 @@ player.pvy=180;
     const _w=_tw[window._mgTestI]; _equipWeapon(_w);
     if(typeof announce==='function')announce('▸ '+_w.toUpperCase()+' (M)','#ff8a3a');
   }
+  if(e.code==='KeyN'&&!wasHeld&&GS.state==='playing'&&player&&typeof window._throwSpiderPack==='function'){ window._throwSpiderPack(); }   // DESKTOP TEST: N throws a spider-pack power-up
   if(e.code==='KeyX'&&GS.state==='playing'&&player){
     const mv=keyMoveVec();
     if(Math.hypot(mv.x,mv.z)>0.1){
