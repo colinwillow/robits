@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-AIR1</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-AIR2</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -18589,7 +18589,7 @@ function loop(ts){ requestAnimationFrame(loop);
         }
 
         // Skip blend switch while roll, landing, climbing, or flipping
-        if(!ud._rollingTimer&&!ud._landingTimer&&!ud._stowTimer&&!ud._slamHold&&!player._wallClimb&&!player._hang&&!player._crestSeq&&!player._wallRun&&!ud._flippingTimer&&!ud._voidTumble&&!player._ballActive&&(window._meleeUpperBody||!ud._meleeTimer)){
+        if(!ud._rollingTimer&&!ud._landingTimer&&!ud._stowTimer&&!ud._slamHold&&!player._wallClimb&&!player._hang&&!player._crestSeq&&!player._wallRun&&!ud._flippingTimer&&!ud._voidTumble&&!player._ballActive&&(window._meleeUpperBody||player._meleeAdditive||!ud._meleeTimer)){
           let targetClip='idle';
           let _skateAnim=false;
           if(GS.zone===-8||GS.zone===-10||player._onHoverboard){
@@ -25345,21 +25345,23 @@ if(typeof window!=='undefined' && window._MELEE_AUTOAIM_R===undefined) window._M
 if(typeof window!=='undefined' && window._MELEE_LUNGE===undefined) window._MELEE_LUNGE=true;            // TAP melee lunges toward the target (set false to disable)
 // ── upper-body additive swing: clone the melee clip, drop leg/hip tracks, rebase as additive-over-idle, layer it on the running legs (no GLB split needed) ──
 const _MELEE_LOWER_RE=/(Hips|Leg|Foot|Toe)/i;   // bones EXCLUDED from the upper-body layer (legs/hips stay driven by locomotion)
-function _buildAdditiveMelee(ud,name){
+function _buildAdditiveMelee(ud,name,keepHips){
   if(!ud) return null;
   ud._addMelee=ud._addMelee||{};
-  if(ud._addMelee[name]!==undefined) return ud._addMelee[name];
+  const key=name+(keepHips?'_kh':'');
+  if(ud._addMelee[key]!==undefined) return ud._addMelee[key];
   const base=ud.clips&&ud.clips[name], clip=base&&base._clip, mix=ud.mixer||(player&&player._mixer);
   const AU=THREE.AnimationUtils, ADD=THREE.AdditiveAnimationBlendMode;
-  if(!clip||!mix||!AU||!AU.makeClipAdditive||ADD===undefined){ ud._addMelee[name]=null; return null; }
-  let up; try{ up=clip.clone(); }catch(e){ ud._addMelee[name]=null; return null; }
-  up.tracks=up.tracks.filter(t=>!_MELEE_LOWER_RE.test(t.name));   // arms + torso only
-  up.name=name+'_upperAdd';
+  if(!clip||!mix||!AU||!AU.makeClipAdditive||ADD===undefined){ ud._addMelee[key]=null; return null; }
+  let up; try{ up=clip.clone(); }catch(e){ ud._addMelee[key]=null; return null; }
+  const re=keepHips?/(UpLeg|LowLeg|_Leg|LeftLeg|RightLeg|Foot|Toe)/i:_MELEE_LOWER_RE;   // keepHips: exclude only the legs (Hips + spine + arms stay in the slash); else the full lower body
+  up.tracks=up.tracks.filter(t=>!re.test(t.name));
+  up.name=name+(keepHips?'_khAdd':'_upperAdd');
   const idleClip=(ud.clips['idle']&&ud.clips['idle']._clip)||clip;   // rebase the layer against the rest (idle) pose, not the swing's own frame 0
-  try{ AU.makeClipAdditive(up,0,idleClip,30); }catch(e){ ud._addMelee[name]=null; return null; }
-  let act; try{ act=mix.clipAction(up,undefined,ADD); }catch(e){ ud._addMelee[name]=null; return null; }
+  try{ AU.makeClipAdditive(up,0,idleClip,30); }catch(e){ ud._addMelee[key]=null; return null; }
+  let act; try{ act=mix.clipAction(up,undefined,ADD); }catch(e){ ud._addMelee[key]=null; return null; }
   act.setLoop(THREE.LoopOnce,1); act.clampWhenFinished=true;
-  ud._addMelee[name]=act;
+  ud._addMelee[key]=act;
   return act;
 }
 // ── MELEE PARRY (timing gauge) — when something deflectable is incoming, a gauge shows above you with a green window. Swing while the marker is in the green to deflect it back. Tune the green to land where the blade is in front during the spin. ──
@@ -25632,8 +25634,8 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
       const _s1=ud.clips['sword_slash_1']?'sword_slash_1':(ud.clips['melee_1']?'melee_1':'air_to_ground_melee');
       const _s2=ud.clips['sword_slash_2']?'sword_slash_2':(ud.clips['melee_2']?'melee_2':_s1);
       mname=player._airSlashStep?_s2:_s1; player._meleeStep=-1; player._airSlam=false; ud._slamHold=false;   // air slashes don't dive/hold — they swing in place (torso-up) and you keep your arc
-      // slight FORWARD lunge each air slash (a little boost in your facing) — keeps you mobile in the air
-      { const _fa=player.aim||0, _fwd=(window._AIR_SLASH_FWD||150); player._dashDir=[Math.cos(_fa),Math.sin(_fa)]; player._dashRamp=(window._AIR_SLASH_FWD_FRAMES||9); player._dashRampMax=player._dashRamp; player._dashPeak=_fwd; }
+      // FORWARD lunge each air slash (boost in your facing) — keeps you mobile in the air. _meleeLungeT lets the lunge carry instead of the swing planting you.
+      { const _fa=player.aim||0, _fwd=(window._AIR_SLASH_FWD||420); player._dashDir=[Math.cos(_fa),Math.sin(_fa)]; player._dashRamp=(window._AIR_SLASH_FWD_FRAMES||12); player._dashRampMax=player._dashRamp; player._dashPeak=_fwd; player._meleeLungeT=(window._AIR_SLASH_LUNGE_T||0.18); }
     }
   } else {
     ud._slamHold=false;
@@ -25676,8 +25678,9 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
     if(typeof announce==='function') announce('HIPS pos:'+(hp?(pm?'MOVES':'FLAT'):'none')+'  rot:'+(hr?(rm?'MOVES':'FLAT'):'none'), (pm||rm)?'#33ffdd':'#ff5555');
   }
   if(!mc) return;
+  const _airSlash=_airMelee && !player._airSlam;   // an air slash (not the slam, not a ground swing)
   const _ws=window._MELEE_STATS&&window._MELEE_STATS[player._meleeType||'sword'];
-  const spd=((typeof window!=='undefined'&&window._MELEE_SPEED!=null?window._MELEE_SPEED:_MELEE_SPEED)||1)*((_ws&&_ws.speed)||1);   // per-weapon: sword fast, hammer slow
+  const spd=((typeof window!=='undefined'&&window._MELEE_SPEED!=null?window._MELEE_SPEED:_MELEE_SPEED)||1)*((_ws&&_ws.speed)||1)*(_airSlash?(window._AIR_SLASH_SPD||1.8):1);   // air slashes play faster
   const fullDur=((mc._clip&&mc._clip.duration)||0.6);
   const _tS=(typeof window!=='undefined'&&window._MELEE_TRIM_START!=null)?window._MELEE_TRIM_START:_MELEE_TRIM_START;
   const _tE=(typeof window!=='undefined'&&window._MELEE_TRIM_END!=null)?window._MELEE_TRIM_END:_MELEE_TRIM_END;
@@ -25685,8 +25688,8 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   const trimE=Math.min(_tE||0, fullDur*0.3);
   const mdur=Math.max(fullDur*0.4, fullDur-trimS-trimE)/spd;   // swing window = full (sped-up) clip when trims are 0 -> the whole animation plays before locomotion resumes
   let usedAdditive=false;
-  if(window._meleeUpperBody && !player._airSlam && mname!=='slide'){   // torso-up additive (legs keep floating/running) for ground AND air slashes; only the air SLAM (_airSlam) uses full-body so the whole pose freezes/dives on the last frame
-    const add=_buildAdditiveMelee(ud,mname);
+  if((window._meleeUpperBody || _airSlash) && !player._airSlam && mname!=='slide'){   // air slashes ALWAYS use the split (hips+torso+arms slash, legs keep floating) regardless of the global flag; the air SLAM stays full-body
+    const add=_buildAdditiveMelee(ud,mname,_airSlash);   // _airSlash -> keep the hips in the slash (only the legs float)
     if(add){
       if(player._meleeAdditive && player._meleeAdditive!==add) player._meleeAdditive.stop();   // don't stack swings
       add.reset().setEffectiveTimeScale(1).setLoop(THREE.LoopOnce,1);
