@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-WRUN9</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BALL3</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10441,6 +10441,9 @@ class Player{
     const al=Math.hypot(avx,avz);
     const mvMagnitude=Math.hypot(rawX,rawZ);
 
+    // WATCHDOG: _rollAimLock freezes left-stick turning; if a mode that set it (melee/slide/ball/roll/flip) got preempted (e.g. double-tap into ball mode skipped the melee swing-end cleanup) it would stay stuck forever. Clear it whenever nothing legitimately holds it.
+    if(this._rollAimLock){ const _ud=this.model&&this.model.userData; const _busy=(_ud&&((_ud._meleeTimer||0)>0||_ud._oneShotAct||(_ud._rollingTimer||0)>0||(_ud._flippingTimer||0)>0))||this._swingAction||this._flip||this._ballActive||this._wallRun||this._wallClimb||this._crestSeq||this._hang; if(!_busy) this._rollAimLock=false; }
+
     // ── CAMERA + AIM ──
     if(window.CTRL_MODE==='follow'){
       // ZELDA-CAM: camera eases behind character, right stick overrides camera+aim
@@ -17578,7 +17581,8 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
           if(_bd<240 && _bdisp<18) window._ballExit();
         }
         // BALL double-tap mode: the 2nd tap is HELD to charge (and the stick aims while held); RELEASING that finger LAUNCHES in the aimed direction. No third tap needed.
-        if(window._BALL_ON && window._BALL_DOUBLETAP!==false && window._BALL && window._BALL.state==='charging' && !jL._meleeFlicked && !jL._tapMoved){
+        // NOTE: do NOT gate on _tapMoved here — aiming necessarily moves the stick (>15px sets _tapMoved), which would wrongly block the release-launch. _meleeFlicked alone prevents a double launch (a real flick already fired + flipped state to 'rolling').
+        if(window._BALL_ON && window._BALL_DOUBLETAP!==false && window._BALL && window._BALL.state==='charging' && !jL._meleeFlicked){
           if(jL._dtapCharge){ jL._dtapCharge=false; if(window._ballChargeRelease)window._ballChargeRelease(); }   // release the hold -> charged launch along the aimed dir
           else { const _cd=performance.now()-(jL._tStart||0), _cdisp=Math.hypot(t.clientX-(jL._tX||t.clientX), t.clientY-(jL._tY||t.clientY)); if(_cd<240 && _cdisp<18 && window._ballChargeRelease)window._ballChargeRelease(); }   // fallback: a later separate tap also launches
         }
@@ -25456,25 +25460,22 @@ function _ballAimArrow(show, aim, charge){
   if(typeof scene==='undefined'||typeof player==='undefined'||!player)return;
   let A=window._ballArrow;
   if(show && !A){ const g=new THREE.Group(); const col=(window._BALL_GLOW2||0x4cf0ff);
-    const N=(window._BALL_ARROW_DOTS||16); g.userData.dots=[];
-    for(let i=0;i<N;i++){ const m=new THREE.Mesh(new THREE.CircleGeometry((window._BALL_ARROW_DOT_R||2.6),14), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); m.rotation.x=-Math.PI/2; g.add(m); g.userData.dots.push(m); }   // flat ground dots
-    const headG=new THREE.Group(); const hw=(window._BALL_ARROW_HEAD_W||6), hl=(window._BALL_ARROW_HEAD_L||12);
+    const N=(window._BALL_ARROW_DOTS||2); g.userData.dots=[];   // just a couple of subtle dots, fixed — no growing trail
+    for(let i=0;i<N;i++){ const m=new THREE.Mesh(new THREE.CircleGeometry((window._BALL_ARROW_DOT_R||2.2),14), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); m.rotation.x=-Math.PI/2; g.add(m); g.userData.dots.push(m); }
+    const headG=new THREE.Group(); const hw=(window._BALL_ARROW_HEAD_W||5.5), hl=(window._BALL_ARROW_HEAD_L||10);
     const tg=new THREE.BufferGeometry(); tg.setAttribute('position', new THREE.Float32BufferAttribute([0,0,hl, -hw,0,0, hw,0,0],3)); tg.computeVertexNormals();   // flat triangle in XZ, tip at +Z
-    const head=new THREE.Mesh(tg, new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.8,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+    const head=new THREE.Mesh(tg, new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.75,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
     headG.add(head); g.add(headG); g.userData.headG=headG;
     scene.add(g); window._ballArrow=A=g; }
   if(!A)return;
   if(!show){ A.visible=false; return; }
   A.visible=true;
-  const c=Math.max(0,Math.min(1,charge||0));
-  const total=(window._BALL_ARROW_MIN||34)+c*(window._BALL_ARROW_LEN||150);
-  const dx=Math.cos(aim), dz=Math.sin(aim), gy=(player.py||0)+1.5, start=(window._BALL_ARROW_START||18);
+  const dx=Math.cos(aim), dz=Math.sin(aim), gy=(player.py||0)+1.5;
+  const start=(window._BALL_ARROW_START||20), gap=(window._BALL_ARROW_GAP||9);   // small fixed offset just in front of the ball; does NOT grow with charge
   const dots=A.userData.dots, N=dots.length;
-  for(let i=0;i<N;i++){ const f=N>1?i/(N-1):0; const d=start+f*total; const m=dots[i];
-    m.position.set(player.wx+dx*d, gy, player.wz+dz*d);
-    m.material.opacity=(0.12+0.5*(1-f))*(0.45+0.55*c); m.scale.setScalar(1-0.35*f); }
-  const hg=A.userData.headG; hg.position.set(player.wx+dx*(start+total+4), gy, player.wz+dz*(start+total+4)); hg.rotation.set(0, Math.PI/2-aim, 0);
-  hg.children[0].material.opacity=0.45+0.55*c;
+  for(let i=0;i<N;i++){ const d=start+i*gap, m=dots[i]; m.position.set(player.wx+dx*d, gy, player.wz+dz*d); m.material.opacity=0.5-i*0.12; }
+  const hd=start+N*gap+2;
+  const hg=A.userData.headG; hg.position.set(player.wx+dx*hd, gy, player.wz+dz*hd); hg.rotation.set(0, Math.PI/2-aim, 0);
 }
 window._ballFrame=function(dt){
   if(window._BALL&&window._BALL.state&&window._ballUpdate)window._ballUpdate(dt);
@@ -25522,14 +25523,14 @@ window._ballEnter=function(charge, dx, dz){
   if(typeof addTrauma==='function')addTrauma(0.05);
 };
 window._ballExit=function(){ const B=window._BALL; const _sp=Math.hypot(B.vx||0,B.vz||0); B.state=null; B.charge=0;
-  if(typeof player!=='undefined'&&player){ player._ballActive=false; if(_sp>1)player.aim=Math.atan2(B.vz,B.vx);   // keep facing the way you were rolling
+  if(typeof player!=='undefined'&&player){ player._ballActive=false; player._rollAimLock=false; if(_sp>1)player.aim=Math.atan2(B.vz,B.vx);   // keep facing the way you were rolling
     if(player.model){ player.model.rotation.x=0; player.model.rotation.z=0; player.model.rotation.y=-(player.aim||0)+Math.PI/2; if(player._flip)player._flip=null; if(player._flipQ&&player._flipQ.identity)player._flipQ.identity(); } }
   _ballPose(false);   // shell is NOT hidden here — _ballFrame folds it back in, then hides when the morph reaches 0
   if(typeof ps!=='undefined'&&typeof player!=='undefined'&&player)ps.ring(player.wx,player.wz,[0.3,0.9,1],12,80); };
 window._ballUpdate=function(dt){
   const B=window._BALL; if(!B.state||typeof player==='undefined'||!player||!player.model)return; if(dt>0.05)dt=0.05;
   const R=(window._BALL_R||11);
-  if((typeof performance!=='undefined'?performance.now():0) >= (player._ballPoseFadeUntil||0)){ const ud=player.model.userData; const a=(ud.clips&&ud.clips['ball'])||ud._ballPh||(ud.clips&&ud.clips['idle']); if(a && (!a.isRunning() || a.getEffectiveWeight()<0.05)){ try{ a.reset().setLoop(THREE.LoopRepeat,Infinity); a.clampWhenFinished=false; a.enabled=true; a.setEffectiveWeight(1); a.play(); ud.currentClip=(ud.clips&&ud.clips['ball']&&a===ud.clips['ball'])?'ball':ud.currentClip; }catch(_){} } }   // keep the ball pose alive (charging + rolling) — long spin drifts the skeleton to bind (T-pose). Skipped during the entry fade-in so it doesn't snap the crossfade to weight 1.
+  if((typeof performance!=='undefined'?performance.now():0) >= (player._ballPoseFadeUntil||0)){ const ud=player.model.userData; const a=(ud.clips&&ud.clips['ball'])||ud._ballPh; if(a){ try{ if(!a.isRunning())a.reset().play(); a.setLoop(THREE.LoopRepeat,Infinity); a.clampWhenFinished=false; a.enabled=true; a.setEffectiveWeight(1); }catch(_){} for(const k in ud.clips){ const o=ud.clips[k]; if(o!==a && o.getEffectiveWeight && o.getEffectiveWeight()>0.01){ try{o.setEffectiveWeight(0);}catch(_){} } } ud.currentClip=(ud.clips&&ud.clips['ball']&&a===ud.clips['ball'])?'ball':ud.currentClip; } }   // LOCK the ball pose: force it dominant + zero every other clip each frame, so aiming/shooting (right stick) can't pop the body into a shoot/idle/T-pose. (Skipped during the entry fade-in so the crossfade-in still reads.)
   if(B.state==='charging'){
     B.charge=Math.min(1, B.charge + dt/(window._BALL_CHARGE_T||1.1));
     const lift=(window._BALL_CHARGE_LIFT||12)*B.charge; B.py=lift;
