@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-MEL1</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BONE1</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10549,18 +10549,15 @@ class Player{
 
         const isRobot=this.model?.userData?.isRobot;
         if(isRobot){
-          // Robot: two streams from lower back
-          const jetY=this.py+38;
-          const bx=this.wx-Math.cos(this.aim)*8, bz=this.wz-Math.sin(this.aim)*8;
+          // Robot: two streams from the jetpack_L / jetpack_R nozzle bones (fall back to the old generalized lower-back point if the bones aren't in the rig)
+          if(this._jetBoneModel!==this.model){ const _m=this.model; this._jetBoneModel=_m; this._jetBoneL=(window._JET_BONES!==false&&_m&&_m.getObjectByName)?(_m.getObjectByName('jetpack_L')||null):null; this._jetBoneR=(window._JET_BONES!==false&&_m&&_m.getObjectByName)?(_m.getObjectByName('jetpack_R')||null):null; }
+          const _wp=this._jetWP||(this._jetWP=new THREE.Vector3());
+          const bvx=-Math.cos(this.aim), bvz=-Math.sin(this.aim);   // backward (opposite aim) bias for the plume
           const perpX=Math.cos(this.aim+Math.PI/2)*2.5, perpZ=Math.sin(this.aim+Math.PI/2)*2.5;
-          for(const side of [-1,1]){
-            const ex=bx+perpX*side, ez=bz+perpZ*side;
-            for(let i=0;i<2;i++){
-              ps._spawn(ex+rand(-1,1),jetY,ez+rand(-1,1),
-                rand(-8,8),-rand(50,120),rand(-8,8),
-                1,0.4+Math.random()*0.4,0,0.04+rand(0.03));
-            }
-          }
+          const bx=this.wx-Math.cos(this.aim)*8, bz=this.wz-Math.sin(this.aim)*8, jetY=this.py+38;
+          const _emit=(bone,fx,fz)=>{ let ex,ey,ez; if(bone){ bone.getWorldPosition(_wp); ex=_wp.x; ey=_wp.y; ez=_wp.z; } else { ex=fx; ey=jetY; ez=fz; }
+            for(let i=0;i<2;i++){ ps._spawn(ex+rand(-1,1),ey+rand(-1,1),ez+rand(-1,1), bvx*rand(10,38)+rand(-8,8),-rand(50,120),bvz*rand(10,38)+rand(-8,8), 1,0.4+Math.random()*0.4,0,0.04+rand(0.03)); } };
+          _emit(this._jetBoneL, bx-perpX, bz-perpZ); _emit(this._jetBoneR, bx+perpX, bz+perpZ);
         } else {
           // Saucer: single stream from directly below ship center
           const jetY=this.py+4;
@@ -18543,6 +18540,8 @@ function loop(ts){ requestAnimationFrame(loop);
             ud.currentClip=null;
           }
         }
+        // stow/draw weapon gesture — let it play uninterrupted, then hand back to locomotion
+        if(ud._stowTimer>0){ ud._stowTimer-=dt; if(ud._stowTimer<=0){ ud._stowTimer=0; const _sc=ud.clips&&ud.clips['stow_weapon']; if(_sc)_sc.fadeOut(0.14); ud.currentClip=null; } }
 
         // ── WALL CLIMB ANIMATION ──
         if(player._wallClimb&&ud.clips){
@@ -18590,7 +18589,7 @@ function loop(ts){ requestAnimationFrame(loop);
         }
 
         // Skip blend switch while roll, landing, climbing, or flipping
-        if(!ud._rollingTimer&&!ud._landingTimer&&!ud._slamHold&&!player._wallClimb&&!player._hang&&!player._crestSeq&&!player._wallRun&&!ud._flippingTimer&&!ud._voidTumble&&!player._ballActive&&(window._meleeUpperBody||!ud._meleeTimer)){
+        if(!ud._rollingTimer&&!ud._landingTimer&&!ud._stowTimer&&!ud._slamHold&&!player._wallClimb&&!player._hang&&!player._crestSeq&&!player._wallRun&&!ud._flippingTimer&&!ud._voidTumble&&!player._ballActive&&(window._meleeUpperBody||!ud._meleeTimer)){
           let targetClip='idle';
           let _skateAnim=false;
           if(GS.zone===-8||GS.zone===-10||player._onHoverboard){
@@ -26643,8 +26642,14 @@ function _stowMeleeOnBack(hm, back){
   const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
   const upW=new THREE.Vector3(0,1,0).applyQuaternion(mq).normalize();
   const fwdW=new THREE.Vector3(0,0,1).applyQuaternion(mq).normalize();
-  const tilt=(window._STOW_TILT||35)*Math.PI/180;                       // slung diagonally ~25-45°
-  const yA=upW.clone().applyAxisAngle(fwdW, tilt).normalize();          // weapon handle (+Y) points up-the-back, tilted
+  // STOW BONES: weapon_bottom -> weapon_top defines the exact line the handle should lie along
+  const _topB=(window._STOW_BONES!==false&&player.model.getObjectByName)?player.model.getObjectByName('weapon_top'):null;
+  const _botB=(window._STOW_BONES!==false&&player.model.getObjectByName)?player.model.getObjectByName('weapon_bottom'):null;
+  const _haveBones=!!(_topB&&_botB);
+  const _topW=_haveBones?_topB.getWorldPosition(new THREE.Vector3()):null, _botW=_haveBones?_botB.getWorldPosition(new THREE.Vector3()):null;
+  let yA;
+  if(_haveBones){ yA=_topW.clone().sub(_botW); if(yA.lengthSq()<1e-6)yA.copy(upW); yA.normalize(); }   // handle (+Y) runs bottom_bone -> top_bone (exact placement from the rig)
+  else { const tilt=(window._STOW_TILT||35)*Math.PI/180; yA=upW.clone().applyAxisAngle(fwdW, tilt).normalize(); }   // fallback: generalized diagonal
   let xA=new THREE.Vector3().crossVectors(yA,fwdW); if(xA.lengthSq()<1e-5)xA.set(1,0,0); xA.normalize();
   const zA=new THREE.Vector3().crossVectors(xA,yA).normalize();
   const _ft=(player._meleeType)||(hm.userData&&hm.userData._meleeType)||'';
@@ -26654,9 +26659,9 @@ function _stowMeleeOnBack(hm, back){
   if(_fix.roll) desired.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), _fix.roll));   // spin about the handle (hammer head off the skull)
   const bq=back.getWorldQuaternion(new THREE.Quaternion());
   hm.quaternion.copy(bq.clone().invert().multiply(desired));            // local rot that yields the desired world pose on the back bone
-  const _sc=(window._STOW_CHAR&&window._STOW_CHAR[window._playerChar])||{}; const _up=(_sc.up!=null?_sc.up:(window._STOW_UP||4)), _bk=(_sc.back!=null?_sc.back:(window._STOW_BACK||12));
-  const off=upW.clone().multiplyScalar(_up).addScaledVector(fwdW,-_bk);   // sits just off the spine; per-character override via window._STOW_CHAR[char]={up,back}
-  const bp=back.getWorldPosition(new THREE.Vector3()).add(off);
+  let bp;
+  if(_haveBones){ bp=_topW.clone().add(_botW).multiplyScalar(0.5); }   // anchor at the midpoint of the two stow bones
+  else { const _sc=(window._STOW_CHAR&&window._STOW_CHAR[window._playerChar])||{}; const _up=(_sc.up!=null?_sc.up:(window._STOW_UP||4)), _bk=(_sc.back!=null?_sc.back:(window._STOW_BACK||12)); const off=upW.clone().multiplyScalar(_up).addScaledVector(fwdW,-_bk); bp=back.getWorldPosition(new THREE.Vector3()).add(off); }
   hm.position.copy(back.worldToLocal(bp));
   const bsBack=back.getWorldScale(new THREE.Vector3());                 // preserve the world size
   hm.scale.set((wsBefore.x/(bsBack.x||1))*(window._STOW_SCALE||1), (wsBefore.y/(bsBack.y||1))*(window._STOW_SCALE||1), (wsBefore.z/(bsBack.z||1))*(window._STOW_SCALE||1));
@@ -26675,6 +26680,18 @@ function _stowMeleeOnBack(hm, back){
   }
   return true;
 }
+// play the stow_weapon gesture: forward = sling onto the back, reverse = draw it back out. One-shot, owns the body briefly via ud._stowTimer.
+function _playStowClip(reverse){
+  const ud=player&&player.model&&player.model.userData; if(!ud||!ud.clips) return;
+  const a=ud.clips['stow_weapon']; if(!a||!a._clip) return;
+  const dur=a._clip.duration||0.5, spd=(window._STOW_CLIP_SPD||1.4);
+  try{ for(const k in ud.clips){ if(ud.clips[k]!==a) ud.clips[k].fadeOut(0.1); }
+    a.reset(); a.setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true; a.enabled=true; a.setEffectiveWeight(1);
+    if(reverse){ a.timeScale=-spd; a.time=dur; } else { a.timeScale=spd; a.time=0; }
+    a.fadeIn(0.08).play(); ud.currentClip='stow_weapon'; ud._stowTimer=Math.max(0.12, dur/spd);
+  }catch(_){}
+}
+window._playStowClip=_playStowClip;
 function _toggleMeleeStow(){
   if(!player) return;
   if(player._hammer){                                            // STOW -> sling the weapon onto the back (frees the hands for guns) instead of vanishing
@@ -26686,6 +26703,7 @@ function _toggleMeleeStow(){
     if(back && window._MELEE_STOW_BACK!==false){ try{ slung=_stowMeleeOnBack(hm, back); }catch(e){ slung=false; } }
     if(slung){ player._stowedMesh=hm; }
     else { if(hm.parent)hm.parent.remove(hm); player._stowedMesh=null; console.warn('[stow] back-sling failed -> hidden. chestBone=', !!back, 'STOW_BACK=', window._MELEE_STOW_BACK!==false); }   // fallback: just hide it (logged so we can see WHY it vanished)
+    if(typeof _playStowClip==='function') _playStowClip(false);   // play the reach-to-back stow gesture
     player._hammer=null; player._meleeType=null; player._meleeStowed=true;
     const ud=player.model&&player.model.userData; if(ud){ ud._meleeTimer=0; ud.currentClip=null; }
     if(player._meleeAdditive){ try{player._meleeAdditive.stop();}catch(e){} player._meleeAdditive=null; }
@@ -26693,6 +26711,7 @@ function _toggleMeleeStow(){
     if(typeof Audio!=='undefined') Audio.blip(300,0.08,'square',0.16,140);
   } else if(player._stowedType){                                 // DRAW -> bring the same weapon back out
     if(player._stowedMesh){ if(player._stowedMesh.parent)player._stowedMesh.parent.remove(player._stowedMesh); player._stowedMesh=null; }   // pull it off the back
+    if(typeof _playStowClip==='function') _playStowClip(true);   // play the stow gesture in REVERSE = draw from the back
     const ok=_equipMeleeType(player._stowedType);
     if(typeof announce==='function') announce(ok?'WEAPON DRAWN':'NO HAND BONE','#33ffdd');
     if(typeof Audio!=='undefined') Audio.blip(520,0.08,'square',0.16,820);
