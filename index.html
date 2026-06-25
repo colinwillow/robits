@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-SP3</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-SP4</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10282,7 +10282,7 @@ class Player{
     if(this._crateCool>0) this._crateCool=Math.max(0,this._crateCool-dt);   // bomb reload cooldown
     if(this._allyCool>0) this._allyCool=Math.max(0,this._allyCool-dt);   // ally deploy cooldown
     if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)){ _cubeWalkMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1);
-      if(!window._ballCam){ const _am=Math.hypot(avx||0,avz||0); if(_am>0.15){ const desired=-this.aim-Math.PI/2; let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI; if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4); } }   // camera eases BEHIND the right-stick aim (identical to the normal STANDARD cam) -> full 360, correct handedness
+      if(!window._ballCam){ const _am=Math.hypot(avx||0,avz||0); if(_am>(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.06)){ const desired=-this.aim-Math.PI/2; let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI; if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4); } }   // camera eases BEHIND the right-stick aim (follows on ANY aim input now) -> full 360, correct handedness
     }   // cube arena: boots = walk walls/ceiling (movement), then fall through to the _inPlanetGravity aim/shoot branch below so the shoot stick works
     if(this.inv>0)this.inv--; if(this.shieldT>0)this.shieldT--;
     if(this.dashCD>0){this.dashCD--;if(this.dashCD<=0)this.dash=1;}
@@ -10447,10 +10447,10 @@ class Player{
         }
         if(al>0.08) this.aim=Math.atan2(avz,avx);
       }
-      if(al>0.15){
+      if(al>(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.06)){
         const desired=-this.aim-Math.PI/2;
         let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-        if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4);   // stay centered behind the right-stick aim: tiny window, smooth steady ease
+        if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4);   // stay centered behind the right-stick aim: now follows on ANY aim input (was gated at 0.15, lagging small/flick inputs)
       }
     }
 
@@ -14233,7 +14233,7 @@ function buildTrainingRoom(){
   _twMelee.forEach((m,i)=>{ if(typeof _spawnHammerStation==='function') _spawnHammerStation(90, 46-i*32, m); });
   if(typeof _spawnBootStation==='function') _spawnBootStation(150, 60);
   if(typeof _removeSpiderPackPads==='function') _removeSpiderPackPads();
-  window._spiderDispenser={x:150,z:-30,cd:0};   // dojo keeps a grabbable SPIDER PACK item here (armory) — pick it up + throw it like any power-up
+  window._spiderDispenser={x:0,z:64,cd:0};   // front-and-center in the dojo so it's easy to find — grab it + throw it like any power-up
   // ── floating neon section signs ──
   try{
     if(window._trLabels){ window._trLabels.forEach(s=>{ scene.remove(s); if(s.material){ if(s.material.map)s.material.map.dispose(); s.material.dispose(); } }); }
