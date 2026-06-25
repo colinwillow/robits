@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-IK1</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-IK2</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10537,6 +10537,7 @@ class Player{
     const JET_RECHARGE=14;  // in-air recharge when not jetting — boost returns over a jump's arc
     const GND_RECHARGE=35;  // ground recharge unchanged
 
+    if(this._wallRun) this._jetting=false;   // wall-run owns the body — never jet (no thrust, no particles on the wall)
     // Jetpack force — continuous upward push when held airborne
     if(this._jetting&&this.py>4&&!this._onPlatform){
       if(this._airSlam){ this._airSlam=false; if(this.model&&this.model.userData)this.model.userData._slamHold=false; }   // jetting cancels a slam -> release the held pose
@@ -18158,7 +18159,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(_fly&&_fly.active){ updateFlight(dt); renderer.render(scene,camera); return; }
     if(_drive&&_drive.active){ updateDrive(dt); renderer.render(scene,camera); return; }
     // ── JETPACK HOLD — airborne, no bomb ──
-    if(IS_TOUCH&&jR._holdingForJet&&player&&!player.bombArmed&&!player._wallClimb){
+    if(IS_TOUCH&&jR._holdingForJet&&player&&!player.bombArmed&&!player._wallClimb&&!player._wallRun){   // no jetpack while wall-running (the held stick is aim/shoot, not jet) — otherwise jet particles spray on the wall
       const _air = (GS.zone===-19 && typeof _cubeWalkOn==='function' && _cubeWalkOn(player)) ? true : (player._inPlanetGravity ? !player._glGrounded : (player.py>8&&!player._onPlatform));   // cube wall-walk: jet is eligible from ANY surface (it dislodges you), so don't gate it on being airborne
       if(!_air){ jR._jetLatch=false; jR._jetEligible=false; }
       else if(player.boostFuel>0){ jR._jetEligible=true; jR._jetLatch=true; player._jetting=true; }            // airborne + holding stick = jetpack (no center-dwell gate; fire while jetting)
@@ -26326,8 +26327,8 @@ function _updateHandWeapons(dt){
     let _ok=false;
     if(_isMg){ try{ _ok=_orientMinigun(player._handWpnR,RH); }catch(_e){ console.warn('[mg] orient ERR',(_e&&_e.message)||_e); } }
     if(!_ok) _orientHandLauncher(player._handWpnR,RH,RF);
-    // cache the muzzle's TRUE world position now (pose + orientation applied this frame) so the next shot spawns from the rendered barrel tip — firing runs earlier in the frame, before the gun is posed/oriented, so reading the marker live gives a stale, offset point.
-    const _mzm=_isMg && player._handWpnR.userData && player._handWpnR.userData._muzzle;
+    // cache the muzzle's TRUE world position now (pose + IK + orientation applied this frame) so the next shot spawns from the rendered barrel tip — firing runs earlier in the frame, before the gun is posed/oriented/IK'd, so reading the marker live gives a stale, offset point (very visible while wall-running/moving fast). Cache for ALL hand guns, not just the minigun.
+    const _mzm=player._handWpnR.userData && player._handWpnR.userData._muzzle;
     if(_mzm){ _mzm.getWorldPosition(player._muzzleWorld||(player._muzzleWorld=new THREE.Vector3())); player._muzzleValid=true; } else player._muzzleValid=false;
   } else player._muzzleValid=false;
   _shoulderRig('R', meleeOut, weapon, bones, dt);   // right gun -> right shoulder when melee is out
