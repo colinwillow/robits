@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DOJO6</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DRONE1</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9041,7 +9041,7 @@ window._throwSpiderPack=function(dirX,dirZ){
   const dx=Math.cos(a), dz=Math.sin(a);
   const spawnX=player.wx+dx*14, spawnZ=player.wz+dz*14, spawnY=(player.py||0)+14;
   const sp=(window._SPIDERPACK_SPD||260), vy=(window._SPIDERPACK_VY||120);
-  const color=(window._SPIDERPACK_COLOR!=null?window._SPIDERPACK_COLOR:0x66ff55), count=(window._SPIDERPACK_COUNT||3);
+  const color=(window._SPIDERPACK_COLOR!=null?window._SPIDERPACK_COLOR:0x66ff55), count=(window._SPIDERPACK_COUNT||1);
   const b=new DeployPod(spawnX, spawnZ, spawnY, dx*sp, dz*sp, 1.8, vy, 'crawler', count, color);
   if(GS.zone===-16 && player._onPlatform) b._noOrbit=true;
   GS.crates.push(b);   // pods/crates update + render from GS.crates
@@ -9064,18 +9064,57 @@ window._updateSpiderPackPads=_updateSpiderPackPads; window._removeSpiderPackPads
 class DroneBuddy{
   constructor(x,z,color){
     this.wx=x; this.wz=z; this.t=0; this.wob=Math.random()*99; this.fireCD=0.5; this.life=1e9;
-    this.p=new THREE.Vector3(x,(typeof player!=='undefined'&&player?(player.py||0):0)+34,z);
+    this.p=new THREE.Vector3(x,(window._DRONE_SPAWN_Y!=null?window._DRONE_SPAWN_Y:8),z);   // emerge low (from the ball) then lift to flying height via the drift ease
     const col=(color!=null?color:(window._DRONE_COLOR!=null?window._DRONE_COLOR:0x27c8ff));
+    this.col=col; this._spin=[]; this._gunSpin=0; this._deployT=0; this._tmp=new THREE.Vector3();
+    this._muzzleLocal=new THREE.Vector3(9.2,-2.6,0);
+    this._build(col);
+    this.mesh.position.copy(this.p); this.mesh.scale.setScalar(0.02); scene.add(this.mesh);   // starts folded -> unfolds in update (transform-in)
+    if(typeof ps!=='undefined'){ ps.ring(x,z,[0.4,0.95,1],22,120); ps.burst(x,z,[0.5,0.95,1],20,130); }
+    if(typeof Audio!=='undefined'&&Audio.blip)try{ Audio.blip(280,0.16,'sawtooth',0.18,1300); Audio.blip(880,0.1,'square',0.12,1600); }catch(_){}
+  }
+  _build(col){
     const grp=new THREE.Group();
-    this.core=new THREE.Mesh(new THREE.SphereGeometry(2.6,12,10), new THREE.MeshBasicMaterial({color:0x9af2ff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false})); grp.add(this.core);
-    this.disc=new THREE.Mesh(new THREE.CylinderGeometry(6.4,6.4,1.5,22), new THREE.MeshStandardMaterial({color:0x0a2c3a,emissive:col,emissiveIntensity:1.5,metalness:0.55,roughness:0.32})); grp.add(this.disc);
-    this.ring=new THREE.Mesh(new THREE.TorusGeometry(7.6,0.5,8,30), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})); this.ring.rotation.x=Math.PI/2; grp.add(this.ring);
-    this.mesh=grp; grp.position.copy(this.p); scene.add(grp);
-    if(typeof ps!=='undefined'){ ps.ring(x,z,[0.4,0.95,1],18,90); ps.burst(x,z,[0.4,0.95,1],14,90); }
+    const acc=(window._DRONE_ACCENT!=null?window._DRONE_ACCENT:0xff3df0);   // secondary neon accent
+    const hullMat=new THREE.MeshStandardMaterial({color:0x0a1622,emissive:col,emissiveIntensity:0.55,metalness:0.7,roughness:0.3,toneMapped:false});
+    const accMat=new THREE.MeshStandardMaterial({color:0x16001c,emissive:acc,emissiveIntensity:1.0,metalness:0.6,roughness:0.35,toneMapped:false});
+    const glow=(c,o)=>new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:(o==null?0.9:o),blending:THREE.AdditiveBlending,depthWrite:false});
+    const wireOf=(geo,c)=>new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:(c||col),transparent:true,opacity:0.72}));
+    // fuselage (nose points +X = forward)
+    const bg=new THREE.IcosahedronGeometry(4.4,0); const body=new THREE.Mesh(bg,hullMat); body.scale.set(1.7,0.76,0.95); grp.add(body);
+    const bw=wireOf(bg); bw.scale.copy(body.scale); grp.add(bw);
+    const nose=new THREE.Mesh(new THREE.ConeGeometry(2.5,6.4,14),hullMat); nose.rotation.z=-Math.PI/2; nose.position.x=7.4; grp.add(nose);
+    this.core=new THREE.Mesh(new THREE.SphereGeometry(1.15,12,10),glow(0x9af2ff)); this.core.position.x=10.4; grp.add(this.core);
+    // glowing cockpit canopy
+    const canopy=new THREE.Mesh(new THREE.SphereGeometry(2.5,16,10,0,Math.PI*2,0,Math.PI/2),glow(acc,0.55)); canopy.scale.set(1.4,1,1.05); canopy.position.set(1.2,2.2,0); grp.add(canopy);
+    // tail fin + rear thruster
+    const tail=new THREE.Mesh(new THREE.BoxGeometry(3.0,4.8,0.55),accMat); tail.position.set(-6.6,1.9,0); tail.rotation.z=0.5; grp.add(tail);
+    this._thruster=new THREE.Mesh(new THREE.ConeGeometry(1.9,4.4,14,1,true),glow(0xff8a3a,0.85)); this._thruster.rotation.z=Math.PI/2; this._thruster.position.x=-9.2; grp.add(this._thruster);
+    // side wings + ducted spinning rotors (VTOL pods)
+    for(const s of [1,-1]){
+      const wing=new THREE.Mesh(new THREE.BoxGeometry(5.4,0.55,3.0),hullMat); wing.position.set(-0.6,0,s*4.8); grp.add(wing);
+      const dgeo=new THREE.TorusGeometry(3.0,0.5,8,22); const duct=new THREE.Mesh(dgeo,accMat); duct.rotation.x=Math.PI/2; duct.position.set(-0.6,0.5,s*7.6); grp.add(duct);
+      const dw=wireOf(dgeo,acc); dw.rotation.x=Math.PI/2; dw.position.copy(duct.position); grp.add(dw);
+      const blades=new THREE.Group(); blades.position.copy(duct.position);
+      for(let b=0;b<3;b++){ const bl=new THREE.Mesh(new THREE.BoxGeometry(5.2,0.16,0.95),glow(col,0.8)); bl.rotation.y=b*(Math.PI/1.5); blades.add(bl); }
+      grp.add(blades); this._spin.push({mesh:blades,axis:'y',spd:26*s});
+    }
+    // underslung gatling gun (barrels spin when firing); muzzle at the front
+    const gun=new THREE.Group(); gun.position.set(4.2,-2.6,0);
+    const rotor=new THREE.Group();
+    for(let b=0;b<6;b++){ const a=b/6*Math.PI*2; const bar=new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.34,6.4,8),hullMat); bar.rotation.z=Math.PI/2; bar.position.set(0,Math.cos(a)*1.05,Math.sin(a)*1.05); rotor.add(bar); }
+    gun.add(rotor); this._gunRotor=rotor;
+    const housing=new THREE.Mesh(new THREE.CylinderGeometry(1.5,1.5,2.4,12),accMat); housing.rotation.z=Math.PI/2; housing.position.x=-2.4; gun.add(housing);
+    this._gunFlash=new THREE.Mesh(new THREE.SphereGeometry(0.8,10,8),glow(0xfff0a0,0.95)); this._gunFlash.position.set(4.9,0,0); this._gunFlash.scale.setScalar(0.3); gun.add(this._gunFlash);
+    grp.add(gun);
+    // belly glow ring
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(5.6,0.42,8,30),glow(col,0.7)); ring.rotation.x=Math.PI/2; ring.position.y=-0.6; grp.add(ring); this.ring=ring;
+    this.mesh=grp;
   }
   update(dt){
     if(typeof player==='undefined'||!player) return true;
     this.t+=dt; const t=this.t;
+    if(this._deployT<1){ this._deployT=Math.min(1,this._deployT+dt/(window._DRONE_DEPLOY_T||0.7)); const d=this._deployT,c1=1.70158,c3=c1+1,eb=1+c3*Math.pow(d-1,3)+c1*Math.pow(d-1,2); this.mesh.scale.setScalar(Math.max(0.02,eb)); }   // transform-in: unfold with an overshoot
     const R=(window._DRONE_WANDER!=null?window._DRONE_WANDER:30);   // a mind of its own — Lissajous drift around you
     const wx=Math.sin(t*0.70+this.wob)*R + Math.sin(t*0.33+this.wob*1.7)*R*0.5;
     const wz=Math.cos(t*0.61+this.wob)*R + Math.cos(t*0.29+this.wob*2.3)*R*0.5;
@@ -9086,20 +9125,29 @@ class DroneBuddy{
     const MAXD=(window._DRONE_LEASH!=null?window._DRONE_LEASH:150), ddx=this.p.x-player.wx, ddz=this.p.z-player.wz, dd=Math.hypot(ddx,ddz);
     if(dd>MAXD){ const sc=MAXD/dd; this.p.x=player.wx+ddx*sc; this.p.z=player.wz+ddz*sc; }   // leash: never strays too far
     this.wx=this.p.x; this.wz=this.p.z; this.mesh.position.copy(this.p);
-    this.ring.rotation.z+=dt*1.7; this.core.scale.setScalar(0.9+0.2*Math.sin(t*5));
+    const boost=(this._deployT<1?2.4:1);   // rotors spin up hard during deploy
+    for(const it of this._spin){ it.mesh.rotation[it.axis]+=dt*it.spd*boost; }
+    this._gunSpin+=dt*(this.fireCD>0.42?34:7); if(this._gunRotor)this._gunRotor.rotation.x=this._gunSpin;   // barrels keep spinning, faster right after a shot
+    if(this.ring)this.ring.rotation.z+=dt*1.4;
+    if(this.core)this.core.scale.setScalar(0.9+0.18*Math.sin(t*6));
+    if(this._gunFlash)this._gunFlash.scale.setScalar(Math.max(0.3,this._gunFlash.scale.x*Math.exp(-dt*12)));
+    if(this._thruster)this._thruster.scale.set(0.8+0.3*Math.sin(t*22),1,1);
     this.fireCD-=dt;
     let tgt=null, best=(window._DRONE_RANGE||320);
     if(typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(!e||e.alive===false||e._captured)continue; const d=Math.hypot(e.wx-this.p.x, e.wz-this.p.z); if(d<best){ best=d; tgt=e; } } }
-    if(tgt){ this.mesh.rotation.y=-Math.atan2(tgt.wz-this.p.z, tgt.wx-this.p.x); if(this.fireCD<=0){ this.fireCD=(window._DRONE_FIRE_CD||0.55); this._shoot(tgt); } }
+    if(tgt){ this.mesh.rotation.y=-Math.atan2(tgt.wz-this.p.z, tgt.wx-this.p.x); if(this.fireCD<=0&&this._deployT>0.5){ this.fireCD=(window._DRONE_FIRE_CD||0.55); this._shoot(tgt); } }
     else { this.mesh.rotation.y=-(player.aim||0); }
     return true;
   }
   _shoot(tgt){
+    this.mesh.updateWorldMatrix(true,false);
+    const mz=this._tmp.copy(this._muzzleLocal).applyMatrix4(this.mesh.matrixWorld);
     const ey=(tgt.mesh?tgt.mesh.position.y:(tgt.py||9))+6;
-    const dx=tgt.wx-this.p.x, dy=ey-this.p.y, dz=tgt.wz-this.p.z, L=Math.hypot(dx,dy,dz)||1, sp=(window._DRONE_BULLET_SPD||620);
-    try{ if(typeof Bullet!=='undefined'&&typeof GS!=='undefined'&&GS.bullets){ GS.bullets.push(new Bullet(this.p.x, this.p.z, dx/L*sp, dz/L*sp, 'normal', this.p.y, dy/L*sp, true)); } }catch(_){}
-    if(typeof ps!=='undefined')ps.spark(this.p.x,this.p.z,[0.4,0.95,1],this.p.y); this.core.scale.setScalar(1.7);
-    if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(900,0.04,'square',0.09,1500);}catch(_){}
+    const dx=tgt.wx-mz.x, dy=ey-mz.y, dz=tgt.wz-mz.z, L=Math.hypot(dx,dy,dz)||1, sp=(window._DRONE_BULLET_SPD||620);
+    try{ if(typeof Bullet!=='undefined'&&typeof GS!=='undefined'&&GS.bullets){ GS.bullets.push(new Bullet(mz.x, mz.z, dx/L*sp, dz/L*sp, 'normal', mz.y, dy/L*sp, true)); } }catch(_){}
+    if(this._gunFlash)this._gunFlash.scale.setScalar(1.9);
+    if(typeof ps!=='undefined')ps.spark(mz.x,mz.z,[1,0.9,0.4],mz.y);
+    if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(950,0.04,'square',0.09,1600);}catch(_){}
   }
   remove(){ if(this.mesh){ scene.remove(this.mesh); this.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } }
 }
@@ -12383,7 +12431,7 @@ function _detonateItem(type,x,z,od){
     } else if(type==='singularity'){ if(!GS.wells)GS.wells=[]; if(typeof Singularity!=='undefined')GS.wells.push(new Singularity(x,z,!!od)); }
     else if(type==='quake'){ if(!GS.quakes)GS.quakes=[]; if(typeof QuakeStorm!=='undefined')GS.quakes.push(new QuakeStorm(x,z,!!od)); }
     else if(type==='spiders'||type==='spiderpack'){   // bursts into a pack of allied spiders that fight enemies for you
-      const _n=(window._SPIDERPACK_COUNT||3), _tint=(window._SPIDERPACK_COLOR!=null?window._SPIDERPACK_COLOR:0x66ff55);
+      const _n=(window._SPIDERPACK_COUNT||1), _tint=(window._SPIDERPACK_COLOR!=null?window._SPIDERPACK_COLOR:0x66ff55);
       for(let i=0;i<_n;i++){ if(!GS.allies||GS.allies.length>=12)break; if(typeof AllyBot==='undefined')break; const _a=(i/Math.max(1,_n))*Math.PI*2, _rr=_n>1?16:0; const _bot=new AllyBot(x+Math.cos(_a)*_rr, z+Math.sin(_a)*_rr, 'crawler'); if(typeof _tintAlly==='function')_tintAlly(_bot,_tint); GS.allies.push(_bot); }
       if(typeof ps!=='undefined'){ ps.ring(x,z,[0.4,1,0.35],18,120); ps.burst(x,z,[0.4,1,0.35],16,140); }
       if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(420,0.12,'square',0.16,720);
@@ -14302,11 +14350,11 @@ function _buildGunConveyor(){
   const builders=[_buildSniper,_buildSMG,_buildRocket,_buildBallCannon,_buildCrossbow,_buildShotgun,_buildRifle,_buildPistol,_buildRevolver,_buildGL,_buildLaser,_buildGatlingPistol,_buildRailgun,_buildBFG,_buildFlak];
   // each display gun grabs a real equippable weapon type when you take it from the station (parallel to builders)
   const wpns=(window._CONVEYOR_WEAPONS||['bullets','bullets','rockets','boomerang','bow','flamethrower','bullets','bullets','bullets','grenade','plasma','minigun','plasma','singularity','rockets']);
-  const cp=(window._CONVEYOR_POS||{x:-330,z:0}), L=(window._CONVEYOR_L||175), Rr=(window._CONVEYOR_R||54), P=2*L+2*Math.PI*Rr, col=0x00ffe0;
+  const cp=(window._CONVEYOR_POS||{x:-235,z:-185}), L=(window._CONVEYOR_L||120), Rr=(window._CONVEYOR_R||44), P=2*L+2*Math.PI*Rr, col=0x00ffe0;
   const g=new THREE.Group(); g.position.set(cp.x,0,cp.z);
   const rail=(off,op)=>{ const pts=[]; for(let s=0;s<=96;s++){ const p=_convPath(s/96*P,L,Rr); pts.push(new THREE.Vector3(p.x+p.nx*off,0.5,p.z+p.nz*off)); } g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:op}))); };
   rail(0,0.3); rail(11,0.7); rail(-11,0.7);
-  const stT=L*0.5, stp=_convPath(stT,L,Rr); const stm=new THREE.Mesh(new THREE.RingGeometry(12,17,30), new THREE.MeshBasicMaterial({color:0xffd84a,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); stm.rotation.x=-Math.PI/2; stm.position.set(stp.x,0.7,stp.z); g.add(stm);   // grab station marker (near straight)
+  const stT=(window._CONVEYOR_STATION_T!=null?window._CONVEYOR_STATION_T:L*1.5+Math.PI*Rr), stp=_convPath(stT,L,Rr);   // grab station on the +Z straight (faces the room center) const stm=new THREE.Mesh(new THREE.RingGeometry(12,17,30), new THREE.MeshBasicMaterial({color:0xffd84a,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); stm.rotation.x=-Math.PI/2; stm.position.set(stp.x,0.7,stp.z); g.add(stm);   // grab station marker (near straight)
   const guns=[]; window._trGuns=[];
   builders.forEach((fn,i)=>{ let gun; try{ gun=fn(); }catch(_){ return; } gun.scale.setScalar(window._CONVEYOR_GUN_SCALE||0.85); gun.position.y=10;
     const pad=new THREE.Group(); pad.add(gun);
@@ -14433,7 +14481,7 @@ function _buildDojoRacks(){
     for(let i=0;i<c.items.length;i++){ const b=rack.userData.bays[i]; if(!b)continue; rack.localToWorld(_v.set(b.x,b.y,b.z)); const wx=_v.x, wz=_v.z; const it=c.items[i];
       try{
         if(c.kind==='melee'){ if(typeof _spawnHammerStation==='function') _spawnHammerStation(wx,wz,it); }
-        else if(c.kind==='gun'){ if(typeof _spawnWeaponPad==='function'){ const _st=_spawnWeaponPad(wx,wz,it); if(it==='minigun'&&_st){ if(_st.emblem)_st.emblem.visible=false; if(_st.label)_st.label.visible=false; window._trMinigunGrab=_st; } } }
+        else if(c.kind==='gun'){ if(typeof _spawnWeaponPad==='function'){ const _st=_spawnWeaponPad(wx,wz,it); if(it==='minigun'&&_st){ window._trMinigunGrab=_st; } } }   // minigun sits on the LAUNCHERS rack, visible + grabbable like the other guns (floating showcase elsewhere is just eye-candy)
         else if(c.kind==='boots'){ if(typeof _spawnBootStation==='function') _spawnBootStation(wx,wz); }
         else if(c.kind==='item'){ dispensers.push({x:wx,z:wz,type:it,cd:0});
           try{ const beam=new THREE.Mesh(new THREE.CylinderGeometry(1.5,5,90,12,1,true), new THREE.MeshBasicMaterial({color:c.color,transparent:true,opacity:0.13,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.set(wx,45,wz); scene.add(beam); window._dojoRacks.push(beam); }catch(_){}   // beacon so the throwable power-up is findable
@@ -14545,6 +14593,7 @@ function buildTrainingRoom(){
     window._trLabels=[];
     _trSectionLabel('VEHICLES', 232, 132, '#00ffe0');   // by the garage (NE gap of the rack ring)
     _trSectionLabel('GUNS', -200, 30, '#33e6ff');
+    _trSectionLabel('GUN BELT', -235, -120, '#00ffe0');   // points to the conveyor in the back-left
     _trSectionLabel('ARMORY', -106, 64, '#7dff8a');
     _trSectionLabel('MELEE', 90, 64, '#ff6ad5');
   }catch(e){ console.warn('labels:',e); }
