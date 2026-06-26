@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DOJO5</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DOJO6</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12825,6 +12825,7 @@ function _nearestGrab(){
   const cands=[];
   if(window._nearBoard) cands.push({kind:'board',ref:window._nearBoard, d:Math.hypot(player.wx-window._nearBoard.x,player.wz-window._nearBoard.z)});
   if(window._nearPad) cands.push({kind:'weapon',ref:window._nearPad, d:Math.hypot(player.wx-window._nearPad.x,player.wz-window._nearPad.z)});
+  if(window._nearConvGun) cands.push({kind:'convgun',ref:window._nearConvGun, d:Math.hypot(player.wx-window._nearConvGun.x,player.wz-window._nearConvGun.z)});
   if(window._nearHammer) cands.push({kind:'meleepad',ref:window._nearHammer, d:Math.hypot(player.wx-window._nearHammer.x,player.wz-window._nearHammer.z)});
   if(window._nearBoots) cands.push({kind:'boots',ref:window._nearBoots, d:Math.hypot(player.wx-window._nearBoots.x,player.wz-window._nearBoots.z)});
   if(window._nearCrate) cands.push({kind:'crate',ref:window._nearCrate, d:Math.hypot(player.wx-window._nearCrate.x,player.wz-window._nearCrate.z)});
@@ -12839,6 +12840,7 @@ function _grabItem(){
   const g=_nearestGrab(); if(!g) return false;
   if(g.kind==='board'){ _mountHoverboard(); return true; }   // walk up to the hoverboard + interact -> ride
   if(g.kind==='weapon'){ const st=g.ref; if(typeof _equipWeapon==='function')_equipWeapon(st.weapon, st.ammo); if(typeof _padConsume==='function')_padConsume(st); window._nearPad=null; return true; }   // grab a weapon pad -> equip the gun (keeps its remaining ammo if it was a drop), no carrying
+  if(g.kind==='convgun'){ const st=g.ref; if(typeof _equipWeapon==='function')_equipWeapon(st.weapon); if(window._gunConveyor)window._gunConveyor.grabCd=(window._CONVEYOR_GRAB_CD||0.8); window._nearConvGun=null; if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[1,0.85,0.3],22,150); return true; }   // grab the gun parked at the conveyor station -> equip it (belt restocks; display gun keeps circling)
   if(g.kind==='meleepad'){ const st=g.ref; if(typeof _collectHammer==='function'&&_collectHammer(st)){ if(typeof _padConsume==='function')_padConsume(st); } window._nearHammer=null; return true; }   // grab a melee station -> equip the melee weapon
   if(g.kind==='boots'){ if(typeof _collectBoots==='function')_collectBoots(); window._nearBoots=null; return true; }   // grab the boot station -> bone-attach the wall boots
   if(g.kind==='item'){ const p=g.ref; const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} player._carryPayload={kind:'item',type:p.type}; window._nearOrb=null; }
@@ -12983,9 +12985,10 @@ function _disposeBarrels(){
   if(typeof _removeMushrooms==='function') _removeMushrooms();
   if(typeof _removeDojoRacks==='function') _removeDojoRacks();
   if(window._trGarage){ if(window._trGarage.parent)window._trGarage.parent.remove(window._trGarage); window._trGarage.traverse&&window._trGarage.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); window._trGarage=null; }
+  if(window._trDeck){ if(window._trDeck.parent)window._trDeck.parent.remove(window._trDeck); window._trDeck.traverse&&window._trDeck.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); window._trDeck=null; }
   try{ if(typeof _arenaObstacles!=='undefined'&&_arenaObstacles){ for(let i=_arenaObstacles.length-1;i>=0;i--){ if(_arenaObstacles[i]&&_arenaObstacles[i]._garage)_arenaObstacles.splice(i,1); } } }catch(_){}
   if(player){ if(player._carryPayload){ player._carryPayload=null; if(typeof player._disarmBomb==='function'&&player._bombMode==='item')player._disarmBomb(); } }
-  window._nearOrb=null; window._nearCrate=null;
+  window._nearOrb=null; window._nearCrate=null; window._nearConvGun=null;
   const hand=document.getElementById('grab-hand'); if(hand)hand.style.display='none';
   const ring=document.getElementById('grab-ring'); if(ring)ring.style.display='none';
   const knob=document.getElementById('joy-knob-right'); if(knob){knob.style.background='';knob.style.boxShadow='';}
@@ -14297,22 +14300,40 @@ function _buildGunConveyor(){
   if(window._gunConveyor){ const og=window._gunConveyor.grp; if(og&&og.parent)og.parent.remove(og); window._gunConveyor=null; }
   if(typeof scene==='undefined') return;
   const builders=[_buildSniper,_buildSMG,_buildRocket,_buildBallCannon,_buildCrossbow,_buildShotgun,_buildRifle,_buildPistol,_buildRevolver,_buildGL,_buildLaser,_buildGatlingPistol,_buildRailgun,_buildBFG,_buildFlak];
+  // each display gun grabs a real equippable weapon type when you take it from the station (parallel to builders)
+  const wpns=(window._CONVEYOR_WEAPONS||['bullets','bullets','rockets','boomerang','bow','flamethrower','bullets','bullets','bullets','grenade','plasma','minigun','plasma','singularity','rockets']);
   const cp=(window._CONVEYOR_POS||{x:-330,z:0}), L=(window._CONVEYOR_L||175), Rr=(window._CONVEYOR_R||54), P=2*L+2*Math.PI*Rr, col=0x00ffe0;
   const g=new THREE.Group(); g.position.set(cp.x,0,cp.z);
   const rail=(off,op)=>{ const pts=[]; for(let s=0;s<=96;s++){ const p=_convPath(s/96*P,L,Rr); pts.push(new THREE.Vector3(p.x+p.nx*off,0.5,p.z+p.nz*off)); } g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:op}))); };
   rail(0,0.3); rail(11,0.7); rail(-11,0.7);
-  const stp=_convPath(L*0.5,L,Rr); const stm=new THREE.Mesh(new THREE.RingGeometry(12,17,30), new THREE.MeshBasicMaterial({color:0xffd84a,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); stm.rotation.x=-Math.PI/2; stm.position.set(stp.x,0.7,stp.z); g.add(stm);   // grab station marker (near straight)
+  const stT=L*0.5, stp=_convPath(stT,L,Rr); const stm=new THREE.Mesh(new THREE.RingGeometry(12,17,30), new THREE.MeshBasicMaterial({color:0xffd84a,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); stm.rotation.x=-Math.PI/2; stm.position.set(stp.x,0.7,stp.z); g.add(stm);   // grab station marker (near straight)
   const guns=[]; window._trGuns=[];
   builders.forEach((fn,i)=>{ let gun; try{ gun=fn(); }catch(_){ return; } gun.scale.setScalar(window._CONVEYOR_GUN_SCALE||0.85); gun.position.y=10;
     const pad=new THREE.Group(); pad.add(gun);
     const disc=new THREE.Mesh(new THREE.CylinderGeometry(9,9,0.8,24), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.12,blending:THREE.AdditiveBlending,depthWrite:false})); disc.position.y=0.5; pad.add(disc);
-    g.add(pad); guns.push({pad,gun,t:(i/builders.length)*P}); window._trGuns.push(gun); });
+    g.add(pad); guns.push({pad,gun,t:(i/builders.length)*P,weapon:wpns[i%wpns.length]}); window._trGuns.push(gun); });
   scene.add(g); if(window._dojoRacks)window._dojoRacks.push(g);
-  window._gunConveyor={grp:g,guns,L,Rr,P};
+  window._gunConveyor={grp:g,guns,L,Rr,P,stT,station:stm,stX:cp.x+stp.x,stZ:cp.z+stp.z,paused:0,grabCd:0};
 }
 window._buildGunConveyor=_buildGunConveyor;
-function _updateGunConveyor(dt){ const C=window._gunConveyor; if(!C)return; const run=(window._CONVEYOR_RUN!==false); const spd=(window._CONVEYOR_SPD||26);
-  for(const it of C.guns){ if(run) it.t=(it.t+spd*dt)%C.P; const p=_convPath(it.t,C.L,C.Rr); it.pad.position.set(p.x,0,p.z); it.pad.rotation.y=Math.atan2(p.nx,p.nz); if(it.gun)it.gun.rotation.y+=dt*0.5; } }
+function _updateGunConveyor(dt){ const C=window._gunConveyor; if(!C)return; const spd=(window._CONVEYOR_SPD||26);
+  C.grabCd=Math.max(0,(C.grabCd||0)-dt);
+  // stand on the station ring -> the belt eases to a stop so you can grab the gun parked there (a "break in the glide")
+  let onStation=false;
+  if(player && GS && GS.zone===-2){ const d=Math.hypot(player.wx-C.stX, player.wz-C.stZ); onStation=(d<(window._CONVEYOR_STATION_R||40) && (player.py||0)<28); }
+  const wantRun=(window._CONVEYOR_RUN!==false) && !onStation;
+  C.paused=(C.paused||0)+(((wantRun?0:1)-(C.paused||0))*Math.min(1,dt*(window._CONVEYOR_BRAKE||6)));   // 0=running, 1=stopped
+  const eff=spd*(1-C.paused);
+  for(const it of C.guns){ it.t=(it.t+eff*dt)%C.P; const p=_convPath(it.t,C.L,C.Rr); it.pad.position.set(p.x,0,p.z); it.pad.rotation.y=Math.atan2(p.nx,p.nz); if(it.gun)it.gun.rotation.y+=dt*(0.5+1.6*(it._glow||0)); }
+  // which gun is parked at the station? (nearest in path param, wrapped)
+  let best=null,bd=1e9; for(const it of C.guns){ let dd=Math.abs(it.t-C.stT); dd=Math.min(dd,C.P-dd); if(dd<bd){bd=dd;best=it;} }
+  for(const it of C.guns){ it._glow=(it._glow||0)+(((it===best&&onStation?1:0)-(it._glow||0))*Math.min(1,dt*8)); if(it.gun){ const s=(window._CONVEYOR_GUN_SCALE||0.85)*(1+0.12*it._glow); it.gun.scale.setScalar(s); it.gun.position.y=10+it._glow*3; } }
+  // expose the parked gun as grabbable when you're on the station and a different weapon is loaded
+  if(onStation && best && bd<(window._CONVEYOR_PARK_TOL||26) && !player._carryPayload && player.primaryWeapon!==best.weapon && C.grabCd<=0){
+    window._nearConvGun={x:C.stX,z:C.stZ,weapon:best.weapon,ref:best};
+  } else if(window._nearConvGun){ window._nearConvGun=null; }
+  if(C.station&&C.station.material){ const lit=onStation&&best&&window._nearConvGun; C.station.material.opacity=0.4+(lit?0.5:0)+0.12*Math.sin((C.station._t=(C.station._t||0)+dt*5)); C.station.scale.setScalar(1+(lit?0.12:0)); }
+}
 window._updateGunConveyor=_updateGunConveyor;
 // ── VEHICLE GARAGE ── a canopy with marked parking stalls; parks the chopper + hoverboard. Sits in a clear GAP of the rack ring and faces the room center (like a rack). Sets the vehicle position/yaw vars (if unset) so the showcases spawn in the stalls.
 function _buildGarage(){
@@ -14345,6 +14366,39 @@ function _buildGarage(){
   try{ if(typeof _arenaObstacles!=='undefined' && _arenaObstacles){ const cc=Math.abs(Math.cos(ry)), ss=Math.abs(Math.sin(ry)); const ex=(span/2)*cc+4*ss, ez=(span/2)*ss+4*cc; g.localToWorld(_v.set(0,0,-dep/2)); _arenaObstacles.push({x:_v.x, z:_v.z, w:2*ex, d:2*ez, h:H, t:0.5, static:true, _garage:true}); } }catch(_){}
 }
 window._buildGarage=_buildGarage;
+// ── UPPER DECK + STAIRCASE ── a raised mezzanine you climb via a stepped ramp; walkable through window._dojoPlatforms (a flat box for the deck + an ascending slope under the visual stairs).
+function _buildDojoDeck(){
+  if(typeof scene==='undefined') return;
+  if(window._trDeck){ if(window._trDeck.parent)window._trDeck.parent.remove(window._trDeck); window._trDeck.traverse&&window._trDeck.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); window._trDeck=null; }
+  if(!window._dojoPlatforms) window._dojoPlatforms=[];
+  for(let i=window._dojoPlatforms.length-1;i>=0;i--){ if(window._dojoPlatforms[i]&&window._dojoPlatforms[i]._deck) window._dojoPlatforms.splice(i,1); }
+  const dp=(window._DECK_POS||{x:220,z:-150}), H=(window._DECK_H||64), col=0x9b8cff;
+  const hw=62, hd=58, sw=22, run=112;                 // deck half-extents; stair half-width + run (toward +Z / room center)
+  const frontZ=dp.z+hd, botZ=frontZ+run;              // stair top (deck edge) and bottom (ground)
+  const g=new THREE.Group();
+  const slabMat=new THREE.MeshStandardMaterial({color:0x12162a,metalness:0.4,roughness:0.6,emissive:0x241a44,emissiveIntensity:0.32});
+  const wire=(geo,x,y,z,op)=>{ const w=new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:op||0.6})); w.position.set(x,y,z); g.add(w); };
+  // deck slab + support legs
+  const slabGeo=new THREE.BoxGeometry(hw*2,6,hd*2); const slab=new THREE.Mesh(slabGeo,slabMat); slab.position.set(dp.x,H-3,dp.z); g.add(slab); wire(slabGeo,dp.x,H-3,dp.z,0.7);
+  for(const lx of [dp.x-hw+8, dp.x+hw-8]) for(const lz of [dp.z-hd+8, dp.z+hd-8]){ const leg=new THREE.Mesh(new THREE.CylinderGeometry(3,3,H,10), slabMat); leg.position.set(lx,H/2,lz); g.add(leg); }
+  // railings on back + two sides (front left open for the stairs)
+  const railMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false});
+  const railH=H+15; const beam=(x,z,w,d)=>{ const b=new THREE.Mesh(new THREE.BoxGeometry(w,1.4,d),railMat); b.position.set(x,railH,z); g.add(b); };
+  beam(dp.x, dp.z-hd, hw*2, 1.4);                                   // back rail (-Z)
+  beam(dp.x-hw, dp.z, 1.4, hd*2); beam(dp.x+hw, dp.z, 1.4, hd*2);   // side rails
+  for(const px of [dp.x-hw,dp.x,dp.x+hw]) for(const pz of [dp.z-hd,dp.z+hd]){ if(pz>dp.z && px===dp.x) continue; const p=new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,15,6),railMat); p.position.set(px,H+7,pz); g.add(p); }   // corner/edge posts
+  // STAIRS: solid stepped profile from ground up to the deck front edge
+  const steps=12, sh=H/steps, sd=run/steps;
+  for(let i=0;i<steps;i++){ const topY=(i+1)*sh, zc=botZ - sd*(i+0.5); const sgeo=new THREE.BoxGeometry(sw*2,topY,sd+0.5); const sm=new THREE.Mesh(sgeo,slabMat); sm.position.set(dp.x,topY/2,zc); g.add(sm); wire(new THREE.BoxGeometry(sw*2,0.3,sd),dp.x,topY+0.2,zc,0.5); }
+  // UPPER DECK sign
+  try{ const cv=document.createElement('canvas'); cv.width=512;cv.height=96; const c=cv.getContext('2d'); c.font="bold 50px Orbitron, Arial, sans-serif"; c.textAlign='center'; c.textBaseline='middle'; c.shadowColor='#9b8cff'; c.shadowBlur=18; c.fillStyle='#e8e0ff'; c.fillText('UPPER DECK',256,52); const tex=new THREE.CanvasTexture(cv); tex.needsUpdate=true; if(THREE.SRGBColorSpace)tex.colorSpace=THREE.SRGBColorSpace; const lab=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false})); lab.position.set(dp.x,H+30,dp.z); lab.scale.set(130,24,1); g.add(lab); }catch(_){}
+  scene.add(g); window._trDeck=g;
+  // walkable platforms: flat deck box + ascending slope under the stairs
+  window._dojoPlatforms.push({x:dp.x,z:dp.z,hw:hw,hd:hd,top:H,_deck:true});
+  window._dojoPlatforms.push({x:dp.x,z:(frontZ+botZ)/2,hw:sw+2,hd:run/2+3,top:H,_deck:true, slope:{ox:dp.x,oz:botZ,nx:0,nz:-1,perUnit:H/run,y0:0,y1:H}});
+  window._DECK_INFO={x:dp.x,z:dp.z,top:H};
+}
+window._buildDojoDeck=_buildDojoDeck;
 window._dojoRacks=window._dojoRacks||[];
 function _removeDojoRacks(){ for(const r of (window._dojoRacks||[])){ if(r&&r.parent)r.parent.remove(r); r&&r.traverse&&r.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } window._dojoRacks=[];
   if(typeof _arenaObstacles!=='undefined'&&_arenaObstacles){ for(let i=_arenaObstacles.length-1;i>=0;i--){ if(_arenaObstacles[i]&&_arenaObstacles[i]._rack)_arenaObstacles.splice(i,1); } }
@@ -14426,6 +14480,8 @@ function buildTrainingRoom(){
 
   // ── VEHICLE GARAGE — a canopy with marked parking stalls; sets _CHOPPER_POS/_HOVER_POS (if unset) so the showcases below park in the bays ──
   try{ if(typeof _buildGarage==='function') _buildGarage(); }catch(e){ console.warn('garage:',e); }
+  // ── UPPER DECK — a raised mezzanine reached by stairs (back-right of the room) ──
+  try{ if(typeof _buildDojoDeck==='function') _buildDojoDeck(); }catch(e){ console.warn('deck:',e); }
 
   // ── SHOWCASE CHOPPER on a glowing display pad (parks in a garage bay) ──
   try{ if(window._trChopper){ scene.remove(window._trChopper); window._trChopper=null; } if(window._trChopperPad){ scene.remove(window._trChopperPad); window._trChopperPad=null; }
@@ -14454,7 +14510,7 @@ function buildTrainingRoom(){
   }catch(e){ console.warn('minigun:',e); }
 
   // ── WATCHING ROBOTIC EYE — on the ground, back-left, glances around then locks onto you ──
-  try{ if(typeof window._roboEyeOn==='function') window._roboEyeOn(window._EYE_POS||{x:220,z:-90}); }catch(e){ console.warn('eye:',e); }
+  try{ if(typeof window._roboEyeOn==='function') window._roboEyeOn(window._EYE_POS||{x:300,z:-60}); }catch(e){ console.warn('eye:',e); }   // moved clear of the upper-deck staircase
 
   // ── HOVER BIKE — floating speeder on a pad (right-back), gentle bob + spinning repulsor fans ──
   try{ if(window._trHover){ scene.remove(window._trHover); window._trHover=null; } if(window._trHoverPad){ scene.remove(window._trHoverPad); window._trHoverPad=null; }
