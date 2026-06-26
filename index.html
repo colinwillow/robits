@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DOJO4</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DOJO5</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14314,28 +14314,35 @@ window._buildGunConveyor=_buildGunConveyor;
 function _updateGunConveyor(dt){ const C=window._gunConveyor; if(!C)return; const run=(window._CONVEYOR_RUN!==false); const spd=(window._CONVEYOR_SPD||26);
   for(const it of C.guns){ if(run) it.t=(it.t+spd*dt)%C.P; const p=_convPath(it.t,C.L,C.Rr); it.pad.position.set(p.x,0,p.z); it.pad.rotation.y=Math.atan2(p.nx,p.nz); if(it.gun)it.gun.rotation.y+=dt*0.5; } }
 window._updateGunConveyor=_updateGunConveyor;
-// ── VEHICLE GARAGE ── a canopy with marked parking stalls; parks the chopper + hoverboard. Sets their position vars (if unset) so the showcases spawn in the stalls.
+// ── VEHICLE GARAGE ── a canopy with marked parking stalls; parks the chopper + hoverboard. Sits in a clear GAP of the rack ring and faces the room center (like a rack). Sets the vehicle position/yaw vars (if unset) so the showcases spawn in the stalls.
 function _buildGarage(){
   if(typeof scene==='undefined') return;
   // idempotent: drop the previous garage group + its collider (handled separately from _dojoRacks since the garage is built before _buildDojoRacks)
   if(window._trGarage){ if(window._trGarage.parent)window._trGarage.parent.remove(window._trGarage); window._trGarage.traverse&&window._trGarage.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); window._trGarage=null; }
   try{ if(typeof _arenaObstacles!=='undefined'&&_arenaObstacles){ for(let i=_arenaObstacles.length-1;i>=0;i--){ if(_arenaObstacles[i]&&_arenaObstacles[i]._garage)_arenaObstacles.splice(i,1); } } }catch(_){}
-  const gp=(window._GARAGE_POS||{x:246,z:0}), col=0x33e6ff, bw=76, dep=66;
-  const bays=[gp.z+82, gp.z, gp.z-82];                                  // 3 stalls along Z, open side faces -X (toward the room center)
-  if(window._HOVER_POS==null)   window._HOVER_POS={x:gp.x, z:bays[0]};   // hoverboard (rideable) parks here
-  if(window._CHOPPER_POS==null) window._CHOPPER_POS={x:gp.x, z:bays[1]};
+  const col=0x33e6ff, bw=76, dep=72, nbay=3, H=64, span=nbay*bw;        // built in LOCAL space: bays along X, OPEN face toward +Z (faces center after rotation), back wall at -Z
+  const bayXs=[]; for(let i=0;i<nbay;i++) bayXs.push(-span/2 + bw*0.5 + i*bw);
   const g=new THREE.Group();
   const wallMat=new THREE.MeshStandardMaterial({color:0x0c1320,metalness:0.4,roughness:0.6,emissive:0x10243a,emissiveIntensity:0.3});
-  const span=bays.length*bw, addWire=(geo,x,y,z,op)=>{ const w=new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:op||0.5})); w.position.set(x,y,z); g.add(w); };
-  const back=new THREE.Mesh(new THREE.BoxGeometry(8,72,span),wallMat); back.position.set(gp.x+dep*0.5+4,36,gp.z); g.add(back); addWire(new THREE.BoxGeometry(8,72,span),gp.x+dep*0.5+4,36,gp.z);
-  const roof=new THREE.Mesh(new THREE.BoxGeometry(dep+12,5,span),wallMat); roof.position.set(gp.x-2,74,gp.z); g.add(roof); addWire(new THREE.BoxGeometry(dep+12,5,span),gp.x-2,74,gp.z,0.4);
-  for(const bz of bays){ const f=new THREE.Mesh(new THREE.PlaneGeometry(dep,bw-8), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.07,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); f.rotation.x=-Math.PI/2; f.position.set(gp.x,0.3,bz); g.add(f);
-    const ol=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(dep,bw-8)), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.55})); ol.rotation.x=-Math.PI/2; ol.position.set(gp.x,0.4,bz); g.add(ol); }
-  for(let i=0;i<=bays.length;i++){ const bz=gp.z-span/2+i*bw; const post=new THREE.Mesh(new THREE.CylinderGeometry(1.7,1.7,48,8), new THREE.MeshStandardMaterial({color:0x16263c,emissive:col,emissiveIntensity:0.45})); post.position.set(gp.x-dep*0.5,24,bz); g.add(post); }
-  try{ const cv=document.createElement('canvas'); cv.width=512;cv.height=96; const cx=cv.getContext('2d'); cx.font="bold 64px Orbitron, Arial, sans-serif"; cx.textAlign='center'; cx.textBaseline='middle'; cx.shadowColor='#33e6ff'; cx.shadowBlur=18; cx.fillStyle='#dffaff'; cx.fillText('GARAGE',256,52); const tex=new THREE.CanvasTexture(cv); tex.needsUpdate=true; if(THREE.SRGBColorSpace)tex.colorSpace=THREE.SRGBColorSpace; const lab=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false})); lab.position.set(gp.x+4,88,gp.z); lab.scale.set(120,22,1); g.add(lab); }catch(_){}
+  const addWire=(geo,x,y,z,op)=>{ const w=new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:op||0.5})); w.position.set(x,y,z); g.add(w); };
+  const back=new THREE.Mesh(new THREE.BoxGeometry(span,H+8,8),wallMat); back.position.set(0,(H+8)/2,-dep/2); g.add(back); addWire(new THREE.BoxGeometry(span,H+8,8),0,(H+8)/2,-dep/2);
+  const roof=new THREE.Mesh(new THREE.BoxGeometry(span+8,5,dep+12),wallMat); roof.position.set(0,H+6,-2); g.add(roof); addWire(new THREE.BoxGeometry(span+8,5,dep+12),0,H+6,-2,0.4);
+  for(const bx of bayXs){ const f=new THREE.Mesh(new THREE.PlaneGeometry(bw-8,dep), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.07,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); f.rotation.x=-Math.PI/2; f.position.set(bx,0.3,0); g.add(f);
+    const ol=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(bw-8,dep)), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.55})); ol.rotation.x=-Math.PI/2; ol.position.set(bx,0.4,0); g.add(ol); }
+  for(let i=0;i<=nbay;i++){ const bx=-span/2+i*bw; for(const pz of [-dep/2, dep/2]){ const post=new THREE.Mesh(new THREE.CylinderGeometry(1.7,1.7,H-12,8), new THREE.MeshStandardMaterial({color:0x16263c,emissive:col,emissiveIntensity:0.45})); post.position.set(bx,(H-12)/2,pz); g.add(post); } }
+  try{ const cv=document.createElement('canvas'); cv.width=512;cv.height=96; const cx=cv.getContext('2d'); cx.font="bold 64px Orbitron, Arial, sans-serif"; cx.textAlign='center'; cx.textBaseline='middle'; cx.shadowColor='#33e6ff'; cx.shadowBlur=18; cx.fillStyle='#dffaff'; cx.fillText('GARAGE',256,52); const tex=new THREE.CanvasTexture(cv); tex.needsUpdate=true; if(THREE.SRGBColorSpace)tex.colorSpace=THREE.SRGBColorSpace; const lab=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false})); lab.position.set(0,H+22,2); lab.scale.set(120,22,1); g.add(lab); }catch(_){}
+  // place in a clear gap of the rack ring (racks sit at 0/60/120…; gaps at 30/90/150…). Faces center, like a rack.
+  let cx0, cz0, ry;
+  if(window._GARAGE_POS){ cx0=window._GARAGE_POS.x; cz0=window._GARAGE_POS.z; ry=(window._GARAGE_YAW!=null?window._GARAGE_YAW:Math.atan2(-cx0,-cz0)); }
+  else { const ang=(window._GARAGE_ANG!=null?window._GARAGE_ANG:30)*Math.PI/180, R=(window._GARAGE_R||300); cx0=Math.cos(ang)*R; cz0=Math.sin(ang)*R; ry=Math.atan2(-cx0,-cz0); }
+  g.position.set(cx0,0,cz0); g.rotation.y=ry; g.updateMatrixWorld(true);
   scene.add(g); window._trGarage=g;
-  // back-wall collider so you can't walk out the back of the garage (open bays stay walkable)
-  try{ if(typeof _arenaObstacles!=='undefined' && _arenaObstacles){ _arenaObstacles.push({x:gp.x+dep*0.5+4, z:gp.z, w:8, d:span, h:72, t:0.5, static:true, _garage:true}); window._garageObs=_arenaObstacles[_arenaObstacles.length-1]; } }catch(_){}
+  // park the vehicles at the WORLD bay positions, facing center (only if not explicitly overridden)
+  const _v=new THREE.Vector3();
+  g.localToWorld(_v.set(bayXs[0],0,0)); if(window._HOVER_POS==null){   window._HOVER_POS={x:_v.x,z:_v.z};   if(window._HOVER_YAW==null)   window._HOVER_YAW=ry; }
+  g.localToWorld(_v.set(bayXs[2],0,0)); if(window._CHOPPER_POS==null){ window._CHOPPER_POS={x:_v.x,z:_v.z}; if(window._CHOPPER_YAW==null) window._CHOPPER_YAW=ry; }
+  // back-wall collider (rotated AABB, like the racks) so you can't walk out the back; open bays stay walkable
+  try{ if(typeof _arenaObstacles!=='undefined' && _arenaObstacles){ const cc=Math.abs(Math.cos(ry)), ss=Math.abs(Math.sin(ry)); const ex=(span/2)*cc+4*ss, ez=(span/2)*ss+4*cc; g.localToWorld(_v.set(0,0,-dep/2)); _arenaObstacles.push({x:_v.x, z:_v.z, w:2*ex, d:2*ez, h:H, t:0.5, static:true, _garage:true}); } }catch(_){}
 }
 window._buildGarage=_buildGarage;
 window._dojoRacks=window._dojoRacks||[];
@@ -14376,6 +14383,7 @@ function _buildDojoRacks(){
         else if(c.kind==='boots'){ if(typeof _spawnBootStation==='function') _spawnBootStation(wx,wz); }
         else if(c.kind==='item'){ dispensers.push({x:wx,z:wz,type:it,cd:0});
           try{ const beam=new THREE.Mesh(new THREE.CylinderGeometry(1.5,5,90,12,1,true), new THREE.MeshBasicMaterial({color:c.color,transparent:true,opacity:0.13,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.set(wx,45,wz); scene.add(beam); window._dojoRacks.push(beam); }catch(_){}   // beacon so the throwable power-up is findable
+          try{ if(typeof _spawnPU==='function' && !(window._itemPU||[]).some(p=>p&&p.type===it)) _spawnPU(wx,16,wz,it,0,0,0); }catch(_){}   // stock the grabbable power-up ball right away (the dispenser re-stocks it after you grab + throw it)
         }
       }catch(e){ console.warn('rack item',it,e); }
     }
@@ -14412,7 +14420,7 @@ function buildTrainingRoom(){
   const platGeo=new THREE.BoxGeometry(60,8,60);
   const platMat=new THREE.MeshBasicMaterial({color:0xff8800,transparent:true,opacity:0.15,blending:THREE.AdditiveBlending,depthWrite:false,wireframe:true});
   const platform=new THREE.Mesh(platGeo,platMat);
-  platform.position.set(300,4,170);   // moved clear of the vehicle garage footprint
+  platform.position.set(0,4,300);   // jump-practice pad, back-center (clear of the vehicle garage + racks)
   scene.add(platform);
   // (removed: the imported-GLB deform platform — building procedurally for now)
 
@@ -14469,8 +14477,8 @@ function buildTrainingRoom(){
   if(typeof _removeBootStation==='function') _removeBootStation();
   if(typeof _buildDojoRacks==='function') _buildDojoRacks();   // builds the racks + spawns every pad/dispenser at its bay
   if(typeof _removeMushrooms==='function') _removeMushrooms();
-  if(typeof _spawnMushroom==='function'){   // ASSETS GARDEN — mushrooms grouped off to the far right, out of the rack ring (their own section)
-    const _ag=(window._ASSETS_POS||{x:330,z:60});
+  if(typeof _spawnMushroom==='function'){   // ASSETS GARDEN — mushrooms grouped in a clear gap of the rack ring (their own section, NW, away from the garage)
+    const _ag=(window._ASSETS_POS||{x:-250,z:150});
     _spawnMushroom(_ag.x-30, _ag.z-20, {scale:2.6, capColor:0xff2e6e, glowColor:0xff2e6e, reactive:true});
     _spawnMushroom(_ag.x+8,  _ag.z+18, {scale:1.1, detail:'low', capColor:0x9b5cff, glowColor:0x9b5cff, dotColor:0xd6ffe0, reactive:true});
     _spawnMushroom(_ag.x+34, _ag.z-8,  {scale:1.9, capColor:0x18e0ff, glowColor:0x18e0ff, dotColor:0xfff2c8, reactive:true});
@@ -14479,7 +14487,7 @@ function buildTrainingRoom(){
   try{
     if(window._trLabels){ window._trLabels.forEach(s=>{ scene.remove(s); if(s.material){ if(s.material.map)s.material.map.dispose(); s.material.dispose(); } }); }
     window._trLabels=[];
-    _trSectionLabel('VEHICLES', 210, 60, '#00ffe0');
+    _trSectionLabel('VEHICLES', 232, 132, '#00ffe0');   // by the garage (NE gap of the rack ring)
     _trSectionLabel('GUNS', -200, 30, '#33e6ff');
     _trSectionLabel('ARMORY', -106, 64, '#7dff8a');
     _trSectionLabel('MELEE', 90, 64, '#ff6ad5');
