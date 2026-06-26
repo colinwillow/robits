@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-EDITOR1</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-SMASH1</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12099,6 +12099,23 @@ class BotPilot{
       mvX=rx/rd; mvZ=rz/rd;
     }
 
+    // ── ORGANIC WANDER — slight drift so paths aren't laser-straight (feels human) ──
+    this._wphase=(this._wphase||(this.wob||Math.random()*99))+dt*1.7;
+    mvX+=Math.cos(this._wphase)*0.16; mvZ+=Math.sin(this._wphase*1.3)*0.16;
+
+    // ── REACTIVE DODGE — juke perpendicular to an incoming player bullet (read & sidestep like a person) ──
+    if(this._dashCD<=0 && typeof GS!=='undefined' && GS.bullets && GS.bullets.length){
+      const _rt={rookie:0.10,soldier:0.24,elite:0.5}[this.diff]||0.2;
+      for(const b of GS.bullets){ if(!b||b.life<=0||b._fromBot)continue;
+        const rx=this.wx-b.wx, rz=this.wz-b.wz, rd=Math.hypot(rx,rz); if(rd>120||rd<8)continue;
+        const bs=Math.hypot(b.vx||0,b.vz||0)||1, bnx=(b.vx||0)/bs, bnz=(b.vz||0)/bs;
+        if(((-rx)*bnx+(-rz)*bnz) < rd*0.6) continue;                      // bullet not really heading at me
+        if(Math.abs((-rx)*(-bnz)+(-rz)*bnx) > 26) continue;              // ...and it would actually connect
+        if(Math.random()<_rt){ const s=(Math.random()<0.5?1:-1); this._dash(-bnz*s, bnx*s); }   // sidestep across the shot
+        break;
+      }
+    }
+
     // Apply dash
     if(this._dashRamp>0&&this._dashDir){
       const frac=this._dashRamp/8;
@@ -14581,6 +14598,8 @@ function buildTrainingRoom(){
 
   // ── PRACTICE TARGETS — a few weak crawlers so you can test melee/guns AND the spider/drone power-ups (allies fight them; they also target the dummy). Set window._DOJO_ENEMIES=0 to disable. ──
   try{ const _ne=(window._DOJO_ENEMIES!=null?window._DOJO_ENEMIES:3); if(_ne>0 && typeof Crawler!=='undefined' && typeof GS!=='undefined' && GS.enemies){ for(let i=0;i<_ne;i++){ const e=new Crawler(-70+i*70, -8, 1); if(e.addToScene)e.addToScene(); GS.enemies.push(e); } } }catch(e){ console.warn('dojo enemies:',e); }
+  // ── SPARRING RIVAL — a humanlike AI opponent to practice the melee SMASH-launch on (it fights back). Set window._DOJO_SPAR=false to disable, _DOJO_SPAR_DIFF='rookie'|'soldier'|'elite'. ──
+  try{ if(window._DOJO_SPAR!==false && typeof BotPilot!=='undefined' && typeof GS_bots!=='undefined'){ const sb=new BotPilot(70,-50,{difficulty:(window._DOJO_SPAR_DIFF||'soldier'),round:1}); GS_bots.push(sb); window._dojoSpar=sb; } }catch(e){ console.warn('dojo spar:',e); }
 
   // Platform off to the side for jump practice
   const platGeo=new THREE.BoxGeometry(60,8,60);
@@ -18710,9 +18729,9 @@ function loop(ts){ requestAnimationFrame(loop);
             const _try=(e,kind)=>{
               if(!e||e.alive===false||e===player||ud._meleeHitSet.has(e))return false;     // (dummy has no .alive -> still allowed through)
               const _eBase=(e.mesh?e.mesh.position.y:(e.py||0)), _etall=(e._tall||0), _reach=HIT_R+(e.size||14);
-              let _inR=false;
-              if(_etall>20){ for(let _h=0;_h<=_etall+10;_h+=(_etall+10)/4){ if(_seg(e.wx,_eBase+_h,e.wz)<=_reach){ _inR=true; break; } } }   // tall enemy (dragon): test the blade up its whole body, not just the centre
-              else { _inR=(_seg(e.wx,_eBase+10,e.wz)<=_reach); }
+              let _inR=false, _dseg=_reach;
+              if(_etall>20){ for(let _h=0;_h<=_etall+10;_h+=(_etall+10)/4){ const _dd=_seg(e.wx,_eBase+_h,e.wz); if(_dd<=_reach){ _inR=true; _dseg=_dd; break; } } }   // tall enemy (dragon): test the blade up its whole body, not just the centre
+              else { _dseg=_seg(e.wx,_eBase+10,e.wz); _inR=(_dseg<=_reach); }
               if(!_inR)return false;
               const ey=_eBase+Math.max(10,_etall*0.5);
               ud._meleeHitSet.add(e);
@@ -18722,7 +18741,26 @@ function loop(ts){ requestAnimationFrame(loop);
               let dx=kvx,dz=kvz; if(dx*dx+dz*dz<1){ dx=e.wx-player.wx; dz=e.wz-player.wz; }
               { const _m=Math.hypot(dx,dz)||1, _s=(Math.random()-0.5)*0.4, _px=-dz/_m, _pz=dx/_m; dx+=_px*_m*_s; dz+=_pz*_m*_s; }   // a little scatter so a group doesn't all fly the same way
               if(e.knock){
-                if(kind==='bot') e.knock(dx,dz,mag,lift,stn);                                  // bot.knock(mag,lift,stun) — unchanged
+                if(kind==='bot'){                                                              // SMASH-BROS LAUNCH — hit QUALITY (flick velocity) × PROXIMITY (nested collider) × the bot's own damage% (bot.knock scales weak targets farther)
+                  const _SM=window._MELEE_SMASH||{};
+                  const qFlick=(player._flickPower!=null?player._flickPower:0.5);                // how clean/fast the flick was (0..1)
+                  const qProx=Math.max(0,Math.min(1, 1-(_dseg/_reach)));                         // how centred the hit was: blade-core = 1, edge of reach = 0 (inner vs outer collider)
+                  const q=Math.max(0,Math.min(1, (_SM.flickW!=null?_SM.flickW:0.45)*qFlick + (_SM.proxW!=null?_SM.proxW:0.55)*qProx));   // overall hit power
+                  const _isSmash=(q>=(_SM.q!=null?_SM.q:0.62)) || (tier>=(_SM.tier!=null?_SM.tier:3));   // a clean, close hit (or the combo finisher) = SMASH / home-run
+                  let _lift=lift*(window._MELEE_BOT_LIFT_K||2.4)*(0.55+q*1.55);                  // q scales the launch: glancing far hit = small pop, perfect close hit = moon-shot
+                  let _mag =mag *(window._MELEE_BOT_MAG_K||1.3 )*(0.8+q*0.7);
+                  if(_isSmash){ _lift*=(_SM.liftMul||1.45); _mag*=(_SM.magMul||1.3); }
+                  _lift=Math.min(_lift,(_SM.liftCap||1080));
+                  e.knock(dx,dz,_mag,_lift,stn);
+                  if(_isSmash){
+                    if(typeof announce==='function')announce(q>=0.9?'HOME RUN!':'SMASH!','#ffe23c');
+                    if(typeof ps!=='undefined'){ ps.ring(e.wx,e.wz,[1,0.9,0.2],28,150); ps.burst(e.wx,e.wz,[1,0.8,0.3],24,180,(e.py||0)+14); }
+                    if(typeof addTrauma==='function')addTrauma(0.18+q*0.12);
+                    if(typeof hitStop==='function')hitStop(6+(q>=0.9?4:0));
+                    if(typeof slowmo==='function'&&q>=0.82)slowmo(0.5,12);
+                    if(typeof Audio!=='undefined'&&Audio.blip){ try{ Audio.blip(66,0.24,'sine',0.32,58); Audio.blip(880,0.05,'square',0.12,1500); }catch(_){} }
+                  }
+                }
                 else if(kind==='enemy'){
                   e._stunT=Math.max(e._stunT||0,_MS.eStun);      // per-weapon stun (hammer/scythe long -> crowd control)
                   if(e._ballCapable && e.alive && !e._ball && typeof e.enterBall==='function'){
@@ -19055,12 +19093,17 @@ function loop(ts){ requestAnimationFrame(loop);
         const _fmag=Math.hypot(shootIn.x,shootIn.y);
         const _now=performance.now();
         if(player._flickPending){                                   // a snap-out is in progress — did it come back in time?
+          player._flickPeak=Math.max(player._flickPeak||0,_fmag);                                // track how hard the stick was thrown (hit QUALITY)
           if(_now-(player._flickPendT||0) > _MELEE_FLICK_WINDOW_MS){ player._flickPending=false; }            // stayed out -> it's a HOLD (aim/fire)
-          else if(_fmag < _MELEE_FLICK_LO){ player._flickPending=false; _doMeleeFlick(player.model&&player.model.userData, (player._flickDir!=null?player._flickDir:null), undefined); }   // came back -> melee (air & ground)
+          else if(_fmag < _MELEE_FLICK_LO){ player._flickPending=false;
+            const _magPow=Math.max(0,Math.min(1,((player._flickPeak||_fmag)-_MELEE_FLICK_HI)/Math.max(0.05,(window._MELEE_FLICK_FULL||0.99)-_MELEE_FLICK_HI)));   // full-deflection flick = 1
+            const _spdPow=Math.max(0,Math.min(1,1-(_now-(player._flickPendT||_now))/_MELEE_FLICK_WINDOW_MS));   // snappier return = higher quality
+            player._flickPower=Math.max(0,Math.min(1, 0.6*_magPow + 0.4*_spdPow));
+            _doMeleeFlick(player.model&&player.model.userData, (player._flickDir!=null?player._flickDir:null), undefined); }   // came back -> melee (air & ground)
         }
         if(_fmag<_MELEE_FLICK_LO){ player._flickArmed=true; player._preFlickAim=player.aim; }   // re-arm + remember resting facing
         if(player._flickArmed && _fmag>_MELEE_FLICK_HI && !player._flickPending){   // snapped out -> watch for a quick return
-          player._flickArmed=false; player._flickPending=true; player._flickPendT=_now;
+          player._flickArmed=false; player._flickPending=true; player._flickPendT=_now; player._flickPeak=_fmag;
           const _ws=rotInput(shootIn.x,shootIn.y); player._flickDir=Math.atan2(_ws.z,_ws.x);
           const _ax=shootIn.x, _ay=shootIn.y;                                          // screen-relative flick -> which melee (up=-y)
           player._flickAx=_ax; player._flickAy=_ay;   // remembered for the cube AIR-flick = FLIP
