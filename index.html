@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DRONE1</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-EDITOR1</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -13034,6 +13034,7 @@ function _disposeBarrels(){
   if(typeof _removeDojoRacks==='function') _removeDojoRacks();
   if(window._trGarage){ if(window._trGarage.parent)window._trGarage.parent.remove(window._trGarage); window._trGarage.traverse&&window._trGarage.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); window._trGarage=null; }
   if(window._trDeck){ if(window._trDeck.parent)window._trDeck.parent.remove(window._trDeck); window._trDeck.traverse&&window._trDeck.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); window._trDeck=null; }
+  if(typeof _edDispose==='function'){ try{ _edDispose(); }catch(_){} }
   try{ if(typeof _arenaObstacles!=='undefined'&&_arenaObstacles){ for(let i=_arenaObstacles.length-1;i>=0;i--){ if(_arenaObstacles[i]&&_arenaObstacles[i]._garage)_arenaObstacles.splice(i,1); } } }catch(_){}
   if(player){ if(player._carryPayload){ player._carryPayload=null; if(typeof player._disarmBomb==='function'&&player._bombMode==='item')player._disarmBomb(); } }
   window._nearOrb=null; window._nearCrate=null; window._nearConvGun=null;
@@ -14447,6 +14448,69 @@ function _buildDojoDeck(){
   window._DECK_INFO={x:dp.x,z:dp.z,top:H};
 }
 window._buildDojoDeck=_buildDojoDeck;
+// ════════════════════ LEVEL EDITOR (MVP) ════════════════════
+// Walk-to-place / grab-to-move: the PLAYER is the cursor (so it never fights the
+// joysticks). PLACE drops the selected prop in front of you; GRAB carries the
+// nearest one (move by walking); ROTATE/SCALE/DELETE act on the held/nearest prop.
+// The layout serialises to a JSON entity list (localStorage autosave + EXPORT/IMPORT),
+// so you design the room in-engine, save it, share the JSON, or load it back. This is
+// the data substrate — every prop is a record {type,x,z,rot,scale,params}, one registry
+// builds them, so the same data can later drive any zone.
+window._ed = window._ed || { on:false, items:[], grab:null, palIdx:0, root:null };
+function _edPrim(geo,col,emI){ return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:0x0c1320,emissive:col,emissiveIntensity:(emI==null?0.4:emI),metalness:0.45,roughness:0.55,toneMapped:false})); }
+function _edWire(geo,col,op){ return new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:(op==null?0.7:op)})); }
+function _edSign(text,col){ const g=new THREE.Group(); try{ const cv=document.createElement('canvas'); cv.width=512;cv.height=128; const c=cv.getContext('2d'); c.font="bold 70px Orbitron, Arial, sans-serif"; c.textAlign='center'; c.textBaseline='middle'; c.shadowColor=col; c.shadowBlur=22; c.fillStyle='#eaffff'; c.fillText(text||'SIGN',256,68); const tex=new THREE.CanvasTexture(cv); tex.needsUpdate=true; if(THREE.SRGBColorSpace)tex.colorSpace=THREE.SRGBColorSpace; const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false})); sp.position.y=28; sp.scale.set(70,18,1); g.add(sp); const pole=_edPrim(new THREE.CylinderGeometry(1.2,1.2,28,8),0x33e6ff,0.5); pole.position.y=14; g.add(pole); }catch(_){} return g; }
+const _ED_TYPES = [
+  { type:'rack',    label:'RACK',    build:e=>_makeRack({bays:(e.params&&e.params.bays)||4,label:(e.params&&e.params.label)||'RACK',color:(e.params&&e.params.color)||0x33e6ff}) },
+  { type:'speaker', label:'SPEAKER', build:e=>_makeSpeaker({color:(e.params&&e.params.color)||0xff2e6e}) },
+  { type:'crate',   label:'CRATE',   build:e=>{ const g=new THREE.Group(),S=16,c=0x39ffc9,bg=new THREE.BoxGeometry(S,S,S); const m=_edPrim(bg,c); m.position.y=S/2; g.add(m); const w=_edWire(bg,c); w.position.y=S/2; g.add(w); return g; } },
+  { type:'wall',    label:'WALL',    build:e=>{ const g=new THREE.Group(),W=(e.params&&e.params.w)||90,H=(e.params&&e.params.h)||34,c=0x33e6ff,bg=new THREE.BoxGeometry(W,H,8); const m=_edPrim(bg,c,0.3); m.position.y=H/2; g.add(m); const w=_edWire(bg,c); w.position.y=H/2; g.add(w); return g; } },
+  { type:'pillar',  label:'PILLAR',  build:e=>{ const g=new THREE.Group(),H=(e.params&&e.params.h)||46,c=0x7dff8a,bg=new THREE.CylinderGeometry(7,9,H,12); const m=_edPrim(bg,c,0.45); m.position.y=H/2; g.add(m); const w=_edWire(bg,c,0.5); w.position.y=H/2; g.add(w); return g; } },
+  { type:'ramp',    label:'RAMP',    build:e=>{ const g=new THREE.Group(),W=(e.params&&e.params.w)||50,L=(e.params&&e.params.l)||80,H=(e.params&&e.params.h)||34,c=0xffb020; const sh=new THREE.Shape(); sh.moveTo(-L/2,0); sh.lineTo(L/2,0); sh.lineTo(L/2,H); sh.closePath(); const geo=new THREE.ExtrudeGeometry(sh,{depth:W,bevelEnabled:false}); geo.translate(0,0,-W/2); const m=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0x0c1320,emissive:c,emissiveIntensity:0.32,metalness:0.4,roughness:0.6,toneMapped:false})); g.add(m); g.add(_edWire(geo,c,0.5)); return g; } },
+  { type:'pad',     label:'PAD',     build:e=>{ const g=new THREE.Group(),c=(e.params&&e.params.color)||0x00e0ff; const ring=new THREE.Mesh(new THREE.TorusGeometry(15,1.3,8,32),new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=1; g.add(ring); const disc=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); disc.rotation.x=-Math.PI/2; disc.position.y=0.6; g.add(disc); const beam=new THREE.Mesh(new THREE.CylinderGeometry(2,14,46,16,1,true),new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.y=23; g.add(beam); return g; } },
+  { type:'sign',    label:'SIGN',    build:e=>_edSign((e.params&&e.params.text)||'SIGN',(e.params&&e.params.color)||'#00ffe0') },
+];
+function _edCur(){ return _ED_TYPES[((_ed.palIdx%_ED_TYPES.length)+_ED_TYPES.length)%_ED_TYPES.length]; }
+function _edBuild(e){ const def=_ED_TYPES.find(t=>t.type===e.type)||_ED_TYPES[0]; let g; try{ g=def.build(e); }catch(err){ g=new THREE.Group(); } g.position.set(e.x,(e.y||0),e.z); g.rotation.y=(e.rot||0); g.scale.setScalar(e.scale||1); e._g=g; if(_ed.root)_ed.root.add(g); return g; }
+function _edRebuild(){ if(!_ed.root)return; for(let i=_ed.root.children.length-1;i>=0;i--){ const c=_ed.root.children[i]; _ed.root.remove(c); c.traverse&&c.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } for(const e of _ed.items) _edBuild(e); }
+function _edSerialize(){ return _ed.items.map(e=>{ const o={type:e.type,x:Math.round(e.x),z:Math.round(e.z),rot:+( e.rot||0).toFixed(3),scale:+(e.scale||1).toFixed(3)}; if(e.y)o.y=Math.round(e.y); if(e.params&&Object.keys(e.params).length)o.params=e.params; return o; }); }
+function _edSave(){ try{ localStorage.setItem('robits_dojo_layout', JSON.stringify(_edSerialize())); }catch(_){} }
+function _edLoad(){ try{ const s=localStorage.getItem('robits_dojo_layout'); if(s){ const arr=JSON.parse(s); if(Array.isArray(arr)) _ed.items=arr.map(e=>({...e})); } }catch(_){} }
+function _edExport(){ const json=JSON.stringify({name:'dojo-layout',entities:_edSerialize()},null,1); try{ if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(json); }catch(_){} try{ window.prompt('LEVEL JSON (copied — paste to save/share):', json); }catch(_){ console.log(json); } }
+function _edImport(){ let j; try{ j=window.prompt('Paste LEVEL JSON to load:',''); }catch(_){ return; } if(!j)return; try{ const d=JSON.parse(j); const arr=Array.isArray(d)?d:(d.entities||[]); _ed.items=arr.map(e=>({...e})); _edRebuild(); _edSave(); _edToast('IMPORTED '+arr.length); }catch(_){ _edToast('BAD JSON'); } }
+function _edToast(m){ if(typeof announce==='function')announce(m,'#9b8cff'); }
+function _edPlace(){ if(!player||!_ed.root)return; const a=player.aim||0; const e={type:_edCur().type,x:player.wx+Math.cos(a)*34,z:player.wz+Math.sin(a)*34,y:0,rot:a,scale:1,params:{}}; _ed.items.push(e); _edBuild(e); _ed.grab=e; _edSave(); _edToast('PLACED '+e.type); }
+function _edNearest(){ if(!player||!_ed.items.length)return null; let b=null,bd=1e9; for(const e of _ed.items){ const d=Math.hypot(e.x-player.wx,e.z-player.wz); if(d<bd){bd=d;b=e;} } return bd<160?b:null; }
+function _edGrab(){ _ed.grab=_ed.grab?null:_edNearest(); _edToast(_ed.grab?'GRABBED — walk to move, GRAB to drop':'DROPPED'); }
+function _edRot(d){ const e=_ed.grab||_edNearest(); if(!e)return; e.rot=(e.rot||0)+d; if(e._g)e._g.rotation.y=e.rot; _edSave(); }
+function _edScale(f){ const e=_ed.grab||_edNearest(); if(!e)return; e.scale=Math.max(0.2,Math.min(8,(e.scale||1)*f)); if(e._g)e._g.scale.setScalar(e.scale); _edSave(); }
+function _edDelete(){ const e=_ed.grab||_edNearest(); if(!e)return; const i=_ed.items.indexOf(e); if(i>=0)_ed.items.splice(i,1); if(e._g){ if(e._g.parent)e._g.parent.remove(e._g); e._g.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } _ed.grab=null; _edSave(); _edToast('DELETED'); }
+function _edPal(d){ _ed.palIdx+=d; const b=document.getElementById('ed-pal'); if(b)b.textContent=_edCur().label; }
+function _edUpdate(dt){ if(!_ed.on||!_ed.grab||!player)return; const e=_ed.grab, a=player.aim||0; e.x=player.wx+Math.cos(a)*34; e.z=player.wz+Math.sin(a)*34; if(e._g)e._g.position.set(e.x,e.y||0,e.z); }
+window._edUpdate=_edUpdate;
+function _edToggle(){ _ed.on=!_ed.on; const p=document.getElementById('ed-panel'); if(p)p.style.display=_ed.on?'flex':'none'; const t=document.getElementById('ed-toggle'); if(t){ t.style.background=_ed.on?'#9b8cffcc':'#0008'; t.style.color=_ed.on?'#0b0b12':'#9b8cff'; } if(!_ed.on)_ed.grab=null; if(typeof announce==='function')announce(_ed.on?'EDIT MODE — PLACE props at your feet':'EDIT OFF','#9b8cff'); }
+function _edUI(){
+  if(document.getElementById('ed-toggle'))return;
+  const mk=(id,txt,fn,extra)=>{ const b=document.createElement('button'); b.id=id; b.textContent=txt; b.style.cssText='font:bold 11px monospace;color:#cde;background:#0b1020cc;border:1px solid #9b8cff66;border-radius:6px;padding:6px 8px;pointer-events:auto;'+(extra||''); b.addEventListener('click',e=>{ e.preventDefault(); e.stopPropagation(); fn(); },{passive:false}); b.addEventListener('touchstart',e=>{ e.stopPropagation(); },{passive:true}); return b; };
+  const tog=mk('ed-toggle','✎ EDIT',_edToggle,'position:fixed;left:6px;top:90px;z-index:120;color:#9b8cff;'); document.body.appendChild(tog); tog.style.display='none';
+  const panel=document.createElement('div'); panel.id='ed-panel'; panel.style.cssText='position:fixed;left:6px;top:122px;z-index:120;display:none;flex-wrap:wrap;gap:4px;max-width:172px;pointer-events:none;'; document.body.appendChild(panel);
+  const pal=mk('ed-pal',_edCur().label,()=>{},'min-width:70px;text-align:center;border-color:#00ffe066;color:#bff;');
+  panel.appendChild(mk('ed-pp','◀',()=>_edPal(-1)));
+  panel.appendChild(pal);
+  panel.appendChild(mk('ed-pn','▶',()=>_edPal(1)));
+  panel.appendChild(mk('ed-place','PLACE',_edPlace,'border-color:#7dff8a99;color:#cfffcf;'));
+  panel.appendChild(mk('ed-grab','GRAB/DROP',_edGrab,'border-color:#ffd84a99;color:#fff3c8;'));
+  panel.appendChild(mk('ed-rl','↺',()=>_edRot(-0.3927)));
+  panel.appendChild(mk('ed-rr','↻',()=>_edRot(0.3927)));
+  panel.appendChild(mk('ed-bg','➕',()=>_edScale(1.18)));
+  panel.appendChild(mk('ed-sm','➖',()=>_edScale(1/1.18)));
+  panel.appendChild(mk('ed-del','DELETE',_edDelete,'border-color:#ff556699;color:#ffd0d6;'));
+  panel.appendChild(mk('ed-exp','EXPORT',_edExport,'border-color:#00e0ff99;'));
+  panel.appendChild(mk('ed-imp','IMPORT',_edImport,'border-color:#00e0ff99;'));
+}
+function _edInit(){ if(typeof scene==='undefined')return; _edDispose(); _ed.root=new THREE.Group(); scene.add(_ed.root); _edLoad(); _edRebuild(); _edUI(); const t=document.getElementById('ed-toggle'); if(t)t.style.display='block'; }
+function _edDispose(){ if(_ed.root){ if(_ed.root.parent)_ed.root.parent.remove(_ed.root); _ed.root.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); _ed.root=null; } _ed.grab=null; _ed.on=false; const p=document.getElementById('ed-panel'); if(p)p.style.display='none'; const t=document.getElementById('ed-toggle'); if(t)t.style.display='none'; }
+window._edInit=_edInit; window._edDispose=_edDispose;
 window._dojoRacks=window._dojoRacks||[];
 function _removeDojoRacks(){ for(const r of (window._dojoRacks||[])){ if(r&&r.parent)r.parent.remove(r); r&&r.traverse&&r.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } window._dojoRacks=[];
   if(typeof _arenaObstacles!=='undefined'&&_arenaObstacles){ for(let i=_arenaObstacles.length-1;i>=0;i--){ if(_arenaObstacles[i]&&_arenaObstacles[i]._rack)_arenaObstacles.splice(i,1); } }
@@ -14530,6 +14594,8 @@ function buildTrainingRoom(){
   try{ if(typeof _buildGarage==='function') _buildGarage(); }catch(e){ console.warn('garage:',e); }
   // ── UPPER DECK — a raised mezzanine reached by stairs (back-right of the room) ──
   try{ if(typeof _buildDojoDeck==='function') _buildDojoDeck(); }catch(e){ console.warn('deck:',e); }
+  // ── LEVEL EDITOR — load any saved custom layout + show the EDIT toggle ──
+  try{ if(typeof _edInit==='function') _edInit(); }catch(e){ console.warn('editor:',e); }
 
   // ── SHOWCASE CHOPPER on a glowing display pad (parks in a garage bay) ──
   try{ if(window._trChopper){ scene.remove(window._trChopper); window._trChopper=null; } if(window._trChopperPad){ scene.remove(window._trChopperPad); window._trChopperPad=null; }
@@ -18468,7 +18534,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(typeof GS!=='undefined'){ const _gfTgt=(GS.zone===-19 && GS._gravFlip && player && !player._ballActive)?1:0; GS._gfCamF=lerp(GS._gfCamF||0, _gfTgt, 0.06); }
     updateCamera(rawDt);
     if(typeof GS!=='undefined' && (GS._gfCamF||0)>0.001 && typeof camera!=='undefined'){ camera.rotateZ((GS._gfCamF)*Math.PI); }   // roll the whole view 180° (always, incl. boots) so a flipped ceiling reads as the floor
-    grid.update(dt); ps.update(dt); if(ps2)ps2.update(dt); if(GS.zone===-18 && typeof _updateCustomGrid==='function') _updateCustomGrid(dt); if(GS.zone===-2 && typeof _updateDojoPlatform==='function') _updateDojoPlatform(dt); if(typeof _updateMushrooms==='function')_updateMushrooms(dt); if(GS.zone===-2 && typeof _updateDojoSpeakers==='function')_updateDojoSpeakers(dt); if(GS.zone===-2 && typeof _updateGunConveyor==='function')_updateGunConveyor(dt);
+    grid.update(dt); ps.update(dt); if(ps2)ps2.update(dt); if(GS.zone===-18 && typeof _updateCustomGrid==='function') _updateCustomGrid(dt); if(GS.zone===-2 && typeof _updateDojoPlatform==='function') _updateDojoPlatform(dt); if(typeof _updateMushrooms==='function')_updateMushrooms(dt); if(GS.zone===-2 && typeof _updateDojoSpeakers==='function')_updateDojoSpeakers(dt); if(GS.zone===-2 && typeof _updateGunConveyor==='function')_updateGunConveyor(dt); if(GS.zone===-2 && typeof _edUpdate==='function')_edUpdate(dt);
     for(const p of GS_portals){ if(GS.zone===-19){ if(p.group&&p.group.parent)scene.remove(p.group); } else { if(p.group&&!p.group.parent)scene.add(p.group); p.update(dt,player); } }   // no teleporters in the RL cube arena (removed from scene, restored elsewhere)
     // Tick robot animation mixer
     if(player&&player._mixer){
