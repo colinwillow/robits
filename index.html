@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BALLFIX1</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-SELECT1</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -29413,6 +29413,18 @@ function _robotViewerFallback(canvasId){
   canvas.parentNode.replaceChild(div,canvas);
 }
 
+// Unified select-screen framing: measure HEIGHT from the bones (reliable on any skinned rig), fit to a common target height, then justify FEET (lowest bone) to a common ground line, horizontally centred. Origins differ per export, so we use the bones, not the model origin or the un-posed mesh bbox.
+function _framePreviewModel(model, opts){ opts=opts||{};
+  model.updateWorldMatrix(true,true);
+  const v=new THREE.Vector3(), mn=new THREE.Vector3(1e9,1e9,1e9), mx=new THREE.Vector3(-1e9,-1e9,-1e9); let any=false;
+  model.traverse(o=>{ if(o.isBone){ o.getWorldPosition(v); mn.min(v); mx.max(v); any=true; } });
+  if(!any){ const bb=new THREE.Box3().setFromObject(model); if(bb.max.y>bb.min.y){ mn.copy(bb.min); mx.copy(bb.max); any=true; } }
+  if(!any){ mn.set(-1,0,-1); mx.set(1,2,1); }
+  const H=Math.max(mx.y-mn.y,0.001);
+  const s=((window._CHAR_PREVIEW_H||3.2)/H)*(opts.scale||1);
+  model.scale.setScalar(s);
+  model.position.set(-((mn.x+mx.x)*0.5)*s, -mn.y*s+(window._CHAR_PREVIEW_GROUND!=null?window._CHAR_PREVIEW_GROUND:-1.7), -((mn.z+mx.z)*0.5)*s);
+}
 function _startRobotViewer(canvasId, opts={}){
   const canvas=document.getElementById(canvasId);
   if(!canvas||canvas._robotRunning) return;
@@ -29439,13 +29451,7 @@ function _startRobotViewer(canvasId, opts={}){
 
   function onGltf(gltf){
     const model=SkeletonUtils.clone(gltf.scene);
-    const box=new THREE.Box3().setFromObject(model);
-    const center=box.getCenter(new THREE.Vector3());
-    const size=box.getSize(new THREE.Vector3());
-    const s=1.8/Math.max(size.x,size.y,size.z);
-    model.scale.setScalar(s);
-    model.position.sub(center.multiplyScalar(s));
-    model.position.y+=(opts.yOffset||0);
+    _framePreviewModel(model, {scale:(window._ROBOT_PREVIEW_SCALE||1)});
     // Same material fix as _applyRobotModel
     model.traverse(c=>{
       if((c.isSkinnedMesh||c.isMesh)&&c.material){
@@ -29516,8 +29522,7 @@ function _startAlienViewer(canvasId, opts={}){
   }
   function onGltf(gltf){
     const model=SkeletonUtils.clone(gltf.scene);
-    const box=new THREE.Box3().setFromObject(model); const center=box.getCenter(new THREE.Vector3()); const size=box.getSize(new THREE.Vector3());
-    const s=(1.8/Math.max(size.x,size.y,size.z))*(window._ALIEN_PREVIEW_SCALE||1); model.scale.setScalar(s); model.position.set(-center.x*s, -box.min.y*s+(window._CHAR_PREVIEW_GROUND!=null?window._CHAR_PREVIEW_GROUND:-1.6), -center.z*s);   // feet on the ground line (was centered/floating)
+    _framePreviewModel(model, {scale:(window._ALIEN_PREVIEW_SCALE||1)});
     model.traverse(c=>{ if(c.isSkinnedMesh||c.isMesh){ c.frustumCulled=false; const _src=Array.isArray(c.material)?c.material[0]:c.material; const _g=(window._ALIEN_GLOW!=null?window._ALIEN_GLOW:0.7); const _m=new THREE.MeshStandardMaterial({side:THREE.DoubleSide,roughness:0.55,metalness:0.15,emissiveIntensity:_g,toneMapped:false}); if(_src&&_src.map){ _m.map=_src.map; _m.emissiveMap=_src.map; _m.emissive=new THREE.Color(0xffffff); } else { _m.color.set(0x36a85a); _m.emissive=new THREE.Color(0x1f8a32); } c.material=_m; } });
     theModel=model; modelRoot=new THREE.Group(); modelRoot.add(model); sc.add(modelRoot);
     applyIdle();
@@ -29564,8 +29569,7 @@ function _startInterceptorViewer(canvasId, opts={}){   // spinning preview for t
   }
   function onGltf(gltf){
     const model=SkeletonUtils.clone(gltf.scene);
-    const box=new THREE.Box3().setFromObject(model); const center=box.getCenter(new THREE.Vector3()); const size=box.getSize(new THREE.Vector3());
-    const s=(1.8/Math.max(size.x,size.y,size.z))*(window._INTERCEPTOR_PREVIEW_SCALE!=null?window._INTERCEPTOR_PREVIEW_SCALE:1); model.scale.setScalar(s); model.position.set(-center.x*s, -box.min.y*s+(window._CHAR_PREVIEW_GROUND!=null?window._CHAR_PREVIEW_GROUND:-1.6), -center.z*s);   // feet on the ground line; back to the standard fit (1.25 was too big -> legs only)
+    _framePreviewModel(model, {scale:(window._INTERCEPTOR_PREVIEW_SCALE||1)});
     model.traverse(c=>{ if(c.isSkinnedMesh||c.isMesh){ c.frustumCulled=false;
       const mats=Array.isArray(c.material)?c.material:[c.material];
       const out=mats.map(mt=>{ if(!mt) return mt; if((window._INTERCEPTOR_UNLIT!==false)&&mt.map){ const b=new THREE.MeshBasicMaterial({map:mt.map,side:THREE.DoubleSide}); b.toneMapped=false; return b; } mt.side=THREE.DoubleSide; if('toneMapped' in mt)mt.toneMapped=false; return mt; });
@@ -29607,13 +29611,7 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
   function onGltf(gltf){
     const model=SkeletonUtils.clone(gltf.scene);
     { const rx=(window._CYBER_ROT_X!=null?window._CYBER_ROT_X:Math.PI/2); let inner=null,h=null; model.children.forEach(c=>{ if(inner)return; let sk=false; if(c.traverse)c.traverse(o=>{ if(o.isSkinnedMesh)sk=true; }); if(sk)inner=c; }); model.traverse(o=>{ if(o.name==='mixamorig_Hips')h=o; }); if(inner&&rx){ inner.rotation.x+=rx; if(h)h.rotation.x-=rx; } }   // robot framing -> she stands upright
-    model.updateWorldMatrix(true,true);
-    // measure via BONE world positions (setFromObject reads the un-posed mesh geometry; bones reflect the actual standing pose)
-    const v=new THREE.Vector3(), mn=new THREE.Vector3(1e9,1e9,1e9), mx=new THREE.Vector3(-1e9,-1e9,-1e9);
-    model.traverse(o=>{ if(o.isBone){ o.getWorldPosition(v); mn.min(v); mx.max(v); } });
-    const size=mx.clone().sub(mn), center=mn.clone().add(mx).multiplyScalar(0.5);
-    const s=(1.8/Math.max(size.y,0.001))*(window._CYBER_PREVIEW_SCALE!=null?window._CYBER_PREVIEW_SCALE:1); model.scale.setScalar(s);   // fit by HEIGHT to the SAME ~1.8 target as the other tiles (consistent size)
-    model.position.set(-center.x*s, -mn.y*s+(window._CHAR_PREVIEW_GROUND!=null?window._CHAR_PREVIEW_GROUND:-1.6), -center.z*s);   // feet (lowest bone) on the ground line, matching the others
+    _framePreviewModel(model, {scale:(window._CYBER_PREVIEW_SCALE||1)});   // same bone-based feet-justify + height fit as the other tiles
     model.traverse(c=>{ if(c.isSkinnedMesh||c.isMesh){ c.frustumCulled=false;
       const glow=(window._CYBER_GLOW!=null?window._CYBER_GLOW:0.7);
       const mats=Array.isArray(c.material)?c.material:[c.material];
