@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CYBER1</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CYBER2</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -2386,6 +2386,13 @@ function _retargetRotationOnly(clip){
   if(tracks.length===clip.tracks.length) return clip;
   const c=clip.clone(); c.tracks=tracks; return c;
 }
+// Some Mixamo exports name bones "mixamorig:Hips" (colon) instead of the robot's "mixamorig_Hips" (underscore).
+// The robot's clips, IK, weapon mounting and melee all target the underscore form — so rename the skin's bones to match,
+// otherwise the clips bind to nothing and the model just stands in its T-pose. Harmless no-op for already-underscore rigs.
+function _normalizeMixamoBones(root){ try{ root.traverse(o=>{ if(o.name && o.name.indexOf('mixamorig:')===0) o.name='mixamorig_'+o.name.slice(10); }); }catch(_){} }
+// True character height from BONE world positions (a skinned mesh's geometry bbox ignores the skeleton pose/scale, so it
+// mis-measures rigs whose geometry is authored at a tiny/huge scale). Used to match a new skin's height to the robot.
+function _boneSpanY(root){ try{ root.updateWorldMatrix(true,true); let mn=Infinity,mx=-Infinity; const v=new THREE.Vector3(); root.traverse(o=>{ if(o.isBone){ o.getWorldPosition(v); if(v.y<mn)mn=v.y; if(v.y>mx)mx=v.y; } }); return (mx>mn)?(mx-mn):0; }catch(_){ return 0; } }
 function _applyRobotModel(player, gltf, skinGltf, skinType){
   const isAlien=!!skinGltf;
   const isInterceptor=(skinType==='interceptor');   // shares the robot rig like the alien, BUT keeps its own baked texture instead of a flat colour
@@ -2397,6 +2404,7 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
   try{ robotScene=SkeletonUtils.clone((skinGltf||gltf).scene); }
   catch(e){ console.warn('[char] SkeletonUtils.clone failed — deep-clone fallback:',e);
     try{ robotScene=(skinGltf||gltf).scene.clone(true); }catch(e2){ console.error('[char] clone failed entirely, keeping current model:',e2); return; } }
+  _normalizeMixamoBones(robotScene);   // colon -> underscore so the robot's clips/IK/weapons bind (fixes T-pose on cybergirl-style exports)
   scene.remove(player.model);
 
   // Size before scaling
@@ -2532,6 +2540,10 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
 
   scene.add(robotScene);
   player.model=robotScene;
+  if(isCyber){ try{   // her mesh is authored at a different scale than the robot — match her bone-span height to the robot so she's the right size in-game
+    const refH=_boneSpanY(gltf.scene), myH=_boneSpanY(robotScene);
+    if(refH>0 && myH>0){ const sc=(refH/myH)*(window._CYBER_SCALE!=null?window._CYBER_SCALE:1); if(isFinite(sc)&&sc>0) robotScene.scale.multiplyScalar(sc); }
+  }catch(_){} }
   // Weapon scale compensation. ROBOT is the reference (comp=1, no extra work — identical to before). Only a differently-proportioned skin (alien) computes a correction.
   if(!isAlien){ window._WPN_SCALE_COMP=1; }
   else { try{
@@ -29570,8 +29582,13 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
   }
   function onGltf(gltf){
     const model=SkeletonUtils.clone(gltf.scene);
-    const box=new THREE.Box3().setFromObject(model); const center=box.getCenter(new THREE.Vector3()); const size=box.getSize(new THREE.Vector3());
-    const s=(1.7/Math.max(size.x,size.y,size.z))*(window._CYBER_PREVIEW_SCALE!=null?window._CYBER_PREVIEW_SCALE:0.82); model.scale.setScalar(s); model.position.sub(center.multiplyScalar(s)); model.position.y+=(opts.yOffset||0)+(window._CYBER_PREVIEW_Y!=null?window._CYBER_PREVIEW_Y:-0.4);
+    if(typeof _normalizeMixamoBones==='function') _normalizeMixamoBones(model);   // colon->underscore so the robot idle binds (else T-pose)
+    model.updateWorldMatrix(true,true);
+    // measure from BONES — her skinned geometry bbox is authored tiny, so setFromObject would mis-size her (auto-fit blew her up)
+    const bb=new THREE.Box3(); let any=false; const v=new THREE.Vector3();
+    model.traverse(o=>{ if(o.isBone){ o.getWorldPosition(v); bb.expandByPoint(v); any=true; } });
+    const box=any?bb:new THREE.Box3().setFromObject(model); const center=box.getCenter(new THREE.Vector3()); const size=box.getSize(new THREE.Vector3());
+    const s=(1.7/Math.max(size.y,0.001))*(window._CYBER_PREVIEW_SCALE!=null?window._CYBER_PREVIEW_SCALE:0.82); model.scale.setScalar(s); model.position.sub(center.multiplyScalar(s)); model.position.y+=(opts.yOffset||0)+(window._CYBER_PREVIEW_Y!=null?window._CYBER_PREVIEW_Y:-0.35);
     model.traverse(c=>{ if(c.isSkinnedMesh||c.isMesh){ c.frustumCulled=false;
       const mats=Array.isArray(c.material)?c.material:[c.material];
       const out=mats.map(mt=>{ if(!mt) return mt; if((window._CYBER_UNLIT!==false)&&mt.map){ const b=new THREE.MeshBasicMaterial({map:mt.map,side:THREE.DoubleSide}); b.toneMapped=false; return b; } mt.side=THREE.DoubleSide; if('toneMapped' in mt)mt.toneMapped=false; return mt; });
