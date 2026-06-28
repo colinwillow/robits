@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB2</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB3</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12007,11 +12007,14 @@ class BotPilot{
         const ang=(sp>0.2)?Math.atan2(this._kbVz,this._kbVx):this.aim;
         const yaw=-ang+Math.PI/2;
         this._tumble=(this._tumble||0)+dt*(window._BOT_LAUNCH_SPIN!=null?window._BOT_LAUNCH_SPIN:3.5);   // gentle spin so the AIR POSE reads (set 0 for a held pose, higher for a full head-over-heels tumble)
-        this.model.rotation.set(this._tumble, yaw, 0);
-        // PIVOT THE TUMBLE ABOUT THE HIPS (centre of mass), not the model origin at the feet — otherwise he orbits an invisible point under his feet. Keep the hips fixed at (wx, py+HIP, wz) under the rotation.
+        // LAND FADE: as he nears the ground, ease the tumble + hip-pivot offset to ZERO so the launch transform converges to the grounded pose (wx,py,wz upright) — no teleport/pop on touchdown.
+        const _lf=Math.max(0,Math.min(1, this.py/(window._BOT_LAND_FADE||45)));
+        const tv=this._tumble*_lf;
+        this.model.rotation.set(tv, yaw, 0);
+        // PIVOT THE TUMBLE ABOUT THE HIPS (centre of mass), not the model origin at the feet. Keep the hips fixed at (wx, py+HIP, wz); fade the offset out near the ground.
         const HIP=(this._hipY||(window._BOT_TUMBLE_PIVOT_Y||9));
-        const ct=Math.cos(this._tumble), st=Math.sin(this._tumble), sy=Math.sin(yaw), cy=Math.cos(yaw);
-        this.model.position.set(this.wx - HIP*st*sy, this.py + HIP - HIP*ct, this.wz - HIP*st*cy);
+        const ct=Math.cos(tv), st=Math.sin(tv), sy=Math.sin(yaw), cy=Math.cos(yaw);
+        this.model.position.set(this.wx - HIP*st*sy*_lf, this.py + (HIP - HIP*ct)*_lf, this.wz - HIP*st*cy*_lf);
       } else {
         this.model.rotation.set(0, -this.aim+Math.PI/2, 0);  // upright while downed / getting up
       }
@@ -12235,17 +12238,25 @@ class BotPilot{
       this.shieldHp=Math.min(this.shieldMax,this.shieldHp+12*dt);
     }
 
-    // ── VERTICAL ──
-    if(this.py>0||this.pvy>0){
-      this.pvy-=320*dt; this.py=Math.max(0,this.py+this.pvy*dt);
-      if(this.py<=0){ this.py=0; this.pvy=0; }
+    // ── VERTICAL ── (CUBE gravity-flip aware: when the world flips, fall UP to the ceiling and stand on it, like the player)
+    if(GS.zone===-19){
+      const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{h:600}); const cy=(C.h||600)-(window._CUBE_PAD!=null?window._CUBE_PAD:22);
+      const flip=!!GS._gravFlip, g=320*dt;
+      this.pvy=(this.pvy||0)+(flip?+g:-g);
+      this.py=(this.py||0)+this.pvy*dt;
+      if(flip){ if(this.py>=cy){ this.py=cy; if(this.pvy>0)this.pvy=0; } } else { if(this.py<=0){ this.py=0; if(this.pvy<0)this.pvy=0; } }
+      this._cubeCeil=flip && (cy-this.py)<6;
+    } else {
+      if(this.py>0||this.pvy>0){ this.pvy-=320*dt; this.py=Math.max(0,this.py+this.pvy*dt); if(this.py<=0){ this.py=0; this.pvy=0; } }
+      if(this.diff==='elite'&&this.py===0&&Math.random()<0.005) this.pvy=160;
+      this._cubeCeil=false;
     }
-    if(this.diff==='elite'&&this.py===0&&Math.random()<0.005) this.pvy=160;
 
     // ── DRAW ──
     if(this.model){
-      this.model.position.set(this.wx,this.py,this.wz);
-      this.model.rotation.y=-this.aim+Math.PI/2;
+      const yaw=-this.aim+Math.PI/2;
+      if(this._cubeCeil){ this.model.rotation.set(Math.PI, yaw, 0); this.model.position.set(this.wx,this.py,this.wz); }   // inverted on the ceiling: roll 180° about the feet (now planted on the ceiling), body hangs down
+      else { this.model.rotation.set(0, yaw, 0); this.model.position.set(this.wx,this.py,this.wz); }
     }
     if(this._mixer) this._mixer.update(dt);
     if(this._clips){
@@ -14657,7 +14668,7 @@ function buildTrainingRoom(){
   // ── PRACTICE TARGETS — a few weak crawlers so you can test melee/guns AND the spider/drone power-ups (allies fight them; they also target the dummy). Set window._DOJO_ENEMIES=0 to disable. ──
   try{ const _ne=(window._DOJO_ENEMIES!=null?window._DOJO_ENEMIES:0); if(_ne>0 && typeof Crawler!=='undefined' && typeof GS!=='undefined' && GS.enemies){ for(let i=0;i<_ne;i++){ const e=new Crawler(-70+i*70, -8, 1); if(e.addToScene)e.addToScene(); GS.enemies.push(e); } } }catch(e){ console.warn('dojo enemies:',e); }   // no auto-spawn by default (the sparring rival is the practice target); set window._DOJO_ENEMIES=3 to bring back crawlers
   // ── SPARRING RIVAL — a humanlike AI opponent to practice the melee SMASH-launch on (it fights back). Set window._DOJO_SPAR=false to disable, _DOJO_SPAR_DIFF='rookie'|'soldier'|'elite'. ──
-  try{ if(window._DOJO_SPAR!==false && typeof BotPilot!=='undefined' && typeof GS_bots!=='undefined'){ const sb=new BotPilot(70,-50,{difficulty:(window._DOJO_SPAR_DIFF||'soldier'),round:1}); GS_bots.push(sb); window._dojoSpar=sb; } }catch(e){ console.warn('dojo spar:',e); }
+  try{ if(window._DOJO_SPAR!==false && typeof BotPilot!=='undefined' && typeof GS_bots!=='undefined'){ const sb=new BotPilot(70,-50,{difficulty:(window._DOJO_SPAR_DIFF||'soldier'),round:1,hp:(window._DOJO_SPAR_HP||60)}); GS_bots.push(sb); window._dojoSpar=sb; } }catch(e){ console.warn('dojo spar:',e); }   // big HP pool: the spar is about practicing the SMASH-launch, not one-shotting him
 
   // Platform off to the side for jump practice
   const platGeo=new THREE.BoxGeometry(60,8,60);
@@ -18121,11 +18132,13 @@ jL.onTap=()=>{
             const totalDx=last.x-first.x, totalDy=last.y-first.y;
             const totalDist=Math.hypot(totalDx,totalDy);
             const elapsed=(last.time-first.time)||1;
-            const vel=totalDist/elapsed; // px/ms
-            // Flick = moved at least 12px fast (>0.2px/ms) within 400ms
-            if(totalDist>12&&vel>0.2&&elapsed<400){
+            // THROW POWER = PEAK flick SPEED (not the averaged total). A fast snap throws far even if short; a slow drag throws weak even if long.
+            let peakV=0; for(let _i=1;_i<hist.length;_i++){ const _a=hist[_i-1],_b=hist[_i]; const _dt=(_b.time-_a.time)||1; const _v=Math.hypot(_b.x-_a.x,_b.y-_a.y)/_dt; if(_v>peakV)peakV=_v; }
+            const vel=peakV; // px/ms peak
+            // Flick = moved at least 12px and a quick peak (>0.25px/ms) within 400ms
+            if(totalDist>12&&vel>0.25&&elapsed<400){
               const cy=Math.cos(CAM.yaw), sy=Math.sin(CAM.yaw);
-              const sx=totalDx/totalDist, sy2=totalDy/totalDist;
+              const sx=totalDx/totalDist, sy2=totalDy/totalDist;   // direction = net swipe (stable aim); power = peak speed
               const wx=sx*cy+sy2*sy, wz=-sx*sy+sy2*cy;
               const len=Math.hypot(wx,wz)||1;
               player._throwBomb(wx/len,wz/len, Math.max(vel*(window._FLICK_POWER_K||1.6),(window._FLICK_MIN_POWER||1.15)));   // a genuine FLICK always throws HARD in the swipe dir — never fall back to the barely-extended aimer (that's what made quick flicks lob weakly)
@@ -18793,9 +18806,10 @@ function loop(ts){ requestAnimationFrame(loop);
               if(!_inR)return false;
               const ey=_eBase+Math.max(10,_etall*0.5);
               ud._meleeHitSet.add(e);
-              if(e.hit)e.hit(dmg, player.wx, player.wz);                                    // pass attacker pos (dummy uses it for knock dir; others ignore extras)
+              const _hitDmg=(kind==='bot')?Math.max(1,dmg*(window._MELEE_BOT_DMG_K!=null?window._MELEE_BOT_DMG_K:0.5)):dmg;   // bots take reduced melee damage — the launch is the point, not the kill
+              if(e.hit)e.hit(_hitDmg, player.wx, player.wz);                                    // pass attacker pos (dummy uses it for knock dir; others ignore extras)
               if(e.alive!==false && (e.isBoss || e._tall || (e.size||0)>=24) && typeof _spawnSlashDecal==='function'){ try{ _spawnSlashDecal(e, bx, by, bz, Math.atan2((kvz||0),(kvx||0))*0.4+0.5); }catch(_){} }   // gash that sticks on the dragon / big enemies briefly
-              if(typeof spawnDmgNum==='function') spawnDmgNum(e.wx,ey+8,e.wz,dmg,tier>=3?'#fff0b0':'#bfffff');   // visible feedback
+              if(typeof spawnDmgNum==='function') spawnDmgNum(e.wx,ey+8,e.wz,_hitDmg,tier>=3?'#fff0b0':'#bfffff');   // visible feedback
               let dx=kvx,dz=kvz; if(dx*dx+dz*dz<1){ dx=e.wx-player.wx; dz=e.wz-player.wz; }
               { const _m=Math.hypot(dx,dz)||1, _s=(Math.random()-0.5)*0.4, _px=-dz/_m, _pz=dx/_m; dx+=_px*_m*_s; dz+=_pz*_m*_s; }   // a little scatter so a group doesn't all fly the same way
               if(e.knock){
@@ -19163,7 +19177,8 @@ function loop(ts){ requestAnimationFrame(loop);
           else if(_fmag < _MELEE_FLICK_LO){ player._flickPending=false;
             const _magPow=Math.max(0,Math.min(1,((player._flickPeak||_fmag)-_MELEE_FLICK_HI)/Math.max(0.05,(window._MELEE_FLICK_FULL||0.99)-_MELEE_FLICK_HI)));   // full-deflection flick = 1
             const _spdPow=Math.max(0,Math.min(1,1-(_now-(player._flickPendT||_now))/_MELEE_FLICK_WINDOW_MS));   // snappier return = higher quality
-            player._flickPower=Math.max(0,Math.min(1, 0.6*_magPow + 0.4*_spdPow));
+            const _mw=(window._MELEE_FLICK_MAGW!=null?window._MELEE_FLICK_MAGW:0.3);   // SPEED-dominant: the launch tracks how FAST you flicked (snappiness), not how far you pushed
+            player._flickPower=Math.max(0,Math.min(1, _mw*_magPow + (1-_mw)*_spdPow));
             _doMeleeFlick(player.model&&player.model.userData, (player._flickDir!=null?player._flickDir:null), undefined); }   // came back -> melee (air & ground)
         }
         if(_fmag<_MELEE_FLICK_LO){ player._flickArmed=true; player._preFlickAim=player.aim; }   // re-arm + remember resting facing
