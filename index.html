@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB10</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB11</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12007,7 +12007,8 @@ class BotPilot{
       if(this.shieldHp<=0){ this.shieldActive=false; this._removeShieldMesh(); }
       return;
     }
-    this.hp-=dmg; this.inv=40; this._hitFlash=6;
+    dmg*=(window._BOT_DMG_TAKEN_K!=null?window._BOT_DMG_TAKEN_K:0.6);   // progressive: he chips down instead of melting (raise toward 1 for a squishier bot)
+    this.hp-=dmg; this.inv=(window._BOT_HIT_IFRAMES||40); this._hitFlash=6;
     addTrauma(0.05);
     this._updateHpBar();
     ps.burst(this.wx,this.wz,[1,1,1],10,80,(this.py||0)+12); ps.burst(this.wx,this.wz,[1,0.5,0.2],8,60,(this.py||0)+12);
@@ -12034,7 +12035,7 @@ class BotPilot{
     this._hitFlash=Math.max(this._hitFlash||0,6);
     this._kbVx=(this._kbVx||0)+nx*mag;
     this._kbVz=(this._kbVz||0)+nz*mag;
-    const sp=Math.hypot(this._kbVx,this._kbVz), CAP=26;
+    const sp=Math.hypot(this._kbVx,this._kbVz), CAP=(window._BOT_KB_VCAP||15);   // per-frame horizontal speed cap — lower = he doesn't sail across the whole cage
     if(sp>CAP){ this._kbVx=this._kbVx/sp*CAP; this._kbVz=this._kbVz/sp*CAP; }
     if(knockdown){ this.pvy=Math.max(this.pvy||0,lift); this._launched=true; }   // knocked DOWN
     // else: knocked BACK only -> stays on feet, just shoved + stunned
@@ -12246,7 +12247,7 @@ class BotPilot{
 
     // ── REACTIVE DODGE — juke perpendicular to an incoming player bullet (read & sidestep like a person) ──
     if(this._dashCD<=0 && typeof GS!=='undefined' && GS.bullets && GS.bullets.length){
-      const _rt={rookie:0.10,soldier:0.24,elite:0.5}[this.diff]||0.2;
+      const _rt=(window._BOT_DODGE_RATE&&window._BOT_DODGE_RATE[this.diff])||({rookie:0.18,soldier:0.42,elite:0.68}[this.diff])||0.35;   // bumped: he sidesteps shots more like a real player
       for(const b of GS.bullets){ if(!b||b.life<=0||b._fromBot)continue;
         const rx=this.wx-b.wx, rz=this.wz-b.wz, rd=Math.hypot(rx,rz); if(rd>120||rd<8)continue;
         const bs=Math.hypot(b.vx||0,b.vz||0)||1, bnx=(b.vx||0)/bs, bnz=(b.vz||0)/bs;
@@ -12271,7 +12272,11 @@ class BotPilot{
 
     // Arena clamp (skipped in free-roam GRID CITY -6)
     let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
-    if(GS.zone!==-6&&GS.zone!==-7){
+    if(GS.zone===-19){   // CUBE: keep the bot inside the flat floor (clear of the rounded corners) so it can't walk through the cage walls
+      const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{hx:560,hz:560,cham:130});
+      const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9), mx=C.hx-ch-(window._BOT_CUBE_PAD||24), mz=C.hz-ch-(window._BOT_CUBE_PAD||24);
+      if(nx>mx)nx=mx; else if(nx<-mx)nx=-mx; if(nz>mz)nz=mz; else if(nz<-mz)nz=-mz;
+    } else if(GS.zone!==-6&&GS.zone!==-7){
       const zc=zoneCenter(GS.zone);
       const edge=ARENA_R-20;
       const d2=Math.hypot(nx-zc.x,nz-zc.z);
@@ -14768,7 +14773,7 @@ function buildTrainingRoom(){
   // ── PRACTICE TARGETS — a few weak crawlers so you can test melee/guns AND the spider/drone power-ups (allies fight them; they also target the dummy). Set window._DOJO_ENEMIES=0 to disable. ──
   try{ const _ne=(window._DOJO_ENEMIES!=null?window._DOJO_ENEMIES:0); if(_ne>0 && typeof Crawler!=='undefined' && typeof GS!=='undefined' && GS.enemies){ for(let i=0;i<_ne;i++){ const e=new Crawler(-70+i*70, -8, 1); if(e.addToScene)e.addToScene(); GS.enemies.push(e); } } }catch(e){ console.warn('dojo enemies:',e); }   // no auto-spawn by default (the sparring rival is the practice target); set window._DOJO_ENEMIES=3 to bring back crawlers
   // ── SPARRING RIVAL — a humanlike AI opponent to practice the melee SMASH-launch on (it fights back). Set window._DOJO_SPAR=false to disable, _DOJO_SPAR_DIFF='rookie'|'soldier'|'elite'. ──
-  try{ if(window._DOJO_SPAR!==false && typeof BotPilot!=='undefined' && typeof GS_bots!=='undefined'){ const sb=new BotPilot(70,-50,{difficulty:(window._DOJO_SPAR_DIFF||'soldier'),round:1,hp:(window._DOJO_SPAR_HP||60)}); GS_bots.push(sb); window._dojoSpar=sb; } }catch(e){ console.warn('dojo spar:',e); }   // big HP pool: the spar is about practicing the SMASH-launch, not one-shotting him
+  try{ if(window._DOJO_SPAR!==false && typeof BotPilot!=='undefined' && typeof GS_bots!=='undefined'){ const sb=new BotPilot(70,-50,{difficulty:(window._DOJO_SPAR_DIFF||'soldier'),round:1,hp:(window._DOJO_SPAR_HP||150)}); GS_bots.push(sb); window._dojoSpar=sb; } }catch(e){ console.warn('dojo spar:',e); }   // big HP pool: the spar is about practicing the SMASH-launch + a real fight, not one-shotting him
 
   // Platform off to the side for jump practice
   const platGeo=new THREE.BoxGeometry(60,8,60);
@@ -18920,7 +18925,7 @@ function loop(ts){ requestAnimationFrame(loop);
                   const q=Math.max(0,Math.min(1, (_SM.flickW!=null?_SM.flickW:0.45)*qFlick + (_SM.proxW!=null?_SM.proxW:0.55)*qProx));   // overall hit power
                   const _isSmash=(q>=(_SM.q!=null?_SM.q:0.62)) || (tier>=(_SM.tier!=null?_SM.tier:3));   // a clean, close hit (or the combo finisher) = SMASH / home-run
                   let _lift=lift*(window._MELEE_BOT_LIFT_K||0.8)*(0.8+q*0.9);                    // q scales the launch: glancing far hit = small pop, perfect close hit = a clean arc (toned WAY down — physical, not a moon-shot)
-                  let _mag =mag *(window._MELEE_BOT_MAG_K||0.65)*(0.85+q*0.45);
+                  let _mag =mag *(window._MELEE_BOT_MAG_K||0.42)*(0.85+q*0.45);
                   if(_isSmash){ _lift*=(_SM.liftMul||1.2); _mag*=(_SM.magMul||1.2); }
                   _lift=Math.min(_lift,(_SM.liftCap||240));                                      // hard cap = no moon-shots even on a near-dead, fully-vulnerable target
                   e.knock(dx,dz,_mag,_lift,stn);
@@ -20994,7 +20999,8 @@ let _cubeGroup=null;
 let _cubeSheets=[];
 const _CUBE={hx:560, hz:560, h:900, cham:130};
 function _disposeCubeSheets(){ if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets){ try{ const idx=GRID_SHEETS.indexOf(s); if(idx>=0)GRID_SHEETS.splice(idx,1); if(s.group){ scene.remove(s.group); s.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){} } } _cubeSheets=[]; }
-function _disposeCubeArena(){ if(typeof _disposeMaceChain==='function')_disposeMaceChain(); if(typeof _hideBallEdgeArrow==='function')_hideBallEdgeArrow(); if(typeof _showColliderMenu==='function')_showColliderMenu(false); if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation(); }
+function _disposeCubeArena(){ if(typeof _disposeMaceChain==='function')_disposeMaceChain(); if(typeof _hideBallEdgeArrow==='function')_hideBallEdgeArrow(); if(typeof _showColliderMenu==='function')_showColliderMenu(false); if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation();
+  if(typeof _removeSpiderPackPads==='function')_removeSpiderPackPads(); try{ if(window._itemPU){ for(let i=window._itemPU.length-1;i>=0;i--){ const p=window._itemPU[i]; if(p&&(p.type==='spiders'||p.type==='drone')){ if(p.grp)scene.remove(p.grp); window._itemPU.splice(i,1); } } } }catch(_){} }
 // ════════ ROCKET-LEAGUE BALL — floaty sphere you knock around with the character collider (and melee) ════════
 let _cubeBall=null;
 function _disposeCubeBall(){ if(typeof _ballFX!=='undefined')_ballFX=[]; if(_cubeBall){ if(_cubeBall.grp){ scene.remove(_cubeBall.grp); _cubeBall.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } _cubeBall=null; } }
@@ -21828,7 +21834,11 @@ function buildCubeArena(){
   // ── pickups: boots + melee + guns to test with ──
   try{ if(typeof _spawnBootStation==='function') _spawnBootStation(0, -hz+ch+90); }catch(e){ console.warn('boot station',e); }
   try{ if(typeof _spawnHammerStation==='function'){ const ms=['sword','hammer','axe','spear','scythe','mace']; ms.forEach((m,i)=>_spawnHammerStation(-200+i*100, hz-ch-90, m)); } }catch(e){ console.warn('hammer stations',e); }
-  try{ if(typeof _spawnWeaponPad==='function'){ const gs=['rockets','plasma','grenade','boomerang']; gs.forEach((w,i)=>_spawnWeaponPad(-hx+ch+90, -150+i*100, w)); } }catch(e){ console.warn('weapon pads',e); }
+  try{ if(typeof _spawnWeaponPad==='function'){ const gs=['rockets','plasma','grenade','boomerang','minigun']; gs.forEach((w,i)=>_spawnWeaponPad(-hx+ch+90, -200+i*100, w)); } }catch(e){ console.warn('weapon pads',e); }   // minigun now on the cube wall pad too
+  // ── POWER-UP balls: spider pack + drone — grabbable + throwable; dispensers restock after you use them (the pad updater runs in the cube) ──
+  try{ const _puD=[{x:160,z:-hz+ch+150,type:'spiders',cd:0},{x:-160,z:-hz+ch+150,type:'drone',cd:0}]; window._itemDispensers=_puD;
+    for(const D of _puD){ try{ if(typeof _spawnPU==='function' && !(window._itemPU||[]).some(p=>p&&p.type===D.type)) _spawnPU(D.x,16,D.z,D.type,0,0,0);
+      const beam=new THREE.Mesh(new THREE.CylinderGeometry(1.5,5,90,12,1,true), new THREE.MeshBasicMaterial({color:D.type==='drone'?0x4cc0ff:0x66ff77,transparent:true,opacity:0.13,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.set(D.x,45,D.z); if(_cubeGroup)_cubeGroup.add(beam); else scene.add(beam); }catch(_){} } }catch(e){ console.warn('cube powerups',e); }
   // ── spawn robot at center floor, normal controls ──
   player.wx=0; player.wz=0; player.py=0; player.pvy=0; player.vx=0; player.vz=0; player._inPlanetGravity=false; if(player.model)player.model.visible=true;
   try{ if(CAM){ CAM.tyaw=0; CAM.yaw=0; if(CAM.tfocus)CAM.tfocus.set(0,40,0); if(CAM.focus)CAM.focus.set(0,40,0); } }catch(_){}
