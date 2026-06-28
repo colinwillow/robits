@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-PAD5</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-PAD6</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -384,7 +384,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
     <div style="position:relative;text-align:center;margin-bottom:8px">
       <div style="font-family:'Orbitron',sans-serif;font-size:clamp(68px,18vw,116px);font-weight:900;letter-spacing:-1px;line-height:0.9;
         background:linear-gradient(135deg,#00ffc8,#4488ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;
-        text-shadow:none;animation:titlePulse 3s ease-in-out infinite">ROBITS</div>
+        text-shadow:1px 1px 0 #0bbf9e,2px 2px 0 #0aa88c,3px 3px 0 #08917a,4px 4px 0 #077a68,5px 5px 0 #066356,6px 6px 0 #054c44,7px 7px 0 #033a3e,8px 8px 0 #022a38,9px 13px 24px rgba(0,0,0,0.6),0 0 30px rgba(0,255,200,0.35);animation:titlePulse 3s ease-in-out infinite">ROBITS</div>
       <div style="font-family:'Orbitron',sans-serif;font-size:clamp(10px,3vw,14px);letter-spacing:10px;color:#4488ff;margin-top:6px">DIMENSIONS</div>
       <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;color:#ffffff22;margin-top:4px">v0.080</div>
     </div>
@@ -29518,6 +29518,7 @@ function _startRobotViewer(canvasId, opts={}){
       }
     });
     modelRoot=new THREE.Group(); modelRoot.add(model); sc.add(modelRoot);
+    modelRoot.userData.spine=null; model.traverse(o=>{ if(!modelRoot.userData.spine && o.isBone && /(^|_|:)Spine$/i.test(o.name||'')) modelRoot.userData.spine=o; });   // base spine bone — counter-rotated during the title float so the torso stays upright
     if(gltf.animations&&gltf.animations.length>0){
       mixer=new THREE.AnimationMixer(model);
       // Find idle clip by name, same as game does
@@ -29548,7 +29549,15 @@ function _startRobotViewer(canvasId, opts={}){
     if(mixer) mixer.update(dt);
     { const _spin=(opts.alwaysRotate||window._playerChar===(opts.charKey||'__none')); if(modelRoot){ if(_spin) modelRoot.rotation.y+=dt*(window._CHAR_SPIN_SPD||0.9); else { let _d=((window._CHAR_FACE_ROT||0)-modelRoot.rotation.y); _d=Math.atan2(Math.sin(_d),Math.cos(_d)); modelRoot.rotation.y+=_d*Math.min(1,dt*6); } } }
     if(pad){ const t=clock.elapsedTime, sdt=Math.min(dt,0.05);
-      if(pad.userData.spinner) pad.userData.spinner.rotation.y+=dt*(window._PAD_SPIN!=null?window._PAD_SPIN:0);   // ring spin off for now (_PAD_SPIN); only the outer ring turns when on (UFO effect), core deck + robot stay still
+      // FLOATING MOTION: gentle bob + slow tilt that pad + robot share, so the whole rig drifts like it's hovering.
+      const bob=Math.sin(t*(window._PAD_BOB_SPD||1.1))*(window._PAD_BOB||0.1);
+      const tz=Math.sin(t*(window._PAD_TILT_SPD||0.6))*(window._PAD_TILT||0.07);
+      const tx=Math.cos(t*((window._PAD_TILT_SPD||0.6)*0.78))*(window._PAD_TILT||0.07)*0.55;
+      const baseY=(pad.userData.baseY!=null?pad.userData.baseY:pad.position.y);
+      pad.position.y=baseY+bob; pad.rotation.z=tz; pad.rotation.x=tx;
+      if(modelRoot){ modelRoot.position.y=bob; modelRoot.rotation.z=tz; modelRoot.rotation.x=tx;   // robot tilts WITH the pad (feet stay planted)…
+        const sp=modelRoot.userData.spine; if(sp){ const c=(window._TORSO_UPRIGHT!=null?window._TORSO_UPRIGHT:0.85); sp.rotation.z-=tz*c; sp.rotation.x-=tx*c; } }   // …and the spine counter-rotates so the torso stays upright while the legs/hips absorb the lean
+      if(pad.userData.spinner) pad.userData.spinner.rotation.y+=dt*(window._PAD_SPIN!=null?window._PAD_SPIN:0);   // ring spin off for now (_PAD_SPIN); only the outer ring turns when on (UFO effect), core deck stays put
       const fl=pad.userData.flames||[];
       for(const f of fl){
         // soft bloom flicker at the nozzle
@@ -29564,7 +29573,7 @@ function _startRobotViewer(canvasId, opts={}){
         }
         f.pts.geometry.attributes.position.needsUpdate=true; f.pts.geometry.attributes.color.needsUpdate=true;
       }
-      pad.position.y=(pad.userData.baseY!=null?pad.userData.baseY:pad.position.y)+Math.sin(t*1.4)*(window._PAD_HOVER||0.04); }   // spinning ring + particle hover-jets + gentle bob
+    }   // spinning ring + particle hover-jets + bob/tilt float (handled above)
     renderer.render(sc,cam);
     requestAnimationFrame(render);
   }
@@ -29614,7 +29623,7 @@ function _startAlienViewer(canvasId, opts={}){
 // Start robot viewers when screens shown
 const _origShowScreen=window._showScreen;window._showScreen=function(name){
   _origShowScreen(name);
-  if(name==='title') setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3,alwaysRotate:(window._TITLE_SPIN===true),pad:true,camZ:(window._TITLE_CAMZ||5.5),camLookY:(window._TITLE_LOOKY!=null?window._TITLE_LOOKY:-0.5)}),100);
+  if(name==='title') setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3,alwaysRotate:(window._TITLE_SPIN===true),pad:true,camZ:(window._TITLE_CAMZ||5.0),camLookY:(window._TITLE_LOOKY!=null?window._TITLE_LOOKY:-0.45)}),100);
   if(name==='character') setTimeout(()=>_startRobotViewer('char-robot-canvas-0',{yOffset:-1.1,startRot:0.5,camZ:6.0,camLookY:0.0,charKey:'robot'}),100);
   if(name==='character') setTimeout(()=>_startAlienViewer('char-alien-canvas-1',{yOffset:-1.1,camZ:6.0,camLookY:0.0,charKey:'alien'}),140);
   if(name==='character') setTimeout(()=>_startInterceptorViewer('char-interceptor-canvas-2',{yOffset:-1.1,camZ:6.0,camLookY:0.0,charKey:'interceptor'}),180);
@@ -29735,7 +29744,7 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
       if(el) el.style.display=(s==='title')?'flex':'none';
     });
     _startTitleGrid();
-    setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3,alwaysRotate:(window._TITLE_SPIN===true),pad:true,camZ:(window._TITLE_CAMZ||5.5),camLookY:(window._TITLE_LOOKY!=null?window._TITLE_LOOKY:-0.5)}),100);   // pad:true here too — this initial call wins (viewer only starts once), so it must request the pad; spin off by default so the hero faces forward; pulled-back cam so the full pad fits
+    setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3,alwaysRotate:(window._TITLE_SPIN===true),pad:true,camZ:(window._TITLE_CAMZ||5.0),camLookY:(window._TITLE_LOOKY!=null?window._TITLE_LOOKY:-0.45)}),100);   // pad:true here too — this initial call wins (viewer only starts once), so it must request the pad; spin off by default so the hero faces forward; pulled-back cam so the full pad fits
     // wait two frames so the title is actually painted under the splash, then fade the splash away
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
       if(splash){
