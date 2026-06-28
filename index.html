@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB12</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB13</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3868,6 +3868,13 @@ class EnemyBullet{
     if(grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,0.6);   // enemy fire wake
     const d=Math.hypot(this.wx,this.wz); if(d>ARENA_R)this.life=0;
     if(typeof _arenaObstacles!=='undefined'&&_arenaObstacles.length){ for(const o of _arenaObstacles){ if(o.t>=0.5&&o.h>6&&Math.abs(this.wx-o.x)<o.w*0.5+3&&Math.abs(this.wz-o.z)<o.d*0.5+3){ this.life=0; if(ps&&ps.spark)ps.spark(this.wx,this.wz,[1,0.4,0.1]); break; } } }
+    // BALL SHIELD: ricochet incoming fire off the spun-up ball (covers bot bullets — they're EnemyBullets too)
+    if(this.life>0 && player && player.alive && player._ballActive && window._BALL_SHIELD!==false && Math.hypot(player.wx-this.wx,player.wz-this.wz)<(20+(window._BALL_VIS_R||16))){
+      const nx=(this.wx-player.wx), nz=(this.wz-player.wz), nl=Math.hypot(nx,nz)||1, sp=Math.hypot(this.vx,this.vz)||1, k=(window._BALL_DEFLECT_K||0.9);
+      this.vx=(nx/nl)*sp*k+rand(-40,40); this.vz=(nz/nl)*sp*k+rand(-40,40); this.life=Math.min(this.life,0.5); this._fromBot=false;
+      if(typeof ps!=='undefined'&&ps.spark){ for(let _k=0;_k<4;_k++)ps.spark(this.wx,this.wz,[0.5,1,1]); }
+      return;
+    }
     if(this.life>0&&player&&player.alive&&player.inv<=0&&player.py<40){
       if(Math.hypot(player.wx-this.wx,player.wz-this.wz)<20){
         if(player.shieldActive&&player.shieldHit(2,'bullet')){
@@ -13104,6 +13111,19 @@ function _grabItem(){
   if(typeof Audio!=='undefined'){try{Audio.blip(560,0.1,'sine',0.2,880);}catch(_){}}
   return true;
 }
+// THROW/SHOT ASSIST — flick roughly toward an opponent and it snaps the throw straight at them (with a little lead). Mobile-friendly; not a guaranteed hit since they can still move.
+function _throwAssistDir(dx,dz){
+  if(window._THROW_ASSIST===false || typeof player==='undefined' || !player) return {x:dx,z:dz};
+  const L=(typeof _lockList==='function')?_lockList():[]; if(!L||!L.length) return {x:dx,z:dz};
+  const dl=Math.hypot(dx,dz)||1, fnx=dx/dl, fnz=dz/dl;
+  const cone=Math.cos((window._THROW_ASSIST_CONE||42)*Math.PI/180);
+  let best=null,bestDot=cone;
+  for(const e of L){ if(!e||e===player)continue; const ex=e.wx-player.wx, ez=e.wz-player.wz, d=Math.hypot(ex,ez)||1; if(d>(window._THROW_ASSIST_R||1100))continue; const dot=(ex/d)*fnx+(ez/d)*fnz; if(dot>bestDot){ bestDot=dot; best=e; } }
+  if(!best) return {x:dx,z:dz};
+  const lead=(window._THROW_ASSIST_LEAD||0.12), tx=best.wx+(best.vx||0)*lead, tz=best.wz+(best.vz||0)*lead;
+  let ax=tx-player.wx, az=tz-player.wz; const al=Math.hypot(ax,az)||1;
+  return {x:ax/al, z:az/al};
+}
 function _updateItemShots(dt){
   const A=window._itemShots; if(!A||!A.length)return;
   for(let i=A.length-1;i>=0;i--){ const s=A[i];
@@ -17176,6 +17196,13 @@ function triggerOverdrive(){ if(GS.od<GS.odMax||GS.odActive>0)return; GS.odActiv
 
 function playerDie(dmg=1, col='#ff4444'){
   if(player.inv>0||player.dashing>0)return;
+  // BALL MODE = SHIELD: spun up, you absorb the hit instead of taking damage — deflect flash + brief i-frames
+  if(player._ballActive && window._BALL_SHIELD!==false){
+    player.inv=Math.max(player.inv||0,(window._BALL_SHIELD_IFRAMES||10));
+    if(typeof ps!=='undefined'){ ps.ring(player.wx,player.wz,[0.4,0.95,1],22,140); for(let _k=0;_k<6;_k++)ps.spark(player.wx+rand(-10,10),player.wz+rand(-10,10),[0.5,1,1],(player.py||0)+12); }
+    if(typeof addTrauma==='function')addTrauma(0.06); if(typeof Audio!=='undefined'&&Audio.blip){ try{Audio.blip(620,0.06,'square',0.12,900);}catch(_){} }
+    return;
+  }
   spawnDmgNum(player.wx, player.py+25, player.wz, dmg, col);
   ps.ring(player.wx,player.wz,[0,1,1],40,120);ps.burst(player.wx,player.wz,[1,1,1],30,120);
   grid.shock(player.wx,player.wz,20);addTrauma(0.24);slowmo(0.3,40);dmgFlash();Audio.hurt();
@@ -18262,7 +18289,7 @@ jL.onTap=()=>{
               const sx=totalDx/totalDist, sy2=totalDy/totalDist;   // direction = net swipe (stable aim); power = peak speed
               const wx=sx*cy+sy2*sy, wz=-sx*sy+sy2*cy;
               const len=Math.hypot(wx,wz)||1;
-              player._throwBomb(wx/len,wz/len, Math.max(vel*(window._FLICK_POWER_K||1.6),(window._FLICK_MIN_POWER||1.15)));   // a genuine FLICK always throws HARD in the swipe dir — never fall back to the barely-extended aimer (that's what made quick flicks lob weakly)
+              { const _aa=_throwAssistDir(wx,wz); player._throwBomb(_aa.x,_aa.z, Math.max(vel*(window._FLICK_POWER_K||1.6),(window._FLICK_MIN_POWER||1.15))); }   // a genuine FLICK always throws HARD in the swipe dir (assist snaps it onto a nearby target) — never fall back to the barely-extended aimer
               threw=true;
             }
           }
@@ -18336,7 +18363,7 @@ jR.onTap=()=>{
         const len=Math.hypot(wx,wz)||1;
         const _adx=(player._aimerX!=null?player._aimerX:player.wx)-player.wx, _adz=(player._aimerZ!=null?player._aimerZ:player.wz)-player.wz, _ad=Math.hypot(_adx,_adz);
         if(_ad>(window._THROW_AIMER_MIN||50)) player._throwBomb(_adx/_ad,_adz/_ad);   // aimer HELD out -> precision throw along the arc
-        else player._throwBomb(wx/len,wz/len, Math.max(spd,(window._FLICK_MIN_POWER||0.7)));   // quick flick -> strong throw
+        else { const _aa=_throwAssistDir(wx,wz); player._throwBomb(_aa.x,_aa.z, Math.max(spd,(window._FLICK_MIN_POWER||0.7))); }   // quick flick -> strong throw (assist snaps it onto a nearby target)
         const bb=document.getElementById('btn-bomb-arm');
         if(bb) bb.classList.remove('armed');
         return;
@@ -26212,6 +26239,13 @@ window._ballUpdate=function(dt){
   _ballPlaceModel(B); _ballShellTick(1, sp, false);
   if(typeof GS!=='undefined'&&GS.enemies){ for(let i=0;i<GS.enemies.length;i++){ const e=GS.enemies[i]; if(!e||e.alive===false||e._captured)continue; const er=(e.R||e.size||14);
     if(Math.hypot((e.wx||0)-B.px,(e.wz||0)-B.pz)<R+er){ const _nw=(typeof performance!=='undefined'?performance.now():Date.now()); if(_nw-(e._ballHitT||0)>(window._BALL_HIT_CD||280)){ e._ballHitT=_nw; if(typeof e.hit==='function'){ try{ e.hit((window._BALL_DMG||4), B.px, B.pz); }catch(_){}} B.vx*=0.86; B.vz*=0.86; if(typeof ps!=='undefined')ps.burst(e.wx,e.wz,[1,0.8,0.2],10,100); if(typeof addTrauma==='function')addTrauma(0.05); } } } }
+  // ── BALL BODY-CHECK — ram a bot/dummy while spun up to damage + LAUNCH them (a melee of its own; for now ~melee strength, scales with ball speed) ──
+  { const _bsp=Math.hypot(B.vx,B.vz);
+    if(_bsp>(window._BALL_RAM_MIN||140)){ const _nw=(typeof performance!=='undefined'?performance.now():Date.now());
+      const _ram=(e)=>{ if(!e||e.alive===false)return; const er=(e.size||e.R||18); if(Math.hypot((e.wx||0)-B.px,(e.wz||0)-B.pz)<R+er){ if(_nw-(e._ballHitT||0)>(window._BALL_HIT_CD||280)){ e._ballHitT=_nw; const n=Math.min(1,_bsp/(window._BALL_RAM_FULL||620)); if(e.hit)try{e.hit(window._BALL_RAM_DMG||5);}catch(_){} if(e.knock){ const dx=(e.wx-B.px),dz=(e.wz-B.pz),dl=Math.hypot(dx,dz)||1; e.knock(dx/dl,dz/dl,(window._BALL_RAM_MAG||12)*(0.6+n*0.7),(window._BALL_RAM_LIFT||250)*(0.5+n*0.6),26); } B.vx*=0.72; B.vz*=0.72; if(typeof ps!=='undefined')ps.burst(e.wx,e.wz,[0.3,0.9,1],14,150); if(typeof addTrauma==='function')addTrauma(0.1); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(120,0.1,'square',0.18,260); } } };
+      if(typeof GS_bots!=='undefined'&&GS_bots) for(const b of GS_bots) _ram(b);
+      if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _ram(GS_trainingDummy);
+    } }
   if(!B._lastPuff || Math.hypot(B.px-B._lastPuff[0], B.pz-B._lastPuff[1]) > (window._BALL_TRAIL_GAP||16)){ B._lastPuff=[B.px,B.pz]; _ballTrailPuff(B.px, B.py+(window._BALL_VIS_R||16), B.pz, (window._BALL_VIS_R||16)*0.72, window._BALL_GLOW2||0x4cf0ff); }
   if(typeof grid!=='undefined'&&grid.push&&Math.random()<0.9)grid.push(B.px,B.pz,-2,42);
   if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(B.px+rand(-6,6),B.pz+rand(-6,6),[0.3,0.9,1]);
