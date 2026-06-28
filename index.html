@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-PAD11</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11875,6 +11875,7 @@ class BotPilot{
         if(this._hpBar) grp.add(this._hpBar); // re-parent HP bar
         scene.add(grp);
         this.model=grp; this._mixer=mixer; this._clips=clips;
+        try{ let _hb=null; clone.traverse(o=>{ if(o.name==='mixamorig_Hips')_hb=o; }); grp.updateWorldMatrix(true,true); if(_hb){ this._hipY=_hb.getWorldPosition(new THREE.Vector3()).y - grp.position.y; } }catch(_){ this._hipY=9; }   // hip height above the feet -> the launch tumble pivots here (centre of mass), not the origin
       }catch(e){ console.warn('Bot GLB swap failed:',e); }
     });
   }
@@ -12004,8 +12005,13 @@ class BotPilot{
       if(this._launched){
         const sp=Math.hypot(this._kbVx,this._kbVz);
         const ang=(sp>0.2)?Math.atan2(this._kbVz,this._kbVx):this.aim;
+        const yaw=-ang+Math.PI/2;
         this._tumble=(this._tumble||0)+dt*7;                 // head-over-heels twirl through the arc
-        this.model.rotation.set(this._tumble, -ang+Math.PI/2, 0);
+        this.model.rotation.set(this._tumble, yaw, 0);
+        // PIVOT THE TUMBLE ABOUT THE HIPS (centre of mass), not the model origin at the feet — otherwise he orbits an invisible point under his feet. Keep the hips fixed at (wx, py+HIP, wz) under the rotation.
+        const HIP=(this._hipY||(window._BOT_TUMBLE_PIVOT_Y||9));
+        const ct=Math.cos(this._tumble), st=Math.sin(this._tumble), sy=Math.sin(yaw), cy=Math.cos(yaw);
+        this.model.position.set(this.wx - HIP*st*sy, this.py + HIP - HIP*ct, this.wz - HIP*st*cy);
       } else {
         this.model.rotation.set(0, -this.aim+Math.PI/2, 0);  // upright while downed / getting up
       }
@@ -18831,6 +18837,12 @@ function loop(ts){ requestAnimationFrame(loop);
               if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(_MS.thud||130,0.12,'square',0.22,(_MS.thud||130)<100?56:600);
               return (e.alive===false);                                                     // reports a kill so the caller can clear it
             };
+            // ACTIVE-FRAMES gate — only connect during the actual swing ARC (skip the windup + recovery) and only while the blade is genuinely sweeping. Kills the "stand in range, flick, instant hit before the swing even plays" bug.
+            const _prog=(ud._meleeMax>0)?(_committed/ud._meleeMax):1;
+            const _HWA=(window._MELEE_HIT_A!=null?window._MELEE_HIT_A:0.16), _HWB=(window._MELEE_HIT_B!=null?window._MELEE_HIT_B:0.70);
+            const _bladeMoved=Math.hypot(kvx,kvz)>=(window._MELEE_HIT_MINSPD!=null?window._MELEE_HIT_MINSPD:0.6);
+            const _hitActive=(_prog>=_HWA && _prog<=_HWB && _bladeMoved);
+            if(_hitActive){
             if(typeof GS!=='undefined'&&GS.enemies){
               for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e)continue;
                 if(_try(e,'enemy') && e.alive===false){                                             // melee killed a real enemy -> score + drop + remove
@@ -18842,6 +18854,7 @@ function loop(ts){ requestAnimationFrame(loop);
             }
             if(typeof GS_bots!=='undefined') GS_bots.forEach(b=>_try(b,'bot'));
             if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _try(GS_trainingDummy,'dummy');
+            }   // /_hitActive
           }
           const _slamHolding = !!player._airSlam && !(player.py<=8 || player._onPlatform || (player._inPlanetGravity&&player._glGrounded));
           if(ud._meleeTimer<=0 && !ud._swActive && !_slamHolding){ ud._meleeTimer=0; player._swingAction=null; player._sliding=false; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; if(player._meleeAdditive){ player._meleeAdditive.fadeOut(0.12); player._meleeAdditive=null; } else { ud.currentClip=null; } player._rollAimLock=false; if(player._meleeBreakPending){ player._meleeBreakPending=false; if(player._breakMelee)player._breakMelee(); player._meleeBuf=null; } if(player._meleeBuf){ const _b=player._meleeBuf; player._meleeBuf=null; if(_b.tap){ _doMeleeTap(); } else { _doMeleeFlick(ud,(typeof _b.dir==='number'?_b.dir:null),_b.combo); } } }   // release -> upper-body swing fades arms back to locomotion; full-body re-picks idle/run; an air-slam HOLDS its last frame until landing
@@ -22151,18 +22164,28 @@ function _ballCam(P, dt){
 // ── ENEMY CAM — like ball cam, but frames the player + a focused enemy, or the centroid of nearby enemies (great for swarms / a boss / the dragon). window._enemyCamFocus pins one enemy; null = AVERAGE. ──
 let _enemyCamLook=null;
 let _enemyCamTgtS=null;   // EASED framing target — swarm/centroid changes glide instead of jolting
+// Lockable targets = real enemies + the sparring AI bot(s) + the training dummy. The bot/dummy have no .mesh (model group), and the dummy has no .alive — handle both.
+function _lockY(e){ return (e&&e.mesh)?e.mesh.position.y : ((e&&e.py!=null)?e.py:9); }
+function _lockAlive(e){ return !!e && e.alive!==false && !e._captured; }
+function _lockList(){
+  const out=[];
+  if(typeof GS!=='undefined'&&GS.enemies) for(const e of GS.enemies){ if(_lockAlive(e)) out.push(e); }
+  if(typeof GS_bots!=='undefined'&&GS_bots) for(const b of GS_bots){ if(_lockAlive(b)) out.push(b); }
+  if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&_lockAlive(GS_trainingDummy)) out.push(GS_trainingDummy);
+  return out;
+}
 function _enemyCamRawTarget(P){
-  const E=(typeof GS!=='undefined'&&GS.enemies)?GS.enemies:[];
+  const E=_lockList();
   const f=window._enemyCamFocus;
-  if(f){ if(f.alive && E.indexOf(f)>=0){ return new THREE.Vector3(f.wx,(f.mesh?f.mesh.position.y:9),f.wz); } window._enemyCamFocus=null; }   // pinned focus (dropped if it died)
+  if(f){ if(_lockAlive(f) && E.indexOf(f)>=0){ return new THREE.Vector3(f.wx,_lockY(f),f.wz); } window._enemyCamFocus=null; }   // pinned focus (dropped if it died)
   let boss=null; for(const e of E){ if(e&&e.alive&&e.isBoss){ boss=e; break; } }
-  if(boss) return new THREE.Vector3(boss.wx,(boss.mesh?boss.mesh.position.y:9),boss.wz);   // a boss auto-grabs focus
-  const NEAR=(window._ENEMYCAM_NEAR||560); let sx=0,sy=0,sz=0,w=0, near=null,nd=1e9;       // only enemies within this radius of YOU count toward the average
-  for(const e of E){ if(!e||!e.alive||e._captured) continue; const dx=e.wx-P.x, dz=e.wz-P.z, d=Math.hypot(dx,dz);
+  if(boss) return new THREE.Vector3(boss.wx,_lockY(boss),boss.wz);   // a boss auto-grabs focus
+  const NEAR=(window._ENEMYCAM_NEAR||560); let sx=0,sy=0,sz=0,w=0, near=null,nd=1e9;       // only targets within this radius of YOU count toward the average
+  for(const e of E){ if(!_lockAlive(e)) continue; const dx=e.wx-P.x, dz=e.wz-P.z, d=Math.hypot(dx,dz);
     if(d<nd){ nd=d; near=e; }
-    if(d<NEAR){ const k=d/NEAR, wt=1-k*k; sx+=e.wx*wt; sy+=(e.mesh?e.mesh.position.y:9)*wt; sz+=e.wz*wt; w+=wt; } }   // soft falloff: full weight near you, ->0 at the edge so an enemy crossing the radius doesn't pop the centroid
-  if(w>0.001) return new THREE.Vector3(sx/w, sy/w, sz/w);                                   // WEIGHTED AVERAGE of nearby enemies
-  if(near) return new THREE.Vector3(near.wx,(near.mesh?near.mesh.position.y:9),near.wz);    // else the single nearest
+    if(d<NEAR){ const k=d/NEAR, wt=1-k*k; sx+=e.wx*wt; sy+=_lockY(e)*wt; sz+=e.wz*wt; w+=wt; } }   // soft falloff: full weight near you, ->0 at the edge so a target crossing the radius doesn't pop the centroid
+  if(w>0.001) return new THREE.Vector3(sx/w, sy/w, sz/w);                                   // WEIGHTED AVERAGE of nearby targets
+  if(near) return new THREE.Vector3(near.wx,_lockY(near),near.wz);                          // else the single nearest
   return null;
 }
 function _enemyCamTargetPos(P){
@@ -22194,12 +22217,14 @@ function _enemyCam(P, tgt, dt){
   camera.lookAt(_enemyCamLook.x,_enemyCamLook.y,_enemyCamLook.z);
   if(typeof CAM!=='undefined'){ CAM.yaw=Math.atan2(-dir.x,-dir.z); CAM.tyaw=CAM.yaw; CAM.focus.copy(_enemyCamLook); CAM.tfocus.copy(_enemyCamLook); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }   // sync the movement yaw to the cam facing so the left stick isn't inverted in enemy cam
 }
-function _enemyCamCycle(){   // step the pinned focus through alive enemies, then back to AVERAGE
-  const E=(typeof GS!=='undefined'&&GS.enemies)?GS.enemies.filter(e=>e&&e.alive&&!e._captured):[];
-  if(!E.length){ window._enemyCamFocus=null; if(typeof announce==='function')announce('NO ENEMIES','#ff8844'); return; }
+function _enemyCamCycle(){   // step the pinned focus through alive targets (enemies + AI bot + dummy), then back to AVERAGE
+  const E=_lockList();
+  if(!E.length){ window._enemyCamFocus=null; if(typeof announce==='function')announce('NO TARGETS','#ff8844'); return; }
   const cur=window._enemyCamFocus; let i=cur?E.indexOf(cur):-1; i++;
   window._enemyCamFocus=(i>=E.length)?null:E[i];
-  if(typeof announce==='function') announce(window._enemyCamFocus?('FOCUS: '+((window._enemyCamFocus._robitName)||'ENEMY')):'FOCUS: AVERAGE','#ff8844');
+  const _f=window._enemyCamFocus;
+  const _nm=_f&&(_f._robitName || ((typeof TrainingDummy!=='undefined'&&_f instanceof TrainingDummy)?'DUMMY':(_f.isDummy?'DUMMY':((typeof BotPilot!=='undefined'&&_f instanceof BotPilot)?'RIVAL':'ENEMY'))));
+  if(typeof announce==='function') announce(window._enemyCamFocus?('FOCUS: '+_nm):'FOCUS: AVERAGE','#ff8844');
 }
 window._enemyCamCycle=_enemyCamCycle;
 function _cubeWalkOrient(P){   // surface-aligned model orientation (called from draw)
