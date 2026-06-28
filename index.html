@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB8</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB9</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12087,7 +12087,16 @@ class BotPilot{
       const _dec=this._launched?(window._KB_LAUNCH_DRAG!=null?window._KB_LAUNCH_DRAG:0.992):(_air?0.93:0.8);
       this._kbVx*=_dec; this._kbVz*=_dec;
       if(Math.abs(this._kbVx)<0.05&&Math.abs(this._kbVz)<0.05){ this._kbVx=0; this._kbVz=0; }
-      if(GS.zone!==-6&&GS.zone!==-7){
+      if(GS.zone===-19 && typeof _cubeSDF==='function' && typeof _cubeGrad==='function'){
+        // SLAM INTO THE CAGE: bounce the launched bot off the cube walls via the SAME SDF the ball uses
+        const _r=(window._BOT_KB_R||this.size||20), cy=this.py+(this._hipY||9);
+        const N=this._kbN||(this._kbN=new THREE.Vector3()); _cubeGrad(this.wx,cy,this.wz,N); const d=_cubeSDF(this.wx,cy,this.wz);
+        if(d>-_r){ const push=-(d+_r); this.wx+=N.x*push; this.wz+=N.z*push;
+          const rest=(window._BOT_KB_REST!=null?window._BOT_KB_REST:0.55), vn=this._kbVx*N.x+this._kbVz*N.z;
+          if(vn>0){ this._kbVx-=(1+rest)*vn*N.x; this._kbVz-=(1+rest)*vn*N.z;
+            if(Math.abs(vn)>(window._BOT_KB_SLAM||3)){ this._hitFlash=Math.max(this._hitFlash||0,5); if(typeof addTrauma==='function')addTrauma(0.12); if(typeof ps!=='undefined'){ ps.burst(this.wx,cy,[1,0.7,0.3],14,150); if(ps.ring)ps.ring(this.wx,this.wz,[1,0.6,0.2],14,90); } if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(70,0.16,'square',0.22,90); } }   // wall-slam fx
+        }
+      } else if(GS.zone!==-6&&GS.zone!==-7){
         const zc=zoneCenter(GS.zone), edge=ARENA_R-20;
         const d2=Math.hypot(this.wx-zc.x,this.wz-zc.z);
         if(d2>edge){ this.wx=zc.x+(this.wx-zc.x)/d2*edge; this.wz=zc.z+(this.wz-zc.z)/d2*edge; this._kbVx*=0.3; this._kbVz*=0.3; }
@@ -12096,6 +12105,7 @@ class BotPilot{
     }
     if((this._stun>0)||this._launched||((this._downT||0)>0)){
       if(this.py>0||this.pvy>0){ this.pvy-=320*dt; this.py=Math.max(0,this.py+this.pvy*dt); if(this.py<=0){this.py=0;this.pvy=0;} }
+      if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{h:600}), ceil=(C.h||600)-(window._CUBE_PAD!=null?window._CUBE_PAD:22); if(this.py>ceil){ this.py=ceil; if(this.pvy>0){ this.pvy=-this.pvy*(window._BOT_KB_REST!=null?window._BOT_KB_REST:0.55); if(typeof addTrauma==='function')addTrauma(0.08); } } }   // bounce off the cage ceiling on a high launch
       if(this._launched && this.py<=0 && (this.pvy||0)<=0){     // landed from a launch -> play the full get_up before fighting again
         const _gu=this._clips&&this._clips['get_up']; const _guDur=(_gu&&_gu._clip&&_gu._clip.duration)||0;
         this._launched=false; this._downT=(_guDur>0.1?_guDur:0.45)*(window._BOT_GETUP_T_K||1)+(window._BOT_DOWN_HOLD||0.15); this._tumble=0;   // downed window = full get_up clip (+ a brief grounded hold) so it actually plays instead of getting cut to idle
