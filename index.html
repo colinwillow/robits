@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB9</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB10</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9667,6 +9667,49 @@ class Player{
   jump(velUp){
     if(velUp>this.pvy){ this.pvy=velUp; this.jetFuel=120; }
   }
+  // ── SMASH KNOCKBACK — you get launched in a parabola, lose control, bounce off the cage, land, get up ──
+  knock(dirX,dirZ,mag=8,lift=300,stun=22){
+    if(!this.alive) return;
+    if((this.inv||0) > (window._PLKB_GRACE!=null?window._PLKB_GRACE:150) && window._PLKB_IGNORE_IFRAMES!==true) return;   // don't launch during the respawn grace window
+    const d=Math.hypot(dirX,dirZ)||1, nx=dirX/d, nz=dirZ/d;
+    this._kbVx=(this._kbVx||0)+nx*mag; this._kbVz=(this._kbVz||0)+nz*mag;
+    const sp=Math.hypot(this._kbVx,this._kbVz), CAP=(window._PLKB_CAP||26); if(sp>CAP){ this._kbVx=this._kbVx/sp*CAP; this._kbVz=this._kbVz/sp*CAP; }
+    this.pvy=Math.max(this.pvy||0, lift); this._launched=true; this._kbStun=Math.max(this._kbStun||0, stun); this._tumble=0; this._landRot=null;
+    // break out of conflicting states so the arc owns the body
+    this.dashing=0; this._dashRamp=0; this._dashDir=null; this._jetting=false; this._sliding=false; this._airSlam=false;
+    if(this._ballActive && typeof window._ballExit==='function'){ try{window._ballExit();}catch(_){} }
+    if(this.bombArmed && typeof this._disarmBomb==='function'){ try{this._disarmBomb();}catch(_){} }
+    if(this._meleeAdditive){ try{this._meleeAdditive.stop();}catch(_){} this._meleeAdditive=null; }
+    const ud=this.model&&this.model.userData; if(ud){ ud._meleeTimer=0; if(ud._meleeHitSet)ud._meleeHitSet.clear(); this._swingAction=null;
+      try{ const fa=ud.clips&&(ud.clips['flying']||ud.clips['floating']); if(fa){ Object.values(ud.clips).forEach(a=>{ if(a&&a.fadeOut&&a!==fa)a.fadeOut(0.1); }); fa.reset().setEffectiveWeight(1).fadeIn(0.1).play(); ud.currentClip='flying'; ud._launchClip=true; } }catch(_){}
+    }
+    if(typeof addTrauma==='function')addTrauma(0.22); if(typeof hitStop==='function')hitStop(6);
+    if(typeof ps!=='undefined'){ ps.burst(this.wx,this.py+12,[1,1,1],10,90); if(ps.ring)ps.ring(this.wx,this.wz,[1,0.6,0.2],10,70); }
+    if(typeof Audio!=='undefined'&&Audio.blip){ try{Audio.blip(70,0.2,'sine',0.3,60);}catch(_){} }
+  }
+  _updateLaunch(dt){
+    const _air=this._launched;
+    if(this._launched){
+      // horizontal projectile (near-constant -> true parabola), bounce off the cage / arena edge
+      this.wx+=this._kbVx; this.wz+=this._kbVz;
+      const drag=(window._PLKB_DRAG!=null?window._PLKB_DRAG:0.992); this._kbVx*=drag; this._kbVz*=drag;
+      if(GS.zone===-19 && typeof _cubeSDF==='function' && typeof _cubeGrad==='function'){
+        const _r=(window._PLKB_R||18), cy=this.py+9, N=this._kbN||(this._kbN=new THREE.Vector3()); _cubeGrad(this.wx,cy,this.wz,N); const d=_cubeSDF(this.wx,cy,this.wz);
+        if(d>-_r){ const push=-(d+_r); this.wx+=N.x*push; this.wz+=N.z*push; const rest=(window._PLKB_REST!=null?window._PLKB_REST:0.55), vn=this._kbVx*N.x+this._kbVz*N.z; if(vn>0){ this._kbVx-=(1+rest)*vn*N.x; this._kbVz-=(1+rest)*vn*N.z; if(Math.abs(vn)>3){ if(typeof addTrauma==='function')addTrauma(0.12); if(typeof ps!=='undefined')ps.burst(this.wx,cy,[1,0.7,0.3],14,150); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(70,0.14,'square',0.2,90); } } }
+      } else { const zc=zoneCenter(GS.zone), edge=(typeof ARENA_R!=='undefined'?ARENA_R-20:520), d2=Math.hypot(this.wx-zc.x,this.wz-zc.z); if(d2>edge){ this.wx=zc.x+(this.wx-zc.x)/d2*edge; this.wz=zc.z+(this.wz-zc.z)/d2*edge; const vn=(this._kbVx*(this.wx-zc.x)+this._kbVz*(this.wz-zc.z))/(d2||1); this._kbVx-=1.5*vn*(this.wx-zc.x)/(d2||1); this._kbVz-=1.5*vn*(this.wz-zc.z)/(d2||1); if(typeof addTrauma==='function')addTrauma(0.1); } }
+      // vertical
+      this.pvy-=(typeof GRAV!=='undefined'?GRAV:320)*dt; this.py+=this.pvy*dt;
+      if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{h:600}), ceil=(C.h||600)-(window._CUBE_PAD!=null?window._CUBE_PAD:22); if(this.py>ceil){ this.py=ceil; if(this.pvy>0)this.pvy=-this.pvy*(window._PLKB_REST!=null?window._PLKB_REST:0.55); } }
+      if(this.py<=0 && this.pvy<=0){ this.py=0; this.pvy=0; this._launched=false; this._kbStun=Math.max(this._kbStun||0,(window._PLKB_GETUP||26)); this._kbVx*=0.3; this._kbVz*=0.3; if(typeof ps!=='undefined')ps.burst(this.wx,this.wz,[1,0.8,0.4],12,95); if(typeof addTrauma==='function')addTrauma(0.06); }
+    } else if((this._kbStun||0)>0){
+      // downed / getting up — control still locked, slide to a stop
+      this._kbStun--; this.wx+=this._kbVx; this.wz+=this._kbVz; this._kbVx*=0.8; this._kbVz*=0.8;
+      if((this._kbStun||0)<=0){ this._kbVx=0; this._kbVz=0; const ud=this.model&&this.model.userData; if(ud)ud._launchClip=false; }
+    }
+    if(Math.abs(this._kbVx)<0.02)this._kbVx=0; if(Math.abs(this._kbVz)<0.02)this._kbVz=0;
+    this.vx=0; this.vz=0; this.inv=Math.max(this.inv||0, 2);
+    // (the main loop ticks player._mixer, so the flying clip advances there — don't double-update)
+  }
   boost(){
     // Mid-air boost — flappy bird style upward burst, uses one fuel charge
     if(this.boostFuel>0&&this.py>5){
@@ -10420,6 +10463,7 @@ class Player{
     if(total>0)Audio.bigDie(); updateUI(); return true; }
   update(rawX,rawZ,avx,avz,dt,firing,od,aiming){
     if(!this.alive)return;
+    if(this._launched || (this._kbStun||0)>0){ this._updateLaunch(dt); return; }   // SMASH KNOCKBACK owns the body: parabolic arc + cage bounce + getup, input locked
     if(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped) && !this._ballActive){ rawX=-rawX; }   // gravity flipped + camera rolled 180°: only left/right needs inverting (the camera's vertical mirror already handles forward/back)
     if(this._meleeType==='mace'){ this._maceRX=avx||0; this._maceRZ=avz||0; }   // mace is a normal one-handed melee now — shooting stays enabled (gun routes to the shoulder like other melee)
     this._plasmaWantFire=(this.primaryWeapon==='plasma'&&!!firing); this._plasmaOD=!!od; this._flameWantFire=(this.primaryWeapon==='flamethrower'&&!!firing); this._flameOD=!!od; this._aimMag=Math.hypot(avx||0,avz||0);
@@ -11158,6 +11202,22 @@ class Player{
   draw(od){
     const ud=this.model.userData;
     const t=performance.now()*0.001;
+
+    // ── SMASH KNOCKBACK POSE — body laid along the arc tangent (head leads), camera keeps tracking ──
+    if(this._launched || (this._kbStun||0)>0){
+      if(!this._camFocY) this._camFocY=4;
+      const targetFocY=4+this.py*0.55+Math.max(0,this.py-50)*0.45;
+      this._camFocY=lerp(this._camFocY, targetFocY, 0.12);
+      if(typeof CAM!=='undefined'){ CAM.tfocus.set(this.wx,this._camFocY,this.wz); CAM.dist=lerp(CAM.dist,260,0.04); CAM.height=lerp(CAM.height,210,0.04); }
+      this.model.position.set(this.wx, 9+this.py, this.wz);
+      const _h=Math.hypot(this._kbVx,this._kbVz), _hsp=_h*60;   // per-frame -> ~/sec (draw has no dt)
+      const ang=(_h>0.05)?Math.atan2(this._kbVz,this._kbVx):this.aim, yaw=-ang+Math.PI/2;
+      const flight=Math.atan2(this.pvy||0, Math.max(60,_hsp));
+      const pitch=this._launched?((Math.PI/2-flight)*(window._KB_PITCH_SIGN!=null?window._KB_PITCH_SIGN:1)*(window._KB_PITCH_K!=null?window._KB_PITCH_K:1)):0;
+      if(this.model.userData.isRobot) this.model.rotation.set(pitch, yaw, 0); else this.model.rotation.set(0, yaw, 0);
+      if(ud.rim) ud.rim.material.emissive?.setHex(od?0xffe600:0x00ffc8);
+      return;
+    }
 
     // Camera always updates — must be first, before any early returns
     if(!this._camFocY) this._camFocY=4;
@@ -12253,6 +12313,26 @@ class BotPilot{
       this._throwBombAt(px+(Math.random()-0.5)*40,pz+(Math.random()-0.5)*40);
     }
 
+    // ── MELEE — close range: swing and LAUNCH the player (Smash) ──
+    this._botMeleeCD=Math.max(0,(this._botMeleeCD||0)-1);
+    if((this._botMeleeAnimT||0)>0) this._botMeleeAnimT-=dt;
+    if(window._BOT_MELEE!==false && player&&player.alive && dist<(window._BOT_MELEE_RANGE||54) && this._botMeleeCD<=0 && (this.aggression||0)>0 && !player._launched){
+      this._botMeleeCD=(window._BOT_MELEE_CD||{rookie:150,soldier:95,elite:58}[this.diff]||95);
+      try{ if(this._clips){ const mk=['melee_1','melee_2','melee_3','melee_4'][Math.floor(Math.random()*4)]; const mc=this._clips[mk]||this._clips['melee_1']; if(mc){ Object.values(this._clips).forEach(a=>{ if(a&&a.fadeOut&&a!==mc)a.fadeOut(0.08); }); mc.reset().setLoop(THREE.LoopOnce,1); mc.clampWhenFinished=true; mc.setEffectiveWeight(1).fadeIn(0.05).play(); this._clips._cur=mk; this._botMeleeAnimT=(mc._clip&&mc._clip.duration)||0.6; } } }catch(_){}
+      this._botMeleeHitT=(window._BOT_MELEE_HIT_DELAY||0.16);   // contact lands a few frames into the swing
+      if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(180,0.08,'square',0.16,520);
+    }
+    if((this._botMeleeHitT||0)>0){ this._botMeleeHitT-=dt;
+      if(this._botMeleeHitT<=0 && player&&player.alive && typeof player.knock==='function'){
+        const dx=player.wx-this.wx, dz=player.wz-this.wz, dl=Math.hypot(dx,dz)||1;
+        if(dl<(window._BOT_MELEE_HIT_R||70) && !player._launched){
+          player.knock(dx/dl,dz/dl,(window._BOT_MELEE_MAG||16),(window._BOT_MELEE_LIFT||340),(window._BOT_MELEE_STUN||24));
+          if(typeof announce==='function')announce('SMASHED!','#ff5566');
+          if(typeof addTrauma==='function')addTrauma(0.2);
+        }
+      }
+    }
+
     // ── SHIELD — use reactively ──
     if(!this.shieldActive){
       this.shieldHp=Math.min(this.shieldMax,this.shieldHp+12*dt);
@@ -12279,7 +12359,7 @@ class BotPilot{
       else { this.model.rotation.set(0, yaw, 0); this.model.position.set(this.wx,this.py,this.wz); }
     }
     if(this._mixer) this._mixer.update(dt);
-    if(this._clips){
+    if(this._clips && (this._botMeleeAnimT||0)<=0){   // don't override a melee swing mid-play
       const moving=Math.hypot(this.vx,this.vz)>20;
       const target=moving?'run_forward':'idle';
       if(target!==this._clips._cur&&this._clips[target]){
@@ -18663,7 +18743,7 @@ function loop(ts){ requestAnimationFrame(loop);
       const ud2=player.model.userData;
       // ── Animation blend system ──
       const ud=player.model.userData;
-      if(ud.clips&&Object.keys(ud.clips).length>0){
+      if(ud.clips&&Object.keys(ud.clips).length>0 && !(player._launched||(player._kbStun||0)>0)){   // SMASH KNOCKBACK: skip locomotion/melee blend so the launch 'flying' clip plays cleanly
         const moveAngle=Math.atan2(player.vz,player.vx);
         const wallPushing=GS_movingWall&&GS_movingWall._grabbed;
         const aimAngle=player.aim;
@@ -21795,7 +21875,8 @@ function updateCubeArena(dt){
   if(player.py> C.h-pad){ player.py=C.h-pad; if(player.pvy>0)player.pvy=0; }   // ceiling
 }
 // ════════ CUBE WALL-WALK (boots) — stick to the rounded interior shell, run up walls onto the ceiling ════════
-function _cubeWalkOn(P){ return (GS.zone===-19 && P && P._hasBoots && P._bootsEquipped) || (typeof _SE!=='undefined' && _SE.cube && _SE.cube.state==='up' && P===player); }   // survival interior cube: walk all 6 inside walls automatically (it's your own gravity world)
+function _cubeWalkOn(P){ if(P && (P._launched || (P._kbStun||0)>0)) return false;   // a launch overrides wall-walk so the knockback arc can play
+  return (GS.zone===-19 && P && P._hasBoots && P._bootsEquipped) || (typeof _SE!=='undefined' && _SE.cube && _SE.cube.state==='up' && P===player); }   // survival interior cube: walk all 6 inside walls automatically (it's your own gravity world)
 // AIR flick in the cube = a Rocket-League flip. Direction picks the axis; velocity carries (the flip is purely visual rotation).
 function _doCubeFlip(ax, ay){
   if(!player||!player.alive) return;
