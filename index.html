@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-PAD6</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-PAD7</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -389,16 +389,14 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;color:#ffffff22;margin-top:4px">v0.080</div>
     </div>
     <!-- Robot 3D viewer -->
-    <div style="height:200px;display:flex;align-items:center;justify-content:center;position:relative;perspective:520px">
-      <!-- (the flat CSS ground ring was replaced by a procedural 3D hero pad rendered in the canvas, under the robot's feet) -->
-      <canvas id="title-robot-canvas" style="width:220px;height:280px;position:relative;z-index:1"></canvas>
-      <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:120px;height:20px;
-        background:radial-gradient(ellipse,#00ffc833,transparent);filter:blur(8px);pointer-events:none"></div>
+    <div style="height:210px;position:relative;z-index:3;pointer-events:none">
+      <!-- Big transparent canvas so the robot + floating pad never clip; it overflows above and below (overlapping the title glow and START button) for a layered 3D feel. pointer-events:none keeps the START button tappable underneath. -->
+      <canvas id="title-robot-canvas" style="width:min(460px,100vw);height:560px;position:absolute;top:-26px;left:50%;transform:translateX(-50%);pointer-events:none"></canvas>
     </div>
     <!-- START button -->
     <button onclick="window._showScreen('mode')" style="
       font-family:'Orbitron',sans-serif;font-size:clamp(16px,4vw,22px);font-weight:900;
-      letter-spacing:4px;padding:16px 44px;margin-top:62px;
+      letter-spacing:4px;padding:16px 44px;margin-top:44px;
       background:transparent;border:2px solid #00ffc8;color:#00ffc8;
       box-shadow:0 0 30px #00ffc833,inset 0 0 30px #00ffc808;
       cursor:pointer;text-transform:uppercase;
@@ -29549,14 +29547,20 @@ function _startRobotViewer(canvasId, opts={}){
     if(mixer) mixer.update(dt);
     { const _spin=(opts.alwaysRotate||window._playerChar===(opts.charKey||'__none')); if(modelRoot){ if(_spin) modelRoot.rotation.y+=dt*(window._CHAR_SPIN_SPD||0.9); else { let _d=((window._CHAR_FACE_ROT||0)-modelRoot.rotation.y); _d=Math.atan2(Math.sin(_d),Math.cos(_d)); modelRoot.rotation.y+=_d*Math.min(1,dt*6); } } }
     if(pad){ const t=clock.elapsedTime, sdt=Math.min(dt,0.05);
-      // FLOATING MOTION: gentle bob + slow tilt that pad + robot share, so the whole rig drifts like it's hovering.
-      const bob=Math.sin(t*(window._PAD_BOB_SPD||1.1))*(window._PAD_BOB||0.1);
-      const tz=Math.sin(t*(window._PAD_TILT_SPD||0.6))*(window._PAD_TILT||0.07);
-      const tx=Math.cos(t*((window._PAD_TILT_SPD||0.6)*0.78))*(window._PAD_TILT||0.07)*0.55;
+      // FLOATING MOTION: rhythmic wave-like bob + tilt (think surfboard / balance board). Tilt pivots at the FEET so the rig rocks in place.
+      const bob=Math.sin(t*(window._PAD_BOB_SPD||1.7))*(window._PAD_BOB||0.14);
+      const tz=Math.sin(t*(window._PAD_TILT_SPD||1.35))*(window._PAD_TILT||0.13);
+      const tx=Math.cos(t*((window._PAD_TILT_SPD||1.35)*0.7))*(window._PAD_TILT||0.13)*0.5;
       const baseY=(pad.userData.baseY!=null?pad.userData.baseY:pad.position.y);
-      pad.position.y=baseY+bob; pad.rotation.z=tz; pad.rotation.x=tx;
-      if(modelRoot){ modelRoot.position.y=bob; modelRoot.rotation.z=tz; modelRoot.rotation.x=tx;   // robot tilts WITH the pad (feet stay planted)…
-        const sp=modelRoot.userData.spine; if(sp){ const c=(window._TORSO_UPRIGHT!=null?window._TORSO_UPRIGHT:0.85); sp.rotation.z-=tz*c; sp.rotation.x-=tx*c; } }   // …and the spine counter-rotates so the torso stays upright while the legs/hips absorb the lean
+      pad.position.y=baseY+bob; pad.rotation.z=tz; pad.rotation.x=tx;   // pad rocks about its own deck centre
+      if(modelRoot){
+        // tilt the robot about the FEET (not its origin) so it rocks like it's balancing, feet planted on the pad
+        const FY=(window._CHAR_PREVIEW_GROUND!=null?window._CHAR_PREVIEW_GROUND:-1.7);
+        const ctx=Math.cos(tx), stx=Math.sin(tx), ctz=Math.cos(tz), stz=Math.sin(tz);
+        modelRoot.rotation.x=tx; modelRoot.rotation.z=tz;   // (rotation.y is the facing ease, left untouched)
+        modelRoot.position.x=-FY*ctx*stz; modelRoot.position.y=(FY+bob)-FY*ctx*ctz; modelRoot.position.z=FY*stx;
+        const sp=modelRoot.userData.spine; if(sp){ const c=(window._TORSO_UPRIGHT!=null?window._TORSO_UPRIGHT:1.0); sp.rotation.z-=tz*c; sp.rotation.x-=tx*c; }   // counter-rotate the spine so the TORSO stays perpendicular to the ground — only the hips/legs take the rock
+      }
       if(pad.userData.spinner) pad.userData.spinner.rotation.y+=dt*(window._PAD_SPIN!=null?window._PAD_SPIN:0);   // ring spin off for now (_PAD_SPIN); only the outer ring turns when on (UFO effect), core deck stays put
       const fl=pad.userData.flames||[];
       for(const f of fl){
@@ -29623,7 +29627,7 @@ function _startAlienViewer(canvasId, opts={}){
 // Start robot viewers when screens shown
 const _origShowScreen=window._showScreen;window._showScreen=function(name){
   _origShowScreen(name);
-  if(name==='title') setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3,alwaysRotate:(window._TITLE_SPIN===true),pad:true,camZ:(window._TITLE_CAMZ||5.0),camLookY:(window._TITLE_LOOKY!=null?window._TITLE_LOOKY:-0.45)}),100);
+  if(name==='title') setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3,alwaysRotate:(window._TITLE_SPIN===true),pad:true,camZ:(window._TITLE_CAMZ||10.0),camLookY:(window._TITLE_LOOKY!=null?window._TITLE_LOOKY:-0.45)}),100);
   if(name==='character') setTimeout(()=>_startRobotViewer('char-robot-canvas-0',{yOffset:-1.1,startRot:0.5,camZ:6.0,camLookY:0.0,charKey:'robot'}),100);
   if(name==='character') setTimeout(()=>_startAlienViewer('char-alien-canvas-1',{yOffset:-1.1,camZ:6.0,camLookY:0.0,charKey:'alien'}),140);
   if(name==='character') setTimeout(()=>_startInterceptorViewer('char-interceptor-canvas-2',{yOffset:-1.1,camZ:6.0,camLookY:0.0,charKey:'interceptor'}),180);
@@ -29744,7 +29748,7 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
       if(el) el.style.display=(s==='title')?'flex':'none';
     });
     _startTitleGrid();
-    setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3,alwaysRotate:(window._TITLE_SPIN===true),pad:true,camZ:(window._TITLE_CAMZ||5.0),camLookY:(window._TITLE_LOOKY!=null?window._TITLE_LOOKY:-0.45)}),100);   // pad:true here too — this initial call wins (viewer only starts once), so it must request the pad; spin off by default so the hero faces forward; pulled-back cam so the full pad fits
+    setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3,alwaysRotate:(window._TITLE_SPIN===true),pad:true,camZ:(window._TITLE_CAMZ||10.0),camLookY:(window._TITLE_LOOKY!=null?window._TITLE_LOOKY:-0.45)}),100);   // pad:true here too — this initial call wins (viewer only starts once), so it must request the pad; spin off by default so the hero faces forward; pulled-back cam so the full pad fits
     // wait two frames so the title is actually painted under the splash, then fade the splash away
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
       if(splash){
