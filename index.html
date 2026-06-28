@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-PAD10</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-PAD11</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -2045,6 +2045,7 @@ function loadRobotGLB(){
   });
   return _robotLoadPromise;
 }
+loadRobotGLB(); // preload the hero robot at startup so the splash/loading screen can wait for it (and it's cached for the title viewer)
 
 const DRONE_GLB='models/drone_01.glb';
 let _droneGltf=null, _droneLoadPromise=null;
@@ -29735,23 +29736,29 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
     if(logo){ logo.style.opacity='1'; logo.style.transform='scale(1)'; }
   },200);
 
-  // Fill bar
+  // Fill bar most of the way (it completes once the hero is actually loaded)
   setTimeout(()=>{
     const bar=document.getElementById('splash-bar');
-    if(bar) bar.style.width='200px';
+    if(bar) bar.style.width='150px';
   },400);
 
-  // Transition to title — show the title UNDERNEATH the still-opaque splash first, let it paint,
-  // THEN fade the splash. This removes the ~140ms dead-air gap where neither was drawn (the "flash").
-  setTimeout(()=>{
+  // Transition to title ONLY once the hero robot GLB is actually loaded — that's the whole point of a
+  // loading screen (so the robot is on the pad before we reveal it, instead of popping in late). We keep
+  // a minimum display time so the logo/bar animation plays, and a hard cap so a slow/failed load never hangs.
+  const _t0=performance.now();
+  const _MIN=(window._SPLASH_MIN!=null?window._SPLASH_MIN:1900);
+  const _MAX=(window._SPLASH_MAX!=null?window._SPLASH_MAX:9000);
+  const _toTitle=()=>{
+    const bar=document.getElementById('splash-bar'); if(bar) bar.style.width='200px';   // snap to 100% — load complete
     // bring up title behind the splash WITHOUT _showScreen (which would hide the splash and re-open the gap)
     ['title','mode','character','levelselect','mp','settings'].forEach(s=>{
       const el=document.getElementById('screen-'+s);
       if(el) el.style.display=(s==='title')?'flex':'none';
     });
     _startTitleGrid();
-    setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-1.3,alwaysRotate:(window._TITLE_SPIN===true),pad:true,camZ:(window._TITLE_CAMZ||10.0),camLookY:(window._TITLE_LOOKY!=null?window._TITLE_LOOKY:-0.3)}),100);   // pad:true here too — this initial call wins (viewer only starts once), so it must request the pad; spin off by default so the hero faces forward; pulled-back cam so the full pad fits
-    // wait two frames so the title is actually painted under the splash, then fade the splash away
+    // start the viewer NOW (cached GLB → it builds + draws the robot synchronously this frame, before we fade)
+    _startRobotViewer('title-robot-canvas',{yOffset:-1.3,alwaysRotate:(window._TITLE_SPIN===true),pad:true,camZ:(window._TITLE_CAMZ||10.0),camLookY:(window._TITLE_LOOKY!=null?window._TITLE_LOOKY:-0.3)});   // pad:true; spin off so the hero faces forward; pulled-back cam so the full pad fits
+    // wait two frames so the title (with the robot already drawn) is painted under the splash, then fade
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
       if(splash){
         splash.style.transition='opacity 0.6s';
@@ -29759,7 +29766,13 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
         setTimeout(()=>{ if(splash) splash.style.display='none'; },640);
       }
     }));
-  },2200);
+  };
+  (function _gate(){
+    const elapsed=performance.now()-_t0;
+    const ready=!!window._cachedRobotGltf;            // hero GLB loaded + cached
+    if((ready && elapsed>=_MIN) || elapsed>=_MAX) _toTitle();
+    else setTimeout(_gate,80);
+  })();
 })();
 
 
