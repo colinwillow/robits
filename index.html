@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB16</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB17</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12043,6 +12043,46 @@ class BotPilot{
     ps.ring(this.wx,this.wz,[1,0.4,0.1],8,70);
   }
 
+  // ── ARM A REAL MELEE WEAPON — attach the weapon mesh to the bot's hand (best-effort scale/orient like the player) ──
+  _botEquipMelee(type){
+    if(!this.model || typeof _makeMeleeWeapon!=='function') return false;
+    let hand=null; this.model.traverse(o=>{ if(!hand && o.isBone && /mixamorig_RightHand$/i.test(o.name||''))hand=o; });
+    if(!hand){ this.model.traverse(o=>{ if(!hand && o.isBone && /hand/i.test(o.name||'')&&!/finger|thumb|index|middle|ring|pinky/i.test(o.name||''))hand=o; }); }
+    if(!hand) return false;
+    if(this._meleeMesh&&this._meleeMesh.parent)this._meleeMesh.parent.remove(this._meleeMesh);
+    let hm=null; try{ hm=_makeMeleeWeapon(type); }catch(_){ return false; }
+    if(!hm) return false;
+    hand.add(hm);
+    try{ this.model.updateWorldMatrix(true,true);
+      const bs=new THREE.Vector3(); hand.getWorldScale(bs);
+      const inv=(1/(Math.abs(bs.x)||1))*((typeof _HAMMER_SCALE!=='undefined'?_HAMMER_SCALE:1))*(window._BOT_MELEE_MESH_SCALE||1); hm.scale.setScalar(inv);
+      const bq=new THREE.Quaternion(); hand.getWorldQuaternion(bq); const mq=this.model.getWorldQuaternion(new THREE.Quaternion());
+      let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
+      const desired=new THREE.Quaternion().setFromUnitVectors((typeof _HAMMER_AXIS!=='undefined'?_HAMMER_AXIS:new THREE.Vector3(0,1,0)), fwd);
+      if(typeof _HAMMER_FIX!=='undefined')desired.multiply(new THREE.Quaternion().setFromEuler(_HAMMER_FIX));
+      hm.quaternion.copy(bq.clone().invert().multiply(desired));
+      const Ph=hand.getWorldPosition(new THREE.Vector3()); const refS=(window._WPN_REF_HANDSCALE||Math.abs(bs.x)||1);
+      const wo=((typeof _HAMMER_POS!=='undefined')?_HAMMER_POS.clone():new THREE.Vector3()).applyQuaternion(mq).multiplyScalar(refS);
+      hm.position.copy(hand.worldToLocal(Ph.add(wo)));
+    }catch(_){}
+    this._meleeMesh=hm; this._botMeleeWeapon=type; return true;
+  }
+  // ── GRAB whatever the bot walked up to (gun pad -> real fire pattern + consume; melee station -> arm the weapon) ──
+  _botGrab(t){
+    if(!t||!t.ref) return;
+    if(t.kind==='gun'){
+      const w=(t.ref.weapon)||'bullets';
+      const map={plasma:'plasma',minigun:'rapid',bullets:'rapid',rockets:'heavy',grenade:'heavy',boomerang:'spread',bow:'heavy',flamethrower:'spread'};
+      this._botWeapon=map[w]||'rapid'; this._botWeaponLocked=true; this._botWeaponT=(window._BOT_WEAPON_SWITCH||7)+8;
+      if(typeof _padConsume==='function')try{_padConsume(t.ref);}catch(_){}
+      if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL GRABBED '+(''+w).toUpperCase(),'#ff7a7a');}catch(_){}
+      if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[1,0.5,0.2],18,120);
+    } else if(t.kind==='melee'){
+      const ty=(t.ref.type)||'sword';
+      if(this._botEquipMelee(ty)){ if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL ARMED: '+(''+ty).toUpperCase(),'#ff7a7a');}catch(_){} if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.2,1,0.9],18,120); }
+    }
+  }
+
   hit(dmg){
     if(this.isDummy){ this.inv=8; this._hitFlash=6; addTrauma(0.04); ps.burst(this.wx,this.wz,[1,1,1],10,80,(this.py||0)+12); ps.burst(this.wx,this.wz,[1,0.5,0.2],8,60,(this.py||0)+12); this._updateHpBar(); return; }
     if(this.inv>0) return;
@@ -12286,6 +12326,28 @@ class BotPilot{
       mvX=rx/rd; mvZ=rz/rd;
     }
 
+    // ── WEAPON FETCH — periodically go grab a weapon pad / melee station and actually use it (overrides movement while fetching) ──
+    this._botFetchCD=Math.max(0,(this._botFetchCD||0)-1);
+    if(window._BOT_FETCH!==false){
+      if(!this._fetchTarget && this._botFetchCD<=0){
+        this._botFetchCD=(window._BOT_FETCH_CD||200);
+        if(Math.random()<(window._BOT_FETCH_CHANCE||0.5)){
+          let best=null,bd=(window._BOT_FETCH_R||560),bk=null;
+          const _gp=window._weaponPads; if(_gp)for(const st of _gp){ if(!st||(st.cd||0)>0||(st.grp&&!st.grp.visible))continue; const d=Math.hypot((st.x||0)-this.wx,(st.z||0)-this.wz); if(d<bd){ bd=d; best=st; bk='gun'; } }
+          const _hs=window._hammerStations; if(_hs)for(const st of _hs){ if(!st||this._botMeleeWeapon===st.type)continue; const d=Math.hypot((st.x||0)-this.wx,(st.z||0)-this.wz); if(d<bd){ bd=d; best=st; bk='melee'; } }
+          if(best) this._fetchTarget={x:best.x,z:best.z,kind:bk,ref:best};
+        }
+      }
+      if(this._fetchTarget){
+        const _r=this._fetchTarget.ref;
+        if(_r && this._fetchTarget.kind==='gun' && ((_r.cd||0)>0||(_r.grp&&!_r.grp.visible))){ this._fetchTarget=null; }   // someone else took it
+        else { const fx=this._fetchTarget.x-this.wx, fz=this._fetchTarget.z-this.wz, fd=Math.hypot(fx,fz)||1;
+          mvX=fx/fd; mvZ=fz/fd;   // beeline to the weapon
+          if(fd<(window._BOT_FETCH_GRAB_R||42)){ this._botGrab(this._fetchTarget); this._fetchTarget=null; this._botFetchCD=(window._BOT_FETCH_CD||200); }
+        }
+      }
+    }
+
     // ── ORGANIC WANDER — slight drift so paths aren't laser-straight (feels human) ──
     this._wphase=(this._wphase||(this.wob||Math.random()*99))+dt*1.7;
     mvX+=Math.cos(this._wphase)*0.16; mvZ+=Math.sin(this._wphase*1.3)*0.16;
@@ -12340,7 +12402,7 @@ class BotPilot{
 
     // ── WEAPON SWITCH — the rival cycles through different guns over time (until it physically grabs them) ──
     this._botWeaponT=(this._botWeaponT||0)-dt;
-    if(this._botWeaponT<=0){ const pool=(window._BOT_WEAPONS||['rapid','spread','plasma','heavy','rapid']); this._botWeapon=pool[(Math.random()*pool.length)|0]; this._botWeaponT=(window._BOT_WEAPON_SWITCH||7)+Math.random()*5; if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL: '+this._botWeapon.toUpperCase(),'#ff7a7a');}catch(_){} }
+    if(this._botWeaponT<=0 && !this._botWeaponLocked){ const pool=(window._BOT_WEAPONS||['rapid','spread','plasma','heavy','rapid']); this._botWeapon=pool[(Math.random()*pool.length)|0]; this._botWeaponT=(window._BOT_WEAPON_SWITCH||7)+Math.random()*5; if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL: '+this._botWeapon.toUpperCase(),'#ff7a7a');}catch(_){} }   // locked once it grabs a real pad weapon (keeps it until it fetches another)
     // ── FIRE — only when strafing or chasing, not while evading/repositioning ──
     this.fireT++;
     const canFire=this.state==='strafe'||this.state==='chase';
@@ -12380,8 +12442,10 @@ class BotPilot{
       if(this._botMeleeHitT<=0 && player&&player.alive && typeof player.knock==='function'){
         const dx=player.wx-this.wx, dz=player.wz-this.wz, dl=Math.hypot(dx,dz)||1;
         if(dl<(window._BOT_MELEE_HIT_R||70) && !player._launched){
-          player.knock(dx/dl,dz/dl,(window._BOT_MELEE_MAG||16),(window._BOT_MELEE_LIFT||340),(window._BOT_MELEE_STUN||24));
-          if(typeof announce==='function')announce('SMASHED!','#ff5566');
+          const _ws=this._botMeleeWeapon && window._MELEE_STATS && window._MELEE_STATS[this._botMeleeWeapon], _wk=(window._BOT_MELEE_WK||0.9);
+          const _mMag=_ws?_ws.bMag*_wk:(window._BOT_MELEE_MAG||16), _mLift=_ws?_ws.bLift*_wk:(window._BOT_MELEE_LIFT||340);
+          player.knock(dx/dl,dz/dl,_mMag,_mLift,(window._BOT_MELEE_STUN||24));   // a real grabbed weapon (hammer etc.) launches you harder than fists
+          if(typeof announce==='function')announce(this._botMeleeWeapon?((''+this._botMeleeWeapon).toUpperCase()+'!'):'SMASHED!','#ff5566');
           if(typeof addTrauma==='function')addTrauma(0.2);
         }
       }
