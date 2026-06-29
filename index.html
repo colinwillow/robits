@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB17</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB18</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -7990,9 +7990,10 @@ class AllyBot{
   update(dt){
     this.t+=dt; this.life-=dt; this.spawn=Math.min(1,this.spawn+dt*3);
     if(this.fireCD>0) this.fireCD-=dt; if(this._biteCD>0) this._biteCD-=dt; if(this._attachCD>0) this._attachCD-=dt;
-    // target: nearest live enemy in range, else the player
+    // target: nearest live enemy in range (incl. the rival bot + dummy), else the player
     let tgt=null, td=1e9;
     for(const e of GS.enemies){ if(!e.alive||e._captured) continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<td){ td=d; tgt=e; } }
+    for(const e of _extraHostiles()){ const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<td){ td=d; tgt=e; } }
     const AGGRO=300; this._enemyTarget=null; this._enemyDist=0;
     let TX,TY,TZ, chasing=false;
     if(tgt && td<AGGRO){ this._enemyTarget=tgt; this._enemyDist=td; chasing=true; TX=tgt.wx; TZ=tgt.wz; TY=(tgt.mesh?tgt.mesh.position.y:(tgt.py||9)); }
@@ -8191,6 +8192,7 @@ class AcidBlob{
           const dmg=(window._ALLY_ACID_DMG||2); const pts=(e.hit?e.hit(dmg):0); if(typeof spawnDmgNum==='function')spawnDmgNum(e.wx,ey+18,e.wz,dmg,'#9dff55');
           if(pts>0||!e.alive){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(_i,1); if(typeof registerKill==='function')registerKill(e); }
           this._splash(); return true; } }
+        for(const e of _extraHostiles()){ const ey=_hostileY(e); if(Math.hypot(e.wx-this.wx,e.wz-this.wz)<((e.size||14)*0.5+this.r) && Math.abs(ey-this.y)<26){ const dmg=(window._ALLY_ACID_DMG||2); if(e.hit)try{e.hit(dmg);}catch(_){} if(typeof spawnDmgNum==='function')spawnDmgNum(e.wx,ey+18,e.wz,dmg,'#9dff55'); this._splash(); return true; } }   // spider acid also hits the rival bot + dummy
       } else if(player&&player.alive&&player.inv<=0&&(player.py||9)<46){
         if(Math.hypot(player.wx-this.wx,player.wz-this.wz)<(13+this.r) && Math.abs((player.py||9)-this.y)<26){ this._splash(); this._hitPlayer(); return true; }
       }
@@ -8533,11 +8535,13 @@ class FlameThrower{
     this._dmgT-=dt; const dtick=this._dmgT<=0; if(dtick)this._dmgT=0.1;
     const RANGE=(od?260:200), cosH=Math.cos(0.42);
     if(active){ for(const e of GS.enemies){ if(!e.alive||e._captured) continue; const ey=(e.mesh?e.mesh.position.y:9), ex=e.wx-ox, ee=ey-oy, ez=e.wz-oz, dd=Math.hypot(ex,ee,ez); if(dd<1||dd>RANGE) continue; if((ex*dir.x+ee*dir.y+ez*dir.z)/dd<cosH) continue; e._burnT=Math.max(e._burnT||0,0.9); if(typeof ps!=='undefined'&&Math.random()<0.25)ps.spark(e.wx+rand(-8,8),e.wz+rand(-8,8),[1,0.5,0.1],ey+rand(0,12)); } }
+    if(active){ for(const e of _extraHostiles()){ const ey=_hostileY(e), ex=e.wx-ox, ee=ey-oy, ez=e.wz-oz, dd=Math.hypot(ex,ee,ez); if(dd<1||dd>RANGE) continue; if((ex*dir.x+ee*dir.y+ez*dir.z)/dd<cosH) continue; e._burnT=Math.max(e._burnT||0,0.9); if(typeof ps!=='undefined'&&Math.random()<0.25)ps.spark(e.wx+rand(-8,8),e.wz+rand(-8,8),[1,0.5,0.1],ey+rand(0,12)); } }   // flame also burns the rival bot + the dummy
     if(dtick){ for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive||!(e._burnT>0)) continue; e._burnT-=0.1; const ey=(e.mesh?e.mesh.position.y:9);
         const pts=(e.hit?e.hit(od?3:2):0);
         if(typeof spawnDmgNum==='function'&&Math.random()<0.4)spawnDmgNum(e.wx,ey+18,e.wz,od?3:2,'#ff7a1a');
         if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(e.wx+rand(-6,6),e.wz+rand(-6,6),[1,0.55,0.12],ey+rand(2,14));
         if(pts>0||!e.alive){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); } } }
+    if(dtick){ for(const e of _extraHostiles()){ if(!(e._burnT>0))continue; e._burnT-=0.1; if(e.hit)try{e.hit(od?3:2);}catch(_){} const ey=_hostileY(e); if(typeof spawnDmgNum==='function'&&Math.random()<0.4)spawnDmgNum(e.wx,ey+18,e.wz,od?3:2,'#ff7a1a'); if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(e.wx+rand(-6,6),e.wz+rand(-6,6),[1,0.55,0.12],ey+rand(2,14)); } }   // flame DOT on bot/dummy (they handle their own death — no GS.enemies splice)
     if(active){ this._sndT-=dt; if(this._sndT<=0){ this._sndT=0.09; if(typeof Audio!=='undefined')Audio.blip(90+rand(-20,30),0.14,'sawtooth',0.12,40); } }
     // visible "on fire" plume on any burning enemy -- persists a beat after the stream stops
     if(typeof ps!=='undefined'&&GS&&GS.enemies){ for(let i=0;i<GS.enemies.length;i++){ const e=GS.enemies[i]; if(!e||!e.alive||!(e._burnT>0))continue; const ey=(e.mesh?e.mesh.position.y:9), sz=(e.size||10); const n=1+(Math.random()<0.6?1:0); for(let q=0;q<n;q++) ps.spark(e.wx+rand(-sz*0.6,sz*0.6), e.wz+rand(-sz*0.6,sz*0.6), [1,0.4+Math.random()*0.35,0.06], ey+rand(0,sz*1.8)); } }
@@ -9198,6 +9202,7 @@ class DroneBuddy{
     this.fireCD-=dt;
     let tgt=null, best=(window._DRONE_RANGE||320);
     if(typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(!e||e.alive===false||e._captured)continue; const d=Math.hypot(e.wx-this.p.x, e.wz-this.p.z); if(d<best){ best=d; tgt=e; } } }
+    for(const e of _extraHostiles()){ const d=Math.hypot(e.wx-this.p.x, e.wz-this.p.z); if(d<best){ best=d; tgt=e; } }   // drone also shoots the rival bot + dummy
     if(tgt){ this.mesh.rotation.y=-Math.atan2(tgt.wz-this.p.z, tgt.wx-this.p.x); if(this.fireCD<=0&&this._deployT>0.5){ this.fireCD=(window._DRONE_FIRE_CD||0.55); this._shoot(tgt); } }
     else { this.mesh.rotation.y=-(player.aim||0); }
     return true;
@@ -10498,7 +10503,7 @@ class Player{
   update(rawX,rawZ,avx,avz,dt,firing,od,aiming){
     if(!this.alive)return;
     if(this._launched || (this._kbStun||0)>0){ this._updateLaunch(dt); return; }   // SMASH KNOCKBACK owns the body: parabolic arc + cage bounce + getup, input locked
-    if(this._meleeOnly && !this._hasGun){ firing=false; od=false; }   // MELEE-ONLY START: no projectiles until you physically grab a gun
+    // hand cannons / default bullets ALWAYS fire — only physically-held special weapons (melee, minigun) drop when you're smashed. (Old melee-only gate removed: getting hit no longer locks out shooting.)
     if(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped) && !this._ballActive){ rawX=-rawX; }   // gravity flipped + camera rolled 180°: only left/right needs inverting (the camera's vertical mirror already handles forward/back)
     if(this._meleeType==='mace'){ this._maceRX=avx||0; this._maceRZ=avz||0; }   // mace is a normal one-handed melee now — shooting stays enabled (gun routes to the shoulder like other melee)
     this._plasmaWantFire=(this.primaryWeapon==='plasma'&&!!firing); this._plasmaOD=!!od; this._flameWantFire=(this.primaryWeapon==='flamethrower'&&!!firing); this._flameOD=!!od; this._aimMag=Math.hypot(avx||0,avz||0);
@@ -22440,6 +22445,9 @@ function _lockList(){
   if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&_lockAlive(GS_trainingDummy)) out.push(GS_trainingDummy);
   return out;
 }
+// Bots + dummy ONLY (the rival pilot and the training dummy) — extra targets for weapons/allies that otherwise only damage GS.enemies. They manage their own death via hit(), so callers must NOT splice GS.enemies for these.
+function _extraHostiles(){ const out=[]; if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(b&&b.alive)out.push(b); } if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.alive!==false)out.push(GS_trainingDummy); return out; }
+function _hostileY(e){ return (e&&e.mesh)?e.mesh.position.y:((e&&e.py!=null)?e.py+9:9); }
 function _enemyCamRawTarget(P){
   const E=_lockList();
   const f=window._enemyCamFocus;
