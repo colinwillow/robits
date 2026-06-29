@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB39</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB40</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -13166,20 +13166,30 @@ function _smashCrateAt(x,z){
   }
 }
 // LOOT BALL — a coloured ball that rolls out of a crate; on settle it flattens and unfolds into the matching weapon pad.
-function _makeLootBall(kind){
-  const col = kind==='gun'?0x33e0ff : (kind==='melee'?0xff8a3a : 0xffd84a);
+function _makeLootBall(kind, weapon){
+  // colour the orb to the SPECIFIC weapon (not a generic kind colour) and float the ACTUAL weapon model inside,
+  // so the loot looks like the item from the moment it spills — no "random ball that transforms into a power".
+  let col;
+  if(kind==='gun') col=(typeof _WPN_COLORS!=='undefined'&&_WPN_COLORS[weapon])||0x33e0ff;
+  else if(kind==='melee') col=(window._MELEE_LOOT_COL&&window._MELEE_LOOT_COL[weapon])||0xff8a3a;
+  else col=0xffd84a;
   const g=new THREE.Group();
-  const ball=new THREE.Mesh(new THREE.SphereGeometry(8.5,18,14), new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.65,roughness:0.4,metalness:0.35}));
-  g.add(ball);
-  g.add(new THREE.Mesh(new THREE.SphereGeometry(10.5,16,12), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.18,blending:THREE.AdditiveBlending,depthWrite:false})));
-  return {grp:g, cube:ball, col};
+  let cube=null, isModel=false;
+  try{
+    if(kind==='gun' && typeof _makeWeaponEmblem==='function'){ cube=_makeWeaponEmblem(weapon); isModel=true; }
+    else if(kind==='melee' && typeof _makeMeleeWeapon==='function'){ cube=_makeMeleeWeapon(weapon); cube.rotation.set(0,0,0); isModel=true; }
+  }catch(_){ cube=null; isModel=false; }
+  if(cube){ cube.scale.setScalar(window._LOOT_MODEL_SCALE||0.85); g.add(cube); }
+  else { cube=new THREE.Mesh(new THREE.SphereGeometry(8.5,18,14), new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.65,roughness:0.4,metalness:0.35})); g.add(cube); isModel=false; }
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(10.5,16,12), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false})));   // tinted halo
+  return {grp:g, cube, col, isModel};
 }
 function _spawnLootBall(x,z,kind,weapon,vx,vy,vz,ammo){
-  const lb=_makeLootBall(kind);
+  const lb=_makeLootBall(kind, weapon);
   const ring=new THREE.Mesh(new THREE.RingGeometry(18,22,40), new THREE.MeshBasicMaterial({color:lb.col,transparent:true,opacity:0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=-6.5; lb.grp.add(ring);
   lb.grp.position.set(x,16,z); scene.add(lb.grp);
   if(!window._itemPU)window._itemPU=[];
-  window._itemPU.push({grp:lb.grp, cube:lb.cube, ring, x, y:16, z, vx:vx||0, vy:vy||0, vz:vz||0, type:weapon, settled:false, t:Math.random()*6, _loot:{kind,weapon,ammo:(ammo!=null?ammo:null)}});
+  window._itemPU.push({grp:lb.grp, cube:lb.cube, ring, x, y:16, z, vx:vx||0, vy:vy||0, vz:vz||0, type:weapon, settled:false, _model:lb.isModel, t:Math.random()*6, _loot:{kind,weapon,ammo:(ammo!=null?ammo:null)}});
 }
 function _unfoldLootBall(p){
   const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1);
@@ -13365,16 +13375,16 @@ function _updatePU(dt){
   for(const p of A){ p.t+=dt;
     if(GS.zone===-19){ const C=(window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{hx:560,hz:560,cham:130})); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9), mx=C.hx-ch-12, mz=C.hz-ch-12; if(p.x>mx){p.x=mx;if(p.vx>0)p.vx*=-0.3;} else if(p.x<-mx){p.x=-mx;if(p.vx<0)p.vx*=-0.3;} if(p.z>mz){p.z=mz;if(p.vz>0)p.vz*=-0.3;} else if(p.z<-mz){p.z=-mz;if(p.vz<0)p.vz*=-0.3;} }   // keep loot on the FLAT floor (inside the chamfer corners) so it can't land on the curve and fall through
     if(!p.settled){ p.vy-=360*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.z+=p.vz*dt; if(p.y<=7){ p.y=7; if(p.vy<-30){ p.vy*=-0.4; p.vx*=0.65; p.vz*=0.65; } else { p.vy=0; } p.vx*=0.82; p.vz*=0.82; if(Math.abs(p.vy)<14&&Math.hypot(p.vx,p.vz)<8){ p.settled=true; p.vx=p.vy=p.vz=0; p.y=7; } } p.grp.position.set(p.x,p.y,p.z); p.cube.rotation.x+=dt*4; p.cube.rotation.y+=dt*3; }
-    else if(p._loot){   // LOOT BALL settled -> flatten into a disc, then unfold into the pad (beam-up)
-      if(p._unfoldT==null) p._unfoldT=0.32;
-      p._unfoldT-=dt; const k=Math.max(0,p._unfoldT/0.32);
-      p.cube.scale.set(1+(1-k)*1.1, 0.12+k*0.88, 1+(1-k)*1.1); p.cube.rotation.y+=dt*6;
-      p.grp.position.set(p.x, 2+k*5, p.z);
+    else if(p._loot){   // LOOT settled -> hold briefly, then unfold into the pad
+      if(p._unfoldT==null) p._unfoldT=(p._model?(window._LOOT_MODEL_HOLD||0.55):0.32);
+      p._unfoldT-=dt;
+      if(p._model){ p.grp.position.set(p.x, 7+Math.sin(p.t*2.4)*1.4, p.z); p.cube.rotation.y+=dt*2.4; }   // weapon-model loot: bob + spin like a power-up (no disc squash that would flatten the model)
+      else { const k=Math.max(0,p._unfoldT/0.32); p.cube.scale.set(1+(1-k)*1.1, 0.12+k*0.88, 1+(1-k)*1.1); p.cube.rotation.y+=dt*6; p.grp.position.set(p.x, 2+k*5, p.z); }
       if(p._unfoldT<=0){ _unfoldLootBall(p); continue; }
     }
     else if(p._lying){ p.grp.position.set(p.x,p.y,p.z); }   // a barrel that rolled to a stop -> stays lying on its side where it landed (no bob, no upright snap)
     else { p.grp.position.y=7+Math.sin(p.t*2.4)*1.4; p.cube.rotation.y+=dt*1.4; }
-    if(p.type==='barrel'&&p.cube&&!p._lying){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // upright barrels stand straight; a LYING (rolled-to-rest) barrel keeps its side pose
+    if(p.cube && ((p.type==='barrel'&&!p._lying) || p.type==='nuke' || p._model)){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // barrels / the nuke / weapon-loot sit FLAT and spin only on Y (no tumble, no tilt — the nuke model bakes a 0.32 z-tilt that we cancel here)
     if(player&&!player._carryPayload&&(p.settled||p.type==='barrel')&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z), dy=Math.abs((player.py||0)-(p.y||0)); if(d<(window._GRAB_R_ITEM||60)&&dy<(window._GRAB_Y_ITEM||60)&&d<nd){nd=d;near=p;} }   // barrels are grabbable even while still rolling — Y gate so you can't grab floor loot while standing on the flipped ceiling
   }
   window._nearOrb=near;
