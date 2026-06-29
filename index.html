@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB29</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB30</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12191,6 +12191,7 @@ class BotPilot{
 
   hit(dmg){
     if(this.isDummy){ this.inv=8; this._hitFlash=6; addTrauma(0.04); ps.burst(this.wx,this.wz,[1,1,1],10,80,(this.py||0)+12); ps.burst(this.wx,this.wz,[1,0.5,0.2],8,60,(this.py||0)+12); this._updateHpBar(); return; }
+    if(this._botBallInv){ if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.4,0.9,1],14,90); return; }   // ball mode tanks bullets/melee like the player's ball shield
     if(this.inv>0) return;
     if(this.shieldActive&&this.shieldHp>0){
       this.shieldHp=Math.max(0,this.shieldHp-dmg*3);
@@ -12541,7 +12542,7 @@ class BotPilot{
     // ── MELEE — close range: swing and LAUNCH the player (Smash) ──
     this._botMeleeCD=Math.max(0,(this._botMeleeCD||0)-1);
     if((this._botMeleeAnimT||0)>0) this._botMeleeAnimT-=dt;
-    if(window._BOT_MELEE!==false && _foe&&_foe.alive!==false && dist<(window._BOT_MELEE_RANGE||54) && this._botMeleeCD<=0 && (this.aggression||0)>0 && !_foe._launched){
+    if(window._BOT_MELEE!==false && _foe&&_foe.alive!==false && dist<(window._BOT_MELEE_RANGE||54) && this._botMeleeCD<=0 && (this.aggression||0)>0 && !_foe._launched && !((this._botSlideT||0)>0||(this._botRollT||0)>0||this._botBall)){
       this._botMeleeCD=(window._BOT_MELEE_CD||{rookie:150,soldier:95,elite:58}[this.diff]||95);
       try{ if(this._clips){ const mk=['melee_1','melee_2','melee_3'][Math.floor(Math.random()*3)]; const mc=this._clips[mk]||this._clips['melee_1']; if(mc){ Object.values(this._clips).forEach(a=>{ if(a&&a.fadeOut&&a!==mc)a.fadeOut(0.08); }); mc.reset().setLoop(THREE.LoopOnce,1); mc.clampWhenFinished=true; mc.setEffectiveWeight(1).fadeIn(0.05).play(); this._clips._cur=mk; this._botMeleeAnimT=(mc._clip&&mc._clip.duration)||0.6; } } }catch(_){}
       this._botMeleeHitT=(window._BOT_MELEE_HIT_DELAY||0.16);   // contact lands a few frames into the swing
@@ -12558,6 +12559,38 @@ class BotPilot{
           _tf.knock(dx/dl,dz/dl,_mMag,_mLift,(window._BOT_MELEE_STUN||24));   // a real grabbed weapon (hammer etc.) launches harder than fists
           if(_tf===player && typeof announce==='function')announce(this._botMeleeWeapon?((''+this._botMeleeWeapon).toUpperCase()+'!'):'SMASHED!','#ff5566');
           if(typeof addTrauma==='function')addTrauma(_tf===player?0.2:0.08);
+        }
+      }
+    }
+
+    // ── SPECIAL MOVES — slide tackle / dodge roll / ball-mode body-check (mirror the player's kit) ──
+    {
+      const _specBusy=(this._botSlideT||0)>0||(this._botRollT||0)>0||!!this._botBall;
+      this._botSpecCD=Math.max(0,(this._botSpecCD||0)-dt);
+      const _bc=(name,loop)=>{ if(!this._clips)return null; const c=this._clips[name]; if(!c)return null; Object.values(this._clips).forEach(a=>{ if(a&&a.fadeOut&&a!==c)a.fadeOut(0.08); }); c.reset(); if(loop){ c.setLoop(THREE.LoopRepeat,Infinity); } else { c.setLoop(THREE.LoopOnce,1); c.clampWhenFinished=true; } c.setEffectiveWeight(1).fadeIn(0.06).play(); this._clips._cur='_spec'; return c; };
+      const _specContact=(mag,lift,stun,dmg)=>{ const _tf=this._foe; if(!_tf||_tf.alive===false||typeof _tf.knock!=='function')return false; const ddx=_tf.wx-this.wx, ddz=_tf.wz-this.wz, ddl=Math.hypot(ddx,ddz)||1; if(ddl<(window._BOT_SPEC_HIT_R||60) && !_tf._launched){ if(_tf.hit&&_tf!==player)try{_tf.hit(dmg);}catch(_){} _tf.knock(ddx/ddl,ddz/ddl,mag,lift,stun); if(_tf===player&&typeof addTrauma==='function')addTrauma(0.18); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.4,0.9,1],16,120); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(90,0.12,'square',0.2,520);}catch(_){} return true; } return false; };
+      // active special ticks
+      if((this._botSlideT||0)>0){ this._botSlideT-=dt; if(!this._botSlideHitDone && _specContact((window._BOT_SLIDE_MAG||14),(window._BOT_SLIDE_LIFT||120),(window._BOT_SLIDE_STUN||24),(window._BOT_SLIDE_DMG||3))) this._botSlideHitDone=true; }
+      else if((this._botRollT||0)>0){ this._botRollT-=dt; }
+      else if(this._botBall){ this._botBallT-=dt;
+        if(_foe){ const bx=_foe.wx-this.wx, bz=_foe.wz-this.wz, bl=Math.hypot(bx,bz)||1; this._dashDir=[bx/bl,bz/bl]; this._dashRamp=Math.max(this._dashRamp||0,2); this._dashPeak=MOVE.topSpeed*(window._BOT_BALL_SPEED_K||2.3); this.aim=Math.atan2(bz,bx); }   // keep charging the foe (body-check)
+        if(this.model&&this.model.children[0]) this.model.children[0].rotation.x+=dt*14;   // visible roll spin on the inner model
+        if(!this._botBallHitDone && _specContact((window._BOT_BALL_MAG||16),(window._BOT_BALL_LIFT||240),(window._BOT_BALL_STUN||28),(window._BOT_BALL_DMG||3))){ this._botBallHitDone=true; this._botBallT=Math.min(this._botBallT,0.15); }
+        if(typeof ps!=='undefined'&&Math.random()<0.5)ps.burst(this.wx,this.py+6,[0.3,0.8,1],2,40);
+        if(this._botBallT<=0){ this._botBall=false; this._botBallInv=false; if(this.model&&this.model.children[0])this.model.children[0].rotation.x=0; }
+      }
+      // pick a NEW special (grounded, off-cooldown, has a foe)
+      if(!_specBusy && this._botSpecCD<=0 && _foe && _foe.alive!==false && (this.py||0)<=2 && (this._botMeleeAnimT||0)<=0 && (this.aggression||0)>0 && window._BOT_SPECIALS!==false){
+        const _r=Math.random();
+        if(dist>(window._BOT_SLIDE_LO||50) && dist<(window._BOT_SLIDE_HI||175) && _r<(window._BOT_SLIDE_P||0.02) && this._clips&&this._clips['slide']){
+          this._botSlideT=(this._clips['slide']._clip&&this._clips['slide']._clip.duration)||0.6; this._botSlideHitDone=false; this._botSpecCD=(window._BOT_SLIDE_CD||2.4);
+          this._dashCD=0; this._dash(dirX,dirZ); this._dashPeak=MOVE.topSpeed*(window._BOT_SLIDE_SPEED_K||2.2); this.aim=Math.atan2(dirZ,dirX); _bc('slide',false);
+        } else if(this.state==='evade' && _r<(window._BOT_ROLL_P||0.03)){
+          const rc=this._clips&&(this._clips['dive_roll']||this._clips['roll']||this._clips['dash']||this._clips['slide']);
+          if(rc){ const rn=Object.keys(this._clips).find(k=>this._clips[k]===rc)||'roll'; this._botRollT=(rc._clip&&rc._clip.duration)||0.5; this._botSpecCD=(window._BOT_ROLL_CD||2.0); this._dashCD=0; this._dash(-dirX,-dirZ); _bc(rn,false); }
+        } else if(dist>(window._BOT_BALL_RANGE||130) && _r<(window._BOT_BALL_P||0.012) && this._clips&&this._clips['ball']){
+          this._botBall=true; this._botBallInv=true; this._botBallHitDone=false; this._botBallT=(window._BOT_BALL_T||1.4); this._botSpecCD=(window._BOT_BALL_CD||4.0); this._dashCD=0; this._dash(dirX,dirZ); _bc('ball',true);
+          if(typeof announce==='function'&&_foe===player)announce('RIVAL BALL!','#39d6ff');
         }
       }
     }
@@ -12612,7 +12645,7 @@ class BotPilot{
       else { this.model.rotation.set(0, yaw, 0); this.model.position.set(this.wx,this.py,this.wz); }
     }
     if(this._mixer) this._mixer.update(dt);
-    if(this._clips && (this._botMeleeAnimT||0)<=0){   // don't override a melee swing mid-play
+    if(this._clips && (this._botMeleeAnimT||0)<=0 && !((this._botSlideT||0)>0||(this._botRollT||0)>0||this._botBall)){   // don't override a melee swing or special move mid-play
       // DIRECTIONAL BLEND: pick the clip from where he's MOVING relative to where he's FACING -> proper
       // back-pedal / strafe reads instead of always run_forward. Airborne -> floating.
       let target;
@@ -12640,6 +12673,13 @@ class BotPilot{
   // Call with a Bullet object — returns true if it hit this bot
   checkBulletHit(b){
     if(!this.alive||b.life<=0) return false;
+    if(this._botBallInv && Math.hypot(b.wx-this.wx, b.wz-this.wz)<(20+(window._BOT_BALL_DEFLECT_R||10)) && Math.abs((b.y||9)-(this.py+12))<40){
+      // ball shield: DEFLECT the round (ricochet outward) instead of taking it — same idea as the player's ball
+      const rx=b.wx-this.wx, rz=b.wz-this.wz, rl=Math.hypot(rx,rz)||1, sp=Math.hypot(b.vx||0,b.vz||0)||120;
+      b.vx=rx/rl*sp; b.vz=rz/rl*sp; if(b.dmg!=null)b.dmg=0;   // bounced & defanged so it can't loop back and chunk the bot
+      if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.4,0.9,1],14,90);
+      return true;
+    }
     if(Math.hypot(b.wx-this.wx, b.wz-this.wz)<20&&Math.abs((b.y||9)-(this.py+15))<35){
       b.life=0;
       this.hit(b.dmg||1);
