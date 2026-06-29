@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB28</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB29</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12565,6 +12565,30 @@ class BotPilot{
     // ── SHIELD — use reactively ──
     if(!this.shieldActive){
       this.shieldHp=Math.min(this.shieldMax,this.shieldHp+12*dt);
+    }
+
+    // ── JUMP + JETPACK — hops and jet bursts like the player: leap to close gaps, contest an airborne foe, juke ──
+    if(window._BOT_JET!==false && GS.zone!==-19){
+      const _grounded=(this.py<=0.5)&&((this.pvy||0)<=0);
+      if(_grounded) this._botJetFuel=Math.min(1,(this._botJetFuel==null?1:this._botJetFuel)+dt*(window._BOT_JET_REGEN||0.5));   // refuel on the ground
+      this._jumpCD=Math.max(0,(this._jumpCD||0)-dt);
+      const _foeHigh=(_foe&&(_foe.py||0)>(window._BOT_JET_CHASE_Y||45));
+      if(_grounded && this._jumpCD<=0 && (this._botJetFuel||0)>0.3){
+        let _want;
+        if(_foeHigh && dist<(window._BOT_JET_CHASE_R||260)) _want=(window._BOT_JET_CHASE_P||0.06);     // foe airborne -> contest
+        else if(this.state==='chase' && dist>(window._BOT_JET_GAP||150)) _want=(window._BOT_JET_GAP_P||0.025);   // big gap -> leap to close
+        else if(this.state==='evade'||this.state==='strafe') _want=(window._BOT_JET_JUKE_P||0.012);     // juke hops
+        else _want=(window._BOT_JET_IDLE_P||0.004);                                                     // occasional expressive hop
+        if(Math.random()<_want){ this.pvy=(window._BOT_JUMP_V||175); this._jetT=(window._BOT_JET_T||0.55); this._jumpCD=(window._BOT_JET_CD||1.1);
+          if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(180,0.08,'square',0.1,520);}catch(_){} }
+      }
+      // active jet thrust (counteracts gravity + lifts) while a burst is live and there's fuel
+      if((this._jetT||0)>0 && (this._botJetFuel||0)>0){
+        this._jetT-=dt; this._botJetFuel=Math.max(0,(this._botJetFuel||0)-dt*(window._BOT_JET_BURN||0.6));
+        this.pvy=(this.pvy||0)+(window._BOT_JET_THRUST||620)*dt;
+        const _cap=(window._BOT_JET_VMAX||240); if(this.pvy>_cap)this.pvy=_cap;
+        if(typeof ps!=='undefined'&&Math.random()<0.5) ps.burst(this.wx,this.py+2,[0.5,0.8,1],2,40);   // jet exhaust
+      } else this._jetT=0;
     }
 
     // ── VERTICAL ── (CUBE gravity-flip aware: when the world flips, fall UP to the ceiling and stand on it, like the player)
