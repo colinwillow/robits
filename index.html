@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB18</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB19</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9629,6 +9629,7 @@ function announce(text,color){ annEl.textContent=text;annEl.style.color=color||'
   annEl.style.transition='none';annEl.style.opacity='1';annEl.style.transform='translate(-50%,-50%) scale(1.4)';
   requestAnimationFrame(()=>{annEl.style.transition='all .5s cubic-bezier(.2,.8,.2,1)';annEl.style.transform='translate(-50%,-50%) scale(1)';});
   clearTimeout(annT);annT=setTimeout(()=>{annEl.style.transition='opacity .5s';annEl.style.opacity='0';},1400); }
+const _KB_YAX=new THREE.Vector3(0,1,0), _KB_XAX=new THREE.Vector3(1,0,0);   // axes for the launch head-first orientation (yaw then pitch)
 const streakEl=document.getElementById('streak');let streakT=null;
 function showStreak(text){ streakEl.textContent=text;streakEl.style.transition='none';streakEl.style.opacity='1';streakEl.style.transform='translate(-50%,-50%) scale(1.3)';
   requestAnimationFrame(()=>{streakEl.style.transition='all .4s';streakEl.style.transform='translate(-50%,-50%) scale(1)';});
@@ -9736,9 +9737,9 @@ class Player{
       if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{h:600}), ceil=(C.h||600)-(window._CUBE_PAD!=null?window._CUBE_PAD:22); if(this.py>ceil){ this.py=ceil; if(this.pvy>0)this.pvy=-this.pvy*(window._PLKB_REST!=null?window._PLKB_REST:0.55); } }
       if(this.py<=0 && this.pvy<=0){ this.py=0; this.pvy=0; this._launched=false; this._kbVx*=0.3; this._kbVz*=0.3;
         // play the FULL get_up before control returns (sized to the clip, like the AI) — no more snap-to-feet
-        const ud=this.model&&this.model.userData, gu=ud&&ud.clips&&ud.clips['get_up'], guDur=(gu&&gu._clip&&gu._clip.duration)||0;
-        this._kbStun=Math.max(this._kbStun||0, (guDur>0.1?Math.round(guDur*60):(window._PLKB_GETUP||26))+(window._PLKB_DOWN_HOLD||8));   // _kbStun is in FRAMES
-        if(gu){ try{ Object.values(ud.clips).forEach(a=>{ if(a&&a.fadeOut&&a!==gu)a.fadeOut(0.1); }); gu.reset().setLoop(THREE.LoopOnce,1); gu.clampWhenFinished=true; gu.setEffectiveWeight(1).fadeIn(0.08).play(); ud.currentClip='get_up'; ud._launchClip=true; }catch(_){} }
+        const ud=this.model&&this.model.userData, gu=ud&&ud.clips&&ud.clips['get_up'], guDur=(gu&&gu._clip&&gu._clip.duration)||0, _gspd=(window._PLKB_GETUP_SPD||1.5);
+        this._kbStun=Math.max(this._kbStun||0, (guDur>0.1?Math.round(guDur*60/_gspd):(window._PLKB_GETUP||26))+(window._PLKB_DOWN_HOLD||3));   // _kbStun in FRAMES, sized to the clip at the sped-up rate so it doesn't sit on the end frame
+        if(gu){ try{ Object.values(ud.clips).forEach(a=>{ if(a&&a.fadeOut&&a!==gu)a.fadeOut(0.1); }); gu.reset().setLoop(THREE.LoopOnce,1); gu.clampWhenFinished=true; gu.setEffectiveTimeScale(_gspd); gu.setEffectiveWeight(1).fadeIn(0.06).play(); ud.currentClip='get_up'; ud._launchClip=true; ud._oneShotAct=gu; ud._oneShotSpeed=_gspd; }catch(_){} }   // register with the loop's manual speed-up (the rig's timeScale doesn't stick on its own) so it actually plays fast
         if(typeof ps!=='undefined')ps.burst(this.wx,this.wz,[1,0.8,0.4],12,95); if(typeof addTrauma==='function')addTrauma(0.06); }
     } else if((this._kbStun||0)>0){
       // downed / getting up — control still locked, slide to a stop
@@ -11254,7 +11255,10 @@ class Player{
       const ang=(_h>0.05)?Math.atan2(this._kbVz,this._kbVx):this.aim, yaw=-ang+Math.PI/2;
       const flight=Math.atan2(this.pvy||0, Math.max(60,_hsp));
       const pitch=this._launched?((Math.PI/2-flight)*(window._KB_PITCH_SIGN!=null?window._KB_PITCH_SIGN:1)*(window._KB_PITCH_K!=null?window._KB_PITCH_K:1)):0;
-      if(this.model.userData.isRobot) this.model.rotation.set(pitch, yaw, 0); else this.model.rotation.set(0, yaw, 0);
+      if(this.model.userData.isRobot){ // YAW first, THEN pitch about the body's own X axis -> the head ALWAYS leads the velocity, even after a wall bounce reverses the direction
+        const _qy=this._kbQy||(this._kbQy=new THREE.Quaternion()), _qx=this._kbQx||(this._kbQx=new THREE.Quaternion());
+        _qy.setFromAxisAngle(_KB_YAX, yaw); _qx.setFromAxisAngle(_KB_XAX, pitch); this.model.quaternion.copy(_qy).multiply(_qx);
+      } else this.model.rotation.set(0, yaw, 0);
       if(ud.rim) ud.rim.material.emissive?.setHex(od?0xffe600:0x00ffc8);
       return;
     }
@@ -11921,14 +11925,18 @@ class BotPilot{
     this._dashDir=null; this._dashRamp=0; this._dashPeak=0;
     this._dashCD=0;
 
+    // ── COLOR: each AI gets its own scheme so you can tell rivals apart (player is blue) ──
+    const _PAL=(window._BOT_PALETTE&&window._BOT_PALETTE.length)?window._BOT_PALETTE:[0xff2a2a,0x33ff66,0xffd23a,0xc24aff,0x33c8ff,0xff7a1a,0xff4ad0,0x9dff33];
+    const _ci=(opts.colorIdx!=null)?opts.colorIdx:((window._botSpawnN=(window._botSpawnN||0)+1)-1);
+    this._colorIdx=_ci; this._color=(opts.color!=null)?opts.color:_PAL[_ci%_PAL.length];
+    const _cObj=new THREE.Color(this._color); this._emiColor=_cObj.clone(); this._emiDim=_cObj.clone().multiplyScalar(0.6);   // bright = hit flash base; dim = idle glow
     // Build model (same saucer placeholder, optional GLB skin later)
     this.model=makePlayerModel();
-    // Tint model to distinguish from player — red/orange glow
+    // Tint model to distinguish from player — its own color glow
     this.model.traverse(c=>{
       if(c.material&&c.material.color){
-        const col=new THREE.Color(0xff2200);
-        if(c.material.emissive) c.material.emissive.set(col);
-        else { c.material=c.material.clone(); c.material.color.set(col); }
+        if(c.material.emissive) c.material.emissive.set(_cObj);
+        else { c.material=c.material.clone(); c.material.color.set(_cObj); }
       }
     });
     scene.add(this.model);
@@ -11950,7 +11958,7 @@ class BotPilot{
         clone.traverse(c=>{
           if((c.isMesh||c.isSkinnedMesh)&&c.material){
             c.material=c.material.clone();
-            c.material.emissive=new THREE.Color(0xaa1100);
+            c.material.emissive=(this._emiDim?this._emiDim.clone():new THREE.Color(0xaa1100));
             c.material.emissiveIntensity=2.5;
             c.frustumCulled=false;
             this._emiMats.push(c.material);
@@ -12145,7 +12153,7 @@ class BotPilot{
     if(this._hitFlash>0){
       this._hitFlash--;
       const on=this._hitFlash>0;
-      if(this._emiMats){ for(const m of this._emiMats){ if(!m||!m.emissive)continue; if(on){ m.emissive.setHex(0xffffff); m.emissiveIntensity=5.0; } else { m.emissive.setHex(0xaa1100); m.emissiveIntensity=2.5; } } }
+      if(this._emiMats){ for(const m of this._emiMats){ if(!m||!m.emissive)continue; if(on){ m.emissive.setHex(0xffffff); m.emissiveIntensity=5.0; } else { if(this._emiDim)m.emissive.copy(this._emiDim); else m.emissive.setHex(0xaa1100); m.emissiveIntensity=2.5; } } }
     }
   }
 
@@ -12164,7 +12172,7 @@ class BotPilot{
         const _pitch=(Math.PI/2 - _flight)*(window._KB_PITCH_SIGN!=null?window._KB_PITCH_SIGN:1)*(window._KB_PITCH_K!=null?window._KB_PITCH_K:1);
         const tv=_pitch + this._tumble;   // tangent pitch (+ optional extra spin)
         this._tumbleVis=tv; this._landRot=null;
-        this.model.rotation.set(tv, yaw, 0);
+        { const _qy=this._kbQy||(this._kbQy=new THREE.Quaternion()), _qx=this._kbQx||(this._kbQx=new THREE.Quaternion()); _qy.setFromAxisAngle(_KB_YAX, yaw); _qx.setFromAxisAngle(_KB_XAX, tv); this.model.quaternion.copy(_qy).multiply(_qx); }   // YAW then PITCH (head always leads, even after a bounce); matches the hip-pivot math below
         // PIVOT THE TUMBLE ABOUT THE HIPS (centre of mass). Fade ONLY the position offset to 0 near the ground so it converges to (wx,py,wz) without a teleport — the ROTATION is never faded (fading it caused the mid-air reverse-spin).
         const _lf=Math.max(0,Math.min(1, this.py/(window._BOT_LAND_FADE||45)));
         const HIP=(this._hipY||(window._BOT_TUMBLE_PIVOT_Y||9));
@@ -12637,6 +12645,11 @@ class TrainingDummy{
     if(this._hpTex) this._hpTex.needsUpdate=true;
   }
 
+  knock(dx,dz,mag=10,lift=0,stun=0){   // rooted post can't fly, so a knock = a big shove on the sway spring (scaled by the weapon's bMag)
+    const l=Math.hypot(dx,dz)||1, f=mag*(window._DUMMY_KB_K!=null?window._DUMMY_KB_K:16);
+    this._velX+=(dx/l)*f; this._velZ+=(dz/l)*f;
+    if(typeof ps!=='undefined')ps.burst(this.wx,(this.py||0)+18,[1,0.8,0.4],10,90);
+  }
   hit(dmg, impactX, impactZ){
     const fromX=this.wx-(impactX!==undefined?impactX:this.wx);
     const fromZ=this.wz-(impactZ!==undefined?impactZ:this.wz);
@@ -19090,6 +19103,7 @@ function loop(ts){ requestAnimationFrame(loop);
                     e._kbBounce=(Math.random()<0.65?1:0);
                   }
                 }
+                else if(kind==='dummy' && e.knock){ e.knock(dx,dz, _MS.bMag, _MS.bLift, _MS.bStn); }   // rooted dummy: weapon-scaled shove on its sway (hammer rocks it hard, sword less)
               }
               if(typeof addTrauma==='function')addTrauma(_MS.trauma||0.06);                       // shake scales with weapon (stacks per enemy hit -> crowd swing = big shake)
               if(typeof hitStop==='function'&&_MS.hitStop)hitStop(_MS.hitStop);                    // freeze a few frames on impact = punch
@@ -27567,7 +27581,16 @@ const _SLASH_PROFILES={
 function _slashProfile(){ const t=(player&&player._meleeType)||'sword'; return _SLASH_PROFILES[t]||_SLASH_PROFILES.sword; }
 function _slashBrighten(hex,a){ const r=(hex>>16)&255,g=(hex>>8)&255,b=hex&255; return (Math.round(r+(255-r)*a)<<16)|(Math.round(g+(255-g)*a)<<8)|Math.round(b+(255-b)*a); }
 function _slashBladePoints(){
-  const h=player&&player._hammer; if(!h||!player.model) return null;
+  const h=player&&player._hammer;
+  if(!h && player && player.model){   // FISTS (no melee weapon): trace a short streak off the punching hand so bare-handed swings still throw a slash
+    player.model.updateWorldMatrix(true,true);
+    const bones=player.model.userData&&player.model.userData.bones;
+    const hand=bones&&(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']);
+    const hp=hand?hand.getWorldPosition(new THREE.Vector3()):new THREE.Vector3(player.wx,(player.py||0)+16,player.wz);
+    const a=player.aim||0, reach=(window._FIST_SLASH_REACH||28);
+    return [hp.clone(), hp.clone().add(new THREE.Vector3(Math.cos(a)*reach,0,Math.sin(a)*reach))];
+  }
+  if(!h||!player.model) return null;
   player.model.updateWorldMatrix(true,true);
   // MACE: the trail should read as the heavy BALL whipping on its chain — trace anchor(handle-top) -> ball, NOT the handle blade axis
   if(player._meleeType==='mace' && player._maceChain && player._maceChain.ball){
