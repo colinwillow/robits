@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB27</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB28</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9197,6 +9197,11 @@ class DroneBuddy{
     this.p.set(this.p.x+(tx-this.p.x)*k, this.p.y+(ty-this.p.y)*k, this.p.z+(tz-this.p.z)*k);
     const MAXD=(window._DRONE_LEASH!=null?window._DRONE_LEASH:150), ddx=this.p.x-player.wx, ddz=this.p.z-player.wz, dd=Math.hypot(ddx,ddz);
     if(dd>MAXD){ const sc=MAXD/dd; this.p.x=player.wx+ddx*sc; this.p.z=player.wz+ddz*sc; }   // leash: never strays too far
+    // NEVER pass THROUGH the hero: shove the drone out to a min 3D clearance around his torso (kicks in when he jumps up into it / it bobs low)
+    { const _pcx=player.wx, _pcy=(player.py||0)+(window._DRONE_PLAYER_CY!=null?window._DRONE_PLAYER_CY:16), _pcz=player.wz, _cr=(window._DRONE_CLEAR_R!=null?window._DRONE_CLEAR_R:26);
+      let _bx=this.p.x-_pcx, _by=this.p.y-_pcy, _bz=this.p.z-_pcz, _bl=Math.hypot(_bx,_by,_bz);
+      if(_bl<_cr){ if(_bl<1e-3){ _bx=0; _by=1; _bz=0; _bl=1; } const _s=_cr/_bl; this.p.x=_pcx+_bx*_s; this.p.y=_pcy+_by*_s; this.p.z=_pcz+_bz*_s; }   // push to the sphere shell (biases up since it normally hovers above)
+    }
     this.wx=this.p.x; this.wz=this.p.z; this.mesh.position.copy(this.p);
     const boost=(this._deployT<1?2.4:1);   // rotors spin up hard during deploy
     for(const it of this._spin){ it.mesh.rotation[it.axis]+=dt*it.spd*boost; }
@@ -9706,6 +9711,10 @@ class Player{
     if(this.bombArmed && typeof this._disarmBomb==='function'){ try{this._disarmBomb();}catch(_){} }
     if(this._meleeAdditive){ try{this._meleeAdditive.stop();}catch(_){} this._meleeAdditive=null; }
     const ud=this.model&&this.model.userData; if(ud){ ud._meleeTimer=0; if(ud._meleeHitSet)ud._meleeHitSet.clear(); this._swingAction=null;
+      // getting hit CANCELS your swing -> also release the facing lock + any buffered follow-up. Otherwise _rollAimLock
+      // is stranded true: knock zeroes _meleeTimer/_swingAction, so the swing-end cleanup (which normally clears the
+      // lock) never runs again, and the launch makes update() early-return past the watchdog -> direction stuck forever.
+      this._rollAimLock=false; this._meleeBuf=null; this._meleeBreakPending=false; this._sliding=false;
       try{ const fa=ud.clips&&(ud.clips['flying']||ud.clips['floating']); if(fa){ Object.values(ud.clips).forEach(a=>{ if(a&&a.fadeOut&&a!==fa)a.fadeOut(0.1); }); fa.reset().setEffectiveWeight(1).fadeIn(0.1).play(); ud.currentClip='flying'; ud._launchClip=true; } }catch(_){}
     }
     // DROP a PHYSICALLY-HELD weapon when smashed hard — only weapons you actually hold in-hand pop out (the equipped MELEE weapon, or the minigun). Regular guns stay so you can keep shooting.
@@ -12580,8 +12589,22 @@ class BotPilot{
     }
     if(this._mixer) this._mixer.update(dt);
     if(this._clips && (this._botMeleeAnimT||0)<=0){   // don't override a melee swing mid-play
-      const moving=Math.hypot(this.vx,this.vz)>20;
-      const target=moving?'run_forward':'idle';
+      // DIRECTIONAL BLEND: pick the clip from where he's MOVING relative to where he's FACING -> proper
+      // back-pedal / strafe reads instead of always run_forward. Airborne -> floating.
+      let target;
+      const _air=(this.py>(window._BOT_AIR_Y||6))||Math.abs(this.pvy||0)>40;
+      const _spd=Math.hypot(this.vx,this.vz);
+      if(_air && this._clips['floating']){ target='floating'; }
+      else if(_spd>(window._BOT_MOVE_MIN||20)){
+        const _mvAng=Math.atan2(this.vz,this.vx);
+        let _df=((_mvAng-this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;   // movement dir vs facing
+        const _ad=Math.abs(_df);
+        if(_ad<(window._BOT_FWD_CONE||0.9)) target='run_forward';
+        else if(_ad>Math.PI-(window._BOT_BWD_CONE||0.9)) target='run_backward';
+        else { const _right=((window._BOT_STRAFE_SIGN||1)*_df)>0; target=_right?'strafe_right':'strafe_left'; }
+      } else target='idle';
+      if(!this._clips[target]) target=(_spd>(window._BOT_MOVE_MIN||20)?'run_forward':'idle');   // fall back if the rig is missing a directional clip
+      if(!this._clips[target]) target='idle';
       if(target!==this._clips._cur&&this._clips[target]){
         Object.values(this._clips).forEach(a=>{ if(typeof a.fadeOut==='function') a.fadeOut(0.15); });
         this._clips[target].reset().setEffectiveWeight(1).fadeIn(0.15).play();
