@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB14</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB15</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9729,7 +9729,12 @@ class Player{
       // vertical
       this.pvy-=(typeof GRAV!=='undefined'?GRAV:320)*dt; this.py+=this.pvy*dt;
       if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{h:600}), ceil=(C.h||600)-(window._CUBE_PAD!=null?window._CUBE_PAD:22); if(this.py>ceil){ this.py=ceil; if(this.pvy>0)this.pvy=-this.pvy*(window._PLKB_REST!=null?window._PLKB_REST:0.55); } }
-      if(this.py<=0 && this.pvy<=0){ this.py=0; this.pvy=0; this._launched=false; this._kbStun=Math.max(this._kbStun||0,(window._PLKB_GETUP||26)); this._kbVx*=0.3; this._kbVz*=0.3; if(typeof ps!=='undefined')ps.burst(this.wx,this.wz,[1,0.8,0.4],12,95); if(typeof addTrauma==='function')addTrauma(0.06); }
+      if(this.py<=0 && this.pvy<=0){ this.py=0; this.pvy=0; this._launched=false; this._kbVx*=0.3; this._kbVz*=0.3;
+        // play the FULL get_up before control returns (sized to the clip, like the AI) — no more snap-to-feet
+        const ud=this.model&&this.model.userData, gu=ud&&ud.clips&&ud.clips['get_up'], guDur=(gu&&gu._clip&&gu._clip.duration)||0;
+        this._kbStun=Math.max(this._kbStun||0, (guDur>0.1?Math.round(guDur*60):(window._PLKB_GETUP||26))+(window._PLKB_DOWN_HOLD||8));   // _kbStun is in FRAMES
+        if(gu){ try{ Object.values(ud.clips).forEach(a=>{ if(a&&a.fadeOut&&a!==gu)a.fadeOut(0.1); }); gu.reset().setLoop(THREE.LoopOnce,1); gu.clampWhenFinished=true; gu.setEffectiveWeight(1).fadeIn(0.08).play(); ud.currentClip='get_up'; ud._launchClip=true; }catch(_){} }
+        if(typeof ps!=='undefined')ps.burst(this.wx,this.wz,[1,0.8,0.4],12,95); if(typeof addTrauma==='function')addTrauma(0.06); }
     } else if((this._kbStun||0)>0){
       // downed / getting up — control still locked, slide to a stop
       this._kbStun--; this.wx+=this._kbVx; this.wz+=this._kbVz; this._kbVx*=0.8; this._kbVz*=0.8;
@@ -11886,6 +11891,7 @@ class BotPilot{
     this.alive=true; this.hp=opts.hp||(4+this.round);
     this.maxHp=this.hp; this.inv=120;
     this.fireT=0; this.bombT=0;
+    this._botWeapon=(opts.weapon||'rapid'); this._botWeaponT=2+Math.random()*4;   // varies its gun over time (rapid/spread/plasma/heavy)
     this.shieldActive=false; this.shieldHp=100; this.shieldMax=100;
     this._shieldMesh3D=null; this._shieldMat3D=null; this._shieldRimMat=null; this._shieldFaceMat=null;
     this._shieldHitFlash=0;
@@ -11998,13 +12004,22 @@ class BotPilot{
   }
 
   _shoot(){
-    const a=this.aim+(Math.random()-0.5)*this.aimError*2;
-    const spd=400;
-    // EnemyBullet constructor auto-adds to GS.enemyBullets — don't push again
-    const b=new EnemyBullet(this.wx, this.wz, Math.cos(a)*spd, Math.sin(a)*spd);
-    b.mesh.material.color.setHex(0xff4400); // orange tint to distinguish from enemy bullets
-    ps.spark(this.wx+Math.cos(a)*14, this.wz+Math.sin(a)*14, [1,0.4,0.1]);
-    Audio.blip(200+Math.random()*40,0.07,'square',0.07,100);
+    const w=this._botWeapon||'rapid';
+    // EnemyBullet constructor auto-adds to GS.enemyBullets — fire a pattern based on the bot's current weapon
+    const _fire=(ang,spd,col,sz)=>{ const b=new EnemyBullet(this.wx, this.wz, Math.cos(ang)*spd, Math.sin(ang)*spd); try{ if(b.mesh&&b.mesh.material&&b.mesh.material.color)b.mesh.material.color.setHex(col); if(sz&&b.mesh)b.mesh.scale.multiplyScalar(sz); }catch(_){} if(typeof ps!=='undefined')ps.spark(this.wx+Math.cos(ang)*14, this.wz+Math.sin(ang)*14, [((col>>16)&255)/255,((col>>8)&255)/255,(col&255)/255]); return b; };
+    if(w==='spread'){   // SHOTGUN: 3-pellet fan
+      for(let k=-1;k<=1;k++){ const ang=this.aim+k*(window._BOT_SPREAD_ANG||0.17)+(Math.random()-0.5)*this.aimError; _fire(ang, 360, 0xffaa22, 0.9); }
+      if(typeof Audio!=='undefined')Audio.blip(150,0.08,'square',0.1,110);
+    } else if(w==='plasma'){   // PLASMA: a fat slow bolt
+      const ang=this.aim+(Math.random()-0.5)*this.aimError*1.1; _fire(ang, 300, 0x66ff88, 1.9);
+      if(typeof Audio!=='undefined')Audio.blip(320,0.1,'sine',0.12,520);
+    } else if(w==='heavy'){   // HEAVY CANNON: one big hard-hitting slug
+      const ang=this.aim+(Math.random()-0.5)*this.aimError; const b=_fire(ang, 520, 0xff66ff, 1.6); if(b)b.dmg=2;
+      if(typeof Audio!=='undefined')Audio.blip(110,0.12,'square',0.14,90);
+    } else {   // RAPID: snappy single shot
+      const ang=this.aim+(Math.random()-0.5)*this.aimError*2; _fire(ang, 440, 0xff4400, 1.0);
+      if(typeof Audio!=='undefined')Audio.blip(200+Math.random()*40,0.07,'square',0.07,100);
+    }
   }
 
   _throwBombAt(tx,tz){
@@ -12323,10 +12338,14 @@ class BotPilot{
     const aimErr=(Math.random()-0.5)*this.aimError;
     this.aim=lerp(this.aim,targetAim+aimErr,0.06+this.aggression*0.05);
 
+    // ── WEAPON SWITCH — the rival cycles through different guns over time (until it physically grabs them) ──
+    this._botWeaponT=(this._botWeaponT||0)-dt;
+    if(this._botWeaponT<=0){ const pool=(window._BOT_WEAPONS||['rapid','spread','plasma','heavy','rapid']); this._botWeapon=pool[(Math.random()*pool.length)|0]; this._botWeaponT=(window._BOT_WEAPON_SWITCH||7)+Math.random()*5; if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL: '+this._botWeapon.toUpperCase(),'#ff7a7a');}catch(_){} }
     // ── FIRE — only when strafing or chasing, not while evading/repositioning ──
     this.fireT++;
     const canFire=this.state==='strafe'||this.state==='chase';
-    const fireRate={rookie:22, soldier:14, elite:8}[this.diff];
+    const _frBase={rookie:22, soldier:14, elite:8}[this.diff];
+    const fireRate=Math.round(_frBase*({rapid:1, spread:2.4, plasma:2.0, heavy:2.8}[this._botWeapon||'rapid']||1));   // heavier guns fire slower
     // Add burst pattern — fire a few shots then pause
     if(!this._burstCD) this._burstCD=0;
     if(!this._burstCount) this._burstCount=0;
@@ -26161,6 +26180,18 @@ window._ballFrame=function(dt){
     if(window._BALL&&window._BALL.state){ player._ballCharge=(player._ballCharge==null?MX:player._ballCharge)-(window._BALL_DRAIN||16)*dt;
       if(player._ballCharge<=0){ player._ballCharge=0; if(window._ballExit)window._ballExit(); if(typeof announce==='function')announce('BALL DEPLETED','#66e0ff'); }
     } else if(player._ballCharge!=null && player._ballCharge<MX){ player._ballCharge=Math.min(MX, player._ballCharge+(window._BALL_RECHARGE||14)*dt); }
+    // HUD meter (its own bar, like the boost fuel)
+    try{ let wrap=document.getElementById('ball-charge-wrap'), bar=document.getElementById('ball-charge-bar');
+      if(!wrap){ wrap=document.createElement('div'); wrap.id='ball-charge-wrap'; wrap.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:96px;width:128px;height:7px;background:rgba(0,0,0,0.55);border:1px solid #2aa88a;border-radius:5px;z-index:42;pointer-events:none;display:none;overflow:hidden;box-shadow:0 0 10px rgba(51,224,255,0.3)';
+        bar=document.createElement('div'); bar.id='ball-charge-bar'; bar.style.cssText='height:100%;width:100%;border-radius:4px'; wrap.appendChild(bar);
+        const lbl=document.createElement('div'); lbl.textContent='BALL'; lbl.style.cssText='position:absolute;left:50%;top:-13px;transform:translateX(-50%);font:7px monospace;letter-spacing:2px;color:#7fe8ff;opacity:0.8'; wrap.appendChild(lbl);
+        document.body.appendChild(wrap); }
+      const c=(player._ballCharge==null?MX:player._ballCharge), pct=Math.max(0,Math.min(1,c/MX));
+      const balled=!!(window._BALL&&window._BALL.state);
+      wrap.style.display=(balled||pct<0.999)?'block':'none';
+      wrap.style.borderColor=balled?'#33e0ff':'#2aa88a';
+      if(bar){ bar.style.width=(pct*100)+'%'; bar.style.background=pct<0.25?'#ff5a5a':(pct<0.5?'#ffc24a':'linear-gradient(90deg,#33e0ff,#66ffd0)'); }
+    }catch(_){}
   }
   if(window._BALL&&window._BALL.state&&window._ballUpdate)window._ballUpdate(dt);
   if(window._ballArrow && !(window._BALL&&window._BALL.state==='charging')) window._ballArrow.visible=false;   // arrow only shows while charging
