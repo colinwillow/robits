@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB40</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB41</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -6383,7 +6383,7 @@ function buildTutorial(){
   TUT.floatingLabels=[];
   TUT.targets.forEach(t=>{ if(t.mesh) scene.remove(t.mesh); });
   TUT.targets=[];
-  player.bombs=99; player.boostFuel=100; player.boostMax=100;
+  player.bombs=(window._START_BOMBS!=null?window._START_BOMBS:0); player.boostFuel=100; player.boostMax=100;   // bombs are now a PICKUP (grab a bomb to throw one) — no free infinite bombs
   // Spawn a platform high up for the boost step
   const highPlat=new Platform(0,-100,80,100,80);
   GS_objects.push(highPlat);
@@ -10087,7 +10087,31 @@ class Player{
     setTimeout(()=>this._disarmBomb(),300);
   }
 
+  // THROW the equipped melee weapon — the (former) bomb button does this whenever a melee weapon is in hand.
+  // It launches as a damaging projectile (spear flies straight, axe/hammer/sword spin), bounces, then drops as a
+  // grabbable pickup. You're back to fists afterward. (Throw POSE reuses the bomb throw clip for now.)
+  _throwMeleeWeapon(){
+    if(!this._meleeType || !this.model) return false;
+    const type=this._meleeType, a=this.aim||0, ud=this.model.userData;
+    try{ const tc=ud&&ud.clips&&(ud.clips['throw_bomb']||ud.clips['throw']); if(tc){ const tn=Object.keys(ud.clips).find(k=>ud.clips[k]===tc)||'throw_bomb'; Object.values(ud.clips).forEach(x=>{ if(x&&x.fadeOut&&x!==tc)x.fadeOut(0.08); }); tc.reset().setLoop(THREE.LoopOnce,1); tc.clampWhenFinished=true; tc.setEffectiveWeight(1).fadeIn(0.05).play(); ud.currentClip=tn; ud._rollingTimer=Math.min(0.5,(tc._clip&&tc._clip.duration)||0.5); const self=this; setTimeout(()=>{ if(self.model&&self.model.userData){ self.model.userData._rollingTimer=0; self.model.userData.currentClip='_post_throw'; } },340); } }catch(_){}
+    const _MS=(window._MELEE_STATS&&(window._MELEE_STATS[type]||window._MELEE_STATS.sword))||{dmg:6,bMag:9,bLift:130,bStn:24,eForce:4,eLift:0.9,eAir:6,thud:140};
+    const straight=(type==='spear'), sp=(window._MTHROW_SPD||340)*(straight?1.25:1);
+    const sx=this.wx+Math.cos(a)*12, sz=this.wz+Math.sin(a)*12, sy=(this.py||0)+16;
+    let mesh=null; try{ mesh=_makeMeleeWeapon(type); }catch(_){}
+    if(mesh){ mesh.position.set(sx,sy,sz); mesh.traverse(o=>{o.frustumCulled=false;}); scene.add(mesh); }
+    const spin=(type==='hammer'||type==='axe')?(window._MTHROW_SPIN_HEAVY||17):(straight?0:(window._MTHROW_SPIN||13));
+    if(!window._thrownMelee)window._thrownMelee=[];
+    window._thrownMelee.push({ type, mesh, x:sx,y:sy,z:sz, vx:Math.cos(a)*sp, vz:Math.sin(a)*sp, vy:(straight?40:95), aim:a, straight, spin, dmg:_MS.dmg, ms:_MS, hitSet:new Set(), life:(window._MTHROW_LIFE||4.5), bounces:0 });
+    if(type==='mace' && typeof _disposeMaceChain==='function')try{_disposeMaceChain();}catch(_){}
+    if(this._hammer&&this._hammer.parent)this._hammer.parent.remove(this._hammer); this._hammer=null; this._meleeType=null; this._stowedType=null; this._meleeStowed=true; this._meleeDur=0;   // you threw it -> back to fists
+    if(typeof updateWeaponHUD==='function')updateWeaponHUD(); if(typeof updateAmmoHUD==='function')updateAmmoHUD();
+    if(typeof announce==='function')announce((type||'').toUpperCase()+' THROWN','#ffd84a');
+    if(typeof Audio!=='undefined'){try{Audio.blip(300,0.1,'square',0.22,150);}catch(_){}}
+    if(typeof addTrauma==='function')addTrauma(0.06);
+    return true;
+  }
   _armBomb(asCrate){
+    if(!asCrate && this._meleeType && typeof this._throwMeleeWeapon==='function'){ this._throwMeleeWeapon(); return; }   // melee in hand -> the bomb button THROWS it instead of arming a bomb
     const _ally=(asCrate==='ally'); const _item=(asCrate==='item'); const _crate=(asCrate===true||asCrate==='crate'); this._bombMode=_ally?'ally':(_item?'item':(_crate?'crate':'bomb'));
     if(_crate && (this.crates||0)<=0){ if(typeof announce==='function')announce('NO CRATES','#33e0ff'); if(typeof Audio!=='undefined')Audio.blip(160,0.08,'square',0.12,120); return; }
     if(!_item && ((( _ally?(this._allyCool||0):(_crate?(this._crateCool||0):(this._bombCool||0)) ))>0)){ if(typeof announce==='function')announce('RELOADING\u2026','#ff8800'); if(typeof Audio!=='undefined')Audio.blip(160,0.08,'square',0.12,120); return; }
@@ -13621,7 +13645,48 @@ function _barrelSpawnTick(dt){
       if(!player || Math.hypot(player.wx-bx,player.wz-bz)>90){ _spawnPU(bx,60,bz,'barrel',rand(-8,8),0,rand(-8,8)); break; } }
   }
 }
-window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateCarry(dt); _barrelSpawnTick(dt); if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
+// ── THROWN MELEE WEAPONS — fly, damage what they pass through, bounce, then drop as a grabbable pickup ──
+function _thrownMeleeHit(s,e,kind,idx){
+  const ms=s.ms||{}, dx=s.vx, dz=s.vz, dl=Math.hypot(dx,dz)||1;
+  const dmg=(kind==='bot')?Math.max(1,(s.dmg||6)*(window._MELEE_BOT_DMG_K!=null?window._MELEE_BOT_DMG_K:0.5)):(s.dmg||6);
+  if(typeof spawnDmgNum==='function')spawnDmgNum(e.wx,(e.py||0)+24,e.wz,dmg,'#ffe0a0');
+  if(typeof ps!=='undefined')ps.burst(e.wx,(e.py||0)+14,[1,0.9,0.5],14,120);
+  if(typeof Audio!=='undefined')try{Audio.blip(ms.thud||130,0.1,'square',0.2,200);}catch(_){}
+  if(kind==='dummy'){ if(e.hit)try{e.hit(dmg,s.x,s.z);}catch(_){} if(e.knock)try{e.knock(dx/dl,dz/dl,ms.bMag||10,ms.bLift||140,ms.bStn||28);}catch(_){} }
+  else if(kind==='bot'){ if(e.hit)try{e.hit(dmg);}catch(_){} if(e.knock)try{e.knock(dx/dl,dz/dl,(ms.bMag||10)*(window._MELEE_BOT_MAG_K||0.22),(ms.bLift||140)*(window._MELEE_BOT_LIFT_K||0.8),ms.bStn||28);}catch(_){} }
+  else { if(e.knock)try{e.knock(dx/dl,dz/dl,ms.eForce||5,ms.eLift||1,ms.eAir||8,true);}catch(_){}
+    let pts=0; try{ pts=(e.hit?e.hit(dmg):0); }catch(_){}
+    if((pts>0||e.alive===false) && typeof GS!=='undefined' && GS.enemies && idx!=null && GS.enemies[idx]===e){ GS.score=(GS.score||0)+((e.score||0)*(GS.mult||1)); if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(idx,1); if(typeof registerKill==='function')registerKill(e); } }
+  s.vx*=0.72; s.vz*=0.72;   // lose some momentum on a hit (can still bounce / hit another)
+}
+function _updateThrownMelee(dt){
+  const A=window._thrownMelee; if(!A||!A.length)return;
+  const FLOOR=(window._MTHROW_FLOOR||7), _up=new THREE.Vector3(0,1,0);
+  for(let i=A.length-1;i>=0;i--){ const s=A[i]; s.life-=dt;
+    const grav=(s.straight?(window._MTHROW_GRAV_S||130):(window._MTHROW_GRAV||300));
+    s.vy-=grav*dt; s.x+=s.vx*dt; s.y+=s.vy*dt; s.z+=s.vz*dt;
+    const hsp=Math.hypot(s.vx,s.vz);
+    if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z);
+      if(s.straight){ const v=new THREE.Vector3(s.vx,s.vy,s.vz); if(v.lengthSq()>1){ v.normalize(); s.mesh.quaternion.setFromUnitVectors(_up,v); } }   // spear points along its flight
+      else { s._ang=(s._ang||0)+s.spin*dt; if(!s._axis){ const al=Math.hypot(s.vx,s.vz)||1; s._axis=new THREE.Vector3(-s.vz/al,0,s.vx/al); } const q1=new THREE.Quaternion().setFromUnitVectors(_up,s._axis), q2=new THREE.Quaternion().setFromAxisAngle(s._axis,s._ang); s.mesh.quaternion.copy(q2).multiply(q1); }   // axe/hammer/sword tumble end-over-end
+    }
+    if(s.bounces<(window._MTHROW_HIT_BOUNCES||1)){   // the live throw deals damage; spent after it hits the ground hard
+      const HR=(window._MTHROW_HIT_R||16), HY=(window._MTHROW_HIT_Y||34);
+      if(typeof GS!=='undefined'&&GS.enemies){ for(let j=GS.enemies.length-1;j>=0;j--){ const e=GS.enemies[j]; if(!e||e.alive===false||e._captured||s.hitSet.has(e))continue; const ey=(e.mesh?e.mesh.position.y:(e.py||0)); if(Math.hypot(e.wx-s.x,e.wz-s.z)<((e.size||14)+HR)&&Math.abs(s.y-(ey+10))<HY){ s.hitSet.add(e); _thrownMeleeHit(s,e,'enemy',j); } } }
+      if(typeof GS_bots!=='undefined')for(const b of GS_bots){ if(!b||b.alive===false||s.hitSet.has(b))continue; if(Math.hypot(b.wx-s.x,b.wz-s.z)<((b.size||14)+HR)&&Math.abs(s.y-((b.py||0)+12))<HY){ s.hitSet.add(b); _thrownMeleeHit(s,b,'bot'); } }
+      if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy){ const e=GS_trainingDummy; if(!s.hitSet.has(e)&&Math.hypot(e.wx-s.x,e.wz-s.z)<((e.size||16)+HR)&&Math.abs(s.y-((e.py||0)+12))<HY){ s.hitSet.add(e); _thrownMeleeHit(s,e,'dummy'); } }
+    }
+    if(typeof ps!=='undefined'&&Math.random()<0.4)ps._spawn(s.x,s.y,s.z,rand(-5,5),rand(-5,5),rand(-5,5),1,0.85,0.5,0.22);
+    if(s.y<=FLOOR){ s.y=FLOOR; if(s.vy<-26){ s.vy=-s.vy*0.42; s.vx*=0.62; s.vz*=0.62; s.bounces++; if(typeof Audio!=='undefined')try{Audio.blip(110,0.06,'square',0.12,70);}catch(_){} if(typeof ps!=='undefined'&&ps.spark)ps.spark(s.x,s.z,[1,0.8,0.4],FLOOR); } else { s.vy=0; } s.vx*=0.9; s.vz*=0.9; }
+    if(typeof ARENA_R!=='undefined'){ const d=Math.hypot(s.x,s.z), RR=ARENA_R-14; if(d>RR){ const nx=s.x/d,nz=s.z/d; s.x=nx*RR; s.z=nz*RR; const vn=s.vx*nx+s.vz*nz; if(vn>0){ s.vx-=nx*vn*1.5; s.vz-=nz*vn*1.5; } s.bounces++; } }
+    if((s.y<=FLOOR+1 && Math.abs(s.vy)<22 && hsp<26) || s.life<=0){   // rolled to a stop / timed out -> drop as a grabbable pickup where it landed
+      if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); }
+      try{ if(typeof _spawnLootBall==='function') _spawnLootBall(s.x, s.z, 'melee', s.type, 0,0,0); }catch(_){}
+      A.splice(i,1); continue;
+    }
+  }
+}
+window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateThrownMelee(dt); _updateCarry(dt); _barrelSpawnTick(dt); if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
 
 // ============================================================
 //  TRAINING CANNON — debug rig. Fires the player's own projectiles AT you when you step inside its dotted circle of influence. Built to develop melee projectile-deflection.
@@ -15439,12 +15504,13 @@ function startGame(levelIdx){
       newBomb.addEventListener('touchstart',e=>{
         e.preventDefault();
         if(!player||GS.state!=='playing')return;
+        if(player._meleeType){ player._throwMeleeWeapon(); newBomb.classList.remove('armed'); return; }   // melee in hand -> THROW it (the button's new primary job)
         if(player.bombArmed){
           player._throwBomb(0,0);
           newBomb.classList.remove('armed');
           exitAimMode();
         } else {
-          if(player.bombs<=0){ announce('NO BOMBS','#ff4400'); return; }
+          if(player.bombs<=0){ announce('NO BOMB — PICK ONE UP','#ff4400'); return; }
           player._armBomb();
           newBomb.classList.add('armed');
           announce('BOMB READY — FLICK RIGHT STICK TO THROW','#ff8800');
@@ -17978,7 +18044,7 @@ player.pvy=180;
     } else {
       if(!player.bombArmed){
         // First tap: arm bomb, show aimer
-        if(player.bombs>0){
+        if(player.bombs>0||player._meleeType){
           player._armBomb();
           // Initialize aimer ahead of player
           player._aimerX=player.wx+Math.cos(player.aim)*120;
@@ -18154,7 +18220,7 @@ window.addEventListener('mousedown',e=>{ if(IS_TOUCH)return;
     if(window.KEYS_SWAP){
       // Swapped: RMB = bomb (same logic as space default)
       if(!player.bombArmed){
-        if(player.bombs>0){
+        if(player.bombs>0||player._meleeType){
           player._armBomb();
           player._aimerX=player.wx+Math.cos(player.aim)*120;
           player._aimerZ=player.wz+Math.sin(player.aim)*120;
@@ -18228,7 +18294,7 @@ function _padDash(){ if(!player||GS.state!=='playing')return; const mv=rotInput(
   if(player._inPlanetGravity){ player._wallDashRaw=[moveIn.x,moveIn.y]; }
   if(Math.hypot(mv.x,mv.z)>0.1){ player._dashDir=[mv.x,mv.z]; player._dashRamp=10; player._dashPeak=MOVE.topSpeed*3.4; ps.ring(player.wx,player.wz,[0,0.85,1],10,80); grid.push(player.wx,player.wz,-2,50); Audio.blip(440,0.08,'sine',0.15,880); } }
 function _padBomb(){ if(!player||GS.state!=='playing')return;
-  if(!player.bombArmed){ if(player.bombs>0){ player._armBomb(); player._aimerX=player.wx+Math.cos(player.aim)*120; player._aimerZ=player.wz+Math.sin(player.aim)*120; } else if(typeof announce==='function')announce('NO BOMBS','#ff4400'); }
+  if(!player.bombArmed){ if(player.bombs>0||player._meleeType){ player._armBomb(); if(!player._meleeType){ player._aimerX=player.wx+Math.cos(player.aim)*120; player._aimerZ=player.wz+Math.sin(player.aim)*120; } } else if(typeof announce==='function')announce('NO BOMBS','#ff4400'); }
   else { player._throwBomb(0,0); } }
 window._padDiagOn = false;  // on-screen gamepad diagnostic hidden by default (press P to toggle when debugging)
 function _padDiag(msg){
