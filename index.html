@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB35</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB36</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -27583,6 +27583,25 @@ window._riflePoseTick=function(dt){
     else if(sv){ if(sb<=0.001) continue; qB.set(sv[0],sv[1],sv[2],sv[3]); tgtQ=qB; we=w*sb; }   // shoot-only bone: fade in with the shoot blend
     else continue;
     if(we>=0.999) e.bone.quaternion.copy(tgtQ); else e.bone.quaternion.slerp(tgtQ,we);
+  }
+  // LARGE weapons: weapon_1's POSITION is animated by the bazooka clip (that's where the gun mounts), but the loop
+  // above only drives ROTATION — its position would stay at the mixer/locomotion value (far out, ~46u past the
+  // hand). Sample weapon_1's position from the bazooka idle/shoot clips and write it onto the bone, so the parented
+  // gun lands exactly where the animator placed it (and recoils in position with bazooka_shoot).
+  if(_large){
+    const wb=(typeof _resolveGunDir==='function')?_resolveGunDir():null;
+    if(wb){
+      const _pk=_idleName+'|'+_shootName+'|pos';
+      if(!ud._bzWb || ud._bzWbKey!==_pk){ ud._bzWb={}; ud._bzWbKey=_pk;
+        const grab=(clip,key)=>{ if(!clip)return; for(const tr of clip.tracks){ if(tr.name===wb.name+'.position'){ try{ud._bzWb[key]=tr.createInterpolant();}catch(_){} } } };
+        grab(idleClip,'i'); grab(shootClip,'s'); }
+      const W=ud._bzWb, ip=W.i?W.i.evaluate(tIdle):null, sp=W.s?W.s.evaluate(tShoot):null;
+      let tx,ty,tz;
+      if(ip&&sp){ tx=ip[0]+(sp[0]-ip[0])*sb; ty=ip[1]+(sp[1]-ip[1])*sb; tz=ip[2]+(sp[2]-ip[2])*sb; }
+      else if(ip){ tx=ip[0]; ty=ip[1]; tz=ip[2]; }
+      else if(sp){ tx=sp[0]; ty=sp[1]; tz=sp[2]; }
+      if(tx!=null){ wb.position.set(wb.position.x+(tx-wb.position.x)*w, wb.position.y+(ty-wb.position.y)*w, wb.position.z+(tz-wb.position.z)*w); }   // ease from the mixer's value toward the bazooka mount by the stance weight
+    }
   }
   // FORWARD LEAN: pitch the waist forward by _RIFLE_LEAN degrees — but ONLY while standing still. The run/walk anims already lean the torso, so fade the lean out as speed rises (full at rest -> 0 by run speed). window._RIFLE_LEAN sets the standing angle (default 25); window._RIFLE_LEAN_FADESPD sets the speed it's gone by (default 40).
   const _rifleLean=(window._RIFLE_LEAN!=null?window._RIFLE_LEAN:25);
