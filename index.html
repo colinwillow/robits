@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB36</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB37</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9985,6 +9985,17 @@ class Player{
     return true;
   }
   _outOfAmmo(w){
+    // POOF: the spent gun pops in a burst at its last spot (and we force-remove the held model so it can NEVER
+    // linger floating on the map — the large/bazooka gun is parented to weapon_1, so it wouldn't auto-drop)
+    try{
+      const _hm=this._handWpnR||this._handWpnL, _p=new THREE.Vector3();
+      if(_hm&&_hm.getWorldPosition){ _hm.getWorldPosition(_p); } else { _p.set(this.wx,(this.py||0)+16,this.wz); }
+      const _col=(typeof _WPN_COLORS!=='undefined'&&_WPN_COLORS[w])||0xffaa33, _c=[((_col>>16)&255)/255,((_col>>8)&255)/255,(_col&255)/255];
+      if(typeof ps!=='undefined'){ ps.burst(_p.x,_p.y,_c,24,170); ps.burst(_p.x,_p.y,[1,1,1],10,110); if(ps.ring)ps.ring(_p.x,_p.z,_c,22,150); }
+      if(typeof addTrauma==='function')addTrauma(0.12);
+      if(typeof Audio!=='undefined'){try{Audio.blip(90,0.16,'sawtooth',0.22,40);}catch(_){}}
+    }catch(_){}
+    for(const _k of ['_handWpnR','_handWpnL']){ const _m=this[_k]; if(_m){ if(_m.parent)_m.parent.remove(_m); this[_k]=null; } }   // drop any held model now so it can't float
     if(this._ammo)delete this._ammo[w];
     if(this._ownedWeps)this._ownedWeps.delete(w);
     this.primaryWeapon='bullets'; this.secWeapon='bullets';
@@ -27111,7 +27122,7 @@ function _orientLargeWeapon(obj,bone){
   if(obj.parent!==dir){ dir.add(obj); }
   player.model.updateWorldMatrix(true,true);
   // local transform RELATIVE to weapon_1: origin-aligned, optional model-axis fix, optional nudge, scale that undoes the bone's world scale
-  const fx=window._LARGE_FIX; if(fx) obj.quaternion.setFromEuler(new THREE.Euler(fx.x||0,fx.y||0,fx.z||0)); else obj.quaternion.identity();
+  const fx=(window._LARGE_FIX!=null)?window._LARGE_FIX:{x:0,y:Math.PI,z:0}; obj.quaternion.setFromEuler(new THREE.Euler(fx.x||0,fx.y||0,fx.z||0));   // default 180° yaw flip -> barrel faces FORWARD (was pointing back along the bone). Override with window._LARGE_FIX={x,y,z}.
   const np=window._LARGE_POS; obj.position.set(np?(np.x||0):0, np?(np.y||0):0, np?(np.z||0):0);
   const bs=new THREE.Vector3(); dir.getWorldScale(bs);
   obj.scale.setScalar((1/(Math.abs(bs.x)||1))*(window._LARGE_SCALE!=null?window._LARGE_SCALE:1.7));
