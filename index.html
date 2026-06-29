@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB20</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB21</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -2012,16 +2012,18 @@ function _trimClipTail(clip){
   if(clip._motionTrimmed) return clip;
   clip._motionTrimmed=true;
   let tEnd=0;
+  const THRF=(window._TRIM_THR!=null?window._TRIM_THR:0.02);
   for(const tr of clip.tracks){
     const times=tr.times, vals=tr.values, n=times.length; if(n<3) continue;
     const stride=vals.length/n;
     let range=0;
     for(let k=0;k<stride;k++){ let mn=Infinity,mx=-Infinity; for(let i=0;i<n;i++){ const v=vals[i*stride+k]; if(v<mn)mn=v; if(v>mx)mx=v; } const r=mx-mn; if(r>range)range=r; }
     if(range<1e-5) continue;                       // fully static track -> ignore
-    const thr=range*0.015;                         // 1.5% of this track's motion range
-    let lastMove=0;
-    for(let i=1;i<n;i++){ let d=0; for(let k=0;k<stride;k++){ const df=Math.abs(vals[i*stride+k]-vals[(i-1)*stride+k]); if(df>d)d=df; } if(d>thr) lastMove=i; }
-    const te=times[Math.min(lastMove+1,n-1)];      // first settled frame = real motion end
+    const thr=range*THRF;                          // ~2% of this track's motion range
+    // last frame whose pose still DIFFERS from the FINAL pose -> everything after it is just the clip holding its end pose, so trim it. (frame-to-frame delta missed slow settles.)
+    let lastDiff=0;
+    for(let i=0;i<n-1;i++){ let d=0; for(let k=0;k<stride;k++){ const df=Math.abs(vals[i*stride+k]-vals[(n-1)*stride+k]); if(df>d)d=df; } if(d>thr) lastDiff=i; }
+    const te=times[Math.min(lastDiff+1,n-1)];      // first frame that has effectively reached the final pose = real motion end
     if(te>tEnd) tEnd=te;
   }
   if(tEnd>0.1 && tEnd<clip.duration-0.05){ clip.duration=tEnd; }   // shorten only, never lengthen
@@ -9742,7 +9744,7 @@ class Player{
       if(this.py<=0 && this.pvy<=0){ this.py=0; this.pvy=0; this._launched=false; this._kbVx*=0.3; this._kbVz*=0.3;
         // play the FULL get_up before control returns (sized to the clip, like the AI) — no more snap-to-feet
         const ud=this.model&&this.model.userData, gu=ud&&ud.clips&&ud.clips['get_up'], guDur=(gu&&gu._clip&&gu._clip.duration)||0, _gspd=(window._PLKB_GETUP_SPD||1.5);
-        this._kbStun=Math.max(this._kbStun||0, (guDur>0.1?Math.round(guDur*60/_gspd):(window._PLKB_GETUP||26))+(window._PLKB_DOWN_HOLD||3));   // _kbStun in FRAMES, sized to the clip at the sped-up rate so it doesn't sit on the end frame
+        this._kbStun=Math.max(this._kbStun||0, Math.min((window._PLKB_GETUP_MAX||42), (guDur>0.1?Math.round(guDur*60/_gspd):(window._PLKB_GETUP||26))+(window._PLKB_DOWN_HOLD||3)));   // _kbStun in FRAMES, sized to the (trimmed) clip at the sped-up rate, HARD-CAPPED so it can never stall control
         if(gu){ try{ Object.values(ud.clips).forEach(a=>{ if(a&&a.fadeOut&&a!==gu)a.fadeOut(0.1); }); gu.reset().setLoop(THREE.LoopOnce,1); gu.clampWhenFinished=true; gu.setEffectiveTimeScale(_gspd); gu.setEffectiveWeight(1).fadeIn(0.06).play(); ud.currentClip='get_up'; ud._launchClip=true; ud._oneShotAct=gu; ud._oneShotSpeed=_gspd; }catch(_){} }   // register with the loop's manual speed-up (the rig's timeScale doesn't stick on its own) so it actually plays fast
         if(typeof ps!=='undefined')ps.burst(this.wx,this.wz,[1,0.8,0.4],12,95); if(typeof addTrauma==='function')addTrauma(0.06); }
     } else if((this._kbStun||0)>0){
@@ -11892,6 +11894,40 @@ class AlienPlant{
   }
 }
 
+// ── ROBOT SHATTER — the rig is ONE skinned mesh (no separate parts to fling), so on death we burst neon proxy shards out from each bone's world position. Reusable for player + bots.
+window._robitShards=window._robitShards||[];
+function _explodeRobit(model, color, baseY){
+  if(typeof scene==='undefined'||!model) return;
+  try{ model.updateWorldMatrix(true,true); }catch(_){}
+  const col=new THREE.Color(color!=null?color:0x3366ff);
+  const v=new THREE.Vector3(), pts=[]; model.traverse(o=>{ if(o.isBone){ o.getWorldPosition(v); pts.push(v.clone()); } });
+  let cx=0,cy=0,cz=0; if(pts.length){ for(const p of pts){ cx+=p.x; cy+=p.y; cz+=p.z; } cx/=pts.length; cy/=pts.length; cz/=pts.length; }
+  else { cx=model.position.x; cy=(baseY!=null?baseY:model.position.y)+9; cz=model.position.z; for(let i=0;i<22;i++)pts.push(new THREE.Vector3(cx+rand(-8,8),cy+rand(-12,12),cz+rand(-8,8))); }
+  const N=Math.min(pts.length, window._EXPLODE_SHARDS||28);
+  for(let i=0;i<N;i++){ const p=pts[Math.floor(i*pts.length/N)];
+    const s=(window._EXPLODE_SHARD_SZ||2.6)*(0.6+Math.random()*0.9), g=new THREE.BoxGeometry(s,s,s);
+    const mesh=new THREE.Mesh(g, new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.92,toneMapped:false}));
+    try{ mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(g), new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.9}))); }catch(_){}
+    mesh.position.copy(p);
+    const dx=p.x-cx, dy=p.y-cy, dz=p.z-cz, dl=Math.hypot(dx,dy,dz)||1, spd=(window._EXPLODE_SPD||120)*(0.6+Math.random()*0.9);
+    scene.add(mesh);
+    window._robitShards.push({mesh, vx:(dx/dl)*spd+rand(-26,26), vy:Math.abs(dy/dl)*spd*0.4+(window._EXPLODE_UP||150)+Math.random()*90, vz:(dz/dl)*spd+rand(-26,26), sx:rand(-9,9),sy:rand(-9,9),sz:rand(-9,9), life:0, max:(window._EXPLODE_LIFE||1.2)});
+  }
+  if(typeof ps!=='undefined'){ ps.burst(cx,cz,[col.r,col.g,col.b],44,220,cy); ps.ring(cx,cz,[col.r,col.g,col.b],44,170); if(ps.burst)ps.burst(cx,cz,[1,1,1],20,160,cy); }
+  if(typeof grid!=='undefined'&&grid.shock)grid.shock(cx,cz,8);
+  if(typeof addTrauma==='function')addTrauma(0.22);
+}
+function _updateRobitShards(dt){
+  const A=window._robitShards; if(!A||!A.length)return;
+  for(let i=A.length-1;i>=0;i--){ const s=A[i]; s.life+=dt;
+    s.vy-=(window._EXPLODE_GRAV||560)*dt; s.mesh.position.x+=s.vx*dt; s.mesh.position.y+=s.vy*dt; s.mesh.position.z+=s.vz*dt;
+    if(s.mesh.position.y<2){ s.mesh.position.y=2; if(s.vy<0)s.vy*=-0.34; s.vx*=0.62; s.vz*=0.62; }
+    s.mesh.rotation.x+=s.sx*dt; s.mesh.rotation.y+=s.sy*dt; s.mesh.rotation.z+=s.sz*dt;
+    const f=Math.max(0,1-s.life/s.max); s.mesh.material.opacity=0.92*f; if(s.mesh.children[0]&&s.mesh.children[0].material)s.mesh.children[0].material.opacity=0.9*f; s.mesh.scale.setScalar(0.5+f*0.6);
+    if(s.life>=s.max){ scene.remove(s.mesh); try{s.mesh.geometry.dispose();s.mesh.material.dispose();}catch(_){} A.splice(i,1); }
+  }
+}
+window._explodeRobit=_explodeRobit; window._updateRobitShards=_updateRobitShards;
 // ════════════════════════════════════════════════════════════
 //  BOT PILOT — AI-controlled rival pilot
 //  Same saucer/robot model as player, own state machine brain
@@ -12218,6 +12254,7 @@ class BotPilot{
     announce(`ROUND ${this.round} — RIVAL DOWN!`,'#00ff88');
     GS.score+=800*this.round*(GS.zone+1);
     GS.mult=Math.min(GS.mult+2,16);
+    try{ if(window._EXPLODE_DEATH!==false && typeof _explodeRobit==='function') _explodeRobit(this.model, this._color!=null?this._color:0xff2a2a, this.py); }catch(_){}   // burst into neon shards
     scene.remove(this.model);
     this._removeShieldMesh();
   }
@@ -17342,6 +17379,7 @@ function playerDie(dmg=1, col='#ff4444'){
     ps.ring(player.wx,player.wz,[1,0,0.4],60,150);ps.burst(player.wx,player.wz,[1,1,1],50,150);
     grid.push(player.wx,player.wz,45,150);grid.suck(player.wx,player.wz,14,120);
     flashScreen(0.7);addTrauma(0.16);
+    try{ if(window._EXPLODE_DEATH!==false && typeof _explodeRobit==='function') _explodeRobit(player.model, window._PLAYER_EXPLODE_COL!=null?window._PLAYER_EXPLODE_COL:0x3a7bff, player.py); }catch(_){}   // shatter into neon shards on death
     if(navigator.vibrate){ try{ navigator.vibrate([0,70,45,95]); }catch(e){} }
     GS.lives--;GS.hp=GS.maxHp;GS.mult=1;GS.multT=0;GS.streak=0;player.weaponLevel=1;GS.od=Math.max(0,GS.od-30);
     if(GS.lives<=0){GS.state='gameover';player.model.visible=false;Audio.gameover();Audio.setIntensity(0);setTimeout(showGameOver,1300);}
@@ -18901,7 +18939,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(typeof GS!=='undefined'){ const _gfTgt=(GS.zone===-19 && GS._gravFlip && player && !player._ballActive)?1:0; GS._gfCamF=lerp(GS._gfCamF||0, _gfTgt, 0.06); }
     updateCamera(rawDt);
     if(typeof GS!=='undefined' && (GS._gfCamF||0)>0.001 && typeof camera!=='undefined'){ camera.rotateZ((GS._gfCamF)*Math.PI); }   // roll the whole view 180° (always, incl. boots) so a flipped ceiling reads as the floor
-    grid.update(dt); ps.update(dt); if(ps2)ps2.update(dt); if(GS.zone===-18 && typeof _updateCustomGrid==='function') _updateCustomGrid(dt); if(GS.zone===-2 && typeof _updateDojoPlatform==='function') _updateDojoPlatform(dt); if(typeof _updateMushrooms==='function')_updateMushrooms(dt); if(GS.zone===-2 && typeof _updateDojoSpeakers==='function')_updateDojoSpeakers(dt); if(GS.zone===-2 && typeof _updateGunConveyor==='function')_updateGunConveyor(dt); if(GS.zone===-2 && typeof _edUpdate==='function')_edUpdate(dt);
+    grid.update(dt); ps.update(dt); if(ps2)ps2.update(dt); if(typeof _updateRobitShards==='function')_updateRobitShards(dt); if(GS.zone===-18 && typeof _updateCustomGrid==='function') _updateCustomGrid(dt); if(GS.zone===-2 && typeof _updateDojoPlatform==='function') _updateDojoPlatform(dt); if(typeof _updateMushrooms==='function')_updateMushrooms(dt); if(GS.zone===-2 && typeof _updateDojoSpeakers==='function')_updateDojoSpeakers(dt); if(GS.zone===-2 && typeof _updateGunConveyor==='function')_updateGunConveyor(dt); if(GS.zone===-2 && typeof _edUpdate==='function')_edUpdate(dt);
     for(const p of GS_portals){ if(GS.zone===-19){ if(p.group&&p.group.parent)scene.remove(p.group); } else { if(p.group&&!p.group.parent)scene.add(p.group); p.update(dt,player); } }   // no teleporters in the RL cube arena (removed from scene, restored elsewhere)
     // Tick robot animation mixer
     if(player&&player._mixer){
