@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB21</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB22</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11894,11 +11894,9 @@ class AlienPlant{
   }
 }
 
-// ── ROBOT SHATTER — the rig is ONE skinned mesh (no separate parts to fling), so on death we burst neon proxy shards out from each bone's world position. Reusable for player + bots.
+// ── ROBOT SHATTER — the rig is one skinned mesh, but its shells are RIGIDLY weighted to single bones, so we split the geometry into per-bone CHUNKS (torso, head, each limb segment…) at the current pose and fling the REAL pieces. Falls back to proxy shards if the mesh isn't splittable.
 window._robitShards=window._robitShards||[];
-function _explodeRobit(model, color, baseY){
-  if(typeof scene==='undefined'||!model) return;
-  try{ model.updateWorldMatrix(true,true); }catch(_){}
+function _explodeRobitProxy(model, color, baseY){
   const col=new THREE.Color(color!=null?color:0x3366ff);
   const v=new THREE.Vector3(), pts=[]; model.traverse(o=>{ if(o.isBone){ o.getWorldPosition(v); pts.push(v.clone()); } });
   let cx=0,cy=0,cz=0; if(pts.length){ for(const p of pts){ cx+=p.x; cy+=p.y; cz+=p.z; } cx/=pts.length; cy/=pts.length; cz/=pts.length; }
@@ -11913,6 +11911,45 @@ function _explodeRobit(model, color, baseY){
     scene.add(mesh);
     window._robitShards.push({mesh, vx:(dx/dl)*spd+rand(-26,26), vy:Math.abs(dy/dl)*spd*0.4+(window._EXPLODE_UP||150)+Math.random()*90, vz:(dz/dl)*spd+rand(-26,26), sx:rand(-9,9),sy:rand(-9,9),sz:rand(-9,9), life:0, max:(window._EXPLODE_LIFE||1.2)});
   }
+  return {cx,cy,cz,col};
+}
+function _explodeRobit(model, color, baseY){
+  if(typeof scene==='undefined'||!model) return;
+  try{ model.updateWorldMatrix(true,true); }catch(_){}
+  const col=new THREE.Color(color!=null?color:0x3366ff);
+  let cx,cy,cz, made=false;
+  try{
+    let sm=null; model.traverse(o=>{ if(!sm && o.isSkinnedMesh) sm=o; });
+    const geo=sm&&sm.geometry, pos=geo&&geo.attributes.position, skI=geo&&geo.attributes.skinIndex, skW=geo&&geo.attributes.skinWeight;
+    if(sm && sm.skeleton && pos && skI && skW && window._EXPLODE_CHUNKS!==false){
+      sm.updateWorldMatrix(true,true);
+      const bones=sm.skeleton.bones, binv=sm.skeleton.boneInverses, bindM=sm.bindMatrix, bindMI=sm.bindMatrixInverse, world=sm.matrixWorld;
+      const BM=bones.map((b,i)=> new THREE.Matrix4().multiplyMatrices(b.matrixWorld, binv[i]));   // skinning matrix per bone
+      const nV=pos.count, wpos=new Float32Array(nV*3), dom=new Int32Array(nV);
+      const vv=new THREE.Vector3(), sv=new THREE.Vector3(), acc=new THREE.Vector3(), tmp=new THREE.Vector3();
+      const comp=(att,i,k)=> k===0?att.getX(i):k===1?att.getY(i):k===2?att.getZ(i):att.getW(i);
+      for(let i=0;i<nV;i++){ vv.fromBufferAttribute(pos,i); sv.copy(vv).applyMatrix4(bindM); acc.set(0,0,0); let bw=-1,bb=0;
+        for(let k=0;k<4;k++){ const w=comp(skW,i,k); if(w>0){ const bi=comp(skI,i,k)|0; tmp.copy(sv).applyMatrix4(BM[bi]||BM[0]).multiplyScalar(w); acc.add(tmp); if(w>bw){bw=w;bb=bi;} } }
+        acc.applyMatrix4(bindMI).applyMatrix4(world); wpos[i*3]=acc.x; wpos[i*3+1]=acc.y; wpos[i*3+2]=acc.z; dom[i]=bb;
+      }
+      const index=geo.index, triCount=index?index.count/3:nV/3, groups={};
+      for(let t=0;t<triCount;t++){ const a=index?index.getX(t*3):t*3, b=index?index.getX(t*3+1):t*3+1, c=index?index.getX(t*3+2):t*3+2;
+        const g=dom[a]; (groups[g]||(groups[g]=[])).push(a,b,c); }
+      cx=0;cy=0;cz=0; for(let i=0;i<nV;i++){ cx+=wpos[i*3]; cy+=wpos[i*3+1]; cz+=wpos[i*3+2]; } cx/=nV; cy/=nV; cz/=nV;
+      const mat0=sm.material;
+      for(const g in groups){ const tris=groups[g]; if(tris.length<3)continue;
+        let gx=0,gy=0,gz=0; for(const vi of tris){ gx+=wpos[vi*3]; gy+=wpos[vi*3+1]; gz+=wpos[vi*3+2]; } const m=tris.length; gx/=m; gy/=m; gz/=m;
+        const arr=new Float32Array(tris.length*3); for(let j=0;j<tris.length;j++){ const vi=tris[j]; arr[j*3]=wpos[vi*3]-gx; arr[j*3+1]=wpos[vi*3+1]-gy; arr[j*3+2]=wpos[vi*3+2]-gz; }
+        const cg=new THREE.BufferGeometry(); cg.setAttribute('position',new THREE.BufferAttribute(arr,3)); cg.computeVertexNormals();
+        let cmat; try{ cmat=(Array.isArray(mat0)?mat0[0]:mat0).clone(); cmat.transparent=true; cmat.side=THREE.DoubleSide; if(cmat.emissive){ cmat.emissiveIntensity=Math.max(cmat.emissiveIntensity||1,1.6); } }catch(_){ cmat=new THREE.MeshBasicMaterial({color:col,transparent:true}); }
+        const cmsh=new THREE.Mesh(cg,cmat); cmsh.position.set(gx,gy,gz); scene.add(cmsh);
+        const dx=gx-cx, dy=gy-cy, dz=gz-cz, dl=Math.hypot(dx,dy,dz)||1, spd=(window._EXPLODE_SPD||120)*(0.7+Math.random()*0.8);
+        window._robitShards.push({mesh:cmsh, vx:(dx/dl)*spd+rand(-22,22), vy:Math.abs(dy/dl)*spd*0.4+(window._EXPLODE_UP||150)+Math.random()*80, vz:(dz/dl)*spd+rand(-22,22), sx:rand(-7,7),sy:rand(-7,7),sz:rand(-7,7), life:0, max:(window._EXPLODE_LIFE||1.4), _chunk:true});
+      }
+      made=true;
+    }
+  }catch(e){ made=false; }
+  if(!made){ const r=_explodeRobitProxy(model,color,baseY); cx=r.cx; cy=r.cy; cz=r.cz; }
   if(typeof ps!=='undefined'){ ps.burst(cx,cz,[col.r,col.g,col.b],44,220,cy); ps.ring(cx,cz,[col.r,col.g,col.b],44,170); if(ps.burst)ps.burst(cx,cz,[1,1,1],20,160,cy); }
   if(typeof grid!=='undefined'&&grid.shock)grid.shock(cx,cz,8);
   if(typeof addTrauma==='function')addTrauma(0.22);
@@ -11923,7 +11960,7 @@ function _updateRobitShards(dt){
     s.vy-=(window._EXPLODE_GRAV||560)*dt; s.mesh.position.x+=s.vx*dt; s.mesh.position.y+=s.vy*dt; s.mesh.position.z+=s.vz*dt;
     if(s.mesh.position.y<2){ s.mesh.position.y=2; if(s.vy<0)s.vy*=-0.34; s.vx*=0.62; s.vz*=0.62; }
     s.mesh.rotation.x+=s.sx*dt; s.mesh.rotation.y+=s.sy*dt; s.mesh.rotation.z+=s.sz*dt;
-    const f=Math.max(0,1-s.life/s.max); s.mesh.material.opacity=0.92*f; if(s.mesh.children[0]&&s.mesh.children[0].material)s.mesh.children[0].material.opacity=0.9*f; s.mesh.scale.setScalar(0.5+f*0.6);
+    const f=Math.max(0,1-s.life/s.max); if(s.mesh.material){ s.mesh.material.opacity=(s._chunk?1:0.92)*f; } if(s.mesh.children[0]&&s.mesh.children[0].material)s.mesh.children[0].material.opacity=0.9*f; if(!s._chunk)s.mesh.scale.setScalar(0.5+f*0.6);
     if(s.life>=s.max){ scene.remove(s.mesh); try{s.mesh.geometry.dispose();s.mesh.material.dispose();}catch(_){} A.splice(i,1); }
   }
 }
