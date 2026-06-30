@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB80</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB81</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -30861,7 +30861,7 @@ function _posedBounds(root){
 window._posedBounds=_posedBounds;
 // Per-character DISPLAY scale in the Workshop (relative on-screen sizes — robot is the reference; the others are sized
 // to roughly how big they read as characters). Tunable live via window._WS_SCALE.
-window._WS_SCALE = window._WS_SCALE || { robot:1.0, alien:0.82, interceptor:1.0, cybergirl:0.93 };
+window._WS_SCALE = window._WS_SCALE || { robot:1.0, alien:0.72, interceptor:0.66, cybergirl:0.95 };
 // Mirror the in-game posture-adjust onto a preview model (lazily caches its bone map so the select-screen thumbnails match the game).
 function _previewPoseAdjust(theModel, charKey){ if(!theModel||!charKey||!window._applyPoseAdjust) return; let b=theModel.userData&&theModel.userData.bones; if(!b){ b={}; theModel.traverse(o=>{ if(o.isBone)b[o.name]=o; }); theModel.userData=theModel.userData||{}; theModel.userData.bones=b; } window._applyPoseAdjust(theModel, charKey); }
 window._previewPoseAdjust=_previewPoseAdjust;
@@ -31264,23 +31264,29 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
         const wantKey=(S.curClipKey&&S.clips[S.curClipKey])?S.curClipKey:(S.clips['idle']?'idle':(S.clips['floating']?'floating':Object.keys(S.clips)[0]));
         if(wantKey)playClip(wantKey);
       }
-      // ── FRAME FROM THE TRUE POSED SILHOUETTE ── pose the skeleton into the idle frame, measure the REAL skinned-mesh
-      // bounds (catches armour/heads/hair that bone positions miss — that mismatch is why each skin came out a different
-      // size), normalise the height × a per-character factor for the intended relative sizes, then drop the silhouette
-      // centre on the turntable origin so the spin orbits the body (not a bone parked behind it). ──
-      turn.rotation.set(0,0,0);   // zero the turntable so the world-space bounds line up with the model's local position we set below
+      turn.rotation.set(0,0,0);   // zero the turntable so the measured world positions line up with the local position we set below
       model.scale.setScalar(1); model.position.set(0,0,0);
       if(S.mixer){ try{ S.mixer.update(0.4); }catch(e){} }
       if(window._applyPoseAdjust)window._applyPoseAdjust(model,charKey);
       turn.updateWorldMatrix(true,true);
-      { let bb=(typeof _posedBounds==='function')?_posedBounds(model):null;
-        if(!bb||!isFinite(bb.min.y)||bb.max.y<=bb.min.y){ bb=new THREE.Box3().setFromObject(model); }   // fallback if skinning sampling unavailable
-        const sz=bb.getSize(new THREE.Vector3()), ctr=bb.getCenter(new THREE.Vector3());
-        const H=Math.max(sz.y,0.001);
+      // Measure feet→head from BONE world positions (the CMB79 method — reliable height), normalise to a common
+      // display height × a tunable per-character factor (relative sizes), and pivot horizontally on a CORE body bone
+      // (hips/spine/feet) so hair/accessory bones can't drag the spin off-centre.
+      { const _v=new THREE.Vector3(), mn=new THREE.Vector3(1e9,1e9,1e9), mx=new THREE.Vector3(-1e9,-1e9,-1e9); let any=false;
+        model.traverse(o=>{ if(o.isBone){ o.getWorldPosition(_v); mn.min(_v); mx.max(_v); any=true; } });
+        if(!any){ const bb=new THREE.Box3().setFromObject(model); if(bb.max.y>bb.min.y){ mn.copy(bb.min); mx.copy(bb.max); any=true; } }
+        if(!any){ mn.set(-1,0,-1); mx.set(1,2,1); }
+        const H=Math.max(mx.y-mn.y,0.001);
         const factor=(window._WS_SCALE&&window._WS_SCALE[charKey]!=null)?window._WS_SCALE[charKey]:1;
         const s=(WS_TH/H)*factor; model.scale.setScalar(s);
-        model.position.set(-ctr.x*s,-ctr.y*s,-ctr.z*s);          // silhouette centre -> origin: centred + scaled about the middle
-        S.modelW=Math.max(sz.x,sz.z)*s; S.modelH=sz.y*s;
+        const hipsB=bones['mixamorig_Hips']||find('','Hips')||find('','Spine');
+        const pv=new THREE.Vector3();
+        if(hipsB){ hipsB.getWorldPosition(pv); }
+        else if(S.footL&&S.footR){ const a=new THREE.Vector3(),b=new THREE.Vector3(); S.footL.getWorldPosition(a); S.footR.getWorldPosition(b); pv.copy(a).add(b).multiplyScalar(0.5); }
+        else { pv.set((mn.x+mx.x)*0.5,0,(mn.z+mx.z)*0.5); }
+        const cy=(mn.y+mx.y)*0.5;
+        model.position.set(-pv.x*s,-cy*s,-pv.z*s);               // core-bone pivot (x,z) + mid-height (y) -> origin
+        S.modelW=Math.max(mx.x-mn.x,mx.z-mn.z)*s;
         frameModel(); }
       jointRefresh(); charBtnsRefresh();
     }
@@ -31298,13 +31304,14 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
     // to fill the band and letting the per-character factors shrink the rest proportionally, then bias it up into the band.
     function frameModel(){
       if(!S||!S.model) return;
-      const open=(S.panelsOpen!==false);
+      // CMB79 camera: fit on the REFERENCE height (so the per-character factors read as RELATIVE sizes, not all-equal),
+      // widen for the actual silhouette so nobody clips sideways, centred (lookY 0). Collapsing the panels just removes
+      // them — the body is already centred, so the lower half stops being hidden.
       const vHalf=42*Math.PI/360, tan=Math.tan(vHalf), aspect=(S.cam&&S.cam.aspect)||((cw/ch)||1);
-      const bandH=open?(window._WS_BAND_H||0.56):0.86, bandC=open?(window._WS_BAND_C||0.40):0.50;
-      const dV=(WS_TH*0.5)/(tan*bandH);
-      const dW=((S.modelW||WS_TH)*0.5)/(tan*Math.max(aspect,0.0001));
-      S.fitDist=Math.max(dV,dW)*1.05; S.camDist=S.fitDist;
-      S.lookY=-(1-2*bandC)*S.camDist*tan;
+      const distV=(WS_TH*0.5)/tan;
+      const distH=((S.modelW||WS_TH)*0.5)/(tan*Math.max(aspect,0.0001));
+      S.fitDist=Math.max(distV,distH)*(window._WS_PAD||1.15); S.camDist=S.fitDist;
+      S.lookY=(window._WS_LOOK_BIAS||0);
       _applyCam();
     }
     function setPanels(open){
