@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB56</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB57</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12292,6 +12292,19 @@ class BotPilot{
     } else if(t.kind==='melee'){
       const ty=(t.ref.type)||'sword';
       if(this._botEquipMelee(ty)){ if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL ARMED: '+(''+ty).toUpperCase(),'#ff7a7a');}catch(_){} if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.2,1,0.9],18,120); }
+    } else if(t.kind==='item'){
+      const p=t.ref, type=p&&p.type;
+      try{ const idx=(window._itemPU||[]).indexOf(p); if(idx>=0)window._itemPU.splice(idx,1); if(p&&p.grp){ scene.remove(p.grp); p.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } }catch(_){}   // he physically takes the ball off the field
+      if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[1,0.7,0.2],18,120);
+      if(type==='nuke'||type==='singularity'||type==='quake'){   // OFFENSIVE item -> hurl it at his current foe
+        const foe=this._pickTarget(); const tx=foe?foe.wx:this.wx+Math.cos(this.aim)*220, tz=foe?foe.wz:this.wz+Math.sin(this.aim)*220;
+        if(typeof _detonateItem==='function')try{ _detonateItem(type, tx, tz, false); }catch(_){}
+        if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL THREW '+(''+type).toUpperCase(),'#ff7a7a');}catch(_){}
+      } else {   // summon/utility ball -> the rival powers up himself (heal + brief i-frames) rather than spawning YOUR allies
+        this.hp=Math.min(this.maxHp,this.hp+(window._BOT_PU_HEAL!=null?window._BOT_PU_HEAL:(window._UNIT_HP||100)*0.35)); if(this._updateHpBar)this._updateHpBar();
+        this.inv=Math.max(this.inv||0,(window._BOT_PU_IFRAMES||30));
+        if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL GRABBED '+(''+type).toUpperCase(),'#ff7a7a');}catch(_){}
+      }
     }
   }
   // ── PICK A FOE — nearest hostile: the player OR another bot (free-for-all). window._BOT_VS_BOT=false -> only ever target the player. ──
@@ -12553,20 +12566,22 @@ class BotPilot{
     this._botFetchCD=Math.max(0,(this._botFetchCD||0)-1);
     if(window._BOT_FETCH!==false){
       if(!this._fetchTarget && this._botFetchCD<=0){
-        this._botFetchCD=(window._BOT_FETCH_CD||200);
-        if(Math.random()<(window._BOT_FETCH_CHANCE||0.5)){
-          let best=null,bd=(window._BOT_FETCH_R||560),bk=null;
+        this._botFetchCD=(window._BOT_FETCH_CD||130);
+        if(Math.random()<(window._BOT_FETCH_CHANCE||0.85)){
+          let best=null,bd=(window._BOT_FETCH_R||620),bk=null;
           const _gp=window._weaponPads; if(_gp)for(const st of _gp){ if(!st||(st.cd||0)>0||(st.grp&&!st.grp.visible))continue; const d=Math.hypot((st.x||0)-this.wx,(st.z||0)-this.wz); if(d<bd){ bd=d; best=st; bk='gun'; } }
           const _hs=window._hammerStations; if(_hs)for(const st of _hs){ if(!st||this._botMeleeWeapon===st.type)continue; const d=Math.hypot((st.x||0)-this.wx,(st.z||0)-this.wz); if(d<bd){ bd=d; best=st; bk='melee'; } }
+          if(window._BOT_FETCH_PU!==false && window._itemPU)for(const p of window._itemPU){ if(!p||!p.settled||p._loot||p.type==='barrel')continue; const d=Math.hypot((p.x||0)-this.wx,(p.z||0)-this.wz); if(d<bd){ bd=d; best=p; bk='item'; } }   // also go grab power-up balls (nuke/singularity/quake/summons)
           if(best) this._fetchTarget={x:best.x,z:best.z,kind:bk,ref:best};
         }
       }
       if(this._fetchTarget){
         const _r=this._fetchTarget.ref;
         if(_r && this._fetchTarget.kind==='gun' && ((_r.cd||0)>0||(_r.grp&&!_r.grp.visible))){ this._fetchTarget=null; }   // someone else took it
+        else if(_r && this._fetchTarget.kind==='item' && (window._itemPU||[]).indexOf(_r)<0){ this._fetchTarget=null; }    // ball was grabbed / used before he got there
         else { const fx=this._fetchTarget.x-this.wx, fz=this._fetchTarget.z-this.wz, fd=Math.hypot(fx,fz)||1;
-          mvX=fx/fd; mvZ=fz/fd;   // beeline to the weapon
-          if(fd<(window._BOT_FETCH_GRAB_R||42)){ this._botGrab(this._fetchTarget); this._fetchTarget=null; this._botFetchCD=(window._BOT_FETCH_CD||200); }
+          mvX=fx/fd; mvZ=fz/fd;   // beeline to the pickup
+          if(fd<(window._BOT_FETCH_GRAB_R||42)){ this._botGrab(this._fetchTarget); this._fetchTarget=null; this._botFetchCD=(window._BOT_FETCH_CD||130); }
         }
       }
     }
