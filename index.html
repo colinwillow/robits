@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB73</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB74</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3008,44 +3008,70 @@ class DroidekaBot extends Enemy{
   }
   update(p,dt){
     this.baseUpdate(); this.t+=dt; if(this.hitFlash>0)this.hitFlash--;
-    const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1; this._stateT+=dt;
-    if(this._state==='roll'){
-      const _ally=(this._faction==='ally'), hasFoe=!_ally||!!this._curFoe;
-      if(_ally && window._DK_PLAYER_KNOCK!==false){   // PUNT the friendly ball around RL-style: shoot it (rolls the way you fired) or melee/ram it
-        if(typeof GS!=='undefined'&&GS.bullets)for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b||b._fromBot)continue; const bw=(b.wx!=null?b.wx:b.x),bz=(b.wz!=null?b.wz:b.z); if(bw==null)continue; if(Math.hypot(bw-this.wx,bz-this.wz)<(window._DK_PUNT_R||24) && Math.abs(((b.y!=null?b.y:9))-11)<30){ const bs=Math.hypot(b.vx||0,b.vz||0)||1, K=(window._DK_BULLET_KNOCK||340); this.vx+=((b.vx||0)/bs)*K; this.vz+=((b.vz||0)/bs)*K; this._puntT=(window._DK_PUNT_T||0.7); if(b.remove)b.remove(); if(b.mesh){try{scene.remove(b.mesh);}catch(_){}} GS.bullets.splice(bi,1); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.5,0.9,1],8,50,11); break; } }
-        const ud2=player&&player.model&&player.model.userData, melee2=!!(ud2&&ud2._meleeTimer>0); if(player){ const pd=Math.hypot(player.wx-this.wx,player.wz-this.wz), pspd=Math.hypot(player.vx||0,player.vz||0); if(pd<((this.size||16)+(window._DK_PUNT_REACH||34)) && (melee2||pspd>(window._DK_RAM_SPD||120))){ const l=pd||1, K=melee2?(window._DK_MELEE_KNOCK||560):(window._DK_BODY_KNOCK||320); this.vx+=(this.wx-player.wx)/l*K; this.vz+=(this.wz-player.wz)/l*K; this._puntT=(window._DK_PUNT_T||0.7); if(typeof ps!=='undefined'&&melee2)ps.ring(this.wx,this.wz,[1,0.7,0.3],10,70,11); } }
+    const _ally=(this._faction==='ally');
+    if((this._puntCD||0)>0)this._puntCD-=dt;
+    // ── ALLY: punt it (melee/shoot, from ANY state) -> retract to a ball and fly with AIR + wall bounces (Rocket-League) ──
+    if(_ally){
+      const hit=this._dk2CheckHit();
+      if(hit){ this._state='roll'; this._stateT=0; try{this._applyOpen(0);}catch(_){}; this._dkVx=hit.vx; this._dkVz=hit.vz; this._dkVy=hit.up; this._airT=(window._DK_AIR_T||1.1); this._puntCD=(window._DK_PUNT_CD||0.3); }
+      if((this._airT||0)>0 || (this._dkY||0)>0.4 || (this._dkVy||0)>4){
+        this._airT=Math.max(0,(this._airT||0)-dt);
+        this._dkVy=(this._dkVy||0)-(window._DK_GRAV||1500)*dt; this._dkY=Math.max(0,(this._dkY||0)+this._dkVy*dt);
+        this.wx+=(this._dkVx||0)*dt; this.wz+=(this._dkVz||0)*dt; this._dk2WallBounce();
+        if(this._dkY<=0 && this._dkVy<0){ if(this._dkVy<-(window._DK_BOUNCE_MIN||120)){ this._dkVy=-this._dkVy*(window._DK_BOUNCE||0.5); this._dkVx*=0.84; this._dkVz*=0.84; if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.6,0.9,1],6,40,1); } else { this._dkVy=0; this._dkY=0; } }
+        const fr=Math.pow((window._DK_AIR_FRIC||0.5),dt); this._dkVx*=fr; this._dkVz*=fr;
+        const sp=Math.hypot(this._dkVx||0,this._dkVz||0);
+        if(sp>2){ const ax=new THREE.Vector3(-(this._dkVz||0),0,(this._dkVx||0)).normalize(); this.mesh.rotateOnWorldAxis(ax,(sp*dt)/12); }
+        if(this._airT<=0 && (this._dkY||0)<=0.4 && sp<(window._DK_SETTLE||70)){ this._dkVy=0; this._dkY=0; this._dkVx=this._dkVz=0; }   // settled -> fall through to normal AI
+        else { const scc=(this.spawn<1?(0.3+this.spawn*0.7):1); this.mesh.scale.setScalar(scc); if(this._coreMat)this._coreMat.color.setHex(this.hitFlash>0?0xffffff:0xffaa33); this.mesh.position.set(this.wx,11+(this._dkY||0),this.wz); return; }
       }
-      if((this._puntT||0)>0){ this._puntT-=dt; this.vx*=Math.pow(0.4,dt); this.vz*=Math.pow(0.4,dt); }   // coast on the knock
-      else if(_ally && !hasFoe && d<(window._DK2_FOLLOW||120)){ this.vx*=Math.pow(0.02,dt); this.vz*=Math.pow(0.02,dt); }   // rest as a ball near the owner
+    }
+    const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1; this._stateT+=dt;
+    const hasFoe=!_ally||!!this._curFoe;
+    if(this._state==='roll'){
+      if(_ally && !hasFoe && d<(window._DK2_FOLLOW||120)){ this.vx*=Math.pow(0.04,dt); this.vz*=Math.pow(0.04,dt); }   // ease to a stop near the owner
       else { this.vx=dx/d*this.spd; this.vz=dz/d*this.spd; }
       this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._clamp();
-      const _rs=Math.hypot(this.vx,this.vz); if(_rs>2){ const ax=new THREE.Vector3(-this.vz,0,this.vx).normalize(); this.mesh.rotateOnWorldAxis(ax,(_rs*dt)/12); }   // roll only while actually moving
-      if(d<140 && this._stateT>0.3 && hasFoe && (this._puntT||0)<=0){ this._state='unfold'; this._stateT=0; }
+      const _rs=Math.hypot(this.vx,this.vz); if(_rs>2){ const ax=new THREE.Vector3(-this.vz,0,this.vx).normalize(); this.mesh.rotateOnWorldAxis(ax,(_rs*dt)/12); }
+      if(this._stateT>0.3 && ((d<140 && hasFoe) || (_ally && _rs<(window._DK_DEPLOY_STILL||34)))){ this._state='unfold'; this._stateT=0; }   // deploy near a foe OR (ally) the instant it stops -> stand ready, legs out
     } else if(this._state==='unfold'){
-      this.mesh.quaternion.slerp(new THREE.Quaternion(), Math.min(1,dt*9));   // upright as it opens
+      this.mesh.quaternion.slerp(new THREE.Quaternion(), Math.min(1,dt*9));
       this._applyOpen(Math.min(1,this._stateT/0.5));
       if(this._stateT>=0.5){ this._state='deployed'; this._stateT=0; this._deployT=0; }
     } else if(this._state==='deployed'){
       this._deployT+=dt;
       this._body.rotation.y=Math.atan2(dx,dz);
       this._shotT-=dt;
-      if(this._shotT<=0 && d<330){ this._shotT=0.40;
+      if(this._shotT<=0 && d<330 && (!_ally||this._curFoe)){ this._shotT=0.40;   // ally only fires when it actually has a foe (never at the owner)
         const spread=(Math.random()-0.5)*0.12, cs=Math.cos(spread), sn=Math.sin(spread);
         const ndx=dx/d, ndz=dz/d, spd=380;
         const bvx=(ndx*cs-ndz*sn)*spd, bvz=(ndx*sn+ndz*cs)*spd;
-        if(this._faction==='ally'){ try{ const b=new Bullet(this.wx+ndx*12,this.wz+ndz*12,bvx,bvz,'laser',19,0,true); b.dmg=(window._ALLY_GUN_DMG!=null?window._ALLY_GUN_DMG:0.4); b.pierce=0; GS.bullets.push(b); }catch(e){} }   // friendly tripod fire -> hits enemies, not you
+        if(_ally){ try{ const b=new Bullet(this.wx+ndx*12,this.wz+ndz*12,bvx,bvz,'laser',19,0,true); b.dmg=(window._ALLY_GUN_DMG!=null?window._ALLY_GUN_DMG:0.4); b.pierce=0; GS.bullets.push(b); }catch(e){} }
         else { try{ const b=new EnemyBullet(this.wx+ndx*12, this.wz+ndz*12, bvx, bvz); if(b&&b.mesh&&b.mesh.material) b.mesh.material.color.setHex(0xff7722); }catch(e){} }
         ps.spark(this.wx+ndx*14, this.wz+ndz*14,[1,0.5,0.1]); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(220+rand(40),0.06,'square',0.07,120);
         this._gun^=1;
       }
-      if(d>240 || this._deployT>4.2 || (d<55 && Math.random()<0.015)){ this._state='fold'; this._stateT=0; }
+      const _reball = (_ally && !this._curFoe) ? (d>(window._DK2_FOLLOW||120)) : (d>240 || this._deployT>4.2 || (d<55 && Math.random()<0.015));   // ally with no foe stays planted & ready near the owner
+      if(_reball){ this._state='fold'; this._stateT=0; }
     } else {
       this._applyOpen(Math.max(0,1-this._stateT/0.4));
       if(this._stateT>=0.4){ this._state='roll'; this._stateT=0; }
     }
     if(this._coreMat) this._coreMat.color.setHex(this.hitFlash>0?0xffffff:0xffaa33);
     const sc=(this.spawn<1?(0.3+this.spawn*0.7):1); this.mesh.scale.setScalar(sc);
-    this.mesh.position.set(this.wx,11,this.wz);
+    this.mesh.position.set(this.wx,11+(this._dkY||0),this.wz);
+  }
+  _dk2CheckHit(){   // player shoots/melees the friendly ball -> returns the punt velocity (with a strong UPWARD pop so the little ball catches air)
+    if(window._DK_PLAYER_KNOCK===false || (this._puntCD||0)>0) return null;
+    const _y=11+(this._dkY||0);
+    if(typeof GS!=='undefined'&&GS.bullets)for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b||b._fromBot)continue; const bw=(b.wx!=null?b.wx:b.x),bz=(b.wz!=null?b.wz:b.z); if(bw==null)continue; if(Math.hypot(bw-this.wx,bz-this.wz)<(window._DK_PUNT_R||26) && Math.abs(((b.y!=null?b.y:9))-_y)<32){ const bs=Math.hypot(b.vx||0,b.vz||0)||1, K=(window._DK_BULLET_KNOCK||340); if(b.remove)b.remove(); if(b.mesh){try{scene.remove(b.mesh);}catch(_){}} GS.bullets.splice(bi,1); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.5,0.9,1],8,50,_y); return {vx:((b.vx||0)/bs)*K, vz:((b.vz||0)/bs)*K, up:(window._DK_BULLET_LIFT||320)}; } }
+    if(player){ const ud=player.model&&player.model.userData, melee=!!(ud&&ud._meleeTimer>0), pspd=Math.hypot(player.vx||0,player.vz||0), pd=Math.hypot(player.wx-this.wx,player.wz-this.wz); if(pd<((this.size||16)+(window._DK_PUNT_REACH||34)) && (melee||pspd>(window._DK_RAM_SPD||120))){ const l=pd||1, K=melee?(window._DK_MELEE_KNOCK||640):(window._DK_BODY_KNOCK||380); if(typeof ps!=='undefined'&&melee){ ps.ring(this.wx,this.wz,[1,0.7,0.3],11,80,_y); if(typeof addTrauma==='function')addTrauma(0.05); } return {vx:(this.wx-player.wx)/l*K, vz:(this.wz-player.wz)/l*K, up:(melee?(window._DK_MELEE_LIFT||560):(window._DK_BODY_LIFT||360))}; } }
+    return null;
+  }
+  _dk2WallBounce(){   // ricochet off the cube cage / arena wall like the RL ball
+    const y=11+(this._dkY||0);
+    if(typeof GS!=='undefined'&&GS.zone===-19 && typeof _cubeSDF==='function' && typeof _cubeGrad==='function'){ const sd=_cubeSDF(this.wx,y,this.wz); if(sd>-14){ const n=new THREE.Vector3(); _cubeGrad(this.wx,y,this.wz,n); const vn=(this._dkVx||0)*n.x+(this._dkVz||0)*n.z; if(vn>0){ this._dkVx-=1.8*vn*n.x; this._dkVz-=1.8*vn*n.z; } const push=(-14-sd); this.wx+=n.x*push; this.wz+=n.z*push; if(typeof ps!=='undefined')ps.spark(this.wx,this.wz,[0.5,0.9,1],y); } return; }
+    const R=(typeof ARENA_R!=='undefined'?ARENA_R-12:540), dd=Math.hypot(this.wx,this.wz); if(dd>R){ const nx=this.wx/dd,nz=this.wz/dd; this.wx=nx*R; this.wz=nz*R; const vn=(this._dkVx||0)*nx+(this._dkVz||0)*nz; if(vn>0){ this._dkVx-=1.8*vn*nx; this._dkVz-=1.8*vn*nz; } }
   }
   remove(){ scene.remove(this.mesh); }
 }
@@ -3702,8 +3728,13 @@ AllyDroideka.prototype.update=function(dt){
   this._curFoe=this._allyAcquireFoe();
   const owner=(typeof player!=='undefined'&&player)?player:{wx:this.wx,wz:this.wz};
   DroidekaBot.prototype.update.call(this, this._curFoe||owner, dt);   // hunt a hostile, else roll/rest near the owner
+  // PICKUP INDICATOR — a glowing ground ring when you're in grab range (so you know you can scoop it)
+  const near=(window._nearDroid===this);
+  if(near && !this._grabRing && typeof THREE!=='undefined' && typeof scene!=='undefined'){ this._grabRing=new THREE.Mesh(new THREE.RingGeometry(15,20,28), new THREE.MeshBasicMaterial({color:0x39ffa0,transparent:true,opacity:0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); this._grabRing.rotation.x=-Math.PI/2; scene.add(this._grabRing); }
+  if(this._grabRing){ this._grabRing.visible=near; if(near){ const _t=(typeof performance!=='undefined'?performance.now():0); this._grabRing.position.set(this.wx,1.6,this.wz); this._grabRing.material.opacity=0.45+0.25*Math.sin(_t*0.012); const _s=1+0.06*Math.sin(_t*0.01); this._grabRing.scale.set(_s,_s,_s); } }
   return this.alive!==false;
 };
+AllyDroideka.prototype.remove=function(){ if(this._grabRing){try{scene.remove(this._grabRing); if(this._grabRing.geometry)this._grabRing.geometry.dispose();}catch(_){} this._grabRing=null;} DroidekaBot.prototype.remove.call(this); };
 window.AllyDroideka=AllyDroideka;
 // ── A rival bot grabbed a summon ball -> unleash that creature as a HOSTILE enemy (it targets the player like any
 //    enemy, your weapons + your own summoned allies can kill it). Mirrors the player's summon, opposite faction. ──
@@ -13857,7 +13888,7 @@ function _grabItem(fromSlide){
   if(g.kind==='convgun'){ const st=g.ref; if(typeof _equipWeapon==='function')_equipWeapon(st.weapon); if(window._gunConveyor)window._gunConveyor.grabCd=(window._CONVEYOR_GRAB_CD||0.8); window._nearConvGun=null; if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[1,0.85,0.3],22,150); return true; }   // grab the gun parked at the conveyor station -> equip it (belt restocks; display gun keeps circling)
   if(g.kind==='meleepad'){ const st=g.ref; if(typeof _collectHammer==='function'&&_collectHammer(st)){ if(typeof _padConsume==='function')_padConsume(st); } window._nearHammer=null; return true; }   // grab a melee station -> equip the melee weapon
   if(g.kind==='boots'){ if(typeof _collectBoots==='function')_collectBoots(); window._nearBoots=null; return true; }   // grab the boot station -> bone-attach the wall boots
-  if(g.kind==='droid'){ const a=g.ref; const ai=(GS.allies?GS.allies.indexOf(a):-1); if(ai>=0)GS.allies.splice(ai,1); if(a.mesh){try{scene.remove(a.mesh); a.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});}catch(_){}} player._carryPayload={kind:'item',type:'droid'}; window._nearDroid=null; if(typeof player._armBomb==='function')player._armBomb('item'); if(typeof announce==='function')announce('DROID SCOOPED — AIM & THROW','#ffb066'); if(typeof Audio!=='undefined'){try{Audio.blip(420,0.1,'square',0.16,300);}catch(_){}} return true; }   // scoop the balled droid -> carry it like a bomb; throwing redeploys it
+  if(g.kind==='droid'){ const a=g.ref; const ai=(GS.allies?GS.allies.indexOf(a):-1); if(ai>=0)GS.allies.splice(ai,1); if(a._grabRing){try{scene.remove(a._grabRing); if(a._grabRing.geometry)a._grabRing.geometry.dispose();}catch(_){}} if(a.mesh){try{scene.remove(a.mesh); a.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});}catch(_){}} player._carryPayload={kind:'item',type:'droid'}; window._nearDroid=null; if(typeof player._armBomb==='function')player._armBomb('item'); if(typeof announce==='function')announce('DROID SCOOPED — AIM & THROW','#ffb066'); if(typeof Audio!=='undefined'){try{Audio.blip(420,0.1,'square',0.16,300);}catch(_){}} return true; }   // scoop the balled droid -> carry it like a bomb; throwing redeploys it
   if(g.kind==='item'){ const p=g.ref;
     if(fromSlide && p.type==='barrel'){ const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} if(typeof _detonateItem==='function')_detonateItem('barrel',p.x,p.z,false); window._nearOrb=null; return true; }   // SLIDE through a barrel -> BUST it open (don't carry)
     const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} player._carryPayload={kind:'item',type:p.type}; window._nearOrb=null; }
@@ -17030,7 +17061,7 @@ function _separateEntities(){
   if(window._ENTITY_SEP===false) return;
   const B=[];
   if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(b&&b.alive!==false)B.push({o:b,r:(b.size||18)*0.5+(window._SEP_PAD||6),m:!(b._launched)}); }
-  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(a&&(a.hp==null||a.hp>0))B.push({o:a,r:(a.size||14)+(window._SEP_PAD||6),m:true}); }
+  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(a&&(a.hp==null||a.hp>0)){ if(a._isDroidekaAlly)continue;   /* the droid ball is meant to be bumped/grabbed/punted, not pushed away — keep it out of separation so you can walk right up to it */ B.push({o:a,r:(a.size||14)+(window._SEP_PAD||6),m:true}); } }
   if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.alive!==false)B.push({o:GS_trainingDummy,r:16,m:false});
   if(typeof player!=='undefined'&&player&&player.alive&&!player._wallClimb&&!player._hang&&!player._ballActive)B.push({o:player,r:13,m:true});
   for(let i=0;i<B.length;i++)for(let j=i+1;j<B.length;j++){
