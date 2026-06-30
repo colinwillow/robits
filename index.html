@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB48</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB49</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10779,6 +10779,16 @@ class Player{
       }
     }
 
+    // AIM ASSIST: locked on a gun target + not manually aiming -> ease the FACING onto it HERE (last word before the
+    // shots fire) so the bullets actually track the locked enemy, not just the visual ring. Manual right-stick aim,
+    // melee, or ball-mode override it. _softLock is set by _aimAssistTick.
+    if(this._softLock && this._softLock.alive!==false && window._AIM_ASSIST!==false && !this._hammer && !this._ballActive && !this._wallClimb && !this._crestSeq && !this._rollAimLock){
+      const _w=this.primaryWeapon||'bullets', _pj=(_w==='bullets'||_w==='plasma'||_w==='rockets'||_w==='minigun'||_w==='bow'), _al=Math.hypot(avx,avz);
+      if(_pj && _al<=(window._AA_MANUAL_OVERRIDE!=null?window._AA_MANUAL_OVERRIDE:0.35)){
+        const _ta=Math.atan2(this._softLock.wz-this.wz, this._softLock.wx-this.wx);
+        this.aim=_easeAng(this.aim,_ta,Math.min(1,(window._AA_EASE!=null?window._AA_EASE:0.32)*(dt*60)));   // smooth, but strong enough to dominate the locomotion aim -> sticky
+      }
+    }
     this.fireT++;
     const isRockets=this.primaryWeapon==='rockets', isPlasma=this.primaryWeapon==='plasma', isFlame=this.primaryWeapon==='flamethrower', isGrenade=this.primaryWeapon==='grenade', isSingularity=this.primaryWeapon==='singularity', isGridQuake=this.primaryWeapon==='gridquake', isBoomerang=this.primaryWeapon==='boomerang', isNuke=this.primaryWeapon==='nuke', isBow=this.primaryWeapon==='bow', isMinigun=this.primaryWeapon==='minigun';
     const fireRate=od?4:isPlasma?9:isGrenade?20:isSingularity?72:isGridQuake?34:isBoomerang?46:isRockets?14:isMinigun?(window._MINIGUN_FIRE_RATE||2):(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
@@ -13541,21 +13551,13 @@ window._aimAssistTick=function(dt,firing,avMag){
   const _spd=Math.hypot(P.vx||0,P.vz||0);
   // ENGAGE (any weapon): shooting, or recently shot, or actively moving/aiming -> so the LOCK RING shows whenever you're going after something
   const engaged=!_busy && (firing || (_now-(P._aaFireT||0)<(window._AA_HOLD_MS||450)) || _spd>(window._AA_MOVE_MIN||40) || (avMag||0)>0.15);
-  if(!engaged || (avMag||0)>(window._AA_MANUAL_OVERRIDE||0.6)){ P._softLock=null; _aaShowRing(null); return; }   // a real right-stick push overrides the assist
+  if(!engaged || (avMag||0)>(window._AA_MANUAL_OVERRIDE!=null?window._AA_MANUAL_OVERRIDE:0.35)){ P._softLock=null; _aaShowRing(null); return; }   // a real right-stick push overrides the assist (so manual aim always wins)
   const fa=P.aim||0, fnx=Math.cos(fa), fnz=Math.sin(fa), R=(window._AA_RANGE||540);
   const list=_aaTargetList();
   let lock=P._softLock; if(lock&&lock.alive===false)lock=null; if(lock&&!lock._isObj&&list.indexOf(lock)<0)lock=null;
   if(lock){ const dx=lock.wx-P.wx,dz=lock.wz-P.wz,d=Math.hypot(dx,dz)||1, dot=(dx/d)*fnx+(dz/d)*fnz; if(d>R*1.3 || dot<Math.cos((window._AA_RETAIN_CONE||80)*Math.PI/180))lock=null; }   // drop a stale lock (wide retain so it stays sticky)
   if(!lock){ const cone=Math.cos((window._AA_CONE||30)*Math.PI/180); let best=null,bs=-1e9; for(const e of list){ const dx=e.wx-P.wx,dz=e.wz-P.wz,d=Math.hypot(dx,dz)||1; if(d>R)continue; const dot=(dx/d)*fnx+(dz/d)*fnz; if(dot<cone)continue; const s=dot-(d/R)*0.3; if(s>bs){bs=s;best=e;} } lock=best; }   // acquire the most-centred target in front
-  P._softLock=lock; _aaShowRing(lock);   // the ring shows for ANY weapon while locked
-  if(!lock) return;
-  // AUTO-AIM (direct-fire guns only) — smoothly EASE the facing onto the lock so it isn't choppy
-  const w=P.primaryWeapon||'bullets';
-  const _proj=(w==='bullets'||w==='plasma'||w==='rockets'||w==='minigun'||w==='bow');
-  if(_proj && !P._hammer && (avMag||0)<=0.15 && typeof _easeAng==='function'){
-    const ta=Math.atan2(lock.wz-P.wz, lock.wx-P.wx);
-    P.aim=_easeAng(P.aim, ta, Math.min(1,(window._AA_EASE!=null?window._AA_EASE:0.16)*(dt*60)));   // frame-rate-independent smooth ease
-  }
+  P._softLock=lock; _aaShowRing(lock);   // ring shows for ANY weapon while locked; the actual aim ease happens IN update (before the shots fire) so bullets track
 };
 function _updateItemShots(dt){
   const A=window._itemShots; if(!A||!A.length)return;
