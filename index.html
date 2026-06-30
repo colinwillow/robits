@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB52</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB53</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -8605,12 +8605,15 @@ class Singularity{
   }
   _hurt(e,i,dmg){ const pts=(e.hit?e.hit(dmg):0);
     if(pts>0||!e.alive){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); } }
+  _hurtExtra(e,dmg){ if(!e||e.alive===false)return; try{ if(e.hit)e.hit(dmg,this.wx,this.wz); }catch(_){} }   // bots + training dummy live outside GS.enemies and handle their own death — just deal damage, no splice
   _collapse(){ this.dead=true;
     if(typeof ps!=='undefined'){ ps.ring(this.wx,this.wz,[0.8,0.45,1],40,this.R); ps.ring(this.wx,this.wz,[1,1,1],26,this.R*0.6); ps.burst(this.wx,this.wz,[1,0.8,1],52,this.R*0.85,this.y); }
     if(grid){ if(grid.shock)grid.shock(this.wx,this.wz,3.4); if(grid.push)grid.push(this.wx,this.wz,6,this.R); }
     if(typeof addTrauma==='function')addTrauma(0.16); if(typeof Audio!=='undefined'){ Audio.blip(74,0.45,'sawtooth',0.32,28); Audio.blip(180,0.2,'square',0.14,60); }
     if(!this._remote) for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive) continue;
       if(Math.hypot(this.wx-e.wx,this.wz-e.wz)<this.R){ if(e.knock)e.knock(e.wx-this.wx,e.wz-this.wz,7,1.5,7); this._hurt(e,i,7); } }
+    if(!this._remote && typeof _extraHostiles==='function') for(const e of _extraHostiles()){ if(!e||e.alive===false)continue;
+      if(Math.hypot(this.wx-e.wx,this.wz-e.wz)<this.R){ if(e.knock)try{e.knock(e.wx-this.wx,e.wz-this.wz,7,1.5,7);}catch(_){} this._hurtExtra(e,7); } }   // collapse also blasts bots + the dummy
   }
   update(dt){
     this.t+=dt;
@@ -8629,9 +8632,15 @@ class Singularity{
         const dx=this.wx-e.wx, dz=this.wz-e.wz, d=Math.hypot(dx,dz);
         if(d<this.R && d>2){ const f=this.pull*(0.32+0.68*(1-d/this.R)), nx=dx/d, nz=dz/d, tx=-nz, tz=nx;
           e.wx+=(nx*f*54 + tx*f*26)*dt; e.wz+=(nz*f*54 + tz*f*26)*dt; if(e.syncMesh)e.syncMesh(); } }
+      // pull + damage the bots & training dummy too (they aren't in GS.enemies). The rooted dummy doesn't get dragged, just damaged.
+      for(const e of (typeof _extraHostiles==='function'?_extraHostiles():[])){ if(e===(typeof GS_trainingDummy!=='undefined'?GS_trainingDummy:null)||e.isDummy)continue;
+        const dx=this.wx-e.wx, dz=this.wz-e.wz, d=Math.hypot(dx,dz);
+        if(d<this.R && d>2){ const f=this.pull*(0.32+0.68*(1-d/this.R)), nx=dx/d, nz=dz/d, tx=-nz, tz=nx;
+          e.wx+=(nx*f*54 + tx*f*26)*dt; e.wz+=(nz*f*54 + tz*f*26)*dt; if(e.syncMesh)e.syncMesh(); } }
       this.dmgT-=dt; if(this.dmgT<=0){ this.dmgT=0.35;
         for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive) continue;
-          if(Math.hypot(this.wx-e.wx,this.wz-e.wz)<this.R*0.45) this._hurt(e,i,1); } }
+          if(Math.hypot(this.wx-e.wx,this.wz-e.wz)<this.R*0.45) this._hurt(e,i,1); }
+        for(const e of (typeof _extraHostiles==='function'?_extraHostiles():[])){ if(Math.hypot(this.wx-e.wx,this.wz-e.wz)<this.R*0.45) this._hurtExtra(e,1); } }
       }
       if(typeof ps!=='undefined'&&Math.random()<0.85){ const a=rand(TAU), rr=24+this.R*0.5*Math.random(); ps._spawn(this.wx+Math.cos(a)*rr,this.y+rand(-8,38),this.wz+Math.sin(a)*rr,-Math.cos(a)*160,-24,-Math.sin(a)*160,0.72,0.45,1,0.26); }
       if(this.t>=this.life) this._collapse();
@@ -10789,12 +10798,17 @@ class Player{
       const _w=this.primaryWeapon||'bullets';
       const _pj=(_w==='bullets'||_w==='plasma'||_w==='rockets'||_w==='minigun'||_w==='bow');
       const _al=Math.hypot(avx,avz), _spd=Math.hypot(this.vx||0,this.vz||0);
-      const _eng=_pj && (firing || (this.fireT-(this._aaFireT!=null?this._aaFireT:-9999) < (window._AA_HOLD_F||45)) || _al>0.12 || _spd>(window._AA_MOVE_MIN||40));
       if(firing) this._aaFireT=this.fireT;
-      if(_eng){
+      const _firedRecently=(this.fireT-(this._aaFireT!=null?this._aaFireT:-9999) < (window._AA_HOLD_F||30));
+      // SHOW the lock ring whenever you're going after something (firing / aiming / moving) — purely visual.
+      const _showEng=_pj && (firing || _firedRecently || _al>0.12 || _spd>(window._AA_MOVE_MIN||40));
+      // BEND the aim only while you're actually SHOOTING (or just stopped). This is the key fix: it no longer hijacks
+      // your facing/camera while you're just running or turning around with enemies on screen.
+      const _bendEng=_pj && (firing || _firedRecently);
+      if(_showEng){
         const _tgt=(typeof _aaPickTarget==='function')?_aaPickTarget(this,this.aim):null;
         this._softLock=_tgt;
-        if(_tgt){
+        if(_tgt && _bendEng){
           const _ta=Math.atan2(_tgt.wz-this.wz, _tgt.wx-this.wx);
           this.aim=_easeAng(this.aim,_ta,Math.min(1,(window._AA_EASE!=null?window._AA_EASE:0.5)*(dt*60)));   // strong enough to dominate locomotion aim -> sticky, but eased so it's not a hard snap
         }
