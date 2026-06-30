@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB60</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB61</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3356,8 +3356,15 @@ class BlueDragon extends Enemy{
   }
   die(){ ps.burst(this.wx,this.wz,this.glow,32,150); ps.ring(this.wx,this.wz,this.glow,30,150); try{ if(typeof grid!=='undefined') grid.push(this.wx,this.wz,3,120); }catch(_){} addTrauma(0.08);
     if(this._hpBar&&this.mesh){ this.mesh.remove(this._hpBar); this._hpBar=null; } }
+  _crushObstacles(){   // boss-class monsters TRAMPLE crates & barrels instead of getting hung up on them
+    const R=(window._BOSS_CRUSH_R||((this.size||20)+18));
+    try{ if(window._crates&&window._crates.length){ for(let i=window._crates.length-1;i>=0;i--){ const c=window._crates[i]; if(!c)continue; if(Math.hypot((c.x||0)-this.wx,(c.z||0)-this.wz)<R){ if(typeof _smashCrate==='function')_smashCrate(c); else if(typeof _smashCrateAt==='function')_smashCrateAt(c.x,c.z); } } } }catch(_){}
+    try{ if(window._itemPU){ for(const p of window._itemPU){ if(!p||p.type!=='barrel'||!(p.settled||p._lying))continue; if(!(p._cooking>0)&&Math.hypot((p.x||0)-this.wx,(p.z||0)-this.wz)<R) p._cooking=(window._BARREL_FUSE||0.12); } } }catch(_){}   // trip the fuse -> the barrel pops
+    try{ if(window._itemShots){ for(const s of window._itemShots){ if(!s||s.type!=='barrel')continue; if(Math.hypot((s.x||0)-this.wx,(s.z||0)-this.wz)<R) s._break=true; } } }catch(_){}   // burst rolling/thrown barrels it walks through
+  }
   update(p,dt){
     this.baseUpdate();
+    { const _pwx=(this._pwx!=null?this._pwx:this.wx), _pwz=(this._pwz!=null?this._pwz:this.wz); this._realSpd=Math.hypot(this.wx-_pwx,this.wz-_pwz)/Math.max(dt,1e-3); this._pwx=this.wx; this._pwz=this.wz; }   // ACTUAL ground speed (net of collisions/separation) -> drives run-vs-idle so it never runs in place
     if(this._mixer) this._mixer.update(dt);
     if(window._DRAGON_ANIM_DEBUG){ this._dbgT=(this._dbgT||0)+dt; if(this._dbgT>=1){ this._dbgT=0; const c=this._cur; try{ console.log('[anim]',(this._robitName||'dragon'),'state='+this._state,'clip='+this._curName, c?('t='+c.time.toFixed(2)+' w='+c.getEffectiveWeight().toFixed(2)+' running='+c.isRunning()+' ts='+(c.timeScale||1).toFixed(2)+' dur='+(this._dur[this._curName]||'?')):'(NO ACTION)','mixer='+(!!this._mixer)); }catch(_){} } }
     this._stateT+=dt;
@@ -3406,15 +3413,15 @@ class BlueDragon extends Enemy{
         if(d<airR && d>meleeR+10 && this._airCD<=0 && _atkOK && this._act.attack_air && Math.random()<(window._DRAGON_AIR_CHANCE||0.035)){ this._airCD=window._DRAGON_AIR_CD||3.2; this._enter('attack_air'); break; }
         const spd=(d>airR)?this._runSpd:this._walkSpd;
         this.vx=dx/d*spd; this.vz=dz/d*spd; this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._clampZone();
-        const sp=Math.hypot(this.vx,this.vz), ra=this._act.run;
-        if(ra){ ra.timeScale=Math.max(0.4, sp/(window._DRAGON_RUN_REF||150));
-          if(sp>4){
-            if(this._curName!=='run'){ this._play('run'); }
-            else { ra.enabled=true; ra.paused=false; ra.setLoop(THREE.LoopRepeat,Infinity); ra.clampWhenFinished=false;   // FORCE a continuous loop — a clamped/finished run is the "plays once then freezes & glides" bug
-              const rd=this._dur.run||1, endK=(window._DOG_RUN_END||1);
-              if(endK<1 && ra.time> rd*endK) ra.time=ra.time%(rd*endK);   // optional: skip trailing dead/static frames in the GLB without re-exporting (set window._DOG_RUN_END≈0.6)
-              if(!ra.isRunning()) ra.play();
-            }
+        const ra=this._act.run, real=(this._realSpd||0);
+        if(real < (window._BOSS_RUN_MIN||16)){   // not actually moving (held station / blocked / stuck) -> play IDLE, never run-in-place
+          if(this._act.idle && this._cur!==this._act.idle) this._play('idle',{fade:0.22});
+        } else if(ra){ ra.timeScale=Math.max(0.5, real/(window._DRAGON_RUN_REF||150));
+          if(this._curName!=='run'){ this._play('run'); }
+          else { ra.enabled=true; ra.paused=false; ra.setLoop(THREE.LoopRepeat,Infinity); ra.clampWhenFinished=false;   // FORCE a continuous loop — a clamped/finished run is the "plays once then freezes & glides" bug
+            const rd=this._dur.run||1, endK=(window._DOG_RUN_END||1);
+            if(endK<1 && ra.time> rd*endK) ra.time=ra.time%(rd*endK);   // optional: skip trailing dead/static frames in the GLB without re-exporting (set window._DOG_RUN_END≈0.6)
+            if(!ra.isRunning()) ra.play();
           }
         }
         break; }
@@ -3456,6 +3463,7 @@ class BlueDragon extends Enemy{
         }
         break; }
     }
+    if(!this._dying && window._BOSS_CRUSH!==false) this._crushObstacles();   // stomp through crates/barrels rather than snagging on them
     this._applyMesh();
   }
   _breatheFire(dx,dz,d,sustain){
@@ -3978,6 +3986,11 @@ class EnemyBullet{
     // BOT-vs-BOT: a bullet from one bot hits OTHER bots (not its owner)
     if(this.life>0 && window._BOT_VS_BOT!==false && typeof GS_bots!=='undefined' && GS_bots){
       for(const bt of GS_bots){ if(!bt||bt===this._ownerBot||!bt.alive)continue; if(Math.hypot(bt.wx-this.wx,bt.wz-this.wz)<((bt.size||18)*0.55+8) && Math.abs(9-((bt.py||0)+15))<40){ this.life=0; if(bt.hit)try{bt.hit(this.dmg||1);}catch(_){} if(bt.knock)try{bt.knock(bt.wx-this.wx,bt.wz-this.wz,1.4,0,14);}catch(_){} if(typeof ps!=='undefined')ps.burst(bt.wx,bt.wz,[1,0.6,0.2],8,80,(bt.py||0)+12); break; } }
+    }
+    // ENEMY FIRE vs the player's SUMMONED ALLIES — so rival bots / ranged enemies can actually kill the dragon/dog/etc.
+    if(this.life>0 && window._ENEMY_HIT_ALLIES!==false && typeof GS!=='undefined' && GS.allies && GS.allies.length){
+      for(const a of GS.allies){ if(!a||a.alive===false||(a.hp!=null&&a.hp<=0))continue; const ay=(a.py!=null?a.py:(a._cy!=null?a._cy:9));
+        if(Math.hypot(a.wx-this.wx,a.wz-this.wz)<((a.size||14)*0.6+9) && Math.abs(9-(ay+12))<48){ this.life=0; if(a.hit)try{a.hit(this.dmg||1);}catch(_){} if(a.knock)try{a.knock(a.wx-this.wx,a.wz-this.wz,1.2);}catch(_){} if(typeof ps!=='undefined')ps.burst(a.wx,a.wz,[1,0.6,0.2],8,80,ay+12); break; } }
     }
     if(this.life>0&&player&&player.alive&&player.inv<=0&&player.py<40){
       if(Math.hypot(player.wx-this.wx,player.wz-this.wz)<20){
@@ -8090,6 +8103,14 @@ class AllyBot{
       if(typeof ps!=='undefined')ps.spark(sx,sz,[0.5,1,0.92],y0); if(typeof Audio!=='undefined')Audio.blip(540,0.08,'sine',0.12,740);
     }
   }
+  hit(dmg){   // the enemy side (rival bots / enemy fire) can wound + kill a summoned ally
+    if(this.hp==null)this.hp=this.maxHp||5;
+    this.hp-=(dmg||1); this._hitFlash=6;
+    if(typeof ps!=='undefined')ps.spark(this.wx,this.wz,[1,0.55,0.2],(this.py||this._cy||9)+10);
+    if(this.hp<=0 && typeof ps!=='undefined')ps.ring(this.wx,this.wz,[1,0.5,0.2],16,90);
+    return 0;
+  }
+  knock(dx,dz,mag=1){ const l=Math.hypot(dx,dz)||1; this.vx=(this.vx||0)+(dx/l)*mag*30; this.vz=(this.vz||0)+(dz/l)*mag*30; }
   update(dt){
     this.t+=dt; this.life-=dt; this.spawn=Math.min(1,this.spawn+dt*3);
     if(this.fireCD>0) this.fireCD-=dt; if(this._biteCD>0) this._biteCD-=dt; if(this._attachCD>0) this._attachCD-=dt;
@@ -12385,6 +12406,7 @@ class BotPilot{
     let best=null, bd=1e9;
     if(typeof player!=='undefined'&&player&&player.alive){ const d=Math.hypot(player.wx-this.wx,player.wz-this.wz); best=player; bd=d*(window._BOT_PLAYER_BIAS||1); }
     if(window._BOT_VS_BOT!==false && typeof GS_bots!=='undefined'&&GS_bots){ for(const b of GS_bots){ if(!b||b===this||!b.alive)continue; const d=Math.hypot(b.wx-this.wx,b.wz-this.wz); if(d<bd){ bd=d; best=b; } } }
+    if(window._BOT_HIT_ALLIES!==false && typeof GS!=='undefined'&&GS.allies){ for(const a of GS.allies){ if(!a||a.alive===false||(a.hp!=null&&a.hp<=0))continue; const d=Math.hypot(a.wx-this.wx,a.wz-this.wz)*(window._BOT_ALLY_BIAS||1.4); if(d<bd){ bd=d; best=a; } } }   // it'll turn on your summoned creatures when they're the closest threat
     return best;
   }
 
