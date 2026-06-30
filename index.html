@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB43</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB44</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10113,7 +10113,7 @@ class Player{
     const _MS=(window._MELEE_STATS&&(window._MELEE_STATS[type]||window._MELEE_STATS.sword))||{dmg:6,bMag:9,bLift:130,bStn:24,eForce:4,eLift:0.9,eAir:6,thud:140};
     const straight=(type==='spear');
     let mesh=null; try{ mesh=_makeMeleeWeapon(type); }catch(_){}
-    if(mesh){ mesh.position.set(sx,sy,sz); mesh.traverse(o=>{o.frustumCulled=false;}); scene.add(mesh); }
+    if(mesh){ mesh.scale.setScalar(window._MTHROW_SCALE||(typeof _HAMMER_SCALE!=='undefined'?_HAMMER_SCALE:1.7)); mesh.position.set(sx,sy,sz); mesh.traverse(o=>{o.frustumCulled=false;}); scene.add(mesh); }   // SAME world size as the held/swung weapon and the pickup station (1.7) — no shrink-then-grow
     const spin=(type==='hammer'||type==='axe')?(window._MTHROW_SPIN_HEAVY||17):(straight?0:(window._MTHROW_SPIN||13));
     if(!window._thrownMelee)window._thrownMelee=[];
     window._thrownMelee.push({ type, mesh, x:sx,y:sy,z:sz, vx,vz,vy, aim:Math.atan2(vz,vx), straight, spin, dmg:_MS.dmg, ms:_MS, hitSet:new Set(), life:(window._MTHROW_LIFE||4.5), bounces:0 });
@@ -13428,7 +13428,7 @@ function _updatePU(dt){
     }
     else if(p._lying){ p.grp.position.set(p.x,p.y,p.z); }   // a barrel that rolled to a stop -> stays lying on its side where it landed (no bob, no upright snap)
     else { p.grp.position.y=7+Math.sin(p.t*2.4)*1.4; p.cube.rotation.y+=dt*1.4; }
-    if(p.cube && ((p.type==='barrel'&&!p._lying) || p.type==='nuke' || p._model)){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // barrels / the nuke / weapon-loot sit FLAT and spin only on Y (no tumble, no tilt — the nuke model bakes a 0.32 z-tilt that we cancel here)
+    if(p.cube && ((p.type==='barrel'&&!p._lying) || p.type==='nuke' || p.type==='drone' || p._model)){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // barrels / nuke / DRONE / weapon-loot sit FLAT (belly-down) and spin only on Y — the flight tumble used to leave the drone settled at a perpendicular tilt
     if(player&&!player._carryPayload&&(p.settled||p.type==='barrel')&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z), dy=Math.abs((player.py||0)-(p.y||0)); if(d<(window._GRAB_R_ITEM||60)&&dy<(window._GRAB_Y_ITEM||60)&&d<nd){nd=d;near=p;} }   // barrels are grabbable even while still rolling — Y gate so you can't grab floor loot while standing on the flipped ceiling
   }
   window._nearOrb=near;
@@ -13701,7 +13701,7 @@ function _updateThrownMelee(dt){
     if(typeof ARENA_R!=='undefined'){ const d=Math.hypot(s.x,s.z), RR=ARENA_R-14; if(d>RR){ const nx=s.x/d,nz=s.z/d; s.x=nx*RR; s.z=nz*RR; const vn=s.vx*nx+s.vz*nz; if(vn>0){ s.vx-=nx*vn*1.5; s.vz-=nz*vn*1.5; } s.bounces++; } }
     if((s.y<=FLOOR+1 && Math.abs(s.vy)<22 && hsp<26) || s.life<=0){   // rolled to a stop / timed out -> drop as a grabbable pickup where it landed
       if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); }
-      try{ if(typeof _spawnLootBall==='function') _spawnLootBall(s.x, s.z, 'melee', s.type, 0,0,0); }catch(_){}
+      try{ if(typeof _spawnHammerStation==='function') _spawnHammerStation(s.x, s.z, s.type); else if(typeof _spawnLootBall==='function') _spawnLootBall(s.x, s.z, 'melee', s.type, 0,0,0); }catch(_){}   // drop the thrown weapon straight into a grabbable station (1.7, same size as the throw) — no loot-ball size pop
       A.splice(i,1); continue;
     }
   }
