@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB72</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB73</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3695,7 +3695,7 @@ window.AllyDragon=AllyDragon; window.AllyDog=AllyDog;
 // ── ALLY DROIDEKA — the REAL ball droid (folds into a ball, rolls, unfurls into a shooting tripod, re-folds), friendly:
 //    hunts enemies + rival bots, shields while balled, destructible while deployed, and you can punt the rolling ball. ──
 class AllyDroideka extends DroidekaBot{
-  constructor(wx,wz){ super(wx,wz,2); this._faction='ally'; this._curFoe=null; this._aggroR=(window._DK2_AGGRO||640); this.hp=(window._DK_HP||10); this.maxHp=this.hp; this.score=0; }
+  constructor(wx,wz){ super(wx,wz,2); this._faction='ally'; this._isDroidekaAlly=true; this._curFoe=null; this._aggroR=(window._DK2_AGGRO||640); this.hp=(window._DK_HP||10); this.maxHp=this.hp; this.score=0; }
 }
 AllyDroideka.prototype._allyAcquireFoe=_allyAcquireFoe;
 AllyDroideka.prototype.update=function(dt){
@@ -13842,6 +13842,8 @@ function _nearestGrab(){
   if(window._nearBoots) cands.push({kind:'boots',ref:window._nearBoots, d:Math.hypot(player.wx-window._nearBoots.x,player.wz-window._nearBoots.z)});
   if(window._nearCrate) cands.push({kind:'crate',ref:window._nearCrate, d:Math.hypot(player.wx-window._nearCrate.x,player.wz-window._nearCrate.z)});
   if(window._nearOrb) cands.push({kind:'item',ref:window._nearOrb, d:Math.hypot(player.wx-window._nearOrb.x,player.wz-window._nearOrb.z)});
+  // scoop up your own BALLED droideka like a bomb (tap to grab + throw; melee still punts it)
+  if(typeof GS!=='undefined'&&GS.allies){ let nd=null,ndd=(window._DROID_GRAB_R||48); for(const a of GS.allies){ if(!a||a.alive===false||!a._isDroidekaAlly)continue; if(!(a._open!=null&&a._open<0.5))continue; const d=Math.hypot(player.wx-a.wx,player.wz-a.wz); if(d<ndd){ndd=d;nd=a;} } if(nd){ window._nearDroid=nd; cands.push({kind:'droid',ref:nd,d:ndd}); } else window._nearDroid=null; }
   if(!cands.length) return null;
   cands.sort((a,b)=>a.d-b.d);
   return cands[0];
@@ -13855,6 +13857,7 @@ function _grabItem(fromSlide){
   if(g.kind==='convgun'){ const st=g.ref; if(typeof _equipWeapon==='function')_equipWeapon(st.weapon); if(window._gunConveyor)window._gunConveyor.grabCd=(window._CONVEYOR_GRAB_CD||0.8); window._nearConvGun=null; if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[1,0.85,0.3],22,150); return true; }   // grab the gun parked at the conveyor station -> equip it (belt restocks; display gun keeps circling)
   if(g.kind==='meleepad'){ const st=g.ref; if(typeof _collectHammer==='function'&&_collectHammer(st)){ if(typeof _padConsume==='function')_padConsume(st); } window._nearHammer=null; return true; }   // grab a melee station -> equip the melee weapon
   if(g.kind==='boots'){ if(typeof _collectBoots==='function')_collectBoots(); window._nearBoots=null; return true; }   // grab the boot station -> bone-attach the wall boots
+  if(g.kind==='droid'){ const a=g.ref; const ai=(GS.allies?GS.allies.indexOf(a):-1); if(ai>=0)GS.allies.splice(ai,1); if(a.mesh){try{scene.remove(a.mesh); a.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});}catch(_){}} player._carryPayload={kind:'item',type:'droid'}; window._nearDroid=null; if(typeof player._armBomb==='function')player._armBomb('item'); if(typeof announce==='function')announce('DROID SCOOPED — AIM & THROW','#ffb066'); if(typeof Audio!=='undefined'){try{Audio.blip(420,0.1,'square',0.16,300);}catch(_){}} return true; }   // scoop the balled droid -> carry it like a bomb; throwing redeploys it
   if(g.kind==='item'){ const p=g.ref;
     if(fromSlide && p.type==='barrel'){ const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} if(typeof _detonateItem==='function')_detonateItem('barrel',p.x,p.z,false); window._nearOrb=null; return true; }   // SLIDE through a barrel -> BUST it open (don't carry)
     const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} player._carryPayload={kind:'item',type:p.type}; window._nearOrb=null; }
@@ -17011,6 +17014,18 @@ function resolveBodyCollisions(pl){
 window.resolveBodyCollisions=resolveBodyCollisions;
 // ── ENTITY SEPARATION — keep the "fighters" (player, rival bots, summoned allies, training dummy) from ever overlapping.
 // Each pair gets pushed apart along the line between them; immovable bodies (rooted dummy) make the other take the full push.
+// ALL enemies can hurt your summoned creatures on contact (your allies seek enemies, so they collide + trade blows).
+// Enemy ranged fire already hits allies (EnemyBullet); this covers melee/contact for every enemy class without per-class AI.
+function _enemiesDamageAllies(dt){
+  if(window._ENEMIES_HIT_ALLIES===false) return;
+  if(typeof GS==='undefined'||!GS.enemies||!GS.allies||!GS.allies.length) return;
+  for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying)continue;
+    e._allyBiteCD=(e._allyBiteCD||0)-dt; if(e._allyBiteCD>0)continue;
+    const er=(e.size||14)*0.5+(window._ENEMY_BITE_REACH||16);
+    for(const a of GS.allies){ if(!a||a.alive===false)continue; if(a._open!=null && a._open<0.5)continue;   // balled droideka shell shrugs it off
+      if(Math.hypot(a.wx-e.wx,a.wz-e.wz) < er+(a.size||14)*0.4){ if(a.hit)try{a.hit(window._ENEMY_BITE_DMG||1);}catch(_){} if(a.knock)try{a.knock(a.wx-e.wx,a.wz-e.wz,2);}catch(_){} e._allyBiteCD=(window._ENEMY_BITE_CD||0.7); break; } }
+  }
+}
 function _separateEntities(){
   if(window._ENTITY_SEP===false) return;
   const B=[];
@@ -21070,6 +21085,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(window._PLAYER_KILLS_ALLIES!==false && GS.allies && GS.allies.length && GS.bullets && GS.bullets.length){ for(let ai=GS.allies.length-1;ai>=0;ai--){ const a=GS.allies[ai]; if(!a||a.alive===false)continue; if(a._open!=null && a._open<0.5)continue;
         for(let j=GS.bullets.length-1;j>=0;j--){ const b=GS.bullets[j]; if(!b||b._fromBot)continue; const bw=(b.wx!=null?b.wx:b.x),bz=(b.wz!=null?b.wz:b.z); if(bw==null)continue; const ay=(a.py!=null?a.py:(a._cy!=null?a._cy:9));
           if(Math.hypot(bw-a.wx,bz-a.wz)<((a.size||14)*0.7+10) && Math.abs(((b.y!=null?b.y:9))-(ay+10))<48){ if(a.hit)try{a.hit(b.dmg||1);}catch(_){} if(b.remove)b.remove(); GS.bullets.splice(j,1); break; } } } }
+      if(typeof _enemiesDamageAllies==='function') _enemiesDamageAllies(dt);   // enemies trade blows with your summons
       if(typeof _separateEntities==='function') _separateEntities();   // no fighters overlapping (player / bots / summoned allies / dummy)
       if(GS_victoryFX) GS_victoryFX.update(dt);
 
