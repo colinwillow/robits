@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB58</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB59</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3046,7 +3046,8 @@ class DroidekaBot extends Enemy{
 //    the ground / arena walls / cube shell, made of fire particles. Direct hit = lethal + on-fire. DEFLECTABLE
 //    with a melee swing (blade-tip sweep, same as whacking the cube ball) -> it turns and flies back at the dragon.
 class DragonFireball{
-  constructor(x,y,z, tx,ty,tz){
+  constructor(x,y,z, tx,ty,tz, ally){
+    this._ally=!!ally;   // an ally dragon's fireball hits enemies + rival bots, never the player
     this.wx=x; this.y=y; this.wz=z;
     let dx=tx-x, dy=ty-y, dz=tz-z; const dl=Math.hypot(dx,dy,dz)||1;
     const spd=(window._FIREBALL_SPD||300), arc=(window._FIREBALL_ARC||80);
@@ -3086,7 +3087,7 @@ class DragonFireball{
     this.grp.position.set(this.wx,this.y,this.wz);
     const pulse=0.85+0.18*Math.sin(this.t*22); this.core.scale.setScalar(pulse); this.glow.material.opacity=0.3+0.2*Math.sin(this.t*16);
     // MELEE DEFLECT — the WEAPON must actually COLLIDE with the fireball (blade-tip sweep, like the ball system). With a blade you must connect; bare fists get a tight body-block. No more loose proximity bubble that batted it back before it reached you.
-    if(!this._deflected && this.hitCd<=0){
+    if(!this._deflected && !this._ally && this.hitCd<=0){
       const ud=player&&player.model&&player.model.userData, swinging=!!(ud&&(ud._meleeTimer>0||ud._swActive));
       if(swinging && player){
         let hit=false, bp=null;
@@ -3104,12 +3105,13 @@ class DragonFireball{
       }
     }
     // HIT
-    if(this._deflected){
+    if(this._deflected || this._ally){
       if(typeof GS!=='undefined'&&GS.enemies){ for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||e._invulnerable)continue; const ey=e.mesh?e.mesh.position.y:9; if(Math.hypot(this.wx-e.wx,this.y-ey,this.wz-e.wz) < (e.size||10)+this.R+6){
         if(e.hit){ const s=e.hit(window._FIREBALL_DMG||22, e.wx, e.wz, ey); if(e.knock)e.knock(e.wx-this.wx,e.wz-this.wz,10,1,14);
           if(s>0){ GS.score+=s*GS.mult; if(GS.mult<25)GS.mult++; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } }
         this._explode(); return false; } } }
-    } else if(player&&player.alive!==false&&this.hitCd<=0){
+      if(this._ally && typeof _extraHostiles==='function'){ for(const e of _extraHostiles()){ if(!e||e.alive===false)continue; const ey=(e.py||0); if(Math.hypot(this.wx-e.wx,this.y-ey,this.wz-e.wz) < ((e.size||16)+this.R+8)){ if(e.hit)try{e.hit(window._FIREBALL_DMG||22, e.wx, e.wz);}catch(_){} if(e.knock)try{e.knock(e.wx-this.wx,e.wz-this.wz,8,1,14);}catch(_){} this._explode(); return false; } } }   // ally fireball also smacks rival bots
+    } else if(!this._ally && player&&player.alive!==false&&this.hitCd<=0){
       const hr=(window._FIREBALL_HIT_R||24)+this.R, dpx=this.wx-player.wx, dpy=this.y-((player.py||0)+16), dpz=this.wz-player.wz;
       if(dpx*dpx+dpy*dpy+dpz*dpz < hr*hr){
         if((player.inv||0)>0){ /* i-frames: graze */ }
@@ -3330,9 +3332,11 @@ class BlueDragon extends Enemy{
     this.hp-=dmg; this._hpShowT=150;
     if(this.hp<=0){   // DEATH: keep alive so the death clip can play; award score now, self-remove after the clip (no weapon loop splices us because we return 0)
       this._dying=true; this._noKnock=true; this._invulnerable=true; this.hp=9999; this.vx=0; this.vz=0; this._enter('death');   // _invulnerable + hp>0 so explosion/weapon loops can't splice us mid-clip (that's what made him sometimes just vanish); we self-remove after the death clip
-      GS.score += (this.score||0)*GS.mult;
-      try{ if(typeof Gem3D!=='undefined') GS.gems.push(new Gem3D(this.wx+rand(-12,12),this.wz+rand(-12,12),'mult')); }catch(_){}
-      try{ if(typeof registerKill==='function') registerKill(this); }catch(_){}
+      if(this._faction!=='ally'){   // a friendly summon dying gives no score / kill credit / gem
+        GS.score += (this.score||0)*GS.mult;
+        try{ if(typeof Gem3D!=='undefined') GS.gems.push(new Gem3D(this.wx+rand(-12,12),this.wz+rand(-12,12),'mult')); }catch(_){}
+        try{ if(typeof registerKill==='function') registerKill(this); }catch(_){}
+      }
       try{ if(typeof spawnDebris==='function') spawnDebris(this.wx,this.wz); }catch(_){}
       this.die();
       return 0;
@@ -3371,7 +3375,7 @@ class BlueDragon extends Enemy{
         if(this._cur!==_da){ try{ for(const k in this._act){ if(this._act[k]&&this._act[k]!==_da)this._act[k].stop(); } _da.enabled=true; _da.setEffectiveWeight(1); _da.setLoop(THREE.LoopOnce,1); _da.clampWhenFinished=true; if(!_da.isRunning())_da.play(); this._cur=_da; }catch(_){} }
         if(this._deadT>=_dd){ _da.paused=true; _da.time=Math.max(0,_dd-0.001); }   // clip done -> freeze on the LAST frame
       }
-      if(this._deadT >= _dd*(window._DRAGON_DECON_AT||1.1)){ this.alive=false; const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1);   // plays the death fully, HOLDS the last frame, then beams out from that frozen pose (set _DRAGON_DECON_AT<1 to beam mid-fall)
+      if(this._deadT >= _dd*(window._DRAGON_DECON_AT||1.1)){ this.alive=false; if(this._faction!=='ally'){ const idx=GS.enemies.indexOf(this); if(idx>=0) GS.enemies.splice(idx,1); }   // (ally: GS.allies loop removes it when update returns false). plays the death fully, HOLDS the last frame, then beams out
         const _m=this.mesh;
         try{ if(this._mixer){ this._mixer.timeScale=0; if(_da){ _da.paused=true; _da.time=Math.max(0,_dd-0.001); } } }catch(_){}   // FREEZE the current (last-frame) pose — do NOT stopAllAction(), that snaps the rig back to its bind/idle pose
         try{ if(this._hpBar&&_m){ _m.remove(this._hpBar); this._hpBar=null; } }catch(_){}          // don't beam the HP bar up with the body
@@ -3395,9 +3399,11 @@ class BlueDragon extends Enemy{
         if(this._aggro) this._enter('chase'); break; }
       case 'chase': { if((this._curY||0)>1) this._curY+=(0-this._curY)*Math.min(1,dt*(window._DRAGON_DESCEND||3.5)); else this._curY=0;
         if(!this._aggro){ this._enter('idle'); break; }
+        const _atkOK=(this._faction!=='ally')||!!this._curFoe;   // an ally with nothing to fight just follows its owner
+        if(this._faction==='ally' && !this._curFoe && d<(window._ALLY_FOLLOW_STOP||95)){ this.vx*=0.6; this.vz*=0.6; this._curY=0; break; }   // near the owner, no hostile -> hold station
         if(GS.survivalExp && (this._flyCD||0)<=0 && this._stateT>(window._DRAGON_GROUND_DUR||4) && (this._curY||0)<2){ this._flyCD=(window._DRAGON_FLY_CD||8); this._enter('fly'); break; }   // EXPERIMENTAL: take to the air to hunt + perch on buildings
-        if(d<meleeR && this._meleeCD<=0){ this._meleeCD=window._DRAGON_MELEE_CD||1.1; this._enter('attack_ground'); break; }
-        if(d<airR && d>meleeR+10 && this._airCD<=0 && this._act.attack_air && Math.random()<(window._DRAGON_AIR_CHANCE||0.035)){ this._airCD=window._DRAGON_AIR_CD||3.2; this._enter('attack_air'); break; }
+        if(d<meleeR && this._meleeCD<=0 && _atkOK){ this._meleeCD=window._DRAGON_MELEE_CD||1.1; this._enter('attack_ground'); break; }
+        if(d<airR && d>meleeR+10 && this._airCD<=0 && _atkOK && this._act.attack_air && Math.random()<(window._DRAGON_AIR_CHANCE||0.035)){ this._airCD=window._DRAGON_AIR_CD||3.2; this._enter('attack_air'); break; }
         const spd=(d>airR)?this._runSpd:this._walkSpd;
         this.vx=dx/d*spd; this.vz=dz/d*spd; this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._clampZone();
         const sp=Math.hypot(this.vx,this.vz), ra=this._act.run;
@@ -3415,7 +3421,8 @@ class BlueDragon extends Enemy{
       case 'attack_ground': { this._curY=0; this.vx*=0.6; this.vz*=0.6;
         const dur=this._dur.attack_ground||0.9, hitAt=dur*(window._DRAGON_PUNCH_FRAC||0.45);
         if(!this._didMeleeHit && this._stateT>=hitAt){ this._didMeleeHit=true;
-          if(d<meleeR+18 && player&&player.alive&&player.inv<=0){ try{ spawnDmgNum(player.wx,(player.py||0)+20,player.wz,2,'#66bbff'); }catch(_){} if(typeof playerDie==='function') playerDie(); }
+          if(this._faction==='ally'){ const f=this._curFoe; if(f&&f.alive!==false&&Math.hypot(f.wx-this.wx,f.wz-this.wz)<meleeR+24){ if(f.hit)try{f.hit(window._ALLY_BOSS_MELEE||6, f.wx, f.wz);}catch(_){} if(f.knock)try{f.knock(f.wx-this.wx,f.wz-this.wz,4,0.6,12);}catch(_){} } }
+          else if(d<meleeR+18 && player&&player.alive&&player.inv<=0){ try{ spawnDmgNum(player.wx,(player.py||0)+20,player.wz,2,'#66bbff'); }catch(_){} if(typeof playerDie==='function') playerDie(); }
           ps.burst(this.wx+dx/d*meleeR, this.wz+dz/d*meleeR, this.glow, 12, 90); addTrauma(0.05); }
         if(this._stateT>=dur+0.05){ this._enter(this._aggro?'chase':'idle'); } break; }
       case 'attack_air': { const dur=this._dur.attack_air||1.6, k=this._stateT/dur;
@@ -3457,13 +3464,14 @@ class BlueDragon extends Enemy{
     // ORIGIN = the head bone (world) so it leaves his mouth; fall back to a point above the base
     let ox=this.wx+nx*20, oy=(this._curY||0)+(window._DRAGON_MOUTH_Y||30), oz=this.wz+nz*20;
     if(this._headBone){ try{ const wp=new THREE.Vector3(); this._headBone.getWorldPosition(wp); ox=wp.x+nx*10; oy=wp.y; oz=wp.z+nz*10; }catch(_){}}
-    const tx=(player?player.wx:ox+nx*200), ty=(player?(player.py||0)+16:oy), tz=(player?player.wz:oz+nz*200);
+    const _ally=(this._faction==='ally'), _foe=_ally?this._curFoe:player;   // ally dragons breathe fire AT their hostile, not at you
+    const tx=(_foe?_foe.wx:ox+nx*200), ty=(_foe?((_foe.py||0)+16):oy), tz=(_foe?_foe.wz:oz+nz*200);
     try{ ps.burst(ox, oz, [1,0.5,0.1], 8, 70, oy); if(ps._spawn){ for(let k=0;k<10;k++){ const a=rand(TAU); ps._spawn(ox,oy,oz, Math.cos(a)*rand(20,70), rand(20,80), Math.sin(a)*rand(20,70), 1,0.5,0.1, 0.06+rand(0.04)); } } }catch(_){}   // muzzle flare at the mouth
     try{ if(typeof DragonFireball!=='undefined' && GS.dragonFireballs){
       const N=(window._FIREBALL_COUNT||1), spread=(window._FIREBALL_SPREAD||0.18);
       for(let i=0;i<N;i++){ const off=(N>1?(i-(N-1)/2)*spread:0); const ca=Math.cos(off), sa=Math.sin(off);
         const aimx=ca*(tx-ox)-sa*(tz-oz), aimz=sa*(tx-ox)+ca*(tz-oz);   // rotate the aim a touch per shot for a spread volley
-        GS.dragonFireballs.push(new DragonFireball(ox,oy,oz, ox+aimx, ty, oz+aimz)); }
+        GS.dragonFireballs.push(new DragonFireball(ox,oy,oz, ox+aimx, ty, oz+aimz, _ally)); }
     } }catch(e){ console.warn('fireball spawn',e); }
     if(typeof Audio!=='undefined'){try{ Audio.blip(110,0.35,'sawtooth',0.35,50); }catch(_){}}
   }
@@ -3557,6 +3565,31 @@ window._spawnThreeHeadedDog=function(n=1){
     if(typeof announce==='function') announce('CERBERUS','#ff7a2a');
   }catch(err){ console.warn('spawn dog',err); } }
 };
+// ── ALLY BOSSES — the dragon & three-headed dog summoned by their balls keep the FULL boss AI/animation, but they
+//    hunt enemies + rival bots for you instead of attacking you. _faction='ally' flips targeting + damage in BlueDragon. ──
+function _allyAcquireFoe(){
+  let best=null, bd=(this._aggroR||720);
+  if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._invulnerable)continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<bd){ bd=d; best=e; } }
+  if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false)continue; const d=Math.hypot(b.wx-this.wx,b.wz-this.wz); if(d<bd){ bd=d; best=b; } }
+  return best;
+}
+function _allyBossUpdate(dt){
+  if(!this._dying) this._curFoe=this._allyAcquireFoe();   // re-pick the nearest hostile each frame (null -> just follow the owner)
+  const actor=this._curFoe || ((typeof player!=='undefined'&&player)?player:{wx:this.wx,wz:this.wz,py:9});
+  BlueDragon.prototype.update.call(this, actor, dt);       // both ally bosses ultimately run the dragon state machine
+  return this.alive!==false;                               // GS.allies loop removes it when this goes false
+}
+class AllyDragon extends BlueDragon{
+  constructor(wx,wz){ super(wx,wz,1); this._faction='ally'; this._curFoe=null; this._aggroR=(window._ALLY_DRAGON_AGGRO||760); this.hp=(window._ALLY_DRAGON_HP||90); this.maxHp=this.hp; this.score=0; }
+}
+AllyDragon.prototype._allyAcquireFoe=_allyAcquireFoe;
+AllyDragon.prototype.update=_allyBossUpdate;
+class AllyDog extends ThreeHeadedDog{
+  constructor(wx,wz){ super(wx,wz,1); this._faction='ally'; this._curFoe=null; this._aggroR=(window._ALLY_DOG_AGGRO||700); this.hp=(window._ALLY_DOG_HP||90); this.maxHp=this.hp; this.score=0; }
+}
+AllyDog.prototype._allyAcquireFoe=_allyAcquireFoe;
+AllyDog.prototype.update=_allyBossUpdate;
+window.AllyDragon=AllyDragon; window.AllyDog=AllyDog;
 function _makeBouncerBot(glowHex=0x44aaff){
   const g=new THREE.Group(); const dark=0x081826;
   const eMat=(col,op=0.9)=>new THREE.LineBasicMaterial({color:col,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false});
@@ -13106,8 +13139,13 @@ function _detonateItem(type,x,z,od){
       if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(700,0.12,'sawtooth',0.16,1300);
     }
     else if(type==='droid'||type==='dog'||type==='dragon'){   // SUMMON BALL — unleashes a creature that fights FOR you (Poke-ball style)
-      const sp={droid:'droideka', dog:'three_headed_dog', dragon:'blue_dragon'}[type];   // droid ball = the rolling droideka
-      if(typeof AllyBot!=='undefined' && GS.allies && GS.allies.length<(window._ALLY_CAP||12)){ try{ GS.allies.push(new AllyBot(x,z,sp)); }catch(_){} }
+      if(GS.allies && GS.allies.length<(window._ALLY_CAP||12)){
+        try{
+          if(type==='dragon' && typeof AllyDragon!=='undefined'){ const a=new AllyDragon(x,z); a.addToScene(); if(a.mesh)a.mesh.visible=true; GS.allies.push(a); }   // full boss AI: flies, breathes fire, claws — at enemies
+          else if(type==='dog' && typeof AllyDog!=='undefined'){ const a=new AllyDog(x,z); a.addToScene(); if(a.mesh)a.mesh.visible=true; GS.allies.push(a); }   // full Cerberus AI: chases + maul-bites enemies
+          else if(typeof AllyBot!=='undefined'){ GS.allies.push(new AllyBot(x,z,'droideka')); }   // droid ball = the rolling droideka
+        }catch(_){ try{ if(typeof AllyBot!=='undefined') GS.allies.push(new AllyBot(x,z,{droid:'droideka',dog:'three_headed_dog',dragon:'blue_dragon'}[type])); }catch(__){} }
+      }
       const def=_ITEMDEF[type]||_ITEMDEF.drone, c=new THREE.Color(def.col);
       if(typeof ps!=='undefined'){ ps.ring(x,z,[c.r,c.g,c.b],22,150); ps.burst(x,z,[c.r,c.g,c.b],20,170); }
       if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(type==='dragon'?180:type==='dog'?220:360,0.16,'sawtooth',0.2,type==='dragon'?900:700);
