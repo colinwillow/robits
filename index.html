@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB65</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB66</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11383,11 +11383,18 @@ class Player{
         const horiz=Math.hypot(tx-spawnX,tz-spawnZ)||1; _droneVY=(tyy-y0)/Math.max(horiz/bspd,1e-4); _useDroneVY=true;
       }
     }
-    // ── VERTICAL AIM-ASSIST: find the nearest enemy near this shot's line and the vy needed to meet its height, so point-blank shots stop sailing over short enemies (spiders). Horizontal aim is untouched. ──
+    // ── VERTICAL AIM-ASSIST: find the nearest thing near this shot's line and bias vy to MEET its height, so point-blank
+    //    shots stop sailing over short enemies — AND over barrels/crates (the muzzle sits high, so a flat shot skims the top). Horizontal aim is untouched. ──
     let _assistVY=null;
-    if(window._AIM_ASSIST_V!==false && typeof GS!=='undefined' && GS.enemies && GS.enemies.length){
+    if(window._AIM_ASSIST_V!==false){
       const cax=Math.cos(a), caz=Math.sin(a); let bestT=null,bestPerp=1e9,bestEY=9;
-      for(const e of GS.enemies){ if(!e||!e.alive||e._captured)continue; const ex=e.wx-spawnX, ez=e.wz-spawnZ; const t=ex*cax+ez*caz; if(t<8||t>(window._AIM_ASSIST_R||300))continue; const perp=Math.abs(-ex*caz+ez*cax); if(perp<((e.size||12)*0.7+(window._AIM_ASSIST_CONE||30)) && perp<bestPerp){ bestPerp=perp; bestT=t; bestEY=(e.mesh?e.mesh.position.y:9); } }
+      const _consider=(tx,tz,ty,sz)=>{ const ex=tx-spawnX, ez=tz-spawnZ; const t=ex*cax+ez*caz; if(t<8||t>(window._AIM_ASSIST_R||300))return; const perp=Math.abs(-ex*caz+ez*cax); if(perp<((sz||12)*0.7+(window._AIM_ASSIST_CONE||30)) && perp<bestPerp){ bestPerp=perp; bestT=t; bestEY=ty; } };
+      if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||!e.alive||e._captured)continue; _consider(e.wx,e.wz,(e.mesh?e.mesh.position.y:9),(e.size||12)); }
+      if(window._AIM_ASSIST_OBJ!==false){   // also lock vy onto barrels + crates so you can actually shoot them
+        if(window._crates)for(const c of window._crates){ if(c)_consider(c.x,c.z,(c.y!=null?c.y:12),16); }
+        if(window._itemPU)for(const p of window._itemPU){ if(p&&p.type==='barrel'&&(p.settled||p._lying))_consider(p.x,p.z,(p.y||9)+6,(window._BARREL_SIZE||11)+2); }
+        if(window._itemShots)for(const s of window._itemShots){ if(s&&s.type==='barrel')_consider(s.x,s.z,(s.y||9),(window._BARREL_SIZE||11)+2); }
+      }
       if(bestT!=null){ const ty=bestEY+(window._AIM_ASSIST_YOFF||4); _assistVY=(ty-y0)/Math.max(bestT/bspd,1e-4); }   // vy so the bullet descends/rises to the target height over its horizontal flight
     }
     const fire=(ang,kind)=>{
