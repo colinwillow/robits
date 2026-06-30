@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB62</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB63</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3407,14 +3407,17 @@ class BlueDragon extends Enemy{
       case 'chase': { if((this._curY||0)>1) this._curY+=(0-this._curY)*Math.min(1,dt*(window._DRAGON_DESCEND||3.5)); else this._curY=0;
         if(!this._aggro){ this._enter('idle'); break; }
         const _atkOK=(this._faction!=='ally')||!!this._curFoe;   // an ally with nothing to fight just follows its owner
-        if(this._faction==='ally' && !this._curFoe && d<(window._ALLY_FOLLOW_STOP||95)){ this.vx*=0.6; this.vz*=0.6; this._curY=0; break; }   // near the owner, no hostile -> hold station
-        if(GS.survivalExp && (this._flyCD||0)<=0 && this._stateT>(window._DRAGON_GROUND_DUR||4) && (this._curY||0)<2){ this._flyCD=(window._DRAGON_FLY_CD||8); this._enter('fly'); break; }   // EXPERIMENTAL: take to the air to hunt + perch on buildings
-        if(d<meleeR && this._meleeCD<=0 && _atkOK){ this._meleeCD=window._DRAGON_MELEE_CD||1.1; this._enter('attack_ground'); break; }
-        if(d<airR && d>meleeR+10 && this._airCD<=0 && _atkOK && this._act.attack_air && Math.random()<(window._DRAGON_AIR_CHANCE||0.035)){ this._airCD=window._DRAGON_AIR_CD||3.2; this._enter('attack_air'); break; }
-        const spd=(d>airR)?this._runSpd:this._walkSpd;
-        this.vx=dx/d*spd; this.vz=dz/d*spd; this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._clampZone();
+        const _hold=(this._faction==='ally' && !this._curFoe && d<(window._ALLY_FOLLOW_STOP||95));   // near owner, nothing to fight -> hold position (and idle below, NOT run-in-place)
+        if(!_hold){
+          if(GS.survivalExp && (this._flyCD||0)<=0 && this._stateT>(window._DRAGON_GROUND_DUR||4) && (this._curY||0)<2){ this._flyCD=(window._DRAGON_FLY_CD||8); this._enter('fly'); break; }   // EXPERIMENTAL: take to the air to hunt + perch on buildings
+          if(d<meleeR && this._meleeCD<=0 && _atkOK){ this._meleeCD=window._DRAGON_MELEE_CD||1.1; this._enter('attack_ground'); break; }
+          if(d<airR && d>meleeR+10 && this._airCD<=0 && _atkOK && this._act.attack_air && Math.random()<(window._DRAGON_AIR_CHANCE||0.035)){ this._airCD=window._DRAGON_AIR_CD||3.2; this._enter('attack_air'); break; }
+          const spd=(d>airR)?this._runSpd:this._walkSpd;
+          this.vx=dx/d*spd; this.vz=dz/d*spd; this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._clampZone();
+        } else { this.vx*=0.6; this.vz*=0.6; this._curY=0; }
+        // ANIM — ALWAYS driven by ACTUAL ground speed: run only while genuinely covering ground; idle whenever stationary (held / blocked / stuck). Never run-in-place.
         const ra=this._act.run, real=(this._realSpd||0);
-        if(real < (window._BOSS_RUN_MIN||16)){   // not actually moving (held station / blocked / stuck) -> play IDLE, never run-in-place
+        if(real < (window._BOSS_RUN_MIN||16)){
           if(this._act.idle && this._cur!==this._act.idle) this._play('idle',{fade:0.22});
         } else if(ra){ ra.timeScale=Math.max(0.5, real/(window._DRAGON_RUN_REF||150));
           if(this._curName!=='run'){ this._play('run'); }
@@ -8112,10 +8115,10 @@ class AllyBot{
     const y0=this.py+12, sx=this.wx, sz=this.wz, dx=TX-sx, dy=(TY-y0), dz=TZ-sz, spd=560;
     if(this._atkType==='gun'){                       // DROID — twin laser guns, fired straight at the target
       for(const off of [-0.05,0.05]){ const ca=Math.cos(off),sa=Math.sin(off), ndx=dx*ca-dz*sa, ndz=dx*sa+dz*ca, nd=Math.hypot(ndx,dy,ndz)||1;
-        GS.bullets.push(new Bullet(sx,sz,ndx/nd*spd,ndz/nd*spd,'laser',y0,dy/nd*spd,true)); }
+        const b=new Bullet(sx,sz,ndx/nd*spd,ndz/nd*spd,'laser',y0,dy/nd*spd,true); b.dmg=(window._ALLY_GUN_DMG!=null?window._ALLY_GUN_DMG:1); b.pierce=0; GS.bullets.push(b); }   // dmg 1 (was laser's 2) + no pierce -> with shared-HP scaling it's ~3 hits to drop a fighter, not a one-shot line-clear
       if(typeof ps!=='undefined')ps.ring(sx,sz,[1,0.6,0.2],3,28); if(typeof Audio!=='undefined')Audio.blip(440,0.05,'square',0.08,920);
     } else {                                         // GHOST — slow homing spirit orb
-      const d=Math.hypot(dx,dy,dz)||1; GS.bullets.push(new Bullet(sx,sz,dx/d*spd*0.7,dz/d*spd*0.7,'homing',y0,dy/d*spd*0.7,true));
+      const d=Math.hypot(dx,dy,dz)||1; const b=new Bullet(sx,sz,dx/d*spd*0.7,dz/d*spd*0.7,'homing',y0,dy/d*spd*0.7,true); b.dmg=(window._ALLY_GUN_DMG!=null?window._ALLY_GUN_DMG:1); GS.bullets.push(b);
       if(typeof ps!=='undefined')ps.spark(sx,sz,[0.5,1,0.92],y0); if(typeof Audio!=='undefined')Audio.blip(540,0.08,'sine',0.12,740);
     }
   }
