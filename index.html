@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB83</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB84</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -31283,12 +31283,16 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
         const H=Math.max(mx.y-mn.y,0.001);
         const factor=(window._WS_SCALE&&window._WS_SCALE[charKey]!=null)?window._WS_SCALE[charKey]:1;
         const s=(WS_TH/H)*factor; model.scale.setScalar(s);
-        // horizontal spin pivot. Cyborg's upright-fix (+90° X on her rig) swings her HIPS bone forward off her body,
-        // so for her use the FEET (ground stance centre, rotation-invariant); the other three pivot cleanly on the hips.
-        const _fmid=()=>{ if(!(S.footL&&S.footR))return null; const a=new THREE.Vector3(),b=new THREE.Vector3(); S.footL.getWorldPosition(a); S.footR.getWorldPosition(b); return a.add(b).multiplyScalar(0.5); };
-        const pv=new THREE.Vector3(); let f=null;
-        if(charKey==='cybergirl' && (f=_fmid())){ pv.copy(f); }
-        else { const hipsB=bones['mixamorig_Hips']||find('','Hips')||find('','Spine'); if(hipsB){ hipsB.getWorldPosition(pv); } else if(f=_fmid()){ pv.copy(f); } else { pv.set((mn.x+mx.x)*0.5,0,(mn.z+mx.z)*0.5); } }
+        // horizontal spin pivot. The other three pivot cleanly on the hips. The cyborg's upright-fix (+90° X on her
+        // rig) leaves her HIPS bone sitting in front of her body while the full bone-box (with the ponytail) sits
+        // behind — so for her use the TORSO-BONE CENTROID (hips + spine chain + shoulders + upper legs), which lands
+        // on her actual middle and ignores the ponytail.
+        const _avg=(names)=>{ const acc=new THREE.Vector3(),tmp=new THREE.Vector3(); let c=0; for(const nm of names){ const b=bones['mixamorig_'+nm]; if(b){ b.getWorldPosition(tmp); acc.add(tmp); c++; } } return c?acc.multiplyScalar(1/c):null; };
+        const pv=new THREE.Vector3(); let est=null;
+        if(charKey==='cybergirl') est=_avg(['Hips','Spine','Spine1','Spine2','Neck','Head','LeftUpLeg','RightUpLeg','LeftShoulder','RightShoulder']);
+        if(!est){ const hipsB=bones['mixamorig_Hips']||find('','Hips')||find('','Spine'); if(hipsB){ est=new THREE.Vector3(); hipsB.getWorldPosition(est); } }
+        if(!est) est=new THREE.Vector3((mn.x+mx.x)*0.5,0,(mn.z+mx.z)*0.5);
+        pv.copy(est);
         const cy=(mn.y+mx.y)*0.5;
         S.basePos={x:-pv.x*s,y:-cy*s,z:-pv.z*s}; S.modelScale=s;
         const po=(window._WS_PIVOT&&window._WS_PIVOT[charKey])||null;   // per-character manual spin-pivot nudge (world units), tunable live
