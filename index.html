@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB74</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB75</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9469,6 +9469,8 @@ class DroneBuddy{
     this.p=new THREE.Vector3(x,(window._DRONE_SPAWN_Y!=null?window._DRONE_SPAWN_Y:8),z);   // emerge low (from the ball) then lift to flying height via the drift ease
     const col=(color!=null?color:(window._DRONE_COLOR!=null?window._DRONE_COLOR:0x27c8ff));
     this.col=col; this._spin=[]; this._gunSpin=0; this._deployT=0; this._tmp=new THREE.Vector3();
+    this._isDrone=true; this.alive=true; this.hp=(window._DRONE_HP||3); this.maxHp=this.hp; this.size=10;   // it dodges your fire but CAN be shot down; punt it and it zips off + recovers
+    this._dodgeVx=0; this._dodgeVz=0; this._puntVx=0; this._puntVz=0; this._puntVy=0;
     this._muzzleLocal=new THREE.Vector3(9.2,-2.6,0);
     this._build(col);
     this.mesh.position.copy(this.p); this.mesh.scale.setScalar(0.02); scene.add(this.mesh);   // starts folded -> unfolds in update (transform-in)
@@ -9537,6 +9539,21 @@ class DroneBuddy{
       let _bx=this.p.x-_pcx, _by=this.p.y-_pcy, _bz=this.p.z-_pcz, _bl=Math.hypot(_bx,_by,_bz);
       if(_bl<_cr){ if(_bl<1e-3){ _bx=0; _by=1; _bz=0; _bl=1; } const _s=_cr/_bl; this.p.x=_pcx+_bx*_s; this.p.y=_pcy+_by*_s; this.p.z=_pcz+_bz*_s; }   // push to the sphere shell (biases up since it normally hovers above)
     }
+    // ── DODGE your fire (it doesn't like getting shot), take the occasional hit, and recover from a punt ──
+    if(typeof GS!=='undefined'&&GS.bullets&&GS.bullets.length){
+      for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b||b._fromBot)continue; const bw=(b.wx!=null?b.wx:b.x),bz=(b.wz!=null?b.wz:b.z); if(bw==null)continue; const by=(b.y!=null?b.y:9), ddx=this.p.x-bw, ddz=this.p.z-bz, dh=Math.hypot(ddx,ddz);
+        if(dh<(window._DRONE_HIT_R||13) && Math.abs(by-this.p.y)<18){ this.hit(b.dmg||1); if(b.remove)b.remove(); GS.bullets.splice(bi,1); continue; }   // a shot that actually connects -> it's hurt
+        if(window._DRONE_DODGE!==false && dh<(window._DRONE_DODGE_R||64) && Math.abs(by-this.p.y)<(window._DRONE_DODGE_DY||44)){ const bvx=b.vx||0,bvz=b.vz||0,bl=Math.hypot(bvx,bvz)||1, perpx=-bvz/bl, perpz=bvx/bl, side=((ddx*perpx+ddz*perpz)>=0?1:-1), K=(window._DRONE_DODGE_K||140)*(1-dh/(window._DRONE_DODGE_R||64)); this._dodgeVx+=perpx*side*K; this._dodgeVz+=perpz*side*K; }   // jink sideways out of the line of fire
+      }
+    }
+    // MELEE / ram punt -> zip away + up (discombobulated), then the hover ease pulls it back together
+    if(player){ const ud=player.model&&player.model.userData, melee=!!(ud&&ud._meleeTimer>0), pspd=Math.hypot(player.vx||0,player.vz||0), pd=Math.hypot(player.wx-this.p.x,player.wz-this.p.z), pdy=Math.abs((player.py||0)+16-this.p.y);
+      if((this._dronePuntCD||0)<=0 && pd<((this.size||10)+(window._DRONE_PUNT_REACH||30)) && pdy<(window._DRONE_PUNT_DY||40) && (melee||pspd>(window._DRONE_RAM_SPD||150))){ const l=pd||1, K=melee?(window._DRONE_MELEE_KNOCK||520):(window._DRONE_BODY_KNOCK||300); this._puntVx=(this.p.x-player.wx)/l*K; this._puntVz=(this.p.z-player.wz)/l*K; this._puntVy=(melee?(window._DRONE_PUNT_LIFT||260):140); this._dronePuntCD=0.3; if(typeof ps!=='undefined')ps.ring(this.p.x,this.p.z,[0.5,0.95,1],10,70,this.p.y); } }
+    if((this._dronePuntCD||0)>0)this._dronePuntCD-=dt;
+    this.p.x+=((this._dodgeVx||0)+(this._puntVx||0))*dt; this.p.z+=((this._dodgeVz||0)+(this._puntVz||0))*dt; this.p.y+=(this._puntVy||0)*dt;
+    this._dodgeVx*=Math.pow(0.015,dt); this._dodgeVz*=Math.pow(0.015,dt);
+    this._puntVx*=Math.pow(0.12,dt); this._puntVz*=Math.pow(0.12,dt); this._puntVy*=Math.pow(0.1,dt);
+    if(!this.alive){ if(typeof ps!=='undefined'){ps.burst(this.p.x,this.p.z,[0.5,0.95,1],22,140,this.p.y); ps.ring(this.p.x,this.p.z,[0.5,0.95,1],18,90,this.p.y);} return false; }
     this.wx=this.p.x; this.wz=this.p.z; this.mesh.position.copy(this.p);
     const boost=(this._deployT<1?2.4:1);   // rotors spin up hard during deploy
     for(const it of this._spin){ it.mesh.rotation[it.axis]+=dt*it.spd*boost; }
@@ -9563,6 +9580,8 @@ class DroneBuddy{
     if(typeof ps!=='undefined')ps.spark(mz.x,mz.z,[1,0.9,0.4],mz.y);
     if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(950,0.04,'square',0.09,1600);}catch(_){}
   }
+  hit(dmg){ if(this.hp==null)this.hp=this.maxHp||3; this.hp-=(dmg||1); if(typeof ps!=='undefined')ps.spark(this.p.x,this.p.z,[0.6,0.95,1],this.p.y); if(this.hp<=0)this.alive=false; return 0; }
+  knock(dx,dz,mag){ const l=Math.hypot(dx,dz)||1, K=(window._DRONE_MELEE_KNOCK||520)*Math.max(1,mag||1); this._puntVx=(dx/l)*K; this._puntVz=(dz/l)*K; this._puntVy=(window._DRONE_PUNT_LIFT||260); }
   remove(){ if(this.mesh){ scene.remove(this.mesh); this.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } }
 }
 window.DroneBuddy=DroneBuddy;
@@ -11495,14 +11514,14 @@ class Player{
     let _assistVY=null;
     if(window._AIM_ASSIST_V!==false){
       const cax=Math.cos(a), caz=Math.sin(a); let bestT=null,bestPerp=1e9,bestEY=9;
-      const _consider=(tx,tz,ty,sz)=>{ const ex=tx-spawnX, ez=tz-spawnZ; const t=ex*cax+ez*caz; if(t<8||t>(window._AIM_ASSIST_R||300))return; const perp=Math.abs(-ex*caz+ez*cax); if(perp<((sz||12)*0.7+(window._AIM_ASSIST_CONE||30)) && perp<bestPerp){ bestPerp=perp; bestT=t; bestEY=ty; } };
+      const _consider=(tx,tz,ty,sz)=>{ const ex=tx-spawnX, ez=tz-spawnZ; const t=ex*cax+ez*caz; if(t<8||t>(window._AIM_ASSIST_R||420))return; const perp=Math.abs(-ex*caz+ez*cax); if(perp<((sz||12)*0.7+(window._AIM_ASSIST_CONE||42)) && perp<bestPerp){ bestPerp=perp; bestT=t; bestEY=ty; } };
       if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||!e.alive||e._captured)continue; _consider(e.wx,e.wz,(e.mesh?e.mesh.position.y:9),(e.size||12)); }
       if(window._AIM_ASSIST_OBJ!==false){   // also lock vy onto barrels + crates so you can actually shoot them
         if(window._crates)for(const c of window._crates){ if(c)_consider(c.x,c.z,(c.y!=null?c.y:12),16); }
         if(window._itemPU)for(const p of window._itemPU){ if(p&&p.type==='barrel'&&(p.settled||p._lying))_consider(p.x,p.z,(p.y||9)+6,(window._BARREL_SIZE||11)+2); }
         if(window._itemShots)for(const s of window._itemShots){ if(s&&s.type==='barrel')_consider(s.x,s.z,(s.y||9),(window._BARREL_SIZE||11)+2); }
       }
-      if(bestT!=null){ const ty=bestEY+(window._AIM_ASSIST_YOFF||4); _assistVY=(ty-y0)/Math.max(bestT/bspd,1e-4); }   // vy so the bullet descends/rises to the target height over its horizontal flight
+      if(bestT!=null){ const ty=bestEY+(window._AIM_ASSIST_YOFF!=null?window._AIM_ASSIST_YOFF:0); _assistVY=(ty-y0)/Math.max(bestT/bspd,1e-4); }   // vy so the bullet descends/rises to the target height (aim at its base by default -> stops sailing over short spiders)
     }
     const fire=(ang,kind)=>{
       if(_droneAimDir){                                          // DRONE LOCK: straight at the selected target in 3D, regardless of the drone's position
@@ -13747,8 +13766,8 @@ function _makePUModel(type){
 function _spawnPU(x,y,z,type,vx,vy,vz){
   const def=_ITEMDEF[type]||_ITEMDEF.nuke;
   const g=new THREE.Group();
-  const cube=_makePUModel(type); cube.scale.setScalar(type==='barrel'?(window._BARREL_PU_SCALE||1.3):(window._PU_SCALE||1.4)); g.add(cube);   // power-ups roll out at near full size (bigger than before)
-  const ring=new THREE.Mesh(new THREE.RingGeometry(18,22,40), new THREE.MeshBasicMaterial({color:def.glow,transparent:true,opacity:0.0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=-6.5; g.add(ring);
+  const cube=_makePUModel(type); cube.scale.setScalar(type==='barrel'?(window._BARREL_PU_SCALE||1.3):(window._PU_SCALE||1.4)); if(type==='barrel'){ cube.position.y=(window._BARREL_LIFT!=null?window._BARREL_LIFT:(window._BARREL_SIZE||11)*2.55*0.5*(window._BARREL_PU_SCALE||1.3)); } g.add(cube);   // lift the barrel so its BASE sits on the floor (was sunk ~half-way through the grid)
+  const ring=new THREE.Mesh(new THREE.RingGeometry(18,22,40), new THREE.MeshBasicMaterial({color:def.glow,transparent:true,opacity:0.0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=(type==='barrel'?0.6:-6.5); g.add(ring);   // barrel ring sits flat on the ground at its base
   g.position.set(x,y,z); scene.add(g);
   window._itemPU.push({grp:g,cube,ring,x,y,z,vx,vy,vz,type,settled:false,t:Math.random()*6});
 }
@@ -13812,7 +13831,7 @@ function _updatePU(dt){
   let near=null,nd=1e9;
   for(const p of A){ p.t+=dt;
     if(GS.zone===-19){ const C=(window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{hx:560,hz:560,cham:130})); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9), mx=C.hx-ch-12, mz=C.hz-ch-12; if(p.x>mx){p.x=mx;if(p.vx>0)p.vx*=-0.3;} else if(p.x<-mx){p.x=-mx;if(p.vx<0)p.vx*=-0.3;} if(p.z>mz){p.z=mz;if(p.vz>0)p.vz*=-0.3;} else if(p.z<-mz){p.z=-mz;if(p.vz<0)p.vz*=-0.3;} }   // keep loot on the FLAT floor (inside the chamfer corners) so it can't land on the curve and fall through
-    if(!p.settled){ p.vy-=360*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.z+=p.vz*dt; if(p.y<=7){ p.y=7; if(p.vy<-30){ p.vy*=-0.4; p.vx*=0.65; p.vz*=0.65; } else { p.vy=0; } p.vx*=0.82; p.vz*=0.82; if(Math.abs(p.vy)<14&&Math.hypot(p.vx,p.vz)<8){ p.settled=true; p.vx=p.vy=p.vz=0; p.y=7; if(p.cube){ if(p._model&&p._loot){ p._easeUp=true; } else { p.cube.quaternion.identity();p.cube.rotation.set(0,0,0); } } } } p.grp.position.set(p.x,p.y,p.z);
+    if(!p.settled){ const _ry=(p.type==='barrel'?(window._BARREL_REST_Y!=null?window._BARREL_REST_Y:1.5):7); p.vy-=360*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.z+=p.vz*dt; if(p.y<=_ry){ p.y=_ry; if(p.vy<-30){ p.vy*=-0.4; p.vx*=0.65; p.vz*=0.65; } else { p.vy=0; } p.vx*=0.82; p.vz*=0.82; if(Math.abs(p.vy)<14&&Math.hypot(p.vx,p.vz)<8){ p.settled=true; p.vx=p.vy=p.vz=0; p.y=_ry; if(p.cube){ if(p._model&&p._loot){ p._easeUp=true; } else { p.cube.quaternion.identity();p.cube.rotation.set(0,0,0); } } } } p.grp.position.set(p.x,p.y,p.z);
       const _hsp=Math.hypot(p.vx,p.vz);
       if(_hsp>3){ const _ax=new THREE.Vector3(-p.vz/_hsp,0,p.vx/_hsp); p._rollAng=(p._rollAng||0)+(_hsp/(window._LOOT_ROLL_R||9))*dt; p.cube.quaternion.setFromAxisAngle(_ax,p._rollAng); }   // ROLL forward in its travel direction as it spills + rolls out of the box
       else { p.cube.rotation.y+=dt*2.2; }
@@ -13836,7 +13855,8 @@ function _updatePU(dt){
     if(player&&!player._carryPayload&&(p.settled||p.type==='barrel')&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z), dy=Math.abs((player.py||0)-(p.y||0)); if(d<(window._GRAB_R_ITEM||60)&&dy<(window._GRAB_Y_ITEM||60)&&d<nd){nd=d;near=p;} }   // barrels are grabbable even while still rolling — Y gate so you can't grab floor loot while standing on the flipped ceiling
   }
   window._nearOrb=near;
-  for(const p of A){ const on=(p===near); if(p.ring){ const tgt=on?(0.5+Math.sin(p.t*5)*0.3):0.0; p.ring.material.opacity+=(tgt-p.ring.material.opacity)*Math.min(1,dt*10); const sc=on?(1+Math.sin(p.t*5)*0.06):1; p.ring.scale.set(sc,sc,sc); } }
+  for(const p of A){ const grbl=(player&&!player._carryPayload&&!p._loot&&(p.settled||p.type==='barrel')); const _pd=grbl?Math.hypot(player.wx-p.x,player.wz-p.z):1e9; const on=grbl && _pd<(window._GRAB_R_ITEM||60);   // PERSISTENT: any grabbable within reach shows its ring (not just the single nearest)
+    if(p.ring){ const tgt=on?(0.5+Math.sin(p.t*5)*0.3):0.0; p.ring.material.opacity+=(tgt-p.ring.material.opacity)*Math.min(1,dt*10); const sc=on?(1+Math.sin(p.t*5)*0.06):1; p.ring.scale.set(sc,sc,sc); } }
 }
 
 // ── HOVERBOARD mount / dismount ──
@@ -17061,7 +17081,7 @@ function _separateEntities(){
   if(window._ENTITY_SEP===false) return;
   const B=[];
   if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(b&&b.alive!==false)B.push({o:b,r:(b.size||18)*0.5+(window._SEP_PAD||6),m:!(b._launched)}); }
-  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(a&&(a.hp==null||a.hp>0)){ if(a._isDroidekaAlly)continue;   /* the droid ball is meant to be bumped/grabbed/punted, not pushed away — keep it out of separation so you can walk right up to it */ B.push({o:a,r:(a.size||14)+(window._SEP_PAD||6),m:true}); } }
+  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(a&&(a.hp==null||a.hp>0)){ if(a._isDroidekaAlly||a._isDrone)continue;   /* the droid ball + the drone are meant to be passed through / bumped / punted, not pushed away */ B.push({o:a,r:(a.size||14)+(window._SEP_PAD||6),m:true}); } }
   if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.alive!==false)B.push({o:GS_trainingDummy,r:16,m:false});
   if(typeof player!=='undefined'&&player&&player.alive&&!player._wallClimb&&!player._hang&&!player._ballActive)B.push({o:player,r:13,m:true});
   for(let i=0;i<B.length;i++)for(let j=i+1;j<B.length;j++){
@@ -21113,7 +21133,7 @@ function loop(ts){ requestAnimationFrame(loop);
         }
       }
       // YOUR OWN summons are killable by your fire too (friendly fire). Balled droidekas are shielded (their shell) -> the punt handles those bullets.
-      if(window._PLAYER_KILLS_ALLIES!==false && GS.allies && GS.allies.length && GS.bullets && GS.bullets.length){ for(let ai=GS.allies.length-1;ai>=0;ai--){ const a=GS.allies[ai]; if(!a||a.alive===false)continue; if(a._open!=null && a._open<0.5)continue;
+      if(window._PLAYER_KILLS_ALLIES!==false && GS.allies && GS.allies.length && GS.bullets && GS.bullets.length){ for(let ai=GS.allies.length-1;ai>=0;ai--){ const a=GS.allies[ai]; if(!a||a.alive===false)continue; if(a._open!=null && a._open<0.5)continue; if(a._isDrone)continue;   /* the drone dodges + handles its own bullet hits */
         for(let j=GS.bullets.length-1;j>=0;j--){ const b=GS.bullets[j]; if(!b||b._fromBot)continue; const bw=(b.wx!=null?b.wx:b.x),bz=(b.wz!=null?b.wz:b.z); if(bw==null)continue; const ay=(a.py!=null?a.py:(a._cy!=null?a._cy:9));
           if(Math.hypot(bw-a.wx,bz-a.wz)<((a.size||14)*0.7+10) && Math.abs(((b.y!=null?b.y:9))-(ay+10))<48){ if(a.hit)try{a.hit(b.dmg||1);}catch(_){} if(b.remove)b.remove(); GS.bullets.splice(j,1); break; } } } }
       if(typeof _enemiesDamageAllies==='function') _enemiesDamageAllies(dt);   // enemies trade blows with your summons
