@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB76</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB77</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -7755,19 +7755,24 @@ class DropBomb{
   detonate(){
     this.dead=true;
     const BLAST_R=120, BLAST_R2=BLAST_R*BLAST_R;
+    if(typeof _blastBreakContainers==='function') _blastBreakContainers(this.wx,this.wz,BLAST_R);   // pop barrels + smash boxes in the blast
     // BOT — explosive launch FIRST (before the enemy loop, which can throw). Knock BEFORE hit, light damage so they FLY instead of vanishing.
     try{ if(typeof GS_bots!=='undefined'){ let _bhit=0; for(const _bot of GS_bots){ if(_bot&&_bot.alive){ const _bbd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_bbd<BLAST_R){ const _bsN=Math.max(0,(BLAST_R-_bbd)/BLAST_R); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 2+_bsN*2, 480+_bsN*220, 30+_bsN*20); _bot.hit(Math.max(1,Math.ceil(_bsN*2+1))); _bhit++; } } } if(_bhit&&typeof announce==='function') announce('DIRECT HIT!','#ff9933'); } }catch(_e){ console.warn('bomb->bot launch failed',_e); }
     // Fire burst — multiple layers of orange/yellow/white particles
-    ps.burst(this.wx,this.wz,[1,0.9,0.2],50,200);   // bright yellow core
-    ps.burst(this.wx,this.wz,[1,0.4,0.05],35,160);  // orange mid
-    ps.burst(this.wx,this.wz,[1,0.15,0],20,120);    // deep red outer
-    ps.ring(this.wx,this.wz,[1,0.8,0.1],30,200);    // fire ring
-    ps.ring(this.wx,this.wz,[1,1,1],15,140);         // white flash ring
-    // Strong grid shockwave
-    grid.shock(this.wx,this.wz,10);
-    grid.push(this.wx,this.wz,-8,180);
-    grid.pulse(0.6); _physTextBlast(this.wx,this.wz,BLAST_R*0.5);
-    if(GRID_SHEETS.length) gridSheetsBlast(this.wx,this.y,this.wz,12,BLAST_R||150);
+    ps.burst(this.wx,this.wz,[1,0.9,0.2],70,260);   // bright yellow core
+    ps.burst(this.wx,this.wz,[1,0.4,0.05],50,220);  // orange mid
+    ps.burst(this.wx,this.wz,[1,0.15,0],30,170);    // deep red outer
+    ps.ring(this.wx,this.wz,[1,0.8,0.1],40,BLAST_R*1.8);    // fire ring
+    ps.ring(this.wx,this.wz,[1,1,1],22,BLAST_R*1.2);         // white flash ring
+    // ── visible expanding SHOCKWAVE — ~quarter the nuke (fireball flash + leading/trailing ground rings + dust) ──
+    if(typeof _spawnBlastShock==='function') _spawnBlastShock(this.wx,this.y,this.wz,BLAST_R,0xffb060);
+    // Strong grid shockwave (nuke-scaled down ~1/4)
+    grid.shock(this.wx,this.wz,(window._BOMB_SHOCK||6));
+    grid.shock(this.wx,this.wz,(window._BOMB_SHOCK||6)*0.55);
+    grid.push(this.wx,this.wz,-9,BLAST_R*2.0);
+    grid.pulse(0.6); _physTextBlast(this.wx,this.wz,BLAST_R*0.6);
+    if(GRID_SHEETS.length){ const P=(window._BOMB_SHEET_POWER||7), SR=BLAST_R*1.6; gridSheetsBlast(this.wx,this.y,this.wz,P,SR);
+      for(const rf of [0.5,1.0]){ const rr=BLAST_R*rf, nn=10; for(let k=0;k<nn;k++){ const a=(k/nn)*TAU+rf; try{ gridSheetsBlast(this.wx+Math.cos(a)*rr,9,this.wz+Math.sin(a)*rr,P*Math.max(0.3,1-rf*0.5),SR*0.6); }catch(_){} } } }
     // ── ROBIT BALL: blast launches the ball in full 3D, proportional to proximity (+ upward pop) ──
     try{ if((GS.zone===-19||(typeof _SE!=='undefined'&&_SE.cube&&_SE.cube.state==='up')) && typeof _cubeBall!=='undefined' && _cubeBall){
       const bx=_cubeBall.pos.x-this.wx, by=_cubeBall.pos.y-(this.y||0), bz=_cubeBall.pos.z-this.wz, bd=Math.hypot(bx,by,bz)||1, BR=(window._BALL_BOMB_R||180);
@@ -7779,7 +7784,7 @@ class DropBomb{
     Audio.blip(60,0.9,'sawtooth',0.5,20);
     Audio.blip(120,0.5,'sine',0.3,40);
     Audio.noise(0.5,0.4,600);
-    addTrauma(0.25); slowmo(0.3,30); flashScreen(0.65);
+    addTrauma(0.34); slowmo(0.32,32); flashScreen(0.78); if(typeof punchZoom==='function')punchZoom(0.55);
     // Bomb blast launches player proportional to 3D proximity — no effect if far above
     if(player&&player.alive){
       const pdXZ=Math.hypot(player.wx-this.wx,player.wz-this.wz);
@@ -8646,6 +8651,9 @@ class PlasmaLightning{
     if(typeof GS_bots!=='undefined') for(const b of GS_bots){ if(b&&b.alive) _tg.push({x:b.wx,y:(b.py||0)+9,z:b.wz,r:(b.size||14)*0.5,kind:'bot',ref:b}); }
     if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS.zone===-2){ const dm=GS_trainingDummy; _tg.push({x:dm.wx,y:(dm.py||0)+14,z:dm.wz,r:18,kind:'dummy',ref:dm}); }
     if(typeof MP!=='undefined'&&MP.active&&MP.players){ for(const id in MP.players){ const rp=MP.players[id]; if(rp&&rp.mesh){ _tg.push({x:rp.mesh.position.x,y:rp.mesh.position.y+14,z:rp.mesh.position.z,r:15,kind:'mp',ref:rp,id}); } } }
+    // barrels + crates are projectile-hittable too — the beam should pop / smash them like every other gun
+    try{ if(window._itemPU)for(const p of window._itemPU){ if(p&&p.type==='barrel'&&(p.settled||p._lying)&&!(p._cooking>0)) _tg.push({x:p.x,y:(p.y||9)+8,z:p.z,r:(window._BARREL_SIZE||11)+4,kind:'barrel',ref:p}); } }catch(_){}
+    try{ if(window._crates)for(const c of window._crates){ if(c) _tg.push({x:c.x,y:(c.y||12)+8,z:c.z,r:(c.r||16)+4,kind:'crate',ref:c}); } }catch(_){}
     // FIRST target along the ray; AIM-ASSIST bends the beam onto the nearest in-cone target.
     // perp half-weights the VERTICAL gap -> being off in height no longer makes you whiff a target you're aimed at.
     const ASSIST_R=(window._PLASMA_ASSIST_R!=null?window._PLASMA_ASSIST_R:64);
@@ -8722,6 +8730,8 @@ class PlasmaLightning{
           if(b.vx!==undefined){b.vx*=0.4;b.vz*=0.4;} if(tick&&b.hit)b.hit(od?2:1); }
         else if(prim.kind==='dummy'){ const dm=prim.ref; dm._electroT=Math.max(dm._electroT||0,1.0); if(tick&&dm.hit)dm.hit(od?2:1, ox, oz); }
         else if(prim.kind==='mp'){ if(tick && typeof mpSend==='function'){ const _d=Math.hypot(prim.x-ox,prim.z-oz)||1; mpSend('event',{event:'player_hit',data:{target:prim.id,dmg:od?2:1,zap:1,px:(prim.x-ox)/_d,pz:(prim.z-oz)/_d}}); } }
+        else if(prim.kind==='barrel'){ const p=prim.ref; if(!(p._cooking>0))p._cooking=(window._BARREL_FUSE||0.12); }   // cook off the barrel
+        else if(prim.kind==='crate'){ if(tick&&typeof _smashCrate==='function'){ try{ _smashCrate(prim.ref); }catch(_){} prim=null; hitting=false; } }   // splinter the box
       }
     }
     this._filGeo.setDrawRange(0, fp/3); this._filGeo.attributes.position.needsUpdate=true;
@@ -9693,6 +9703,7 @@ class Bullet{
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this.life-=this.decay*dt*60;
     const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 12, 34, dt) : (GS.zone===-19 ? _cubeProjStick(this, window._CUBE_PROJ_R||12, window._CUBE_PROJ_SOI||90, dt) : false);   // building field / cube inner shell owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the corner
     if(this._g3){ this.y+=this.vy*dt; }                                        // straight-line 3D flight (galaxy)
+    else if(this._straightAim){ this.y+=this.vy*dt; if(this.y<2)this.y=2; }     // ASSISTED shot: fly a straight line to the locked target's height (no gravity arc) so the trajectory physically goes down into it
     else if(_cf){ this.y+=this.vy*dt; }                                        // riding/approaching a surface -> climb freely, no ground pull
     else if(GS.zone===-19){ this.y+=this.vy*dt; }                              // cube free-flight: keep its 3D motion (straight-out shots cross the room) — the stick handles surfaces
     else if(this.y>9||this.vy>0.5){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){ this.y=9; this.vy=(this.vy<-55)?-this.vy*0.5:0; } }   // arc + bounce off the floor (loses half its energy each hop)
@@ -9930,8 +9941,8 @@ class Arrow{
     }
     this.vy-=(window._BOW_GRAV!=null?window._BOW_GRAV:140)*dt;
     if(this.target){ const tg=this.target;
-      if((tg.alive===false)||(targets&&!targets.includes(tg))) this.target=null;
-      else { const ty=tg.mesh?tg.mesh.position.y:(tg.py!==undefined?tg.py:10); const dx=tg.wx-this.wx,dy=ty-this.y,dz=tg.wz-this.wz,d=Math.hypot(dx,dy,dz)||1, sp=Math.hypot(this.vx,this.vy,this.vz)||1, turn=(window._BOW_TURN!=null?window._BOW_TURN:2.2)*dt;
+      if((tg.alive===false)||(!tg._isObj&&targets&&!targets.includes(tg))) this.target=null;   // barrels/boxes (_isObj) aren't in the enemy list -> keep homing onto them
+      else { const ty=tg.mesh?tg.mesh.position.y:(tg.py!==undefined?tg.py:(tg.y!==undefined?tg.y:10)); const dx=tg.wx-this.wx,dy=ty-this.y,dz=tg.wz-this.wz,d=Math.hypot(dx,dy,dz)||1, sp=Math.hypot(this.vx,this.vy,this.vz)||1, turn=(window._BOW_TURN!=null?window._BOW_TURN:2.2)*dt;
         let dirx=this.vx/sp+(dx/d-this.vx/sp)*turn, diry=this.vy/sp+(dy/d-this.vy/sp)*turn, dirz=this.vz/sp+(dz/d-this.vz/sp)*turn; const ns=Math.hypot(dirx,diry,dirz)||1; this.vx=dirx/ns*sp; this.vy=diry/ns*sp; this.vz=dirz/ns*sp; }
     }
     this.wx+=this.vx*dt; this.y+=this.vy*dt; this.wz+=this.vz*dt; this.group.position.set(this.wx,this.y,this.wz); this._orient();
@@ -9946,6 +9957,7 @@ class Arrow{
     ps.burst(this.wx,this.wz,[0.5,1,0.75],10,B*0.5,this.y); ps.ring(this.wx,this.wz,[0.6,1,0.85],10,B);
     grid.shock(this.wx,this.wz,7); grid.push(this.wx,this.wz,-5,110); grid.pulse(0.4);
     if(GRID_SHEETS.length) gridSheetsBlast(this.wx,this.y,this.wz,7,B);
+    if(typeof _blastBreakContainers==='function') _blastBreakContainers(this.wx,this.wz,B);   // arrows pop barrels + smash boxes like every other gun
     addTrauma(0.04); if(typeof Audio!=='undefined'){try{Audio.blip(90,0.4,'sawtooth',0.35,40); Audio.blip(520,0.18,'sine',0.18,80);}catch(_){}}
     for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||e._invulnerable)continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<B){ const dm=Math.ceil(this.dmg*(1-(d/B)*0.5)); if(e.hit){ const sc=e.hit(dm,this.wx,this.wz); if(e.knock)e.knock(e.wx-this.wx,e.wz-this.wz,dm,0.3,(1-d/B)*3); if(e.hp<=0||sc>0){ GS.score+=(e.score||100)*GS.mult; GS.multT=GS.multMax; if(GS.mult<25)GS.mult++; registerKill&&registerKill(e); for(let gi=0;gi<((e.score>=200)?3:1);gi++) GS.gems.push(new Gem3D(e.wx+rand(-14,14),e.wz+rand(-14,14),'mult')); e.remove&&e.remove(); GS.enemies.splice(i,1); Audio.bigDie&&Audio.bigDie(); updateUI&&updateUI(); } } } }
     if(typeof GS_bots!=='undefined') for(const b of GS_bots){ if(b&&b.alive){ const d=Math.hypot(b.wx-this.wx,b.wz-this.wz); if(d<B){ b.hit(Math.max(1,Math.ceil(this.dmg*(1-d/B)))); b.knock&&b.knock(b.wx-this.wx,b.wz-this.wz,3,0,24); } } }
@@ -11520,7 +11532,9 @@ class Player{
         if(window._itemPU)for(const p of window._itemPU){ if(p&&p.type==='barrel'&&(p.settled||p._lying))_consider(p.x,p.z,(p.y||9)+6,(window._BARREL_SIZE||11)+2); }
         if(window._itemShots)for(const s of window._itemShots){ if(s&&s.type==='barrel')_consider(s.x,s.z,(s.y||9),(window._BARREL_SIZE||11)+2); }
       }
-      if(bestT!=null){ const ty=bestEY+(window._AIM_ASSIST_YOFF!=null?window._AIM_ASSIST_YOFF:0); _assistVY=(ty-y0)/Math.max(bestT/bspd,1e-4); }   // vy so the bullet descends/rises to the target height (aim at its base by default -> stops sailing over short spiders)
+      // PREFER the soft-locked target (the one with the on-screen indicator): aim the shot's vy straight at ITS centre so the trajectory physically goes onto it
+      if(this._softLock){ const L=this._softLock, lx=(L.wx!=null?L.wx:L.x), lz=(L.wz!=null?L.wz:L.z); if(lx!=null){ const ex=lx-spawnX, ez=lz-spawnZ, t=ex*cax+ez*caz; if(t>8){ bestT=t; bestEY=(L.mesh?L.mesh.position.y:(L.py!=null?L.py:(L.y!=null?L.y:9)))+(window._LOCK_AIM_YOFF||4); } } }
+      if(bestT!=null){ const ty=bestEY+(window._AIM_ASSIST_YOFF!=null?window._AIM_ASSIST_YOFF:0); _assistVY=(ty-y0)/Math.max(bestT/bspd,1e-4); }   // vy so the bullet descends/rises to the target height
     }
     const fire=(ang,kind)=>{
       if(_droneAimDir){                                          // DRONE LOCK: straight at the selected target in 3D, regardless of the drone's position
@@ -11532,12 +11546,12 @@ class Player{
       if(this._aim3DActive && this._aim3D && !isGalaxy){          // desktop: fire toward the 3D crosshair (up / down / level)
         const off=ang-a, ca=Math.cos(off), sa=Math.sin(off), d=this._aim3D;
         const dx=d.x*ca-d.z*sa, dz=d.x*sa+d.z*ca;
-        const _b=new Bullet(spawnX,spawnZ,dx*bspd,dz*bspd,kind,y0,d.y*bspd,true); if(_assistVY!=null)_b.vy=_assistVY; GS.bullets.push(_b);
+        const _b=new Bullet(spawnX,spawnZ,dx*bspd,dz*bspd,kind,y0,d.y*bspd,true); if(_assistVY!=null){_b.vy=_assistVY; _b._straightAim=true;} GS.bullets.push(_b);
       } else if(isGalaxy){
         const d3=dir3FromAngle(ang)||new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
         GS.bullets.push(new Bullet(spawnX,spawnZ,d3.x*bspd,d3.z*bspd,kind,y0,d3.y*bspd,true));
       } else {
-        const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0); _b.vy=_useDroneVY?_droneVY:(_assistVY!=null?_assistVY:pvy); GS.bullets.push(_b);   // ballistic: stick magnitude sets launch pitch; arcs + bounces off the ground. assist biases vy toward the target's height so close shots stop sailing over short enemies
+        const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0); _b.vy=_useDroneVY?_droneVY:(_assistVY!=null?_assistVY:pvy); if(_assistVY!=null)_b._straightAim=true; GS.bullets.push(_b);   // assisted shots fly STRAIGHT to the target height (physically connect); free shots keep the ballistic arc
       }
       if(_roofFire) GS.bullets[GS.bullets.length-1]._noOrbit=true;   // rooftop shots ignore building gravity
     };
@@ -11606,10 +11620,11 @@ class Player{
     const ch=(window._BOW_SHOT_POWER!=null?window._BOW_SHOT_POWER:0.7);                // fixed shot power (no charge)
     let ax,az,ay=0; if(this._aim3DActive&&this._aim3D){ ax=this._aim3D.x; az=this._aim3D.z; ay=this._aim3D.y; } else { const a=this.aim||0; ax=Math.cos(a); az=Math.sin(a); }
     let lock=this._bowLock; if(lock&&lock.alive===false)lock=null;
+    if(!lock && this._softLock && this._softLock.alive!==false){ lock=this._softLock; }   // fall back to the soft-lock (it also covers barrels/boxes) so arrows aim at indicated objects too
     // SPAWN FROM THE BOW: use the hand/muzzle like the other guns (was firing from a fixed waist-height point in front -> looked like it came from his feet)
     let sx=this.wx+ax*12, sz=this.wz+az*12, sy=(this.py||0)+16;
     { const _bm=new THREE.Vector3(); if((typeof _stanceMuzzle==='function')&&_stanceMuzzle(this,0,_bm)){ sx=_bm.x; sy=_bm.y; sz=_bm.z; } }
-    if(lock){ const dx=lock.wx-this.wx, dz=lock.wz-this.wz, m=Math.hypot(dx,dz)||1; ax=dx/m; az=dz/m; const ty=(lock.mesh?lock.mesh.position.y:(lock.py||0)); ay=clamp((ty-sy)/Math.max(90,m),-0.5,0.7); }   // fire STRAIGHT at the locked target (homing finishes it)
+    if(lock){ const lx=(lock.wx!=null?lock.wx:lock.x), lz=(lock.wz!=null?lock.wz:lock.z); const dx=lx-this.wx, dz=lz-this.wz, m=Math.hypot(dx,dz)||1; ax=dx/m; az=dz/m; const ty=(lock.mesh?lock.mesh.position.y:(lock.py!=null?lock.py:(lock.y!=null?lock.y:9))); ay=clamp((ty-sy)/Math.max(70,m),-0.7,0.7); }   // fire STRAIGHT at the locked target/object's centre (steeper allowed so it arcs DOWN onto low things)
     try{ GS.arrows.push(new Arrow(sx,sz,ax,az,sy,ay,ch,lock)); this._consumeAmmo('bow',1); }catch(e){ console.warn('arrow:',e); }
     this.fireT=0;
     if(typeof ps!=='undefined'){ const a2=Math.atan2(az,ax); ps._spawn(sx,sy,sz, Math.cos(a2)*34,rand(-6,6),Math.sin(a2)*34, 0.4,1,0.7, 0.05); }
@@ -13581,6 +13596,38 @@ function _blastBreakContainers(x,z,R){
   try{ if(window._crates)for(let i=window._crates.length-1;i>=0;i--){ const c=window._crates[i]; if(c&&Math.hypot((c.x||0)-x,(c.z||0)-z)<R){ if(typeof _smashCrate==='function')_smashCrate(c); } } }catch(_){}
 }
 window._blastBreakContainers=_blastBreakContainers;
+// A self-contained expanding-shockwave FX (fireball flash + sharp leading ring + heavier trailing ring + ground dust).
+// Sized by R so callers can dial it to "a quarter of the nuke" etc. Ticks + cleans itself via GS.deathRings.
+function _spawnBlastShock(x,y,z,R,col){
+  try{
+    if(typeof THREE==='undefined'||typeof scene==='undefined')return;
+    y=(y==null?9:y); R=R||120; col=col||0xffb060;
+    const c=new THREE.Color(col);
+    const grp=new THREE.Group(); grp.position.set(x,0,z); scene.add(grp);
+    const ringMat=()=>new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false,side:THREE.DoubleSide});
+    const shock=new THREE.Mesh(new THREE.RingGeometry(0.9,1.0,56),ringMat()); shock.rotation.x=-Math.PI/2; shock.position.y=2.5; grp.add(shock);
+    const shock2=new THREE.Mesh(new THREE.RingGeometry(0.9,1.0,72),ringMat()); shock2.material.opacity=0.5; shock2.rotation.x=-Math.PI/2; shock2.position.y=3.5; grp.add(shock2);
+    const fbMat=new THREE.MeshBasicMaterial({color:0xffe2a0,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false});
+    const fireball=new THREE.Mesh(new THREE.SphereGeometry(1,14,10),fbMat); fireball.position.y=y+R*0.18; grp.add(fireball);
+    const flashMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false});
+    const flash=new THREE.Mesh(new THREE.SphereGeometry(1,12,8),flashMat); flash.position.y=y+R*0.18; grp.add(flash);
+    grp.renderOrder=18;
+    // ground dust racing outward
+    if(typeof ps!=='undefined'){ const ND=Math.round(R*0.22); for(let i=0;i<ND;i++){ const a=(i/ND)*TAU; ps._spawn(x,y+2,z, Math.cos(a)*rand(R*1.6,R*2.6), rand(8,52), Math.sin(a)*rand(R*1.6,R*2.6), c.r,c.g*0.7,c.b*0.4, 0.55); }
+      for(let i=0;i<Math.round(R*0.12);i++){ const a=rand(TAU),sp=rand(R*0.8,R*2.4); ps._spawn(x,y+4,z, Math.cos(a)*sp, rand(80,260), Math.sin(a)*sp, 1,0.7,0.3, 0.55); } }
+    const fx={ t:0, life:0.75,
+      update(dt){ this.t+=dt; const T=this.t; if(T>this.life){return false;}
+        { const f=Math.min(1,T/0.6); shock.scale.setScalar(8+R*1.8*f); shock.material.opacity=0.9*(1-f); shock.visible=f<1; }
+        { const f=Math.min(1,T/0.75); shock2.scale.setScalar(8+R*2.4*f); shock2.material.opacity=0.5*(1-f)*(1-f); shock2.visible=f<1; }
+        if(T<0.12){ const f=T/0.12; flash.visible=true; flash.scale.setScalar(R*0.25*(1+f*4)); flashMat.opacity=1-f; } else flash.visible=false;
+        { const f=Math.min(1,T/0.35); fireball.scale.setScalar(Math.max(0.01,R*(0.3+0.75*f))); fbMat.opacity=Math.max(0,0.95*(1-f)); fireball.visible=f<1;
+          const cc=0.5+0.5*(1-f); fbMat.color.setRGB(1,0.55*cc+0.2,0.12*cc); }
+        return true; },
+      remove(){ try{ scene.remove(grp); grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }catch(_){} } };
+    if(typeof GS!=='undefined'&&GS.deathRings) GS.deathRings.push(fx); else fx.remove();
+  }catch(_){}
+}
+window._spawnBlastShock=_spawnBlastShock;
 function _bombBlastEnemies(x,y,z,R,dmgScale){
   dmgScale=(dmgScale==null?1:dmgScale); const R2=R*R; let hitCount=0;
   if(typeof _blastBreakContainers==='function') _blastBreakContainers(x,z,R);   // bombs/grenades/rockets that route through here also bust barrels + boxes
@@ -13948,8 +13995,8 @@ function _aaTargetList(){
   if(typeof GS_bots!=='undefined')for(const b of GS_bots){ if(b&&b.alive!==false)L.push(b); }
   if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy)L.push(GS_trainingDummy);
   if(window._AA_TARGET_OBJECTS!==false){
-    if(window._itemPU)for(const p of window._itemPU){ if(p&&p.type==='barrel')L.push({wx:p.x,wz:p.z,size:12,_isObj:true}); }
-    if(window._crates)for(const c of window._crates)L.push({wx:c.x,wz:c.z,size:14,_isObj:true});
+    if(window._itemPU)for(const p of window._itemPU){ if(p&&p.type==='barrel')L.push({wx:p.x,wz:p.z,y:(p.y||9)+6,size:12,_isObj:true}); }
+    if(window._crates)for(const c of window._crates)L.push({wx:c.x,wz:c.z,y:(c.y!=null?c.y:12)+8,size:14,_isObj:true});
   }
   return L;
 }
