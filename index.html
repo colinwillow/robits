@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB45</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB46</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11235,26 +11235,23 @@ class Player{
     return lock;
   }
   _handleBow(firing,od,dt){
-    const wasFiring=!!this._bowPrev; this._bowPrev=!!firing;
-    const MAX=(window._BOW_MAX!=null?window._BOW_MAX:0.9), MIN=(window._BOW_MIN!=null?window._BOW_MIN:0.1);
-    if(firing){                                   // hold -> draw/charge (uses the normal aim/shoot pose for now)
-      this._bowCharge=Math.min(MAX,(this._bowCharge||0)+dt); this._bowCharging=true;
-      if(typeof ps!=='undefined' && Math.random()<0.5){ const a=this.aim||0, r=(this._bowCharge/MAX); ps._spawn(this.wx+Math.cos(a)*10+rand(-3,3),(this.py||0)+16+rand(-2,2),this.wz+Math.sin(a)*10+rand(-3,3), -Math.cos(a)*20,rand(-6,6),-Math.sin(a)*20, 0.4,1,0.7, 0.03+0.03*r); }
-      this._bowLock=this._bowPickTarget();                                            // LIVE target while drawing
-      if(typeof _updateBowReticle==='function') _updateBowReticle(this._bowLock);       // marquee snaps onto it
-      return;
-    }
-    this._bowCharging=false;
-    if(typeof _hideBowReticle==='function') _hideBowReticle();
-    if(wasFiring && (this._bowCharge||0)>=MIN){    // release -> loose the arrow at the MARQUEED target, power scaled by charge
-      const ch=Math.min(1,(this._bowCharge||0)/MAX);
-      let ax,az,ay=0; if(this._aim3DActive&&this._aim3D){ ax=this._aim3D.x; az=this._aim3D.z; ay=this._aim3D.y; } else { const a=this.aim||0; ax=Math.cos(a); az=Math.sin(a); }
-      let lock=this._bowLock; if(lock&&lock.alive===false)lock=null; if(!lock)lock=this._bowPickTarget();
-      if(lock){ const dx=lock.wx-this.wx, dz=lock.wz-this.wz, m=Math.hypot(dx,dz)||1; ax=dx/m; az=dz/m; const ty=(lock.mesh?lock.mesh.position.y:(lock.py||0)); ay=clamp((ty-((this.py||0)+16))/Math.max(90,m),-0.5,0.7); }   // fire STRAIGHT at the locked target (homing finishes it)
-      try{ GS.arrows.push(new Arrow(this.wx+ax*12,this.wz+az*12,ax,az,(this.py||0)+16,ay,ch,lock)); this._consumeAmmo('bow',1); }catch(e){ console.warn('arrow:',e); }
-      this.fireT=0; if(typeof addTrauma==='function') addTrauma(0.02+ch*0.04); if(typeof Audio!=='undefined'){try{Audio.blip(300+ch*220,0.12,'triangle',0.18,150);}catch(_){}}
-    }
-    this._bowCharge=0; this._bowLock=null;
+    // PRESS-AND-HOLD to auto-fire (like the other weapons) — no more draw/charge/release.
+    if(!firing){ this._bowPrev=false; this._bowCharge=0; this._bowLock=null; if(typeof _hideBowReticle==='function')_hideBowReticle(); return; }
+    this._bowPrev=true;
+    this._bowLock=this._bowPickTarget();                                              // live auto-target while held
+    if(typeof _updateBowReticle==='function') _updateBowReticle(this._bowLock);
+    this._bowCD=(this._bowCD||0)-dt;
+    if(this._bowCD>0) return;                                                          // rate-limited steady fire
+    this._bowCD=(window._BOW_FIRE_CD!=null?window._BOW_FIRE_CD:(od?0.10:0.26));
+    const ch=(window._BOW_SHOT_POWER!=null?window._BOW_SHOT_POWER:0.7);                // fixed shot power (no charge)
+    let ax,az,ay=0; if(this._aim3DActive&&this._aim3D){ ax=this._aim3D.x; az=this._aim3D.z; ay=this._aim3D.y; } else { const a=this.aim||0; ax=Math.cos(a); az=Math.sin(a); }
+    let lock=this._bowLock; if(lock&&lock.alive===false)lock=null;
+    if(lock){ const dx=lock.wx-this.wx, dz=lock.wz-this.wz, m=Math.hypot(dx,dz)||1; ax=dx/m; az=dz/m; const ty=(lock.mesh?lock.mesh.position.y:(lock.py||0)); ay=clamp((ty-((this.py||0)+16))/Math.max(90,m),-0.5,0.7); }   // fire STRAIGHT at the locked target (homing finishes it)
+    try{ GS.arrows.push(new Arrow(this.wx+ax*12,this.wz+az*12,ax,az,(this.py||0)+16,ay,ch,lock)); this._consumeAmmo('bow',1); }catch(e){ console.warn('arrow:',e); }
+    this.fireT=0;
+    if(typeof ps!=='undefined'){ const a2=Math.atan2(az,ax); ps._spawn(this.wx+Math.cos(a2)*10,(this.py||0)+16,this.wz+Math.sin(a2)*10, Math.cos(a2)*34,rand(-6,6),Math.sin(a2)*34, 0.4,1,0.7, 0.05); }
+    if(typeof addTrauma==='function') addTrauma(0.025);
+    if(typeof Audio!=='undefined'){try{Audio.blip(440,0.1,'triangle',0.16,170);}catch(_){}}
   }
   _handleQuake(firing,od){
     if((this._qCool||0)>0) this._qCool--;
@@ -12258,7 +12255,7 @@ class BotPilot{
   }
 
   hit(dmg){
-    if(this.isDummy){ this.inv=8; this._hitFlash=6; addTrauma(0.04); ps.burst(this.wx,this.wz,[1,1,1],10,80,(this.py||0)+12); ps.burst(this.wx,this.wz,[1,0.5,0.2],8,60,(this.py||0)+12); this._updateHpBar(); return; }
+    if(this.isDummy){ this._hitFlash=6; addTrauma(0.04); ps.burst(this.wx,this.wz,[1,1,1],10,80,(this.py||0)+12); ps.burst(this.wx,this.wz,[1,0.5,0.2],8,60,(this.py||0)+12); if(typeof spawnDmgNum==='function')spawnDmgNum(this.wx,(this.py||0)+30,this.wz,dmg,dmg>=15?'#ff5555':'#ffcc44'); this.hp-=dmg*(window._DUMMY_DMG_TAKEN_K!=null?window._DUMMY_DMG_TAKEN_K:1); this._updateHpBar(); if(this.hp<=0 && this.alive!==false && typeof this.die==='function'){ this.die(); }   /* KILLABLE: a training dummy now actually takes (full) damage so you can read each weapon's hit, and dies at 0 */ return; }
     if(this._botBallInv){ if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.4,0.9,1],14,90); return; }   // ball mode tanks bullets/melee like the player's ball shield
     if(this.inv>0) return;
     if(this.shieldActive&&this.shieldHp>0){
@@ -20294,7 +20291,7 @@ function loop(ts){ requestAnimationFrame(loop);
       for(let i=GS_powerups.length-1;i>=0;i--){ GS_powerups[i].update(player,dt); if(GS_powerups[i].collected){GS_powerups[i].remove();GS_powerups.splice(i,1);} }
       for(const p of GS_plants) p.update(dt, player);
       // ── TRAINING DUMMY ──
-      if(GS_trainingDummy&&GS.zone===-2){
+      if(GS_trainingDummy){   // not zone-gated -> it updates + takes bullet/contact damage wherever it is (bots were never zone-gated, so the dummy looked invincible outside the dojo)
         GS_trainingDummy.update(dt);
         if(window._trMask){ const M=window._trMask, u=M.userData, tt=performance.now()*0.001; if(u.head)u.head.rotation.y+=dt*0.5; if(u.baseY!=null)M.position.y=u.baseY+Math.sin(tt*1.4)*2.2; if(u.wire)u.wire.opacity=0.42+0.14*Math.sin(tt*9)+(Math.random()<0.04?0.25:0); if(u.ring)u.ring.opacity=0.7+0.2*Math.sin(tt*2.2); }
         // Solid collision — player can't walk through dummy
