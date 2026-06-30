@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB63</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB64</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -8064,6 +8064,9 @@ class AllyBot{
     this._stand   = (_sp==='droid'||_sp==='droideka')?130:(_sp==='ghost'?80:46);            // droid hangs back & shoots; spider gets in close
     this._atkRange= (_sp==='droid'||_sp==='droideka')?240:(_sp==='ghost'?210:95);
     this.maxHp=5; this.hp=5; this.spd=((_sp==='droid'||_sp==='droideka')?96:(_sp==='ghost'?112:130)); this.t=Math.random()*6; this.life=1e9; this.spawn=0;
+    this.size=14;
+    this._isDroideka=(_sp==='droideka');   // the ball droid: rolls (invulnerable shield) -> unfolds to fire (destructible) -> re-balls
+    if(this._isDroideka){ this._dkBall=true; this._dkT=0; this._dkVx=0; this._dkVz=0; this._dkY=0; this._dkVy=0; this._dkDeployCD=0; this.maxHp=(window._DK_HP||10); this.hp=this.maxHp; }
     this.fireCD=0.6; this._biteCD=0; this._mood=2; this._moodT=0; this._hdg=Math.random()*Math.PI*2; this._lookH=this._hdg;
     // wall-crawl state — reused wholesale from the enemy Crawler
     this._cstate='ground'; this._cgBox=null; this._cy=9; this._climbY=9; this._climbT=0; this._attachCD=0; this._stuckT=0;
@@ -8123,13 +8126,59 @@ class AllyBot{
     }
   }
   hit(dmg){   // the enemy side (rival bots / enemy fire) can wound + kill a summoned ally
+    if(this._isDroideka && this._dkBall){ if(typeof ps!=='undefined')ps.spark(this.wx,this.wz,[0.5,0.9,1],(this._dkY||0)+12); return 0; }   // BALL MODE = shield: no damage (knock() sends it flying instead)
     if(this.hp==null)this.hp=this.maxHp||5;
     this.hp-=(dmg||1); this._hitFlash=6;
     if(typeof ps!=='undefined')ps.spark(this.wx,this.wz,[1,0.55,0.2],(this.py||this._cy||9)+10);
     if(this.hp<=0 && typeof ps!=='undefined')ps.ring(this.wx,this.wz,[1,0.5,0.2],16,90);
     return 0;
   }
-  knock(dx,dz,mag=1){ const l=Math.hypot(dx,dz)||1; this.vx=(this.vx||0)+(dx/l)*mag*30; this.vz=(this.vz||0)+(dz/l)*mag*30; }
+  knock(dx,dz,mag=1){
+    if(this._isDroideka && this._dkBall){ const l=Math.hypot(dx,dz)||1, K=(window._DK_KNOCK||300)*Math.max(1,mag); this._dkVx=(this._dkVx||0)+(dx/l)*K; this._dkVz=(this._dkVz||0)+(dz/l)*K; this._dkVy=(this._dkVy||0)+Math.min(260,K*0.55); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.5,0.9,1],10,60,(this._dkY||0)+10); return; }   // shielded ball ricochets like the RL ball
+    const l=Math.hypot(dx,dz)||1; this.vx=(this.vx||0)+(dx/l)*mag*30; this.vz=(this.vz||0)+(dz/l)*mag*30;
+  }
+  _dkClamp(){
+    const y=9+(this._dkY||0);
+    if(typeof GS!=='undefined'&&GS.zone===-19 && typeof _cubeSDF==='function' && typeof _cubeGrad==='function'){ const sd=_cubeSDF(this.wx,y,this.wz); if(sd>-14){ const n=new THREE.Vector3(); _cubeGrad(this.wx,y,this.wz,n); const vn=this._dkVx*n.x+this._dkVz*n.z; if(vn>0){ this._dkVx-=1.7*vn*n.x; this._dkVz-=1.7*vn*n.z; } const push=(-14-sd); this.wx+=n.x*push; this.wz+=n.z*push; } return; }
+    const R=(typeof ARENA_R!=='undefined'?ARENA_R-12:540), dd=Math.hypot(this.wx,this.wz);
+    if(dd>R){ const nx=this.wx/dd, nz=this.wz/dd; this.wx=nx*R; this.wz=nz*R; const vn=this._dkVx*nx+this._dkVz*nz; if(vn>0){ this._dkVx-=1.7*vn*nx; this._dkVz-=1.7*vn*nz; } }
+  }
+  _dkUpdate(dt, foe, fdist){   // (t/life/spawn/fireCD already advanced by update())
+    const owner=(typeof player!=='undefined'&&player)?player:null;
+    this._dkT=(this._dkT||0)+dt;
+    const near=foe && fdist<(window._DK_DEPLOY_R||230);
+    if(this._dkBall){
+      // ── ROLL: drive toward the foe (or loosely follow the owner) with momentum; coast when knocked ──
+      let tx=this.wx,tz=this.wz, drive=false;
+      if(near){ tx=foe.wx; tz=foe.wz; const dd=Math.hypot(tx-this.wx,tz-this.wz); drive=dd>(window._DK_DEPLOY_STOP||86); }
+      else if(owner){ tx=owner.wx; tz=owner.wz; const dd=Math.hypot(tx-this.wx,tz-this.wz); drive=dd>(window._DK_FOLLOW_STOP||130); }
+      const dx=tx-this.wx, dz=tz-this.wz, d=Math.hypot(dx,dz)||1;
+      if(drive){ this._dkVx+=(dx/d)*(window._DK_ACCEL||760)*dt; this._dkVz+=(dz/d)*(window._DK_ACCEL||760)*dt; }
+      const fr=Math.pow((window._DK_ROLL_FRIC||0.12),dt); this._dkVx*=fr; this._dkVz*=fr;
+      const sp=Math.hypot(this._dkVx,this._dkVz), cap=(window._DK_ROLL_CAP||300); if(sp>cap){ this._dkVx=this._dkVx/sp*cap; this._dkVz=this._dkVz/sp*cap; }
+      this.wx+=this._dkVx*dt; this.wz+=this._dkVz*dt;
+      this._dkVy=(this._dkVy||0)-(window._DK_GRAV||1100)*dt; this._dkY=Math.max(0,(this._dkY||0)+this._dkVy*dt); if(this._dkY<=0 && this._dkVy<0){ this._dkVy=(this._dkVy<-60)?-this._dkVy*0.42:0; }
+      this._dkClamp();
+      this._dkDeployCD=(this._dkDeployCD||0)-dt;
+      if(near && !drive && this._dkDeployCD<=0 && this._dkT>(window._DK_BALL_MIN||1.1) && (this._dkY||0)<6){ this._dkBall=false; this._dkT=0; this._dkVx=this._dkVz=0; if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[1,0.6,0.2],14,80); }   // settle next to a foe -> unfold
+    } else {
+      // ── DEPLOYED: planted, vulnerable, fires bursts. Re-ball when the foe is gone/far or after a spell. ──
+      this._dkVx*=Math.pow(0.01,dt); this._dkVz*=Math.pow(0.01,dt); this._dkY+=(0-this._dkY)*Math.min(1,dt*8);
+      if(near && this.fireCD<=0){ const fy=(foe.mesh?foe.mesh.position.y:(foe.py||9)); this._allyAttack(foe.wx,fy,foe.wz); this.fireCD=(window._DK_FIRE_CD||0.5)+Math.random()*0.25; }
+      if(this._dkT>(window._DK_DEPLOY_DUR||2.8) || !near){ this._dkBall=true; this._dkT=0; this._dkDeployCD=(window._DK_DEPLOY_CD||1.0); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.4,0.9,1],12,70); }
+    }
+    // ── RENDER: spin while balled (+ a shield shell), settle upright when deployed ──
+    const g=this._spider&&this._spider.group;
+    if(g){ if(this._dkBall){ const rs=Math.hypot(this._dkVx,this._dkVz); g.rotation.x+=(2+rs*0.02)*dt; g.rotation.y+=(1.4+rs*0.01)*dt; } else { g.rotation.x+=(0-g.rotation.x)*Math.min(1,dt*9); g.rotation.z+=(0-g.rotation.z)*Math.min(1,dt*9); } }
+    if(!this._dkShell && typeof THREE!=='undefined'){ this._dkShell=new THREE.Mesh(new THREE.SphereGeometry(13,16,12), new THREE.MeshBasicMaterial({color:0x66ccff,transparent:true,opacity:0.18,blending:THREE.AdditiveBlending,depthWrite:false})); this.mesh.add(this._dkShell); }
+    if(this._dkShell){ this._dkShell.visible=this._dkBall; this._dkShell.position.y=(this._dkY||0); const pulse=1+0.08*Math.sin(this.t*10); this._dkShell.scale.setScalar(pulse); this._dkShell.material.opacity=0.14+0.06*Math.sin(this.t*7); }
+    this.mesh.position.set(this.wx, 9+(this._dkY||0), this.wz);
+    this.mesh.scale.setScalar(this.spawn<1?(0.3+this.spawn*0.7):1);
+    if(this._hitFlash>0)this._hitFlash--;
+    this._haloRender(dt);
+    if(this.life<=0||this.hp<=0){ if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[1,0.6,0.2],18,90,(this._dkY||0)); return false; }
+    return true;
+  }
   update(dt){
     this.t+=dt; this.life-=dt; this.spawn=Math.min(1,this.spawn+dt*3);
     if(this.fireCD>0) this.fireCD-=dt; if(this._biteCD>0) this._biteCD-=dt; if(this._attachCD>0) this._attachCD-=dt;
@@ -8137,6 +8186,7 @@ class AllyBot{
     let tgt=null, td=1e9;
     for(const e of GS.enemies){ if(!e.alive||e._captured) continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<td){ td=d; tgt=e; } }
     for(const e of _extraHostiles()){ const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<td){ td=d; tgt=e; } }
+    if(this._isDroideka){ return this._dkUpdate(dt, (tgt && td<(window._DK_AGGRO||640))?tgt:null, td); }   // ball droid runs its own roll/deploy cycle
     const AGGRO=300; this._enemyTarget=null; this._enemyDist=0;
     let TX,TY,TZ, chasing=false;
     if(tgt && td<AGGRO){ this._enemyTarget=tgt; this._enemyDist=td; chasing=true; TX=tgt.wx; TZ=tgt.wz; TY=(tgt.mesh?tgt.mesh.position.y:(tgt.py||9)); }
