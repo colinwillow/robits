@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB54</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB55</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3880,13 +3880,17 @@ class Turret extends Enemy{
 
 // ── ENEMY BULLET — fired by Turrets, hurts player on contact ──
 class EnemyBullet{
-  constructor(wx,wz,vx,vz){ this.wx=wx;this.wz=wz;this.vx=vx;this.vz=vz;this.life=1;
-    this.mesh=new THREE.Mesh(new THREE.SphereGeometry(3,6,6),new THREE.MeshBasicMaterial({color:0xff4400,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
+  constructor(wx,wz,vx,vz,col){ this.wx=wx;this.wz=wz;this.vx=vx;this.vz=vz;this.life=1;
+    const _c=(col!=null?col:0xff4400);
+    const _geo=(typeof bulletGeo!=='undefined')?bulletGeo:new THREE.SphereGeometry(3,6,6);   // use the HERO's sleek bolt geometry (was a stubby sphere) so AI/enemy fire reads as real rounds, not random blobs
+    this.mesh=new THREE.Mesh(_geo,new THREE.MeshBasicMaterial({color:_c,transparent:true,opacity:0.92,blending:THREE.AdditiveBlending,depthWrite:false}));
+    this.mesh.scale.setScalar(1.15);
     this.mesh.position.set(wx,9,wz); scene.add(this.mesh);
     GS.enemyBullets.push(this); }
   update(dt){
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this.life-=0.012*dt*60;
     this.mesh.position.set(this.wx,9,this.wz);
+    if(typeof _bvDir!=='undefined'){ _bvDir.set(this.vx,0,this.vz); if(_bvDir.lengthSq()>1e-4){ _bvDir.normalize(); this.mesh.quaternion.setFromUnitVectors(_BULLET_AXIS,_bvDir); } }   // point the bolt along its travel, like the hero's rounds
     if(grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,0.6);   // enemy fire wake
     const d=Math.hypot(this.wx,this.wz); if(d>ARENA_R)this.life=0;
     if(typeof _arenaObstacles!=='undefined'&&_arenaObstacles.length){ for(const o of _arenaObstacles){ if(o.t>=0.5&&o.h>6&&Math.abs(this.wx-o.x)<o.w*0.5+3&&Math.abs(this.wz-o.z)<o.d*0.5+3){ this.life=0; if(ps&&ps.spark)ps.spark(this.wx,this.wz,[1,0.4,0.1]); break; } } }
@@ -12224,8 +12228,8 @@ class BotPilot{
     } else if(w==='heavy'){   // HEAVY CANNON: one big hard-hitting slug
       const ang=this.aim+(Math.random()-0.5)*this.aimError; const b=_fire(ang, 520, 0xff66ff, 1.6); if(b)b.dmg=2;
       if(typeof Audio!=='undefined')Audio.blip(110,0.12,'square',0.14,90);
-    } else {   // RAPID: snappy single shot
-      const ang=this.aim+(Math.random()-0.5)*this.aimError*2; _fire(ang, 440, 0xff4400, 1.0);
+    } else {   // RAPID: snappy single shot — the hero's bolt, tinted to THIS bot's colour so you can read whose fire is whose
+      const ang=this.aim+(Math.random()-0.5)*this.aimError*2; _fire(ang, 440, (window._BOT_BULLET_COL!=null?window._BOT_BULLET_COL:(this._color!=null?this._color:0x00ccff)), 1.0);
       if(typeof Audio!=='undefined')Audio.blip(200+Math.random()*40,0.07,'square',0.07,100);
     }
   }
