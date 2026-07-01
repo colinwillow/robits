@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB130</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB131</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10744,11 +10744,12 @@ class Player{
     announce(_ally?(isDrop?'ROBIT DROPPED':'ROBIT THROWN'):(_crate?(isDrop?'CRATE DROPPED':'CRATE THROWN'):(isDrop?'BOMB DROPPED':'BOMB THROWN')),_ally?'#3aa0ff':(_crate?'#33e0ff':'#ff8800'));
   }
 
-  updateBomb(dt,stickX,stickZ){
+  updateBomb(dt,stickX,stickZ,showAimer=true){
     if(!this.bombArmed)return;
     if(this._inPlanetGravity){ this._bombSurfaceAim(dt); return; }   // wall/surface bomb handled in its own frame-correct path
     const sm=Math.hypot(stickX,stickZ);
-    if(sm>0.12){
+    if(showAimer===false){ this._hideAimer(); }   // caller wants NO ground ring (e.g. gamepad carrying without holding B to aim) — but the held-item mesh below STILL tracks the hands every frame
+    else if(sm>0.12){
       // Stick pushed — the ground ring follows your aim FREELY
       if(!this._aimerX){this._aimerX=this.wx;this._aimerZ=this.wz;}
       const throwDist=60+sm*160;
@@ -20919,10 +20920,12 @@ function loop(ts){ requestAnimationFrame(loop);
           }
           player.updateBomb(dt,0,0);
         } else if(window._padActive){
-          // GAMEPAD Smash-throw: the ground aimer/trajectory appears ONLY while you HOLD B (player._bAiming) and is steered by the
-          // LEFT stick; merely carrying an item shows nothing (a quick TAP of B hurls it along your locomotion vector — pad input block).
-          if(player._bAiming){ let worldX=0,worldZ=0; const _lm=Math.hypot(moveIn.x,moveIn.y); if(_lm>0.08){ const ws=rotInput(moveIn.x,moveIn.y); worldX=ws.x; worldZ=ws.z; } player.updateBomb(dt,worldX,worldZ); }
-          else player._hideAimer();
+          // GAMEPAD Smash-throw: the held item ALWAYS tracks the hands (updateBomb does the mesh hold), but the ground aimer/
+          // trajectory only appears while you HOLD B (player._bAiming), steered by the LEFT stick. Merely carrying shows no ring.
+          // (Skipping updateBomb entirely when not aiming was leaving the held item stuck at the world origin -> looked gone.)
+          let worldX=0,worldZ=0;
+          if(player._bAiming){ const _lm=Math.hypot(moveIn.x,moveIn.y); if(_lm>0.08){ const ws=rotInput(moveIn.x,moveIn.y); worldX=ws.x; worldZ=ws.z; } }
+          player.updateBomb(dt,worldX,worldZ,!!player._bAiming);
         } else {
           let worldX=0,worldZ=0;
           const _aimHeld=(!IS_TOUCH)||(typeof jR!=='undefined'&&jR&&jR.id!==null);   // only show the aimer/trajectory while the right stick is actually being TOUCHED (so just holding an item shows nothing, and a quick flick won't flash it)
