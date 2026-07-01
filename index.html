@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB93</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB94</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11047,7 +11047,10 @@ class Player{
 
       const top=MOVE.topSpeed*(window._SPEED_SCALE||0.78)*speedMult*(od?1.25:1);   // global speed scale (raised from 0.6 -> 0.78 for a snappier feel); boots-on/off match
       let tvx=this.inX*top, tvz=this.inZ*top;
-      if(this._zapT>0){ this._zapT-=dt; tvx*=0.1; tvz*=0.1; if(typeof ps!=='undefined'&&Math.random()<0.55) ps.spark(this.wx+rand(-7,7),this.wz+rand(-7,7),[0.85,0.4,1],9+(this.py||0)+rand(0,20)); }   // electrocuted: held in place, jolting   // electrocuted: slowed + sparking
+      if(this._zapT>0){ const _push=Math.hypot(rawX||0,rawZ||0); const _esc=(_push>(window._ZAP_ESC_PUSH||0.82));   // push the stick HARD to shake it off (Smash-style); a DASH breaks it outright
+        this._zapT-=dt*(_esc?(window._ZAP_ESC_MULT||4):1); if((this.dashing||0)>0) this._zapT=0;
+        tvx*=(window._ZAP_MOVE||0.12); tvz*=(window._ZAP_MOVE||0.12);
+        if(typeof ps!=='undefined'&&Math.random()<0.55) ps.spark(this.wx+rand(-7,7),this.wz+rand(-7,7),[0.85,0.4,1],9+(this.py||0)+rand(0,20)); }   // electrocuted: slowed + jolting until you dodge/push out
       const inMag=Math.hypot(rawX,rawZ);
       let e = inMag>0.05 ? MOVE.velEaseUp : MOVE.velEaseDown;
       if(this.model&&this.model.userData&&this.model.userData._meleeTimer>0 && !(this._meleeLungeT>0)){
@@ -13191,7 +13194,8 @@ class BotPilot{
     if(Math.hypot(b.wx-this.wx, b.wz-this.wz)<20&&Math.abs((b.y||9)-(this.py+15))<35){
       b.life=0;
       this.hit(b.dmg||1);
-      this.knock(this.wx-(b.wx||this.wx-1), this.wz-(b.wz||this.wz), 1.6, 0, (window._BOT_SHOT_STUN!=null?window._BOT_SHOT_STUN:8));   // brief flinch, not a long freeze (was 22)
+      this.knock(this.wx-(b.wx||this.wx-1), this.wz-(b.wz||this.wz), 1.6, 0, (window._BOT_SHOT_STUN!=null?window._BOT_SHOT_STUN:14));   // weak bullets, but a readable slight STUN (Smash-style)
+      if(typeof ps!=='undefined')ps.spark(this.wx+rand(-6,6),this.wz+rand(-6,6),[0.85,0.5,1],(this.py||0)+16);
       return true;
     }
     return false;
@@ -30172,7 +30176,9 @@ function mpHandleRemoteEvent(msg){
     case 'player_hit':
       if(d.target===MP.myId){ mpTakeDamage(d.dmg||1, msg.id);
         if((d.zap||d.knock)&&player){ const _newly=d.zap?!(player._zapT>0):true; if(d.zap)player._zapT=Math.max(player._zapT||0,1.0);
-          if(_newly){ player.pvy=Math.max(player.pvy||0, d.knock?190:165); if(d.px!==undefined){ const f=d.knock?300:150; player.vx=(d.px||0)*f; player.vz=(d.pz||0)*f; } } } }   // shocked/meleed: pop up + shoved back
+          if(_newly){ player.pvy=Math.max(player.pvy||0, d.knock?190:165); if(d.px!==undefined){ const f=d.knock?300:150; player.vx=(d.px||0)*f; player.vz=(d.pz||0)*f; } } }
+        else if(player){ player._zapT=Math.max(player._zapT||0,(window._BULLET_STUN||0.16)); }   // plain bullet: weak, but a slight stun you can dash / hard-push out of (Smash-style)
+      }
       break;
     case 'powerup_taken':
       if(_cityProps && _cityProps.powerups){ const _pu=_cityProps.powerups.find(x=>x&&x._mpIdx===d.idx); if(_pu && !_pu.collected){ _pu.collected=true; if(_pu.mesh)_pu.mesh.visible=false; if(typeof ps!=='undefined')ps.ring(_pu.wx,_pu.wz,[0,1,0.78],24,120); } }
