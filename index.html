@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB113</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB114</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14019,6 +14019,9 @@ function _mpRemoveItemBySid(sid){ const f=_mpFindItemBySid(sid); if(!f)return; c
   try{ if(item.grp){scene.remove(item.grp); item.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} if(item.bar){scene.remove(item.bar); item.bar.traverse&&item.bar.traverse(o=>{if(o.geometry)o.geometry.dispose();});} }catch(_){}
   list.splice(i,1); if(item===window._nearOrb)window._nearOrb=null; if(item===window._nearCrate)window._nearCrate=null; if(typeof MP!=='undefined'){ if(!MP._goneSids)MP._goneSids=new Set(); MP._goneSids.add(sid); } }
 function _mpTagSpawn(it,opts){ if(opts&&opts.sid){ it._sid=opts.sid; it._mirror=!!opts.mirror; } else if(_mpItemSyncOn()){ it._sid=_mpSid(); } return it; }
+// A player grabbed/busted a synced item -> tell everyone to drop it (removes the OWNER's copy too, whoever owns it) and
+// suppress recreating that sid, so grabbing a MIRROR of the other player's crate doesn't leave a ghost behind.
+function _mpBroadcastTaken(sid){ if(!sid||!_mpItemSyncOn())return; if(typeof MP!=='undefined'){ if(!MP._goneSids)MP._goneSids=new Set(); MP._goneSids.add(sid); } try{ mpSend('event',{event:'item_taken',data:{sid}}); }catch(_){} }
 function _spawnPU(x,y,z,type,vx,vy,vz,opts){
   _capItemPU();
   const def=_ITEMDEF[type]||_ITEMDEF.nuke;
@@ -14226,11 +14229,11 @@ function _grabItem(fromSlide){
   if(g.kind==='droid'){ const a=g.ref; const ai=(GS.allies?GS.allies.indexOf(a):-1); if(ai>=0)GS.allies.splice(ai,1); if(a._grabRing){try{scene.remove(a._grabRing); if(a._grabRing.geometry)a._grabRing.geometry.dispose();}catch(_){}} if(a.mesh){try{scene.remove(a.mesh); a.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});}catch(_){}} player._carryPayload={kind:'item',type:'droid'}; window._nearDroid=null; if(typeof player._armBomb==='function')player._armBomb('item'); if(typeof announce==='function')announce('DROID SCOOPED — AIM & THROW','#ffb066'); if(typeof Audio!=='undefined'){try{Audio.blip(420,0.1,'square',0.16,300);}catch(_){}} return true; }   // scoop the balled droid -> carry it like a bomb; throwing redeploys it
   if(g.kind==='spider'){ const e=g.ref; const ei=(GS.enemies?GS.enemies.indexOf(e):-1); if(ei>=0)GS.enemies.splice(ei,1); if(e.mesh){try{scene.remove(e.mesh); e.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});}catch(_){}} player._carryPayload={kind:'item',type:'spider'}; window._nearSpider=null; if(typeof player._armBomb==='function')player._armBomb('item'); if(typeof announce==='function')announce('SPIDER SCOOPED — AIM & THROW','#8fff8f'); if(typeof Audio!=='undefined'){try{Audio.blip(360,0.1,'square',0.16,260);}catch(_){}} return true; }   // scoop a balled spider -> carry + throw it like the droid; on landing it re-enters as a hostile spider you can bat / kill
   if(g.kind==='item'){ const p=g.ref;
-    if(fromSlide && p.type==='barrel'){ const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} if(typeof _detonateItem==='function')_detonateItem('barrel',p.x,p.z,false); window._nearOrb=null; return true; }   // SLIDE through a barrel -> BUST it open (don't carry)
-    const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} player._carryPayload={kind:'item',type:p.type}; window._nearOrb=null; }
+    if(fromSlide && p.type==='barrel'){ if(p._sid)_mpBroadcastTaken(p._sid); const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} if(typeof _detonateItem==='function')_detonateItem('barrel',p.x,p.z,false); window._nearOrb=null; return true; }   // SLIDE through a barrel -> BUST it open (don't carry)
+    if(p._sid)_mpBroadcastTaken(p._sid); const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} player._carryPayload={kind:'item',type:p.type,_sid:p._sid}; window._nearOrb=null; }
   else { const c=g.ref;
     if(fromSlide){ if(typeof _smashCrate==='function')_smashCrate(c); window._nearCrate=null; return true; }   // SLIDE through a crate -> BUST it open (spills loot), don't carry
-    const i=window._crates.indexOf(c); if(i>=0)window._crates.splice(i,1); if(c.grp){scene.remove(c.grp);c.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} if(c.bar){scene.remove(c.bar);c.bar.traverse(o=>{if(o.geometry)o.geometry.dispose();});} player._carryPayload={kind:'crate',type:null}; window._nearCrate=null; }
+    if(c._sid)_mpBroadcastTaken(c._sid); const i=window._crates.indexOf(c); if(i>=0)window._crates.splice(i,1); if(c.grp){scene.remove(c.grp);c.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} if(c.bar){scene.remove(c.bar);c.bar.traverse(o=>{if(o.geometry)o.geometry.dispose();});} player._carryPayload={kind:'crate',type:null,_sid:c._sid}; window._nearCrate=null; }
   if(typeof player._armBomb==='function') player._armBomb('item');
   if(typeof Audio!=='undefined'){try{Audio.blip(560,0.1,'sine',0.2,880);}catch(_){}}
   return true;
@@ -30390,10 +30393,17 @@ function mpHandleRemoteEvent(msg){
         GS.dropBombs.push(b);
       }
       break;
+    case 'item_taken':
+      // someone grabbed/busted a synced item -> drop our copy (owner OR mirror) and don't recreate it
+      if(typeof MP!=='undefined'){ if(!MP._goneSids)MP._goneSids=new Set(); MP._goneSids.add(d.sid); }
+      _mpRemoveItemBySid(d.sid);
+      for(const _pid in MP.players){ const _rp=MP.players[_pid]; if(_rp&&_rp._items&&_rp._items[d.sid])delete _rp._items[d.sid]; }
+      break;
     case 'items':
       // PERIODIC reconcile of a peer's map items -> mirror them locally (self-healing: no lost spawns).
       if(GS.state==='playing'){ const rpi=rp; if(!rpi._items)rpi._items={}; const list=d.list||[]; const seen={};
-        for(const ad of list){ if(!ad||!ad.s)continue; seen[ad.s]=1; let it=rpi._items[ad.s];
+        for(const ad of list){ if(!ad||!ad.s)continue; if(typeof MP!=='undefined'&&MP._goneSids&&MP._goneSids.has(ad.s))continue;   // grabbed/busted -> don't recreate
+          seen[ad.s]=1; let it=rpi._items[ad.s];
           if(!it || !it.grp || !it.grp.parent){
             try{ if(ad.f==='crate') it=_spawnCrate(ad.x,ad.z,{sid:ad.s,mirror:true});
                  else if(ad.f==='rested') it=_spawnRestedBarrel(ad.x,ad.y,ad.z,{sid:ad.s,mirror:true});
@@ -30502,6 +30512,7 @@ function mpHandleRemoteEvent(msg){
 }
 
 function mpTakeDamage(dmg, byId){
+  if(typeof MP!=='undefined')MP._hitsRecv=(MP._hitsRecv||0)+1;   // debug overlay: counts EVERY incoming hit (even during i-frames)
   if(!player||!player.alive||player.inv>0||GS.state!=='playing') return;
   const _md=_combatDmg(dmg);   // MP player is a unit too — tanky, tactical TTK (not 3-hit)
   if((GS.hp-_md)<=0){ mpSend('event',{event:'died'}); ps.ring(player.wx,player.wz,[1,0.3,0.1],30,120); flashScreen&&flashScreen(0.7); addTrauma(0.2); if(Audio.bigDie)Audio.bigDie(); mpRespawn(); return; }
@@ -30546,30 +30557,46 @@ function _mpVersusHit(){
   if(!rpos.length) return;
   const near=(x,y,z,R,dy)=>{ const R2=R*R; for(const r of rpos){ const dx=x-r.x, dz=z-r.z; if(dx*dx+dz*dz<R2 && (dy==null || Math.abs((y||0)-(r.y||0))<dy)) return r; } return null; };
   const fx=(x,z,col)=>{ if(typeof ps!=='undefined')ps.burst(x,z,col||[1,0.4,0.2],8,80); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(320,0.05,'square',0.1); };
-  // direct projectiles (mine only) — consumed on hit
-  const DIRECT=[[GS.bullets,18,1],[GS.missiles,22,3],[GS.arrows,20,2]];
+  const _hit=(id,dmg,extra)=>{ MP._hitsSent=(MP._hitsSent||0)+1; mpSend('event',{event:'player_hit',data:Object.assign({target:id,dmg},extra||{})}); };   // count + send (debug overlay reads _hitsSent)
+  // direct projectiles (mine only) — consumed on hit. Radius bumped + tunable so fast bullets don't skim past the remote mesh.
+  const _R=(window._MP_HIT_R||26);
+  const DIRECT=[[GS.bullets,_R,1],[GS.missiles,_R+8,3],[GS.arrows,_R+4,2]];
   for(const [list,R,dmg] of DIRECT){ if(!list) continue;
     for(let i=list.length-1;i>=0;i--){ const b=list[i]; if(!b||b._remote||b.dead||(b.life!=null&&b.life<=0)||b.stuck) continue;
       const hx=(b.wx!=null?b.wx:b.x), hz=(b.wz!=null?b.wz:b.z), hy=(b.y!=null?b.y:0);
-      const r=near(hx,hy,hz,R,60); if(r){ if(b.life!=null)b.life=0; else b.dead=true; fx(hx,hz); mpSend('event',{event:'player_hit',data:{target:r.id,dmg:(b.dmg||dmg)}}); } }
+      const r=near(hx,hy,hz,R,(window._MP_HIT_DY||70)); if(r){ if(b.life!=null)b.life=0; else b.dead=true; fx(hx,hz); _hit(r.id,(b.dmg||dmg)); } }
   }
   // boomerang (mine) — passes through, per-boomerang cooldown
-  if(GS.boomerangs)for(const b of GS.boomerangs){ if(!b||b._remote) continue; b._mpCd=(b._mpCd||0)-1; if(b._mpCd>0)continue; const r=near(b.wx,b.y,b.wz,22,70); if(r){ b._mpCd=30; fx(b.wx,b.wz); mpSend('event',{event:'player_hit',data:{target:r.id,dmg:b.dmg||2}}); } }
-  // AoE (mine) — nuke / quake / singularity: ticking damage while a remote is in radius
-  const AOE=[[GS.nukes,(window._NUKE_PVP_R||300),3,(window._NUKE_PVP_T||1.6)],[GS.quakes,(window._QUAKE_PVP_R||220),2,null],[GS.wells,(window._SING_PVP_R||150),(window._SING_UNIT_DMG!=null?window._SING_UNIT_DMG:0.2),null]];   // singularity = hold trap, barely damages
+  if(GS.boomerangs)for(const b of GS.boomerangs){ if(!b||b._remote) continue; b._mpCd=(b._mpCd||0)-1; if(b._mpCd>0)continue; const r=near(b.wx,b.y,b.wz,(_R+4),70); if(r){ b._mpCd=30; fx(b.wx,b.wz); _hit(r.id,(b.dmg||2)); } }
+  // AoE (mine) — nuke / quake / singularity: ticking damage while a remote is in radius. Damage brought in line with PvE
+  // (was ~10x too low -> nukes/quakes felt like they did nothing to the other player).
+  const AOE=[[GS.nukes,(window._NUKE_PVP_R||300),(window._NUKE_PVP_DMG||14),(window._NUKE_PVP_T||1.6)],[GS.quakes,(window._QUAKE_PVP_R||220),(window._QUAKE_PVP_DMG||6),null],[GS.wells,(window._SING_PVP_R||150),(window._SING_UNIT_DMG!=null?window._SING_UNIT_DMG:0.2),null]];   // singularity = hold trap, barely damages
   for(const [list,R,dmg,maxAge] of AOE){ if(!list) continue; for(const w of list){ if(!w||w._remote) continue; if(maxAge!=null && (w.t||0)>maxAge) continue;   // nuke only bites during the blast, not the whole cloud
-    const wx=(w.wx!=null?w.wx:(w.x!=null?w.x:0)), wz=(w.wz!=null?w.wz:(w.z!=null?w.z:0)); w._mpCd=(w._mpCd||0)-1; if(w._mpCd>0)continue; const r=near(wx,null,wz,R,null); if(r){ w._mpCd=24; mpSend('event',{event:'player_hit',data:{target:r.id,dmg}}); } } }
-  // melee — one hit per swing per target, with knockback
+    const wx=(w.wx!=null?w.wx:(w.x!=null?w.x:0)), wz=(w.wz!=null?w.wz:(w.z!=null?w.z:0)); w._mpCd=(w._mpCd||0)-1; if(w._mpCd>0)continue; const r=near(wx,null,wz,R,null); if(r){ w._mpCd=24; _hit(r.id,dmg); } } }
+  // melee — one hit per swing per target, with knockback (home-run launch)
   const ud=player.model&&player.model.userData; const swinging=!!(ud&&(ud._meleeTimer>0||ud._swActive))||((window._procMeleeT||0)>0);
-  if(swinging){ if(!player._mpMeleeHit)player._mpMeleeHit={}; const r=near(player.wx,(player.py||0)+10,player.wz,(window._MP_MELEE_R||48),90);
-    if(r && !player._mpMeleeHit[r.id]){ player._mpMeleeHit[r.id]=1; const dx=r.x-player.wx, dz=r.z-player.wz, m=Math.hypot(dx,dz)||1; fx(r.x,r.z,[1,0.7,0.3]); if(typeof addTrauma==='function')addTrauma(0.08); mpSend('event',{event:'player_hit',data:{target:r.id,dmg:(window._MP_MELEE_DMG||3),knock:1,px:dx/m,pz:dz/m}}); } }
+  if(swinging){ if(!player._mpMeleeHit)player._mpMeleeHit={}; const r=near(player.wx,(player.py||0)+10,player.wz,(window._MP_MELEE_R||54),90);
+    if(r && !player._mpMeleeHit[r.id]){ player._mpMeleeHit[r.id]=1; const dx=r.x-player.wx, dz=r.z-player.wz, m=Math.hypot(dx,dz)||1; fx(r.x,r.z,[1,0.7,0.3]); if(typeof addTrauma==='function')addTrauma(0.08); _hit(r.id,(window._MP_MELEE_DMG||6),{knock:1,px:dx/m,pz:dz/m,lift:(window._MP_MELEE_LIFT||360)}); } }
   else player._mpMeleeHit=null;
 }
 // ── Broadcast our state every 50ms ──
 let _mpTick=0;
+function _mpDbgOverlay(){
+  let el=document.getElementById('mp-dbg'); if(!el){ el=document.createElement('div'); el.id='mp-dbg'; el.style.cssText='position:fixed;left:6px;top:58px;z-index:99;font:10px/1.45 monospace;color:#00ffcc;background:#000a;padding:4px 7px;border-radius:5px;pointer-events:none;white-space:pre'; document.body.appendChild(el); }
+  const A=window._itemPU||[], C=window._crates||[];
+  const own=A.filter(p=>p&&p._sid&&!p._mirror).length + C.filter(c=>c&&c._sid&&!c._mirror).length;
+  const mir=A.filter(p=>p&&p._mirror).length + C.filter(c=>c&&c._mirror).length;
+  const peers=Object.keys(MP.players||{}).length; let rp=null; for(const id in MP.players){ rp=MP.players[id]; break; }
+  const rm=rp&&rp.mesh?rp.mesh.position:null;
+  el.textContent='host='+(MP.isHost?'Y':'N')+' conn='+(MP.connected?'Y':'N')+' peers='+peers+' cube='+(MP.cube?'Y':'N')+' vs='+(MP.versus?'Y':'N')
+    +'\nitems own='+own+' mirror='+mir
+    +'\nhitsSENT='+(MP._hitsSent||0)+' hitsRECV='+(MP._hitsRecv||0)
+    +'\nme('+Math.round(player.wx)+','+Math.round(player.py||0)+','+Math.round(player.wz)+')  her('+(rm?Math.round(rm.x)+','+Math.round(rm.y)+','+Math.round(rm.z):'none')+')';
+}
 function mpTick(){
   if(!MP.active||!MP.connected||!player||GS.state!=='playing') return;
   _mpTick++;
+  if(window._MP_DBG){ try{ _mpDbgOverlay(); }catch(_){} }
   // one-shot FX broadcasts (jump takeoff, dash) so remotes see the burst, not just the landing
   if(player.alive){
     if((player.pvy||0)>120 && (player._mpPrevPvy||0)<=120 && (player.py||0)<32) mpSend('event',{event:'fx',data:{k:'jump',x:player.wx,y:player.py,z:player.wz}});
@@ -30681,6 +30708,7 @@ document.getElementById('mp-code-input')?.addEventListener('keydown',e=>{
 // Expose MP so the main loop can call mpTick
 window._MP=MP;
 window._mpTick=mpTick;
+try{ if(typeof location!=='undefined' && /[?&]mpdbg/i.test(location.search||'')) window._MP_DBG=true; }catch(_){}   // add ?mpdbg to the URL to show the live MP diagnostic overlay
 
 window.KEYS_SWAP=window.KEYS_SWAP!==undefined?window.KEYS_SWAP:true;
 window.CTRL_MODE=window.CTRL_MODE||'standard';
