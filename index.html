@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB94</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB95</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -8722,7 +8722,8 @@ class PlasmaLightning{
       nodes.push(new THREE.Vector3(bx+rt.x*jr+upv.x*ju, by+rt.y*jr+upv.y*ju, bz+rt.z*jr+upv.z*ju)); }
     const curve=new THREE.CatmullRomCurve3(nodes), Rc=(0.55+2.0*inten)*(od?1.4:1);
     const ng=new THREE.TubeGeometry(curve,N,Rc,4,false); this._core.geometry.dispose(); this._core.geometry=ng;
-    this._coreMat.opacity=0.9*Math.min(1,inten*1.3);
+    const _flk=Math.max(0.28,0.5+0.35*Math.sin(this.t*34)+0.25*(Math.random()-0.35));   // arc flicker -> reads as an electric discharge, not a solid laser stream
+    this._coreMat.opacity=0.9*Math.min(1,inten*1.3)*_flk;
     // filaments
     let fp=0; const FM=this._filMax*3, pos=this._filPos;
     const pushSeg=(ax,ay,az,bx,by,bz)=>{ if(fp+6>FM)return; pos[fp++]=ax;pos[fp++]=ay;pos[fp++]=az; pos[fp++]=bx;pos[fp++]=by;pos[fp++]=bz; };
@@ -8762,6 +8763,12 @@ class PlasmaLightning{
     this._filGeo.setDrawRange(0, fp/3); this._filGeo.attributes.position.needsUpdate=true;
     this._filMat.opacity=0.85*Math.min(1,inten*1.4);
     if(this._contact){ const showContact=hitting||wallStop; this._contact.visible=showContact; if(showContact){ this._contact.position.set(cx,cy,cz); const sc=(3.5+2*Math.sin(this.t*30))*(od?1.5:1)*Math.min(1,inten*1.5); this._contact.scale.setScalar(Math.max(1,sc)); this._contactMat.opacity=0.85*inten; } }
+    // ── TRAILING SHOCK CLOUD — a slow, lingering electric cloud that hovers on the contact instead of a tight solid beam-end ──
+    if((hitting||wallStop) && typeof ps!=='undefined' && ps._spawn){
+      const _n=(window._PLASMA_CLOUD_N||3), _life=(window._PLASMA_CLOUD_LIFE||0.85);
+      for(let k=0;k<_n;k++){ const a=rand(TAU), rr=rand(2,15); ps._spawn(cx+Math.cos(a)*rr, cy+rand(-6,12), cz+Math.sin(a)*rr, Math.cos(a)*rand(3,16), rand(2,20), Math.sin(a)*rand(3,16), 0.72+rand(0,0.2), 0.34+rand(0,0.2), 1, _life+rand(0,0.25)); }   // slow drift + long life = a hovering electric cloud
+      if(this._contact){ const cs=(6+3*Math.sin(this.t*11))*(od?1.5:1)*Math.min(1,inten*1.5); this._contact.scale.setScalar(Math.max(2,cs)); }   // fatter, softer glow blob at the cloud core
+    }
     if(wallStop && typeof ps!=='undefined' && Math.random()<0.5) ps.spark(cx+rand(-4,4),cz+rand(-4,4),[1,0.5,1],cy+rand(-2,5));
     if(active && typeof ps!=='undefined' && Math.random()<0.6) ps.spark(ox+rand(-4,4),oz+rand(-4,4),[1,0.5,1],oy);
   }
