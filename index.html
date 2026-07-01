@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB89</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB90</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -13908,6 +13908,24 @@ function _updatePU(dt){
   }
   let near=null,nd=1e9;
   for(const p of A){ p.t+=dt;
+    // ── PUSHABLE BARRELS — run into a resting barrel to shove it around (weight + drag, like the crates). Walk into it
+    //    and it SLIDES; ram it (dash / full speed) and it TIPS onto its side and ROLLS. ──
+    if(p.type==='barrel' && (p.settled||p._lying) && !(p._cooking>0) && !p._loot){
+      const BSZ=(window._BARREL_SIZE||11), gy=(p._lying?BSZ:(window._BARREL_REST_Y!=null?window._BARREL_REST_Y:7));
+      if(player && player.alive!==false){ const dx=p.x-player.wx, dz=p.z-player.wz, d=Math.hypot(dx,dz)||1, R=BSZ+14, dy=Math.abs((player.py||0)-(p.y||gy));
+        if(d<R && d>0.01 && dy<44){ const nx=dx/d, nz=dz/d, ov=R-d, F=(window._BARREL_PUSH_F||1.7), pspd=Math.hypot(player.vx||0,player.vz||0);
+          p.vx=(p.vx||0)+nx*ov*F; p.vz=(p.vz||0)+nz*ov*F;
+          if(pspd>(window._BARREL_RAM_SPD||150)){ const rk=(window._BARREL_RAM_KN||0.45); p.vx+=nx*pspd*rk; p.vz+=nz*pspd*rk; }   // a running ram adds a big impulse -> enough to tip it
+          else { const cap=(window._BARREL_PUSH_MAX||95), sp=Math.hypot(p.vx,p.vz); if(sp>cap){ p.vx=p.vx/sp*cap; p.vz=p.vz/sp*cap; } }   // a gentle shove is capped BELOW the tip threshold so it just slides
+          player.wx-=nx*ov*0.4; player.wz-=nz*ov*0.4; if(player.vx!==undefined){ player.vx*=0.78; player.vz*=0.78; } } }
+      const sp0=Math.hypot(p.vx||0,p.vz||0);
+      if(sp0>0.01){ p.x+=(p.vx||0)*dt; p.z+=(p.vz||0)*dt; const fr=Math.pow((p._lying?(window._BARREL_ROLL_DRAG||0.32):(window._BARREL_PUSH_DRAG||0.02)),dt); p.vx*=fr; p.vz*=fr; if(Math.hypot(p.vx,p.vz)<(window._BARREL_PUSH_STOP||6)){ p.vx=0; p.vz=0; } p.wx=p.x; p.wz=p.z;
+        if(!p._lying && sp0>(window._BARREL_TIP_SPD||120)){ p._lying=true; p.settled=true; if(typeof ps!=='undefined')ps.spark(p.x,p.z,[1,0.6,0.2],gy); if(typeof Audio!=='undefined'){try{Audio.blip(90,0.12,'sine',0.18,60);}catch(_){}} }   // tipped over
+        const sp=Math.hypot(p.vx,p.vz);
+        if(p._lying && sp>4 && p.cube){ const _ax=new THREE.Vector3(-p.vz/(sp||1),0,p.vx/(sp||1)); p._rollAng=(p._rollAng||0)+(sp/(BSZ||9))*dt; p.cube.quaternion.setFromAxisAngle(_ax,p._rollAng); }   // roll in the travel direction
+        p.y=gy; if(p.grp)p.grp.position.set(p.x,gy,p.z); p._pushMoving=true;
+      } else p._pushMoving=false;
+    }
     if(GS.zone===-19){ const C=(window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{hx:560,hz:560,cham:130})); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9), mx=C.hx-ch-12, mz=C.hz-ch-12; if(p.x>mx){p.x=mx;if(p.vx>0)p.vx*=-0.3;} else if(p.x<-mx){p.x=-mx;if(p.vx<0)p.vx*=-0.3;} if(p.z>mz){p.z=mz;if(p.vz>0)p.vz*=-0.3;} else if(p.z<-mz){p.z=-mz;if(p.vz<0)p.vz*=-0.3;} }   // keep loot on the FLAT floor (inside the chamfer corners) so it can't land on the curve and fall through
     if(!p.settled){ const _ry=(window._BARREL_REST_Y!=null&&p.type==='barrel'?window._BARREL_REST_Y:7); p.vy-=360*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.z+=p.vz*dt; if(p.y<=_ry){ p.y=_ry; if(p.vy<-30){ p.vy*=-0.4; p.vx*=0.65; p.vz*=0.65; } else { p.vy=0; } p.vx*=0.82; p.vz*=0.82; if(Math.abs(p.vy)<14&&Math.hypot(p.vx,p.vz)<8){ p.settled=true; p.vx=p.vy=p.vz=0; p.y=_ry; if(p.cube){ if(p._model&&p._loot){ p._easeUp=true; } else { p.cube.quaternion.identity();p.cube.rotation.set(0,0,0); } } } } p.grp.position.set(p.x,p.y,p.z);
       const _hsp=Math.hypot(p.vx,p.vz);
@@ -13928,6 +13946,7 @@ function _updatePU(dt){
       if(p._unfoldT<=0 && !p._easeUp){ _unfoldLootBall(p); continue; }   // don't unfold mid-ease — let it stand upright first so the hand-off to the pad isn't a jarring flip
     }
     else if(p._lying){ p.grp.position.set(p.x,p.y,p.z); }   // a barrel that rolled to a stop -> stays lying on its side where it landed (no bob, no upright snap)
+    else if(p.type==='barrel'){ p.grp.position.set(p.x,(window._BARREL_REST_Y!=null?window._BARREL_REST_Y:7),p.z); }   // resting upright barrel sits on the ground (no float-bob) — pushable
     else { p.grp.position.y=7+Math.sin(p.t*2.4)*1.4; p.cube.rotation.y+=dt*1.4; }
     if(p.settled && p.cube && !p._easeUp && ((p.type==='barrel'&&!p._lying) || p.type==='nuke' || p.type==='drone' || p._model)){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // once RESTED: barrels / nuke / DRONE / weapon-loot sit FLAT (belly-down) and spin only on Y (skip while still easing up so the slerp isn't fought by a hard zero)
     if(player&&!player._carryPayload&&(p.settled||p.type==='barrel')&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z), dy=Math.abs((player.py||0)-(p.y||0)); if(d<(window._GRAB_R_ITEM||60)&&dy<(window._GRAB_Y_ITEM||60)&&d<nd){nd=d;near=p;} }   // barrels are grabbable even while still rolling — Y gate so you can't grab floor loot while standing on the flipped ceiling
@@ -14252,7 +14271,7 @@ function _updateThrownMelee(dt){
     const hsp=Math.hypot(s.vx,s.vz);
     if(s.mesh){ s.mesh.position.set(s.x,s.y,s.z);
       if(s.straight){ const v=new THREE.Vector3(s.vx,s.vy,s.vz); if(v.lengthSq()>1){ v.normalize(); s.mesh.quaternion.setFromUnitVectors(_up,v); } }   // spear points along its flight
-      else { s._ang=(s._ang||0)+s.spin*dt; if(!s._axis){ const al=Math.hypot(s.vx,s.vz)||1; s._axis=new THREE.Vector3(-s.vz/al,0,s.vx/al); } s.mesh.quaternion.setFromAxisAngle(s._axis,s._ang); }   // axe/hammer/sword TUMBLE end-over-end around the horizontal axis perpendicular to flight (not a barrel-roll about the hilt)
+      else { s._ang=(s._ang||0)-s.spin*dt; if(!s._axis){ const al=Math.hypot(s.vx,s.vz)||1; s._axis=new THREE.Vector3(-s.vz/al,0,s.vx/al); } s.mesh.quaternion.setFromAxisAngle(s._axis,s._ang); }   // axe/hammer/sword TUMBLE end-over-end FORWARD (over the top in the travel direction) around the horizontal axis perpendicular to flight
     }
     if(s.bounces<(window._MTHROW_HIT_BOUNCES||1)){   // the live throw deals damage; spent after it hits the ground hard
       const HR=(window._MTHROW_HIT_R||16), HY=(window._MTHROW_HIT_Y||34);
