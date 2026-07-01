@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB110</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB111</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14006,7 +14006,10 @@ function _capItemPU(){ const A=window._itemPU; if(!A) return; const cap=(window.
 //    both screens show the SAME items. ALL gated behind MP.active -> single-player is byte-for-byte untouched. ──
 window._mpItemSeq=0;
 function _mpItemSyncOn(){ return typeof MP!=='undefined' && MP.active; }
-function _mpSid(){ return (typeof MP!=='undefined'?(MP.myId||'x'):'x')+'#'+(++window._mpItemSeq); }
+// per-session salt so two clients NEVER generate the same sid even if the server hands out a blank/duplicate myId
+// (a collision made each peer think it already had the other's item -> the mirror was skipped -> "can't see her barrel").
+function _mpSalt(){ if(!window._mpSalt) window._mpSalt=(Math.floor(Math.random()*1e9)).toString(36)+(Math.floor(Math.random()*1e6)).toString(36); return window._mpSalt; }
+function _mpSid(){ return (typeof MP!=='undefined'?(MP.myId||'x'):'x')+'.'+_mpSalt()+'#'+(++window._mpItemSeq); }
 function _mpItemSpawnBroadcast(fn,it,extra){ if(!it||!it._sid||it._mirror||!_mpItemSyncOn())return; try{ mpSend('event',{event:'item_spawn',data:Object.assign({fn,sid:it._sid,type:it.type||null,x:it.x,y:it.y,z:it.z},extra||{})}); }catch(_){} }
 function _mpFindItemBySid(sid){ if(!sid)return null; const A=window._itemPU||[]; for(const p of A){ if(p&&p._sid===sid)return {list:A,item:p}; } const C=window._crates||[]; for(const c of C){ if(c&&c._sid===sid)return {list:C,item:c}; } return null; }
 function _mpRemoveItemBySid(sid){ const f=_mpFindItemBySid(sid); if(!f)return; const {list,item}=f; const i=list.indexOf(item); if(i<0)return;
@@ -14435,7 +14438,9 @@ function _spawnTrainingBarrels(){ _spawnCrate(60,-40); _spawnCrate(95,-10); _spa
 let _barrelSpawnT=0;
 function _barrelSpawnTick(dt){
   if(window._BARRELS_ENABLED===false || typeof GS==='undefined' || GS.state!=='playing') return;
-  if(typeof MP!=='undefined' && MP.active && !MP.isHost) return;   // host-authoritative: clients receive the SAME barrels/crates via item_spawn (no independent RNG)
+  // MP: SYMMETRIC sync (robust to host detection) — both players spawn, each broadcasts its spawns, each mirrors the
+  // other's. The per-type cap below counts mirrors too, so the combined set stays bounded and both converge to the SAME
+  // barrels/crates. (Was host-gated, but if host detection is off both spawned + neither mirrored -> divergent screens.)
   const _bz=(GS.zone>=0 || GS.zone===-19 || GS.zone===-2);   // combat waves, the cube sandbox, and training
   if(!_bz) return;
   _barrelSpawnT-=dt;
