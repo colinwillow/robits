@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB121</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB122</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1121,9 +1121,12 @@ function updateCamera(dt){
   }
   if(typeof camera!=='undefined' && (camera.up.x!==0||camera.up.z!==0)) camera.up.set(0,1,0);   // a wall/ceiling cam may have left the up-vector tilted; the normal cam is always world-up (fixes the 90°-tilt when you take boots off mid-wall)
   let _yawK=0.045; if(player&&player._cwOrbitT>0){ player._cwOrbitT=Math.max(0,player._cwOrbitT-dt); _yawK=(window._CUBE_WF_ORBIT_K||0.14); }   // brief faster orbit while swinging around the character on a wall->floor exit
-  CAM.yaw=lerp(CAM.yaw,CAM.tyaw,_yawK);
-  CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
-  CAM.focus.lerp(CAM.tfocus,0.18);
+  // FRAME-RATE-INDEPENDENT smoothing: fixed per-frame lerp factors judder when frame times vary (the player moves by
+  // vel*dt but the camera lerped a constant % -> "glitching forward-back" at high speed). Scale the factor by dt instead.
+  const _fk=(k)=>(window._CAM_DT_SMOOTH===false)?k:(1-Math.pow(1-k, Math.max(1e-4,Math.min(dt,0.05))*60));
+  CAM.yaw=lerp(CAM.yaw,CAM.tyaw,_fk(_yawK));
+  CAM.zoom=lerp(CAM.zoom,CAM.tzoom,_fk(0.18)); CAM.tzoom=lerp(CAM.tzoom,0,_fk(0.06));
+  CAM.focus.lerp(CAM.tfocus,_fk(0.18));
 
   if(CAM.aimMode){
     CAM.pitch=lerp(CAM.pitch,CAM.tpitch,0.18);
