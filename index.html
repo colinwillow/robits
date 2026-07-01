@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB88</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB89</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -29808,14 +29808,14 @@ function mpConnectAbly(roomCode){
       if(m.clientId===MP.myId) return;
       const existing=Object.keys(MP.players).length;
       MP.isHost = Object.keys(MP.players).length===0 && !Object.values(MP.players).length;
-      mpHandleMessage({type:'player_joined', player:{id:m.clientId, name:m.data?.name||'Pilot', color:existing%4, x:0,y:0,z:0,aim:0,hp:3,dead:false}});
+      mpHandleMessage({type:'player_joined', player:{id:m.clientId, name:m.data?.name||'Pilot', char:m.data?.char||'robot', color:existing%4, x:0,y:0,z:0,aim:0,hp:3,dead:false}});
     });
     ch.presence.subscribe('leave', (m)=>{
       mpHandleMessage({type:'player_left', id:m.clientId});
     });
 
-    // Enter presence with our name
-    ch.presence.enter({name: MP.myName});
+    // Enter presence with our name + skin
+    ch.presence.enter({name: MP.myName, char: window._playerChar||'robot'});
 
     // Get current members
     ch.presence.get((err, members)=>{
@@ -29823,11 +29823,11 @@ function mpConnectAbly(roomCode){
       const others = members.filter(m=>m.clientId!==MP.myId);
       MP.isHost = others.length===0;
       others.forEach((m,i)=>{
-        mpAddRemotePlayer(m.clientId, {id:m.clientId, name:m.data?.name||'Pilot', color:i%4, x:0,y:0,z:0,aim:0,hp:3,dead:false});
+        mpAddRemotePlayer(m.clientId, {id:m.clientId, name:m.data?.name||'Pilot', char:m.data?.char||'robot', color:i%4, x:0,y:0,z:0,aim:0,hp:3,dead:false});
       });
       mpUpdateLobbyUI(members.length);
       // Announce ourselves to others
-      ch.publish('join', {id:MP.myId, name:MP.myName, color:members.length%4, x:0,y:0,z:0,aim:0,hp:3,dead:false});
+      ch.publish('join', {id:MP.myId, name:MP.myName, char:window._playerChar||'robot', color:members.length%4, x:0,y:0,z:0,aim:0,hp:3,dead:false});
     });
   });
 
@@ -29849,7 +29849,7 @@ function _mpOpenWS(roomCode){
   MP.ws = ws;
   let opened=false;
   const failT=setTimeout(()=>{ if(!opened){ try{ws.close();}catch(_){} _mpLoadingSub('Server slow to wake'); _mpLoadingRetry(()=>mpConnectWS(roomCode)); } }, 25000);
-  ws.onopen = ()=>{ opened=true; clearTimeout(failT); MP.connected=true; _mpLoadingProgress(100); _mpLoadingSub('Connected'); setTimeout(_mpLoadingHide,450); mpStatus(''); ws.send(JSON.stringify({type:'join', room:roomCode, name:MP.myName})); };
+  ws.onopen = ()=>{ opened=true; clearTimeout(failT); MP.connected=true; _mpLoadingProgress(100); _mpLoadingSub('Connected'); setTimeout(_mpLoadingHide,450); mpStatus(''); ws.send(JSON.stringify({type:'join', room:roomCode, name:MP.myName, char:window._playerChar||'robot'})); };
   ws.onmessage = (e)=>{
     let msg; try{ msg=JSON.parse(e.data); }catch(_){ return; }
     if(msg.type==='room_state'){ MP.myId=msg.yourId; }
@@ -29984,6 +29984,44 @@ function MP_PLAYER_COLOR_HEX(idx){
 }
 
 // ── Remote Player Mesh ──
+function _mpNameTag(group, name, colorIdx){
+  const canvas=document.createElement('canvas'); canvas.width=256; canvas.height=64;
+  const ctx=canvas.getContext('2d'); ctx.font='bold 26px monospace'; ctx.fillStyle='#'+MP_PLAYER_COLOR_HEX(colorIdx||0); ctx.textAlign='center'; ctx.fillText(name||'Pilot',128,40);
+  const tex=new THREE.CanvasTexture(canvas); const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false})); sprite.scale.set(60,15,1); sprite.position.y=65; group.add(sprite);
+}
+// Build (or rebuild) a remote pilot's body as THEIR chosen skin. Skin mesh from that character's GLB; animations always
+// from the robot rig, retargeted rotation-only for the non-robot skins (+ the cyborg upright fix) — exactly like the game.
+function _mpBuildRemoteSkin(rp, id, char){
+  char=char||'robot'; rp._skinChar=char; rp._skinLoading=true;
+  const color=MP.PLAYER_COLORS[rp.color||0];
+  const skinLoad=(char==='alien'&&typeof loadPlayerAlienGLB==='function')?loadPlayerAlienGLB()
+    :(char==='interceptor'&&typeof loadInterceptorGLB==='function')?loadInterceptorGLB()
+    :(char==='cybergirl'&&typeof loadCybergirlGLB==='function')?loadCybergirlGLB()
+    :loadRobotGLB();
+  Promise.all([loadRobotGLB(), skinLoad]).then(([rg, skin])=>{
+    rp._skinLoading=false;
+    if(!MP.players[id]||rp._skinChar!==char) return;                 // player gone / char changed again -> abandon this build
+    const meshGltf=skin||rg, animGltf=rg; if(!meshGltf||!animGltf) return;
+    const clone=SkeletonUtils.clone(meshGltf.scene);
+    if(char==='cybergirl'){ const rx=(window._CYBER_ROT_X!=null?window._CYBER_ROT_X:Math.PI/2); let inner=null,hp=null; clone.children.forEach(c=>{ if(inner)return; let sk=false; if(c.traverse)c.traverse(o=>{ if(o.isSkinnedMesh)sk=true; }); if(sk)inner=c; }); clone.traverse(o=>{ if(o.name==='mixamorig_Hips')hp=o; }); if(inner&&rx){ inner.rotation.x+=rx; if(hp)hp.rotation.x-=rx; } }
+    const bbox=new THREE.Box3().setFromObject(clone), size=bbox.getSize(new THREE.Vector3());
+    let autoScale=18/(size.y||1); if(char==='interceptor') autoScale*=(window._INTERCEPTOR_SCALE!=null?window._INTERCEPTOR_SCALE:0.82);
+    clone.scale.setScalar(autoScale); clone.position.y=-bbox.min.y*autoScale;
+    clone.traverse(c=>{ if((c.isMesh||c.isSkinnedMesh)&&c.material){ const mats=Array.isArray(c.material)?c.material:[c.material]; c.material=(Array.isArray(c.material)?mats.map(m=>m.clone()):mats[0].clone());
+      const out=Array.isArray(c.material)?c.material:[c.material]; out.forEach(m=>{ if(char==='robot'){ m.emissive=new THREE.Color(color); m.emissiveIntensity=1.8; } else if('emissive' in m){ m.emissive=new THREE.Color(color); m.emissiveIntensity=0.55; }   /* textured skins keep their look + a colour rim to tell pilots apart */ m.needsUpdate=true; }); c.frustumCulled=false; } });
+    const mixer=new THREE.AnimationMixer(clone), clips={};
+    animGltf.animations.forEach(clip=>{ if(clip.name==='CINEMA_4D_Main')return; let c=clip;
+      if(char!=='robot'){ try{ if(typeof _filterClipToScene==='function')c=_filterClipToScene(c,clone)||c; }catch(e){} try{ if(typeof _retargetRotationOnly==='function')c=_retargetRotationOnly(c)||c; }catch(e){} }
+      const action=mixer.clipAction(c); action.setLoop(THREE.LoopRepeat,Infinity); action.stop(); clips[clip.name]=action; });
+    clone.userData.clips=clips; clone.userData.currentClip='idle';
+    const idle=clips['idle']||Object.values(clips)[0]; if(idle) idle.setEffectiveWeight(1).play();
+    const group=new THREE.Group(); group.add(clone); _mpNameTag(group, rp.name, rp.color); scene.add(group);
+    if(rp.mesh) scene.remove(rp.mesh);                                // drop the placeholder (or previous skin)
+    rp.mesh=group; rp.mixer=mixer;
+    rp._clips=Object.fromEntries(Object.entries(clips).filter(([k,v])=>v&&typeof v.fadeOut==='function'));
+    rp._clone=clone; rp._currentClip='idle';
+  }).catch(()=>{ rp._skinLoading=false; });
+}
 function mpAddRemotePlayer(id, state){
   if(MP.players[id]) return;
 
@@ -30002,81 +30040,9 @@ function mpAddRemotePlayer(id, state){
   const rp={ state:{...state}, mesh:placeholder, mixer:null, color:state.color||0, name:state.name||'Pilot', _t:0 };
   MP.players[id]=rp;
 
-  // Name tag sprite
-  function makeNameTag(group){
-    const canvas=document.createElement('canvas');
-    canvas.width=256; canvas.height=64;
-    const ctx=canvas.getContext('2d');
-    ctx.font='bold 26px monospace';
-    ctx.fillStyle='#'+MP_PLAYER_COLOR_HEX(state.color||0);
-    ctx.textAlign='center';
-    ctx.fillText(state.name||'Pilot', 128, 40);
-    const tex=new THREE.CanvasTexture(canvas);
-    const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, depthWrite:false}));
-    sprite.scale.set(60,15,1);
-    sprite.position.y=65;
-    group.add(sprite);
-  }
-  makeNameTag(placeholder);
-
-  // When GLB is available, swap in a skeleton clone with its own mixer + animations
-  loadRobotGLB().then(gltf=>{
-    if(!gltf) return; // no GLB, keep placeholder capsule
-    if(!MP.players[id]) return;
-
-    const clone=SkeletonUtils.clone(gltf.scene);
-
-    // Match scale/position of the player model
-    const bbox=new THREE.Box3().setFromObject(clone);
-    const size=new THREE.Vector3(); bbox.getSize(size);
-    const autoScale=18/(size.y||1);
-    clone.scale.setScalar(autoScale);
-    clone.position.y=-bbox.min.y*autoScale;
-
-    // Tint the clone so you can tell players apart
-    clone.traverse(c=>{
-      if((c.isMesh||c.isSkinnedMesh)&&c.material){
-        c.material=c.material.clone();
-        c.material.emissive=new THREE.Color(color);
-        c.material.emissiveIntensity=1.8;
-        c.material.needsUpdate=true;
-        c.frustumCulled=false;
-      }
-    });
-
-    // Set up AnimationMixer — completely independent from player's mixer
-    const mixer=new THREE.AnimationMixer(clone);
-    const clips={};
-    gltf.animations.forEach(clip=>{
-      if(clip.name==='CINEMA_4D_Main') return;
-      const action=mixer.clipAction(clip);
-      action.setLoop(THREE.LoopRepeat, Infinity);
-      action.stop();
-      clips[clip.name]=action;
-    });
-    clone.userData.clips=clips;
-    clone.userData.currentClip='idle';
-
-    // Start idle
-    const idle=clips['idle']||Object.values(clips)[0];
-    if(idle){ idle.setEffectiveWeight(1).play(); }
-
-    // Wrap in a group so we can position freely
-    const group=new THREE.Group();
-    group.add(clone);
-    makeNameTag(group);
-    scene.add(group);
-
-    // Remove placeholder
-    scene.remove(placeholder);
-
-    rp.mesh=group;
-    rp.mixer=mixer;
-    // Store only valid AnimationAction objects
-    rp._clips=Object.fromEntries(Object.entries(clips).filter(([k,v])=>v&&typeof v.fadeOut==='function'));
-    rp._clone=clone;
-    rp._currentClip='idle';
-  }).catch(()=>{}); // keep placeholder if GLB fails
+  _mpNameTag(placeholder, state.name, state.color);
+  // Build their chosen skin (falls back to robot; corrected via the state stream if the char arrives later)
+  _mpBuildRemoteSkin(rp, id, state.char||'robot');
 }
 
 function mpRemoveRemotePlayer(id){
@@ -30091,6 +30057,7 @@ function mpUpdateRemotePlayer(msg){
   const rp=MP.players[msg.id];
   if(!rp) return;
   Object.assign(rp.state, msg);   // store latest only; the per-frame loop is the single owner of position, facing & animation
+  if(msg.char && msg.char!==rp._skinChar && !rp._skinLoading) _mpBuildRemoteSkin(rp, msg.id, msg.char);   // they revealed / changed their skin -> rebuild
 }
 
 function mpHandleRemoteEvent(msg){
@@ -30247,7 +30214,7 @@ function mpBeginGame(){
   // Broadcast our own player data so everyone can add us as remote
   setTimeout(()=>{
     if(player) mpSend('player_data',{
-      id:MP.myId, name:MP.myName, color:MP.myColor||0,
+      id:MP.myId, name:MP.myName, color:MP.myColor||0, char:window._playerChar||'robot',
       x:player.wx, z:player.wz, y:player.py, aim:player.aim
     });
   }, 500);
@@ -30307,6 +30274,7 @@ function mpTick(){
     jet:player._jetting||false,
     weapon:GS.weapon||'bullets',
     dead:!player.alive,
+    char:window._playerChar||'robot',
     clip:player.model?.userData?.currentClip||'idle',
     gn: player._inPlanetGravity ? [Math.round(_gN.x*100)/100, Math.round(_gN.y*100)/100, Math.round(_gN.z*100)/100] : null,   // surface normal while wall-crawling -> remote can orient us on the wall
   });
