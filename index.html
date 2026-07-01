@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB124</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB125</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -19244,7 +19244,8 @@ function pollGamepad(){
   const edge=i=>{ const now=pr(i), was=_padPrev[i]; _padPrev[i]=now; return now&&!was; };
   const A=edge(0),B=edge(1),X=edge(2),Y=edge(3),LB=edge(4),RB=edge(5);
   const DU=edge(12),DD=edge(13),DL=edge(14),DR=edge(15);   // D-pad (compute BEFORE the hold-tracking loop so their edges aren't clobbered)
-  for(let i=6;i<(gp.buttons.length||16);i++){ if(i>=12&&i<=15)continue; _padPrev[i]=pr(i); }
+  const R3=edge(11), RTe=edge(7);                           // R3 (right-stick click) = arm a MELEE weapon-throw; RT rising edge = HURL it. Computed before the clobber loop below.
+  for(let i=6;i<(gp.buttons.length||16);i++){ if(i>=12&&i<=15||i===7||i===11)continue; _padPrev[i]=pr(i); }
   if(GS.state==='playing'&&player){
     if(A) _padJump();
     // B = grab + SMASH-STYLE throw. Press to grab (that press never throws). While carrying: a quick TAP hurls it along your
@@ -19261,6 +19262,16 @@ function pollGamepad(){
         player._bAiming=false; player._bJustGrabbed=false;
       }
       player._bPrev=_bNow;
+    }
+    // R3 (right-stick click) with a MELEE weapon in hand = get ready to THROW it; then the trigger HURLS it (camera-forward, or
+    // the right-stick direction if you're pushing it). Click R3 again to cancel. (_armBomb arms 'melee' weapon-throw mode.)
+    if(R3){ if(player._meleeType && !player.bombArmed){ player._armBomb(); if(typeof announce==='function')announce('THROW READY — TRIGGER TO HURL','#ffd84a'); if(typeof Audio!=='undefined'){try{Audio.blip(520,0.08,'square',0.14,760);}catch(_){}} }
+      else if(player.bombArmed && player._bombMode==='melee'){ if(typeof player._disarmBomb==='function')player._disarmBomb(); if(typeof announce==='function')announce('THROW CANCELLED','#88ccff'); } }
+    if(RTe && player.bombArmed && player._bombMode==='melee'){   // trigger while a weapon-throw is armed -> hurl it
+      const _sm=Math.hypot(shootIn.x,shootIn.y); let _dx,_dz;
+      if(_sm>0.2){ const ws=rotInput(shootIn.x,shootIn.y); const _l=Math.hypot(ws.x,ws.z)||1; _dx=ws.x/_l; _dz=ws.z/_l; }
+      else { _dx=-Math.sin(CAM.yaw); _dz=-Math.cos(CAM.yaw); }
+      player._throwBomb(_dx,_dz,(window._MELEE_THROW_POW||1.6));
     }
     if(X) _padMelee();      // X = MELEE: running -> slide, standing tap -> melee combo
     if(Y||LB||DL||DR){ player.cycleWeapon&&player.cycleWeapon(); if(typeof announce==='function')announce('WEAPON: '+(player.secWeapon||'').toUpperCase(),'#00ffc8'); }   // D-pad L/R (or Y/LB) = change projectile weapon
