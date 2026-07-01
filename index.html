@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB114</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB115</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -20874,6 +20874,15 @@ function loop(ts){ requestAnimationFrame(loop);
           rp.mesh.position.y=lerp(rp.mesh.position.y, rp.state.y, 0.35);
           rp.mesh.position.z=lerp(rp.mesh.position.z, rp.state.z, 0.3);
         }
+        // HEALTH BAR over the other pilot (PvP) so you can SEE your damage land + their kills/respawns. Their hp is in state.
+        if(window._MP&&window._MP.versus && typeof THREE!=='undefined'){
+          if(!rp._hpBar){ const bg=new THREE.Mesh(new THREE.PlaneGeometry(34,4.5), new THREE.MeshBasicMaterial({color:0x300000,transparent:true,opacity:0.75,depthTest:false})); bg.renderOrder=60;
+            const fg=new THREE.Mesh(new THREE.PlaneGeometry(34,4.5), new THREE.MeshBasicMaterial({color:0x39ffa0,transparent:true,depthTest:false})); fg.position.z=0.15; fg.renderOrder=61;
+            const grp=new THREE.Group(); grp.add(bg); grp.add(fg); grp.userData.fg=fg; grp.renderOrder=60; scene.add(grp); rp._hpBar=grp; }
+          const _mh=(window._MP_MAXHP||(typeof GS!=='undefined'&&GS.maxHp)||100), _ratio=Math.max(0,Math.min(1,(rp.state.hp!=null?rp.state.hp:_mh)/_mh));
+          const b=rp._hpBar; b.visible=!rp.state.dead; b.position.set(rp.mesh.position.x, rp.mesh.position.y+30, rp.mesh.position.z); if(typeof camera!=='undefined')b.quaternion.copy(camera.quaternion);
+          const fg=b.userData.fg; fg.scale.x=Math.max(0.001,_ratio); fg.position.x=-(34*(1-_ratio))/2; fg.material.color.setHex(_ratio>0.5?0x39ffa0:(_ratio>0.25?0xffd24a:0xff4444));
+        }
         if(typeof grid!=='undefined' && grid.push){   // remote pilot ripples the world too (ground wake, landing thud, building-panel wake)
           const rx=rp.mesh.position.x, rz=rp.mesh.position.z, ry=(rp.state.y||0);
           const _moved=Math.hypot(rx-(rp._gpx||rx), rz-(rp._gpz||rz));
@@ -30350,6 +30359,7 @@ function mpRemoveRemotePlayer(id){
   const rp=MP.players[id];
   if(!rp) return;
   _mpClearPuppets(rp);
+  if(rp._hpBar){ try{ scene.remove(rp._hpBar); rp._hpBar.traverse(o=>{if(o.geometry)o.geometry.dispose();}); }catch(_){} rp._hpBar=null; }
   scene.remove(rp.mesh);
   delete MP.players[id];
 }
