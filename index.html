@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB129</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB130</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9615,7 +9615,7 @@ function _updateSpiderPackPads(dt){
   for(const D of A){ D.cd=(D.cd||0)-dt; if(D.cd>0)continue;
     const carrying=player._carryPayload&&player._carryPayload.type===D.type;
     const onGround=(window._itemPU||[]).some(p=>p&&p.type===D.type);
-    if(!carrying && !onGround && typeof _spawnPU==='function'){ _spawnPU(D.x,16,D.z,D.type); D.cd=(window._ITEM_DISPENSE_CD||window._SPIDERPACK_PAD_CD||3); }
+    if(!carrying && !onGround && typeof _spawnPU==='function'){ const _it=_spawnPU(D.x,16,D.z,D.type); if(_it && window._DISPENSER_EXPIRE!==true)_it._noExpire=true; D.cd=(window._ITEM_DISPENSE_CD||window._SPIDERPACK_PAD_CD||3); }   // dispenser stock is PERMANENT (won't age out / get culled) so the dog/dragon balls are always findable
   }
 }
 function _removeSpiderPackPads(){ window._itemDispensers=null; window._spiderDispenser=null; }
@@ -14144,6 +14144,7 @@ function _updatePU(dt){
   //    blink it in the final seconds, then poof it in a little particle burst. window._PU_LIFE / _PU_BLINK / _PU_CAP tune it. ──
   if(window._PU_LIFE_OFF!==true) for(let i=A.length-1;i>=0;i--){ const p=A[i]; if(!p)continue;
     if(p._mirror) continue;   // MP mirror of a peer's item: the OWNER expires it and broadcasts the removal — don't age it locally
+    if(p._noExpire) continue;   // PERMANENT sandbox stock (dispenser summon/offensive balls) — never age out and (since it keeps _ttl==null) never counts against the cap either
     if(p._ttl==null) p._ttl=(window._PU_LIFE||45)+Math.random()*4;   // stagger so a wave of spawns doesn't all poof on the same frame
     if(p._cooking>0){ if(p.grp&&!p.grp.visible)p.grp.visible=true; continue; }   // mid-explosion: let the cook-off finish
     p._ttl-=dt;
@@ -23350,7 +23351,7 @@ function buildCubeArena(){
     const _puD=_puTypes.map((t,i)=>({x:-260+i*130,z:-hz+ch+150,type:t,cd:0}));   // SUMMON balls on the back wall
     const _offD=_offTypes.map((t,i)=>({x:-130+i*130,z:hz-ch-150,type:t,cd:0}));   // OFFENSIVE items (incl. NUKES) on the front wall -> always findable, restocked
     window._itemDispensers=_puD.concat(_offD);
-    for(const D of window._itemDispensers){ try{ if(typeof _spawnPU==='function' && !(window._itemPU||[]).some(p=>p&&p.type===D.type)) _spawnPU(D.x,16,D.z,D.type,0,0,0);
+    for(const D of window._itemDispensers){ try{ if(typeof _spawnPU==='function' && !(window._itemPU||[]).some(p=>p&&p.type===D.type)){ const _it=_spawnPU(D.x,16,D.z,D.type,0,0,0); if(_it && window._DISPENSER_EXPIRE!==true)_it._noExpire=true; }   // permanent summon/offensive stock
       const _bc=(_ITEMDEF[D.type]?_ITEMDEF[D.type].glow:0x66ff77); const beam=new THREE.Mesh(new THREE.CylinderGeometry(1.5,5,90,12,1,true), new THREE.MeshBasicMaterial({color:_bc,transparent:true,opacity:0.13,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.set(D.x,45,D.z); if(_cubeGroup)_cubeGroup.add(beam); else scene.add(beam); }catch(_){} } }catch(e){ console.warn('cube powerups',e); }
   // ── spawn robot at center floor, normal controls ──
   player.wx=0; player.wz=0; player.py=0; player.pvy=0; player.vx=0; player.vz=0; player._inPlanetGravity=false; if(player.model)player.model.visible=true;
