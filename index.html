@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB95</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB96</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -8974,11 +8974,17 @@ class Singularity{
         const dx=this.wx-e.wx, dz=this.wz-e.wz, d=Math.hypot(dx,dz);
         if(d<this.R && d>2){ const f=this.pull*(0.32+0.68*(1-d/this.R)), nx=dx/d, nz=dz/d, tx=-nz, tz=nx;
           e.wx+=(nx*f*54 + tx*f*26)*dt; e.wz+=(nz*f*54 + tz*f*26)*dt; if(e.syncMesh)e.syncMesh(); } }
-      // pull + damage the bots & training dummy too (they aren't in GS.enemies). The rooted dummy doesn't get dragged, just damaged.
-      for(const e of (typeof _extraHostiles==='function'?_extraHostiles():[])){ if(e===(typeof GS_trainingDummy!=='undefined'?GS_trainingDummy:null)||e.isDummy)continue;
+      // SUCK IN the bots + dummies too (they aren't in GS.enemies). The pull is deliberately STRONG so it overpowers a
+      // bot's own AI movement and actually drags it to the middle + holds it (was too weak, so they just took a little
+      // damage without moving). It swirls them in like a black hole; near the very centre it stops nudging (no jitter).
+      for(const e of (typeof _extraHostiles==='function'?_extraHostiles():[])){ if(!e||e.alive===false)continue;
         const dx=this.wx-e.wx, dz=this.wz-e.wz, d=Math.hypot(dx,dz);
         if(d<this.R && d>2){ const f=this.pull*(0.32+0.68*(1-d/this.R)), nx=dx/d, nz=dz/d, tx=-nz, tz=nx;
-          e.wx+=(nx*f*54 + tx*f*26)*dt; e.wz+=(nz*f*54 + tz*f*26)*dt; if(e.syncMesh)e.syncMesh(); } }
+          const K=(window._SING_UNIT_PULL||150), SW=(window._SING_UNIT_SWIRL||0.5);
+          e.wx+=(nx*f*K + tx*f*K*SW)*dt; e.wz+=(nz*f*K + tz*f*K*SW)*dt; if(e.syncMesh)e.syncMesh();
+          if(e.vx!==undefined){ e.vx*=(window._SING_UNIT_VDAMP||0.55); if(e.vz!==undefined)e.vz*=(window._SING_UNIT_VDAMP||0.55); }   // bleed its own motion so the pull wins
+          const _hold=(window._SING_UNIT_STUN||6); if(e._stun!==undefined)e._stun=Math.max(e._stun||0,_hold); if(e._stunT!==undefined)e._stunT=Math.max(e._stunT||0,_hold);   // HELD: freeze its AI each frame while inside so it can't just power out (re-applied, so it lets go once the well ends)
+        } }
       this.dmgT-=dt; if(this.dmgT<=0){ this.dmgT=0.35;
         for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive) continue;
           if(Math.hypot(this.wx-e.wx,this.wz-e.wz)<this.R*0.45) this._hurt(e,i,1); }
