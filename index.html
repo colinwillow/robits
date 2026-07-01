@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB104</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB105</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -2435,8 +2435,20 @@ function _applyPoseAdjust(model, charKey){
   if(window._POSE_ADJUST_OFF || !model || !charKey) return;
   const map=window._POSE_ADJUST[charKey]; if(!map) return;
   const bones=model.userData&&model.userData.bones; if(!bones) return;
+  if(!model.userData._paCache) model.userData._paCache={};
+  const cache=model.userData._paCache;
   for(const bn in map){ const o=map[bn]; if(!o)continue; const ox=o.x||0,oy=o.y||0,oz=o.z||0; if(!ox&&!oy&&!oz)continue;
-    const b=bones[bn]; if(!b)continue; _paE.set(ox,oy,oz,'XYZ'); _paQ.setFromEuler(_paE); b.quaternion.premultiply(_paQ); }   // parent-space offset on top of the animated local rotation
+    const b=bones[bn]; if(!b)continue;
+    // IDEMPOTENT premultiply: normally the mixer overwrites this bone every frame, so premultiplying a fixed offset
+    // gives a constant result. But if some state FREEZES the bone (e.g. a held melee weapon that stops driving the arm),
+    // the mixer never resets it and the offset COMPOUNDS every frame -> the bone spins. Detect that (bone still equals
+    // our last output) and restore the pre-offset animated pose first, so the offset is applied exactly ONCE.
+    let c=cache[bn]; if(!c){ c=cache[bn]={base:new THREE.Quaternion(), out:new THREE.Quaternion(), has:false}; }
+    if(c.has){ const q=b.quaternion, ou=c.out; if((Math.abs(q.x-ou.x)+Math.abs(q.y-ou.y)+Math.abs(q.z-ou.z)+Math.abs(q.w-ou.w))<1e-5) b.quaternion.copy(c.base); }   // not reset -> undo last frame's offset
+    c.base.copy(b.quaternion);
+    _paE.set(ox,oy,oz,'XYZ'); _paQ.setFromEuler(_paE); b.quaternion.premultiply(_paQ);   // parent-space offset on top of the animated local rotation
+    c.out.copy(b.quaternion); c.has=true;
+  }
 }
 window._applyPoseAdjust=_applyPoseAdjust;
 function _applyRobotModel(player, gltf, skinGltf, skinType){
