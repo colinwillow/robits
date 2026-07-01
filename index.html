@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB123</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB128</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3759,6 +3759,31 @@ function _allyBossUpdate(dt){
   this._curFoe=this._allyAcquireFoe();   // nearest hostile in a wide radius (null -> off-duty)
   const actor = this._curFoe ? this._curFoe : this._allyWander(dt);   // HUNT a hostile, else roam with a mind of its own
   BlueDragon.prototype.update.call(this, actor, dt);
+  // ── TRAMPLE: a friendly boss barreling past BOWLS THE OWNER OVER — it won't attack you, but get in its path while it's
+  //    charging (e.g. chasing the ball) and it sends you flying out of the way. Knockback only by default (no damage);
+  //    window._ALLY_TRAMPLE_DMG>0 to make it sting. Toggle the whole thing with window._ALLY_TRAMPLE=false. ──
+  if(window._ALLY_TRAMPLE!==false && typeof player!=='undefined' && player && player.alive && !player._launched && !this._dying){
+    const _px=this._prevTX, _pz=this._prevTZ; this._prevTX=this.wx; this._prevTZ=this.wz;
+    this._trampleCD=Math.max(0,(this._trampleCD||0)-dt);
+    if(_px!=null && this._trampleCD<=0){
+      const vdx=this.wx-_px, vdz=this.wz-_pz, vlen=Math.hypot(vdx,vdz), spd=vlen/Math.max(dt,1e-3);
+      const dxp=player.wx-this.wx, dzp=player.wz-this.wz, dpl=Math.hypot(dxp,dzp);
+      const R=(this.size||30)+(window._ALLY_TRAMPLE_PAD||18);
+      const _by=(this.mesh&&this.mesh.position)?this.mesh.position.y:(this.py!=null?this.py:9);
+      const dyOK=Math.abs(((player.py||0)+9)-_by) < (window._ALLY_TRAMPLE_DY||80);   // don't launch when it's flying overhead (dragon)
+      if(spd>(window._ALLY_TRAMPLE_SPD||120) && dpl<R && dyOK){
+        let dirx=vlen>0.01?vdx/vlen:(dpl>0.1?dxp/dpl:1), dirz=vlen>0.01?vdz/vlen:(dpl>0.1?dzp/dpl:0);   // fling them the way it's charging…
+        const ox=(dpl>0.1?dxp/dpl:dirx), oz=(dpl>0.1?dzp/dpl:dirz);
+        dirx=dirx*0.65+ox*0.35; dirz=dirz*0.65+oz*0.35;                                                 // …blended with a shove out of its body so they clear the path
+        if(player.knock)try{ player.knock(dirx,dirz,(window._ALLY_TRAMPLE_MAG||20),(window._ALLY_TRAMPLE_LIFT||300),(window._ALLY_TRAMPLE_STUN||20)); }catch(_){}
+        const _dmg=(window._ALLY_TRAMPLE_DMG||0); if(_dmg>0 && player.hit)try{ player.hit(_dmg); }catch(_){}
+        this._trampleCD=(window._ALLY_TRAMPLE_CD||0.7);
+        if(typeof ps!=='undefined')ps.burst(player.wx,player.wz,[1,0.7,0.3],14,150,(player.py||0)+8);
+        if(typeof Audio!=='undefined'){try{Audio.blip(120,0.14,'square',0.24,80);}catch(_){}}
+        if(typeof addTrauma==='function')addTrauma(0.14);
+      }
+    }
+  }
   return this.alive!==false;
 }
 // OFF-DUTY PERSONALITY: the boss roams to its own goals — go smash a nearby barrel/crate, amble to a random spot,
@@ -11127,7 +11152,16 @@ class Player{
           } else if(_onWall){ aim=N.clone(); }                                                 // dead-centre on a wall -> fire straight out
           else { aim=_tang; }                                                                  // floor -> flat tangent aim (unchanged)
           if(aim.lengthSq()>1e-4){ aim.normalize(); this._aim3D=this._aim3D||new THREE.Vector3(); this._aim3D.copy(aim); this._aim3DActive=true; this.aim=Math.atan2(aim.z,aim.x); }
-        } else { this._aim3DActive=false; const al0=Math.hypot(avx,avz); if(al0>0.08) this.aim=Math.atan2(avz,avx); }
+        } else { const al0=Math.hypot(avx,avz);
+          if(al0>0.08){ this.aim=Math.atan2(avz,avx);
+            // GAMEPAD trigger-whip on the cube FLOOR (boots on): mirror the flat camera-forward aim into _aim3D so _cubeWalkRender
+            // faces where you SHOOT. Without this the boots-on path left _aim3DActive off, so facing locked to your run direction
+            // and the RT camera-forward whip stopped working (worked with boots off, broke with boots on).
+            const _onWallE=!!(player&&player._cubeCamAuth);
+            if(window._padActive && !_onWallE){ this._aim3D=this._aim3D||new THREE.Vector3(); this._aim3D.set(Math.cos(this.aim),0,Math.sin(this.aim)); this._aim3DActive=true; }
+            else this._aim3DActive=false;
+          } else this._aim3DActive=false;
+        }
         this.fireT++;
         const al=Math.hypot(avx,avz);
         const isRockets=this.primaryWeapon==='rockets', isPlasma=this.primaryWeapon==='plasma', isFlame=this.primaryWeapon==='flamethrower', isGrenade=this.primaryWeapon==='grenade', isSingularity=this.primaryWeapon==='singularity', isGridQuake=this.primaryWeapon==='gridquake', isBoomerang=this.primaryWeapon==='boomerang', isNuke=this.primaryWeapon==='nuke', isBow=this.primaryWeapon==='bow', isMinigun=this.primaryWeapon==='minigun';
@@ -14183,6 +14217,10 @@ function _updatePU(dt){
     else { p.grp.position.y=7+Math.sin(p.t*2.4)*1.4; p.cube.rotation.y+=dt*1.4; }
     if(p.settled && p.cube && !p._easeUp && ((p.type==='barrel'&&!p._lying) || p.type==='nuke' || p.type==='drone' || p._model)){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // once RESTED: barrels / nuke / DRONE / weapon-loot sit FLAT (belly-down) and spin only on Y (skip while still easing up so the slerp isn't fought by a hard zero)
     if(player&&!player._carryPayload&&(p.settled||p.type==='barrel')&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z), dy=Math.abs((player.py||0)-(p.y||0)); if(d<(window._GRAB_R_ITEM||60)&&dy<(window._GRAB_Y_ITEM||60)&&d<nd){nd=d;near=p;} }   // barrels are grabbable even while still rolling — Y gate so you can't grab floor loot while standing on the flipped ceiling
+    // CUBE ARENA: the object floor sat ~a foot below the grid (where the no-boots robot stands) so barrels/powerups looked sunk.
+    // Lift their VISUAL up onto the grid plane. Render-only (gameplay Y-gates keep using p.y and already tolerate ±32-40, so
+    // shooting/breaking still connects). Tune live with window._CUBE_OBJ_LIFT; set it to 0 to disable.
+    if(GS.zone===-19 && p.grp){ p.grp.position.y += (window._CUBE_OBJ_LIFT!=null?window._CUBE_OBJ_LIFT:9); }
   }
   window._nearOrb=near;
   for(const p of A){ const grbl=(player&&!player._carryPayload&&!p._loot&&(p.settled||p.type==='barrel')); const _pd=grbl?Math.hypot(player.wx-p.x,player.wz-p.z):1e9; const on=grbl && _pd<(window._GRAB_R_ITEM||60);   // PERSISTENT: any grabbable within reach shows its ring (not just the single nearest)
@@ -19235,10 +19273,35 @@ function pollGamepad(){
   const edge=i=>{ const now=pr(i), was=_padPrev[i]; _padPrev[i]=now; return now&&!was; };
   const A=edge(0),B=edge(1),X=edge(2),Y=edge(3),LB=edge(4),RB=edge(5);
   const DU=edge(12),DD=edge(13),DL=edge(14),DR=edge(15);   // D-pad (compute BEFORE the hold-tracking loop so their edges aren't clobbered)
-  for(let i=6;i<(gp.buttons.length||16);i++){ if(i>=12&&i<=15)continue; _padPrev[i]=pr(i); }
+  const R3=edge(11), RTe=edge(7);                           // R3 (right-stick click) = arm a MELEE weapon-throw; RT rising edge = HURL it. Computed before the clobber loop below.
+  for(let i=6;i<(gp.buttons.length||16);i++){ if(i>=12&&i<=15||i===7||i===11)continue; _padPrev[i]=pr(i); }
   if(GS.state==='playing'&&player){
     if(A) _padJump();
-    if(B) _padInteract();   // B = INTERACT: grab guns/power-ups + THROW what you're holding (tap B while carrying = throw)
+    // B = grab + SMASH-STYLE throw. Press to grab (that press never throws). While carrying: a quick TAP hurls it along your
+    // LOCOMOTION vector with power scaled to your speed; HOLD B (aim the ground ring with the LEFT stick) then RELEASE to
+    // throw it at the aimer. Tunables: _PAD_HOLD_MS, _PAD_TAP_VREF (speed for full power), _PAD_TAP_MINPOW.
+    { const _now=(typeof performance!=='undefined'?performance.now():0), _bNow=pr(1);
+      if(B){ if(!player.bombArmed){ _padInteract(); player._bJustGrabbed=true; } else { player._bJustGrabbed=false; } player._bDownT=_now; player._bAiming=false; }
+      if(_bNow && player.bombArmed && !player._bJustGrabbed && !player._bAiming && (_now-(player._bDownT||0) > (window._PAD_HOLD_MS||200))) player._bAiming=true;
+      if(!_bNow && player._bPrev){
+        if(player.bombArmed && !player._bJustGrabbed){
+          if(player._bAiming){ const _ax=(player._aimerX||player.wx)-player.wx, _az=(player._aimerZ||player.wz)-player.wz, _al=Math.hypot(_ax,_az); if(_al>15) player._throwBomb(_ax/_al,_az/_al); else player._throwBomb(0,0); }   // HOLD-release: throw at the aimer (drops if no aim)
+          else { const _vsp=Math.hypot(player.vx||0,player.vz||0), _vd=_vsp>(window._PAD_TAP_VMIN||12)?[player.vx/_vsp,player.vz/_vsp]:[Math.cos(player.aim||0),Math.sin(player.aim||0)]; const _pw=Math.max((window._PAD_TAP_MINPOW||0.95),Math.min(window._PAD_TAP_MAXPOW||2.6, _vsp/(window._PAD_TAP_VREF||150)*1.9+0.6)); player._throwBomb(_vd[0],_vd[1],_pw); }   // TAP: hurl along your movement, harder the faster you go
+        }
+        player._bAiming=false; player._bJustGrabbed=false;
+      }
+      player._bPrev=_bNow;
+    }
+    // R3 (right-stick click) with a MELEE weapon in hand = get ready to THROW it; then the trigger HURLS it (camera-forward, or
+    // the right-stick direction if you're pushing it). Click R3 again to cancel. (_armBomb arms 'melee' weapon-throw mode.)
+    if(R3){ if(player._meleeType && !player.bombArmed){ player._armBomb(); if(typeof announce==='function')announce('THROW READY — TRIGGER TO HURL','#ffd84a'); if(typeof Audio!=='undefined'){try{Audio.blip(520,0.08,'square',0.14,760);}catch(_){}} }
+      else if(player.bombArmed && player._bombMode==='melee'){ if(typeof player._disarmBomb==='function')player._disarmBomb(); if(typeof announce==='function')announce('THROW CANCELLED','#88ccff'); } }
+    if(RTe && player.bombArmed && player._bombMode==='melee'){   // trigger while a weapon-throw is armed -> hurl it
+      const _sm=Math.hypot(shootIn.x,shootIn.y); let _dx,_dz;
+      if(_sm>0.2){ const ws=rotInput(shootIn.x,shootIn.y); const _l=Math.hypot(ws.x,ws.z)||1; _dx=ws.x/_l; _dz=ws.z/_l; }
+      else { _dx=-Math.sin(CAM.yaw); _dz=-Math.cos(CAM.yaw); }
+      player._throwBomb(_dx,_dz,(window._MELEE_THROW_POW||1.6));
+    }
     if(X) _padMelee();      // X = MELEE: running -> slide, standing tap -> melee combo
     if(Y||LB||DL||DR){ player.cycleWeapon&&player.cycleWeapon(); if(typeof announce==='function')announce('WEAPON: '+(player.secWeapon||'').toUpperCase(),'#00ffc8'); }   // D-pad L/R (or Y/LB) = change projectile weapon
     if(RB) _padDash();      // dash moved to RB (B is now interact)
@@ -20848,6 +20911,11 @@ function loop(ts){ requestAnimationFrame(loop);
             }
           }
           player.updateBomb(dt,0,0);
+        } else if(window._padActive){
+          // GAMEPAD Smash-throw: the ground aimer/trajectory appears ONLY while you HOLD B (player._bAiming) and is steered by the
+          // LEFT stick; merely carrying an item shows nothing (a quick TAP of B hurls it along your locomotion vector — pad input block).
+          if(player._bAiming){ let worldX=0,worldZ=0; const _lm=Math.hypot(moveIn.x,moveIn.y); if(_lm>0.08){ const ws=rotInput(moveIn.x,moveIn.y); worldX=ws.x; worldZ=ws.z; } player.updateBomb(dt,worldX,worldZ); }
+          else player._hideAimer();
         } else {
           let worldX=0,worldZ=0;
           const _aimHeld=(!IS_TOUCH)||(typeof jR!=='undefined'&&jR&&jR.id!==null);   // only show the aimer/trajectory while the right stick is actually being TOUCHED (so just holding an item shows nothing, and a quick flick won't flash it)
@@ -28044,22 +28112,46 @@ function _updateMace(dt){
   const bvx=ballP.x-pts[N].prev.x, bvy=ballP.y-pts[N].prev.y, bvz=ballP.z-pts[N].prev.z; const bspd=Math.hypot(bvx,bvy,bvz)/Math.max(h,1e-3);
   mc.ball.rotation.y+=dt*6; mc.ball.rotation.x+=dt*3;
   if(mc.ball.userData.flash) mc.ball.userData.flash.material.opacity=Math.max(0, (mc.ball.userData.flash.material.opacity||0)-dt*3);
-  // contact damage: fast ball hits enemies
+  // CONTACT DAMAGE: a FAST ball hits whatever a melee SWING would — real enemies, bots, the training dummy, AND the MP foe — so
+  // you can hurt people by pure CHAIN PHYSICS (spin the mace in a circle with the left stick), not only on the melee button.
   if(mc.hitCd>0)mc.hitCd-=dt;
   const minSpd=(window._MACE_HIT_SPD||140), R=(window._MACE_BALL_R||8), dmg=(window._MACE_DMG||14);
-  if(bspd>minSpd && mc.hitCd<=0 && typeof GS!=='undefined' && GS.enemies){
-    for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive||e._captured||e._invulnerable)continue; const ey=e.mesh?e.mesh.position.y:9;
-      if(Math.hypot(ballP.x-e.wx, ballP.y-ey, ballP.z-e.wz) < R+(e.size||12)+4){
-        if(e.hit){ const s=e.hit(dmg, e.wx, e.wz, ey); if(e.knock){ const kl=Math.hypot(bvx,bvz)||1; e.knock(bvx/kl, bvz/kl, (window._MACE_KNOCK||16), 1.2, 26); }
-          if(s>0){ GS.score+=s*GS.mult; if(GS.mult<25)GS.mult++; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } }
-        if(mc.ball.userData.flash)mc.ball.userData.flash.material.opacity=0.8;
-        if(typeof ps!=='undefined')ps.burst(ballP.x,ballP.z,[1,0.7,0.2],14,140,ballP.y);
-        if(typeof Audio!=='undefined'){try{Audio.blip(90,0.12,'square',0.26,70);}catch(_){}}
-        if(typeof addTrauma==='function')addTrauma(0.12); if(typeof hitStop==='function')hitStop(3);
-        mc.hitCd=(window._MACE_HIT_CD||0.12); break;
+  if(bspd>minSpd && mc.hitCd<=0){
+    const kl=Math.hypot(bvx,bvz)||1, kdx=bvx/kl, kdz=bvz/kl;   // ball travel = knock direction
+    const _boom=(bx,by,bz)=>{ if(mc.ball.userData.flash)mc.ball.userData.flash.material.opacity=0.8; if(typeof ps!=='undefined')ps.burst(bx,bz,[1,0.7,0.2],14,140,by); if(typeof Audio!=='undefined'){try{Audio.blip(90,0.12,'square',0.26,70);}catch(_){}} if(typeof addTrauma==='function')addTrauma(0.12); if(typeof hitStop==='function')hitStop(3); mc.hitCd=(window._MACE_HIT_CD||0.12); };
+    let _done=false;
+    // real enemies (score + drop + remove on kill)
+    if(typeof GS!=='undefined' && GS.enemies){
+      for(let i=GS.enemies.length-1;i>=0 && !_done;i--){ const e=GS.enemies[i]; if(!e||!e.alive||e._captured||e._invulnerable)continue; const ey=e.mesh?e.mesh.position.y:9;
+        if(Math.hypot(ballP.x-e.wx, ballP.y-ey, ballP.z-e.wz) < R+(e.size||12)+4){
+          if(e.hit){ const s=e.hit(dmg, e.wx, e.wz, ey); if(e.knock)e.knock(kdx, kdz, (window._MACE_KNOCK||16), 1.2, 26);
+            if(s>0){ GS.score+=s*GS.mult; if(GS.mult<25)GS.mult++; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } }
+          _boom(ballP.x,ballP.y,ballP.z); _done=true;
+        }
       }
     }
-    // also smash a resting barrel it swings into
+    // bots + the training dummy (hit + knock, no scoring churn)
+    if(!_done){ const _tl=[]; if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)_tl.push(b); if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy)_tl.push(GS_trainingDummy);
+      for(const e of _tl){ if(_done)break; if(!e||e.alive===false)continue; const ey=e.mesh?e.mesh.position.y:(e.py||9);
+        if(Math.hypot(ballP.x-(e.wx||0), ballP.y-ey, ballP.z-(e.wz||0)) < R+(e.size||14)+6){
+          if(e.hit)try{e.hit(dmg, player.wx, player.wz, ey);}catch(_){} if(e.knock)try{e.knock(kdx, kdz, (window._MACE_KNOCK||16), 1.2, 26);}catch(_){}
+          if(typeof spawnDmgNum==='function')try{spawnDmgNum(e.wx,ey+8,e.wz,dmg,'#ffd0a0');}catch(_){}
+          _boom(ballP.x,ballP.y,ballP.z); _done=true;
+        }
+      }
+    }
+    // MP foe (versus): a fast ball near a remote player sends a rate-limited player_hit — the target applies the damage
+    if(!_done && typeof MP!=='undefined' && MP.active && MP.versus && MP.players){
+      const _mr=R+(window._MP_MACE_R||20), _mr2=_mr*_mr, _mdy=(window._MP_MACE_DY||60);
+      for(const id in MP.players){ const rp=MP.players[id]; if(!rp||!rp.mesh||(rp.state&&rp.state.dead))continue; const rm=rp.mesh.position; const dx=ballP.x-rm.x, dz=ballP.z-rm.z;
+        if(dx*dx+dz*dz < _mr2 && Math.abs(ballP.y-rm.y) < _mdy){
+          MP._hitsSent=(MP._hitsSent||0)+1;
+          try{ if(typeof mpSend==='function')mpSend('event',{event:'player_hit',data:{target:id,dmg:(window._MACE_MP_DMG||6),knock:1,px:kdx,pz:kdz,lift:(window._MP_MELEE_LIFT||360)}}); }catch(_){}
+          _boom(ballP.x,ballP.y,ballP.z); _done=true; break;
+        }
+      }
+    }
+    // also smash a resting barrel it swings into (independent of the above — the ball can crush a barrel any time it's fast)
     if(window._itemPU){ for(const p of window._itemPU){ if(!p||p.type!=='barrel'||p._cooking>0)continue; if(Math.hypot(ballP.x-p.x,ballP.z-p.z)<R+(window._BARREL_SIZE||11)+2 && Math.abs(ballP.y-(p.y||7))<24){ if(typeof _barrelImpactMark==='function')_barrelImpactMark(p); p._cooking=(window._BARREL_FUSE||0.12); } } }
   }
 }
