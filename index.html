@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB125</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB126</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -28083,22 +28083,46 @@ function _updateMace(dt){
   const bvx=ballP.x-pts[N].prev.x, bvy=ballP.y-pts[N].prev.y, bvz=ballP.z-pts[N].prev.z; const bspd=Math.hypot(bvx,bvy,bvz)/Math.max(h,1e-3);
   mc.ball.rotation.y+=dt*6; mc.ball.rotation.x+=dt*3;
   if(mc.ball.userData.flash) mc.ball.userData.flash.material.opacity=Math.max(0, (mc.ball.userData.flash.material.opacity||0)-dt*3);
-  // contact damage: fast ball hits enemies
+  // CONTACT DAMAGE: a FAST ball hits whatever a melee SWING would — real enemies, bots, the training dummy, AND the MP foe — so
+  // you can hurt people by pure CHAIN PHYSICS (spin the mace in a circle with the left stick), not only on the melee button.
   if(mc.hitCd>0)mc.hitCd-=dt;
   const minSpd=(window._MACE_HIT_SPD||140), R=(window._MACE_BALL_R||8), dmg=(window._MACE_DMG||14);
-  if(bspd>minSpd && mc.hitCd<=0 && typeof GS!=='undefined' && GS.enemies){
-    for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive||e._captured||e._invulnerable)continue; const ey=e.mesh?e.mesh.position.y:9;
-      if(Math.hypot(ballP.x-e.wx, ballP.y-ey, ballP.z-e.wz) < R+(e.size||12)+4){
-        if(e.hit){ const s=e.hit(dmg, e.wx, e.wz, ey); if(e.knock){ const kl=Math.hypot(bvx,bvz)||1; e.knock(bvx/kl, bvz/kl, (window._MACE_KNOCK||16), 1.2, 26); }
-          if(s>0){ GS.score+=s*GS.mult; if(GS.mult<25)GS.mult++; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } }
-        if(mc.ball.userData.flash)mc.ball.userData.flash.material.opacity=0.8;
-        if(typeof ps!=='undefined')ps.burst(ballP.x,ballP.z,[1,0.7,0.2],14,140,ballP.y);
-        if(typeof Audio!=='undefined'){try{Audio.blip(90,0.12,'square',0.26,70);}catch(_){}}
-        if(typeof addTrauma==='function')addTrauma(0.12); if(typeof hitStop==='function')hitStop(3);
-        mc.hitCd=(window._MACE_HIT_CD||0.12); break;
+  if(bspd>minSpd && mc.hitCd<=0){
+    const kl=Math.hypot(bvx,bvz)||1, kdx=bvx/kl, kdz=bvz/kl;   // ball travel = knock direction
+    const _boom=(bx,by,bz)=>{ if(mc.ball.userData.flash)mc.ball.userData.flash.material.opacity=0.8; if(typeof ps!=='undefined')ps.burst(bx,bz,[1,0.7,0.2],14,140,by); if(typeof Audio!=='undefined'){try{Audio.blip(90,0.12,'square',0.26,70);}catch(_){}} if(typeof addTrauma==='function')addTrauma(0.12); if(typeof hitStop==='function')hitStop(3); mc.hitCd=(window._MACE_HIT_CD||0.12); };
+    let _done=false;
+    // real enemies (score + drop + remove on kill)
+    if(typeof GS!=='undefined' && GS.enemies){
+      for(let i=GS.enemies.length-1;i>=0 && !_done;i--){ const e=GS.enemies[i]; if(!e||!e.alive||e._captured||e._invulnerable)continue; const ey=e.mesh?e.mesh.position.y:9;
+        if(Math.hypot(ballP.x-e.wx, ballP.y-ey, ballP.z-e.wz) < R+(e.size||12)+4){
+          if(e.hit){ const s=e.hit(dmg, e.wx, e.wz, ey); if(e.knock)e.knock(kdx, kdz, (window._MACE_KNOCK||16), 1.2, 26);
+            if(s>0){ GS.score+=s*GS.mult; if(GS.mult<25)GS.mult++; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } }
+          _boom(ballP.x,ballP.y,ballP.z); _done=true;
+        }
       }
     }
-    // also smash a resting barrel it swings into
+    // bots + the training dummy (hit + knock, no scoring churn)
+    if(!_done){ const _tl=[]; if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)_tl.push(b); if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy)_tl.push(GS_trainingDummy);
+      for(const e of _tl){ if(_done)break; if(!e||e.alive===false)continue; const ey=e.mesh?e.mesh.position.y:(e.py||9);
+        if(Math.hypot(ballP.x-(e.wx||0), ballP.y-ey, ballP.z-(e.wz||0)) < R+(e.size||14)+6){
+          if(e.hit)try{e.hit(dmg, player.wx, player.wz, ey);}catch(_){} if(e.knock)try{e.knock(kdx, kdz, (window._MACE_KNOCK||16), 1.2, 26);}catch(_){}
+          if(typeof spawnDmgNum==='function')try{spawnDmgNum(e.wx,ey+8,e.wz,dmg,'#ffd0a0');}catch(_){}
+          _boom(ballP.x,ballP.y,ballP.z); _done=true;
+        }
+      }
+    }
+    // MP foe (versus): a fast ball near a remote player sends a rate-limited player_hit — the target applies the damage
+    if(!_done && typeof MP!=='undefined' && MP.active && MP.versus && MP.players){
+      const _mr=R+(window._MP_MACE_R||20), _mr2=_mr*_mr, _mdy=(window._MP_MACE_DY||60);
+      for(const id in MP.players){ const rp=MP.players[id]; if(!rp||!rp.mesh||(rp.state&&rp.state.dead))continue; const rm=rp.mesh.position; const dx=ballP.x-rm.x, dz=ballP.z-rm.z;
+        if(dx*dx+dz*dz < _mr2 && Math.abs(ballP.y-rm.y) < _mdy){
+          MP._hitsSent=(MP._hitsSent||0)+1;
+          try{ if(typeof mpSend==='function')mpSend('event',{event:'player_hit',data:{target:id,dmg:(window._MACE_MP_DMG||6),knock:1,px:kdx,pz:kdz,lift:(window._MP_MELEE_LIFT||360)}}); }catch(_){}
+          _boom(ballP.x,ballP.y,ballP.z); _done=true; break;
+        }
+      }
+    }
+    // also smash a resting barrel it swings into (independent of the above — the ball can crush a barrel any time it's fast)
     if(window._itemPU){ for(const p of window._itemPU){ if(!p||p.type!=='barrel'||p._cooking>0)continue; if(Math.hypot(ballP.x-p.x,ballP.z-p.z)<R+(window._BARREL_SIZE||11)+2 && Math.abs(ballP.y-(p.y||7))<24){ if(typeof _barrelImpactMark==='function')_barrelImpactMark(p); p._cooking=(window._BARREL_FUSE||0.12); } } }
   }
 }
