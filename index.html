@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB86</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB87</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -7850,6 +7850,11 @@ class DropBomb{
     if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS.zone===-2){
       const d=Math.hypot(GS_trainingDummy.wx-this.wx,GS_trainingDummy.wz-this.wz);
       if(d<BLAST_R) GS_trainingDummy.hit(Math.ceil(45*(1-d/BLAST_R)),this.wx,this.wz);
+    }
+    // VERSUS: my bomb blasts the other pilots (their own remote copy of it doesn't double-send)
+    if(typeof MP!=='undefined'&&MP.active&&MP.versus&&!this._remote&&typeof mpSend==='function'){
+      for(const id in MP.players){ const rp=MP.players[id]; if(!rp||!rp.mesh)continue; const dx=rp.mesh.position.x-this.wx, dz=rp.mesh.position.z-this.wz, dd=Math.hypot(dx,dz);
+        if(dd<BLAST_R){ const m=dd||1; mpSend('event',{event:'player_hit',data:{target:id,dmg:Math.max(1,Math.ceil(4*(1-dd/BLAST_R))),knock:1,px:dx/m,pz:dz/m}}); } }
     }
   }
 
@@ -30114,8 +30119,8 @@ function mpHandleRemoteEvent(msg){
       break;
     case 'player_hit':
       if(d.target===MP.myId){ mpTakeDamage(d.dmg||1, msg.id);
-        if(d.zap&&player){ const _newly=!(player._zapT>0); player._zapT=Math.max(player._zapT||0,1.0);
-          if(_newly){ player.pvy=Math.max(player.pvy||0,165); if(d.px!==undefined){ player.vx=(d.px||0)*150; player.vz=(d.pz||0)*150; } } } }   // shocked: pop up + shoved back
+        if((d.zap||d.knock)&&player){ const _newly=d.zap?!(player._zapT>0):true; if(d.zap)player._zapT=Math.max(player._zapT||0,1.0);
+          if(_newly){ player.pvy=Math.max(player.pvy||0, d.knock?190:165); if(d.px!==undefined){ const f=d.knock?300:150; player.vx=(d.px||0)*f; player.vz=(d.pz||0)*f; } } } }   // shocked/meleed: pop up + shoved back
       break;
     case 'powerup_taken':
       if(_cityProps && _cityProps.powerups){ const _pu=_cityProps.powerups.find(x=>x&&x._mpIdx===d.idx); if(_pu && !_pu.collected){ _pu.collected=true; if(_pu.mesh)_pu.mesh.visible=false; if(typeof ps!=='undefined')ps.ring(_pu.wx,_pu.wz,[0,1,0.78],24,120); } }
@@ -30209,6 +30214,34 @@ function mpBeginGame(){
   announce(`${MP.cube?'BALL ARENA':(MP.freeCity?'FREE CITY':(MP.coopSurvival?'CO-OP SURVIVAL':(MP.versus?'VERSUS BATTLE':'CO-OP')))} · ${Object.keys(MP.players).length+1} PILOTS`, MP.cube?'#4cf0ff':(MP.freeCity?'#33ddff':(MP.coopSurvival?'#ff2a6d':(MP.versus?'#ff4466':'#aa44ff'))));
 }
 
+// ── VERSUS PvP: MY weapons hurt the other pilots. I detect hits with MY (non-remote) projectiles/melee against the
+//    remote player meshes and send a player_hit; the target applies the damage. Covers the full arsenal + melee. ──
+function _mpVersusHit(){
+  if(!player||!player.alive||GS.state!=='playing') return;
+  const rpos=[];
+  for(const id in MP.players){ const rp=MP.players[id]; if(rp&&rp.mesh&&!rp.state?.dead) rpos.push({id, x:rp.mesh.position.x, y:rp.mesh.position.y, z:rp.mesh.position.z}); }
+  if(!rpos.length) return;
+  const near=(x,y,z,R,dy)=>{ const R2=R*R; for(const r of rpos){ const dx=x-r.x, dz=z-r.z; if(dx*dx+dz*dz<R2 && (dy==null || Math.abs((y||0)-(r.y||0))<dy)) return r; } return null; };
+  const fx=(x,z,col)=>{ if(typeof ps!=='undefined')ps.burst(x,z,col||[1,0.4,0.2],8,80); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(320,0.05,'square',0.1); };
+  // direct projectiles (mine only) — consumed on hit
+  const DIRECT=[[GS.bullets,18,1],[GS.missiles,22,3],[GS.arrows,20,2]];
+  for(const [list,R,dmg] of DIRECT){ if(!list) continue;
+    for(let i=list.length-1;i>=0;i--){ const b=list[i]; if(!b||b._remote||b.dead||(b.life!=null&&b.life<=0)||b.stuck) continue;
+      const hx=(b.wx!=null?b.wx:b.x), hz=(b.wz!=null?b.wz:b.z), hy=(b.y!=null?b.y:0);
+      const r=near(hx,hy,hz,R,60); if(r){ if(b.life!=null)b.life=0; else b.dead=true; fx(hx,hz); mpSend('event',{event:'player_hit',data:{target:r.id,dmg:(b.dmg||dmg)}}); } }
+  }
+  // boomerang (mine) — passes through, per-boomerang cooldown
+  if(GS.boomerangs)for(const b of GS.boomerangs){ if(!b||b._remote) continue; b._mpCd=(b._mpCd||0)-1; if(b._mpCd>0)continue; const r=near(b.wx,b.y,b.wz,22,70); if(r){ b._mpCd=30; fx(b.wx,b.wz); mpSend('event',{event:'player_hit',data:{target:r.id,dmg:b.dmg||2}}); } }
+  // AoE (mine) — nuke / quake / singularity: ticking damage while a remote is in radius
+  const AOE=[[GS.nukes,(window._NUKE_PVP_R||300),3,(window._NUKE_PVP_T||1.6)],[GS.quakes,(window._QUAKE_PVP_R||220),2,null],[GS.wells,(window._SING_PVP_R||150),1,null]];
+  for(const [list,R,dmg,maxAge] of AOE){ if(!list) continue; for(const w of list){ if(!w||w._remote) continue; if(maxAge!=null && (w.t||0)>maxAge) continue;   // nuke only bites during the blast, not the whole cloud
+    const wx=(w.wx!=null?w.wx:(w.x!=null?w.x:0)), wz=(w.wz!=null?w.wz:(w.z!=null?w.z:0)); w._mpCd=(w._mpCd||0)-1; if(w._mpCd>0)continue; const r=near(wx,null,wz,R,null); if(r){ w._mpCd=24; mpSend('event',{event:'player_hit',data:{target:r.id,dmg}}); } } }
+  // melee — one hit per swing per target, with knockback
+  const ud=player.model&&player.model.userData; const swinging=!!(ud&&(ud._meleeTimer>0||ud._swActive))||((window._procMeleeT||0)>0);
+  if(swinging){ if(!player._mpMeleeHit)player._mpMeleeHit={}; const r=near(player.wx,(player.py||0)+10,player.wz,(window._MP_MELEE_R||48),90);
+    if(r && !player._mpMeleeHit[r.id]){ player._mpMeleeHit[r.id]=1; const dx=r.x-player.wx, dz=r.z-player.wz, m=Math.hypot(dx,dz)||1; fx(r.x,r.z,[1,0.7,0.3]); if(typeof addTrauma==='function')addTrauma(0.08); mpSend('event',{event:'player_hit',data:{target:r.id,dmg:(window._MP_MELEE_DMG||3),knock:1,px:dx/m,pz:dz/m}}); } }
+  else player._mpMeleeHit=null;
+}
 // ── Broadcast our state every 50ms ──
 let _mpTick=0;
 function mpTick(){
@@ -30223,14 +30256,7 @@ function mpTick(){
     if(player._mpLandFx){ const L=player._mpLandFx; mpSend('event',{event:'fx',data:{k:'land',x:L.x,y:L.roof,z:L.z,str:L.str,roof:L.roof}}); player._mpLandFx=null; }
     player._mpPrevPvy=player.pvy||0; player._mpPrevDash=player._dashRamp||0;
   }
-  if(MP.versus && player && player.alive){
-    for(let i=GS.bullets.length-1;i>=0;i--){ const b=GS.bullets[i]; if(!b||b._remote||b.life<=0) continue;
-      for(const id in MP.players){ const rp=MP.players[id]; if(!rp||!rp.mesh) continue;
-        const dx=b.wx-rp.mesh.position.x, dz=b.wz-rp.mesh.position.z;
-        if(dx*dx+dz*dz < 324){ b.life=0; ps.burst(b.wx,b.wz,[1,0.4,0.2],8,80); if(Audio.blip)Audio.blip(320,0.05,'square',0.1); mpSend('event',{event:'player_hit',data:{target:id,dmg:b.dmg||1}}); break; }
-      }
-    }
-  }
+  if(MP.versus) _mpVersusHit();
   if(_mpTick%4!==0) return;
   mpSend('state', {
     x:player.wx, z:player.wz, y:player.py,
