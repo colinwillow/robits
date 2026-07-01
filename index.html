@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB112</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB113</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -751,6 +751,9 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   </div>
   <div id="mp-panel" style="width:100%;max-width:340px;margin:0 auto 16px;padding:0 8px">
     <div style="font-size:9px;letter-spacing:3px;color:#00ffc888;text-align:center;margin-bottom:8px">── MULTIPLAYER ──</div>
+    <div style="display:flex;justify-content:center;margin-bottom:8px">
+      <button class="start-btn" id="mp-quick-btn" style="padding:12px 26px;font-size:0.85em;border-color:#00ffc8;color:#00ffc8;box-shadow:0 0 16px #00ffc855">⚡ QUICK MATCH</button>
+    </div>
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
       <button class="start-btn" id="mp-create-btn" style="padding:10px 20px;font-size:0.75em;border-color:#aa44ff;color:#aa44ff;box-shadow:0 0 12px #aa44ff33">CREATE ROOM</button>
       <button class="start-btn" id="mp-join-btn" style="padding:10px 20px;font-size:0.75em;border-color:#4488ff;color:#4488ff;box-shadow:0 0 12px #4488ff33">JOIN ROOM</button>
@@ -30131,8 +30134,33 @@ function _mpOpenWS(roomCode){
     if(msg.type==='player_data'){ if(!MP.players[msg.id]) mpAddRemotePlayer(msg.id, msg); return; }
     mpHandleMessage(msg);
   };
-  ws.onclose = ()=>{ MP.connected=false; if(MP.active) mpStatus('DISCONNECTED','#ff4444'); };
+  ws.onclose = ()=>{ MP.connected=false; if(MP.active){ mpStatus('RECONNECTING…','#ffcc00'); _mpTryReconnect(); } };
   ws.onerror = ()=>{ if(!opened){ clearTimeout(failT); _mpLoadingSub('Connection failed'); _mpLoadingRetry(()=>mpConnectWS(roomCode)); } else { mpStatus('CONNECTION FAILED','#ff4444'); } };
+}
+// AUTO-RECONNECT: if the socket drops mid-game (e.g. you backgrounded the tab to switch apps), quietly re-open + re-join the
+// SAME room instead of splitting into separate games. Backs off, waits while the tab is suspended, and resumes on return.
+function _mpTryReconnect(){
+  if(!MP.active || MP._reconnecting || !MP.roomCode) return; MP._reconnecting=true; let tries=0;
+  const attempt=()=>{
+    if(!MP.active){ MP._reconnecting=false; return; }
+    if(MP.connected){ MP._reconnecting=false; mpStatus('RECONNECTED','#00ffc8'); setTimeout(()=>mpStatus(''),1500); return; }
+    if(typeof document!=='undefined' && document.hidden){ setTimeout(attempt,2000); return; }   // tab suspended -> retry once it's foreground again
+    tries++;
+    if(tries>(window._MP_RECONN_MAX||40)){ MP._reconnecting=false; mpStatus('CONNECTION LOST — tap QUICK MATCH to rejoin','#ff4444'); return; }
+    try{ _mpOpenWS(MP.roomCode); }catch(_){}
+    setTimeout(attempt, Math.min(6000, 1200+tries*600));
+  };
+  setTimeout(attempt, 1000);
+}
+window._mpTryReconnect=_mpTryReconnect;
+// resume the connection the instant the tab is foregrounded again (mobile browsers freeze JS + drop the socket while backgrounded)
+try{ document.addEventListener('visibilitychange',()=>{ if(!document.hidden && MP.active && !MP.connected) _mpTryReconnect(); }); }catch(_){}
+function _mpQuickMaybeStart(){
+  if(!MP._quickMatch || MP._quickStarted || !MP.isHost) return;
+  if(Object.keys(MP.players).length < 1) return;   // wait until another pilot is in the room
+  MP._quickStarted=true;
+  const wm=document.getElementById('mp-waiting-msg'); if(wm)wm.textContent='MATCH FOUND — STARTING…';
+  setTimeout(()=>{ if(MP.connected && MP._quickMatch){ MP.cube=true; MP.versus=true; mpSend('start',{hostId:MP.myId,hostName:MP.myName,versus:true,cube:true}); mpBeginGame(); } }, 700);
 }
 
 const _MP_ETYPES={Diamond,Bouncer,Pinwheel,Seeker,Drifter,Crawler,Shielder,Turret,Ghost,HoverBomber,Tank,BomberDrone,
@@ -30186,6 +30214,7 @@ function mpHandleMessage(msg){
       }
       MP.isHost=(msg.hostId===MP.myId);
       mpUpdateLobbyUI(msg.playerCount);
+      _mpQuickMaybeStart();
       break;
 
     case 'player_joined':
@@ -30195,6 +30224,7 @@ function mpHandleMessage(msg){
       setTimeout(()=>mpStatus(''),2000);
       // Show start button for host when someone joins
       if(MP.isHost){ const sb=document.getElementById('mp-start-btn'); if(sb) sb.style.display='block'; }
+      _mpQuickMaybeStart();
       break;
 
     case 'player_left':
@@ -30590,9 +30620,25 @@ function mpTick(){
 const _origLoop=loop;
 
 // ── Lobby UI wiring ──
+// ⚡ QUICK MATCH — no room codes: both players tap this, land in one well-known room, and the game auto-starts (ball arena)
+// when the second player arrives. Perfect for a 2-player pairing without typing codes.
+document.getElementById('mp-quick-btn')?.addEventListener('click',()=>{
+  const name=(prompt('Your pilot name:','Pilot')||'Pilot');
+  MP.myName=name.slice(0,12).toUpperCase();
+  MP._quickMatch=true; MP._quickStarted=false;
+  MP.cube=true; MP.versus=true; MP.coopSurvival=false; MP.freeCity=false;   // quick match = BALL ARENA PvP by default
+  const code=(window._MP_QUICK_ROOM||'QUICKPLAY');
+  const rc=document.getElementById('mp-room-code'); if(rc)rc.textContent='⚡ QUICK';
+  const lob=document.getElementById('mp-lobby'); if(lob)lob.style.display='block';
+  const ji=document.getElementById('mp-join-input'); if(ji)ji.style.display='none';
+  const sb=document.getElementById('mp-start-btn'); if(sb)sb.style.display='none';
+  const wm=document.getElementById('mp-waiting-msg'); if(wm)wm.textContent='SEARCHING FOR A MATCH…';
+  mpConnect(code);
+});
 document.getElementById('mp-create-btn')?.addEventListener('click',()=>{
   const name=prompt('Your pilot name:','Pilot')||'Pilot';
   MP.myName=name.slice(0,12).toUpperCase();
+  MP._quickMatch=false;
   const code=mpGenCode();
   MP.isHost=true; // creator is always host
   document.getElementById('mp-room-code').textContent=code;
