@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB87</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB88</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -20660,6 +20660,12 @@ function loop(ts){ requestAnimationFrame(loop);
           }
           rp._prevX=rp.state.x; rp._prevZ=rp.state.z;
         }
+        // ── remote pilot's SUMMON puppets: interp to reported spot + idle-animate (display only, no AI) ──
+        if(rp._allies){ for(const p of rp._allies){ if(!p) continue;
+          if(p._nx!=null){ p.wx=(p.wx==null)?p._nx:lerp(p.wx,p._nx,0.3); p.wz=(p.wz==null)?p._nz:lerp(p.wz,p._nz,0.3); p.py=p._ny;
+            if(p.mesh){ p.mesh.position.x=p.wx; p.mesh.position.z=p.wz; p.mesh.position.y=(p._ny!=null?p._ny:9); } }
+          try{ if(p._mixer)p._mixer.update(dt); else if(p.mixer)p.mixer.update(dt); }catch(_){}
+        } }
       }
       // Subtle ground interaction — ship's presence slightly depresses nearby nodes
       const pmag=Math.hypot(player.vx,player.vz);
@@ -29861,7 +29867,8 @@ function _mpOpenWS(roomCode){
   ws.onerror = ()=>{ if(!opened){ clearTimeout(failT); _mpLoadingSub('Connection failed'); _mpLoadingRetry(()=>mpConnectWS(roomCode)); } else { mpStatus('CONNECTION FAILED','#ff4444'); } };
 }
 
-const _MP_ETYPES={Diamond,Bouncer,Pinwheel,Seeker,Drifter,Crawler,Shielder,Turret,Ghost,HoverBomber,Tank,BomberDrone};
+const _MP_ETYPES={Diamond,Bouncer,Pinwheel,Seeker,Drifter,Crawler,Shielder,Turret,Ghost,HoverBomber,Tank,BomberDrone,
+  BlueDragon,ThreeHeadedDog,DroidekaBot,DroneBuddy};   // newer creatures — so a host-spawned boss/droid/drone renders as itself instead of a fallback Diamond
 function _mpSyncEnemies(list){
   if(!list||!GS.enemies) return;
   while(GS.enemies.length>list.length){ const e=GS.enemies.pop(); if(e&&e.remove)e.remove(); }   // drop extras the host no longer has
@@ -29872,6 +29879,28 @@ function _mpSyncEnemies(list){
     if(ed.alive===false&&e.alive!==false){ e.alive=false; if(e.remove)e.remove(); GS.enemies.splice(i,1); i--; }
   }
 }
+// ── SUMMON (ally) NETWORKING — display-only puppets. Each player broadcasts their own GS.allies; the others render
+//    the matching creature at the reported spot (right dragon/dog/droid/drone, not nothing). Puppets are NOT added to
+//    any GS list, so they're pure visuals — they don't fight, get hit, or double-simulate. ──
+function _allyTypeKey(a){
+  if(!a) return 'bot';
+  if(a._isDrone) return 'drone';
+  if(a._isDroidekaAlly) return 'droid';
+  if(typeof AllyDog!=='undefined' && a instanceof AllyDog) return 'dog';
+  if(typeof AllyDragon!=='undefined' && a instanceof AllyDragon) return 'dragon';
+  return 'bot';
+}
+const _MP_ALLYCLS={ drone:(typeof DroneBuddy!=='undefined'?DroneBuddy:null), droid:(typeof DroidekaBot!=='undefined'?DroidekaBot:null), dog:(typeof ThreeHeadedDog!=='undefined'?ThreeHeadedDog:null), dragon:(typeof BlueDragon!=='undefined'?BlueDragon:null), bot:(typeof AllyBot!=='undefined'?AllyBot:null) };
+function _mpMakePuppet(t){
+  const Cls=_MP_ALLYCLS[t]||_MP_ALLYCLS.bot; if(!Cls) return null;
+  let p; try{ p=(t==='bot')?new Cls(0,0,'crawler'):(t==='drone')?new Cls(0,0,0x27c8ff):new Cls(0,0,1); }catch(e){ return null; }
+  p._netPuppet=true; p._pt=t; p.alive=true;
+  try{ if(p.addToScene)p.addToScene(); else if(p.mesh && !p.mesh.parent && typeof scene!=='undefined')scene.add(p.mesh); if(p.mesh)p.mesh.visible=true; }catch(e){}
+  try{ const ei=(typeof GS!=='undefined'&&GS.enemies)?GS.enemies.indexOf(p):-1; if(ei>=0)GS.enemies.splice(ei,1); const ai=(typeof GS!=='undefined'&&GS.allies)?GS.allies.indexOf(p):-1; if(ai>=0)GS.allies.splice(ai,1); }catch(e){}   // never let a puppet self-register into a live game list
+  return p;
+}
+function _mpRemovePuppet(p){ if(!p) return; try{ if(p.remove)p.remove(); else if(p.mesh&&p.mesh.parent)p.mesh.parent.remove(p.mesh); }catch(e){} }
+function _mpClearPuppets(rp){ if(rp&&rp._allies){ for(const p of rp._allies)_mpRemovePuppet(p); rp._allies=null; } }
 function mpSend(type, data){
   if(MP.transport==='ws'){ if(MP.ws&&MP.ws.readyState===1) MP.ws.send(JSON.stringify({type, id:MP.myId, ...data})); return; }
   if(!MP.channel||!MP.connected) return;
@@ -30053,6 +30082,7 @@ function mpAddRemotePlayer(id, state){
 function mpRemoveRemotePlayer(id){
   const rp=MP.players[id];
   if(!rp) return;
+  _mpClearPuppets(rp);
   scene.remove(rp.mesh);
   delete MP.players[id];
 }
@@ -30174,6 +30204,15 @@ function mpHandleRemoteEvent(msg){
         if(d.gf!=null && !MP.isHost && !!d.gf!==!!GS._gravFlip){ GS._gravFlip=!!d.gf; if(player)player._wasAirborne=true; if(typeof addTrauma==='function')addTrauma(0.3); }
       }
       break;
+    case 'allies':
+      { const rpa=MP.players[msg.id]; if(!rpa) break; if(!rpa._allies)rpa._allies=[]; const list=d.list||[];
+        while(rpa._allies.length>list.length){ _mpRemovePuppet(rpa._allies.pop()); }   // owner has fewer now
+        for(let i=0;i<list.length;i++){ const ad=list[i]; let p=rpa._allies[i];
+          if(!p || p._pt!==ad.t){ if(p)_mpRemovePuppet(p); p=_mpMakePuppet(ad.t); rpa._allies[i]=p; }
+          if(p){ p._nx=ad.x; p._nz=ad.z; p._ny=(ad.y!=null?ad.y:9); if(p.wx==null)p.wx=ad.x; if(p.wz==null)p.wz=ad.z; }
+        }
+      }
+      break;
     case 'gravflip':
       if(GS.zone===-19){ GS._gravFlip=!!d.on; if(player){ player._wasAirborne=true; player._peakPy=0; } if(typeof addTrauma==='function')addTrauma(0.5); if(typeof grid!=='undefined'&&grid.pulse)grid.pulse(0.9); if(typeof announce==='function')announce(GS._gravFlip?'⬇ GRAVITY FLIPPED':'⬆ GRAVITY RESTORED', GS._gravFlip?'#ff66cc':'#33e0ff'); }
       break;
@@ -30199,6 +30238,7 @@ function mpRespawn(){
 
 function mpBeginGame(){
   document.getElementById('overlay').style.display='none';
+  for(const id in MP.players){ _mpClearPuppets(MP.players[id]); }   // fresh start — drop any stale summon puppets
   MP.active=true;
   GS.survival=false;
   if(MP.cube){ MP.versus=true; startGame(-19); }                                            // BALL ARENA: the RL cube, PvP on, shared ball + gravity flip
@@ -30270,6 +30310,11 @@ function mpTick(){
     clip:player.model?.userData?.currentClip||'idle',
     gn: player._inPlanetGravity ? [Math.round(_gN.x*100)/100, Math.round(_gN.y*100)/100, Math.round(_gN.z*100)/100] : null,   // surface normal while wall-crawling -> remote can orient us on the wall
   });
+  // Broadcast MY summons (allies) so the others can render them — either player, not just the host
+  if(_mpTick%6===0 && GS.allies){
+    if(GS.allies.length){ const al=GS.allies.slice(0,10).map(a=>({t:_allyTypeKey(a), x:Math.round(a.wx||0), z:Math.round(a.wz||0), y:Math.round(a.py!=null?a.py:(a._cy!=null?a._cy:(a.mesh?a.mesh.position.y:9)))})); mpSend('event',{event:'allies',data:{list:al}}); if(!player._hadAllies)player._hadAllies=true; }
+    else if(player._hadAllies){ mpSend('event',{event:'allies',data:{list:[]}}); player._hadAllies=false; }   // send one empty list when the last summon dies so puppets clear
+  }
   // Host broadcasts enemy positions every 12 frames
   if(MP.isHost&&_mpTick%12===0&&GS.enemies.length){
     const enemyData=GS.enemies.slice(0,40).map(e=>({
