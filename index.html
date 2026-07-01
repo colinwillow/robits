@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB115</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB116</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -19164,6 +19164,13 @@ function _padDash(){ if(!player||GS.state!=='playing')return; const mv=rotInput(
 function _padBomb(){ if(!player||GS.state!=='playing')return;
   if(!player.bombArmed){ if(player.bombs>0||player._meleeType){ player._armBomb(); if(!player._meleeType){ player._aimerX=player.wx+Math.cos(player.aim)*120; player._aimerZ=player.wz+Math.sin(player.aim)*120; } } else if(typeof announce==='function')announce('NO BOMBS','#ff4400'); }
   else { player._throwBomb(0,0); } }
+// X = INTERACT / GRAB / THROW (mirrors the mobile grab-and-throw; no more infinite bomb from nothing).
+// If you're holding something -> throw it where you're facing. Otherwise grab the nearest crate/pickup/board/pad (which
+// auto-arms the throw, so the next X press hurls it).
+function _padInteract(){ if(!player||GS.state!=='playing')return;
+  if(player.bombArmed){ const a=player.aim||0; player._throwBomb(Math.cos(a),Math.sin(a)); return; }
+  if(typeof _grabItem==='function' && _grabItem()) return;
+}
 window._padDiagOn = false;  // on-screen gamepad diagnostic hidden by default (press P to toggle when debugging)
 function _padDiag(msg){
   if(!window._padDiagOn){ const ex=document.getElementById('pad-dbg'); if(ex)ex.remove(); return; }
@@ -19199,9 +19206,9 @@ function pollGamepad(){
   if(GS.state==='playing'&&player){
     if(A) _padJump();
     if(B) _padDash();
-    if(X) _padBomb();
+    if(X) _padInteract();   // interact / grab / throw (was the infinite bomb)
     if(Y||LB){ player.cycleWeapon&&player.cycleWeapon(); if(typeof announce==='function')announce('WEAPON: '+(player.secWeapon||'').toUpperCase(),'#00ffc8'); }
-    if(RB&&player.fireBomb===undefined){} if(RB&&typeof Missile!=='undefined'){ const a=player.aim; GS.missiles&&GS.missiles.push(new Missile(player.wx+Math.cos(a)*18,player.wz+Math.sin(a)*18,Math.cos(a),Math.sin(a),9+player.py)); Audio.blip(520,0.1,'sawtooth',0.12,300); }
+    // RB: reserved (removed the leftover test-missile spawn)
   }
   { let bp=''; for(let i=0;i<gp.buttons.length;i++) if(gp.buttons[i]&&gp.buttons[i].pressed) bp+=i+' ';
     _padDiag('OK  '+((gp.id||'pad').slice(0,30))+'\nLS '+moveIn.x.toFixed(2)+','+moveIn.y.toFixed(2)+'   RS '+shootIn.x.toFixed(2)+','+shootIn.y.toFixed(2)+'\nbuttons: '+(bp||'(none)')); }
@@ -20597,8 +20604,8 @@ function loop(ts){ requestAnimationFrame(loop);
       const flickActive=player&&player._flickCooldown>0;
       if(flickActive&&player) player._flickCooldown--;
 
-      // ── RIGHT-STICK FLICK MELEE — a quick snap-out-AND-back = melee; pushing & holding = aim/fire ──
-      if(!window._meleeOnLeftStick && IS_TOUCH && player && player.alive && GS.state==='playing' && !grenadeActive && !CAM.aimMode && !player._wallClimb && !player._hang && !player._crestSeq){
+      // ── RIGHT-STICK FLICK MELEE — a quick snap-out-AND-back = melee; pushing & holding = aim/fire ── (touch OR gamepad)
+      if(!window._meleeOnLeftStick && (IS_TOUCH||window._padActive) && player && player.alive && GS.state==='playing' && !grenadeActive && !CAM.aimMode && !player._wallClimb && !player._hang && !player._crestSeq){
         const _fmag=Math.hypot(shootIn.x,shootIn.y);
         const _now=performance.now();
         if(player._flickPending){                                   // a snap-out is in progress — did it come back in time?
@@ -20723,9 +20730,15 @@ function loop(ts){ requestAnimationFrame(loop);
       if(!IS_TOUCH && window._lastInput==='pad'){ player._aim3DActive=false; if(player._gcur)player._gcur.visible=false; if(typeof renderer!=='undefined'&&renderer.domElement)renderer.domElement.style.cursor=''; }
       if(window._padActive && !CAM.aimMode){
         const sm=Math.hypot(shootIn.x,shootIn.y);
-        if(sm>0.25){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; aiming=true; }
+        // FLICK GUARD: a fast right-stick snap = a melee flick -> briefly suppress firing so a bullet can't sneak out first
+        { const _svx=shootIn.x-(player._psx||0), _svy=shootIn.y-(player._psy||0), _sv=Math.hypot(_svx,_svy);
+          player._psx=shootIn.x; player._psy=shootIn.y;
+          if(_sv > (window._FIRE_FLICK_VEL!=null?window._FIRE_FLICK_VEL:0.13)) player._fireSuppressT=performance.now()+(window._FIRE_FLICK_HOLD||150); }
+        const _flickGuard = (player._fireSuppressT && performance.now()<player._fireSuppressT) || player._flickPending;
+        if(sm>0.12){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; aiming=true; }   // face/aim where the stick points (tracks before the fire threshold so he turns first)
         else if(window._padFire){ avx=Math.cos(player.aim); avz=Math.sin(player.aim); aiming=true; }   // RT with no stick: fire where he's pointed
-        if(!grenadeActive && window._padFire && !flickActive) firing=true;
+        // FIRE on right-stick HOLD past the deadzone (mirrors mobile) OR the RT trigger — but NOT during a flick (that's a melee)
+        if(!grenadeActive && !flickActive && !_flickGuard && (sm > (window._PAD_FIRE_DEADZONE||window._FIRE_DEADZONE||0.22) || window._padFire)) firing=true;
         if(player&&player._gcur) player._gcur.visible=false;   // stick aiming: hide the mouse ground cursor
       }
       // Camera auto-center handled in player.update (Option B)
