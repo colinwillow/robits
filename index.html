@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB97</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB99</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1961,7 +1961,9 @@ class Particles{
     this.posAttr=new THREE.BufferAttribute(this.pos,3); this.colAttr=new THREE.BufferAttribute(this.col,3);
     g.setAttribute('position',this.posAttr); g.setAttribute('color',this.colAttr);
     const ptSize=IS_MOBILE?8:5; // bigger points on mobile = fewer needed for same visual impact
-    this.points=new THREE.Points(g,new THREE.PointsMaterial({size:ptSize,vertexColors:true,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true}));
+    // Soft radial sprite so every particle reads as a glowing PUFF instead of a hard square (default GL points are squares).
+    let _ptex=null; try{ const _c=document.createElement('canvas'); _c.width=_c.height=64; const _cx=_c.getContext('2d'); const _grd=_cx.createRadialGradient(32,32,0,32,32,32); _grd.addColorStop(0,'rgba(255,255,255,1)'); _grd.addColorStop(0.30,'rgba(255,255,255,0.80)'); _grd.addColorStop(0.65,'rgba(255,255,255,0.20)'); _grd.addColorStop(1,'rgba(255,255,255,0)'); _cx.fillStyle=_grd; _cx.beginPath(); _cx.arc(32,32,32,0,Math.PI*2); _cx.fill(); _ptex=new THREE.CanvasTexture(_c); }catch(_){}
+    this.points=new THREE.Points(g,new THREE.PointsMaterial({size:ptSize,map:_ptex,vertexColors:true,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true}));
     this.points.frustumCulled=false; scene.add(this.points);
     for(let i=0;i<cap;i++)this.pos[i*3+1]=-9999;
   }
@@ -1974,6 +1976,14 @@ class Particles{
   burst(wx,wz,col,n=28,spd=90,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); for(let i=0;i<n;i++){const a=rand(TAU),up=rand(0.2,1.1),s=spd*(0.3+Math.random());this._spawn(wx,Y,wz,Math.cos(a)*s,up*s*0.6,Math.sin(a)*s,r,g,b,0.014+rand(0.02));} }
   ring(wx,wz,col,n=40,spd=120,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); for(let i=0;i<n;i++){const a=(i/n)*TAU,s=spd*(0.6+Math.random()*0.5);this._spawn(wx,Y,wz,Math.cos(a)*s,rand(10,60),Math.sin(a)*s,r,g,b,0.012+rand(0.014));} }
   spark(wx,wz,col,y){ const[r,g,b]=col,Y=(y!==undefined?y:5); for(let i=0;i<4;i++){const a=rand(TAU);this._spawn(wx,Y,wz,Math.cos(a)*rand(40,120),rand(20,80),Math.sin(a)*rand(40,120),r,g,b,0.05+rand(0.04));} }
+  // Directional MUZZLE FLASH at a 3D point: a hot white core POP + a forward-thrown fan of colored streaks along `ang`.
+  // Reads as a burst of fire/plasma coming out the barrel, not an omni cloud. sc scales spread/speed per weapon.
+  flash(x,y,z,ang,col,sc){ const[r,g,b]=col; sc=sc||1; const ca=Math.cos(ang),sa=Math.sin(ang);
+    const core=IS_MOBILE?3:5;
+    for(let i=0;i<core;i++){ this._spawn(x+rand(-1.4,1.4),y+rand(-1.4,1.4),z+rand(-1.4,1.4), ca*rand(6,34),rand(-4,12),sa*rand(6,34), 1,1,1, 0.11+rand(0.05)); }   // white-hot core
+    const nn=IS_MOBILE?5:9;
+    for(let i=0;i<nn;i++){ const spr=rand(-0.34,0.34), aa=ang+spr, s=(rand(130,280))*sc; this._spawn(x,y,z, Math.cos(aa)*s, rand(-6,16), Math.sin(aa)*s, r,g,b, 0.055+rand(0.03)); }   // forward-thrown colored streaks
+  }
   update(dt){ const t=dt*60;
     for(let i=0;i<this.n;i++){ if(this.life[i]<=0)continue;
       this.pos[i*3]+=this.vel[i*3]*dt; this.pos[i*3+1]+=this.vel[i*3+1]*dt; this.pos[i*3+2]+=this.vel[i*3+2]*dt;
@@ -2796,6 +2806,25 @@ function _updateSpider(sp, dt, moveAmt){
   sp.group.position.y = Math.sin(sp.gait*TAU)*(mv*0.9) + Math.sin(sp.t*1.6)*0.25;  // gait bob only while walking; idle breathing always
 }
 // ── build the right body for a deployed Robit by captured species ──
+// The FILLED-IN orange ball droid — solid metallic sphere, glowing seam, eye, folded leg nubs, halo, plus a faint
+// blue wireframe accent over the shell. Built at the pickup's native radius (5.4) then scaled to R so the ground
+// power-up pickup and the deployed roll-form look IDENTICAL (user liked the filled pickup better than the old wire ball).
+function _makeBallDroidShell(R){
+  const g=new THREE.Group();
+  const shell=new THREE.MeshStandardMaterial({color:0xcf5a12,emissive:0xff7a2a,emissiveIntensity:0.9,roughness:0.35,metalness:0.78,toneMapped:false});
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(5.4,20,16),shell));
+  const seam=new THREE.Mesh(new THREE.TorusGeometry(5.45,0.55,8,30), new THREE.MeshStandardMaterial({color:0x241004,emissive:0x120802,emissiveIntensity:0.3,roughness:0.6,metalness:0.6,toneMapped:false})); seam.rotation.x=Math.PI/2; g.add(seam);
+  const seam2=new THREE.Mesh(new THREE.TorusGeometry(5.4,0.4,8,30), new THREE.MeshBasicMaterial({color:0xffb066,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false})); seam2.rotation.x=Math.PI/2; g.add(seam2);
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(1.7,12,10), new THREE.MeshBasicMaterial({color:0xffe27a,transparent:true,opacity:0.98,blending:THREE.AdditiveBlending,depthWrite:false})); eye.position.set(0,0.6,4.9); g.add(eye);
+  const eyeRing=new THREE.Mesh(new THREE.TorusGeometry(2.4,0.38,8,20), new THREE.MeshBasicMaterial({color:0xff9a3a,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false})); eyeRing.position.set(0,0.6,4.6); g.add(eyeRing);
+  const legMat=new THREE.MeshStandardMaterial({color:0x3a1c08,emissive:0x160a02,emissiveIntensity:0.3,roughness:0.7,metalness:0.55,toneMapped:false});
+  for(let k=0;k<3;k++){ const a=k/3*Math.PI*2+0.5; const leg=new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,4.6),legMat); leg.position.set(Math.cos(a)*4.3,-2.3,Math.sin(a)*4.3); leg.lookAt(new THREE.Vector3(Math.cos(a)*10,-5,Math.sin(a)*10)); g.add(leg); }
+  // faint blue wireframe lattice over the filled shell (contrast accent — user asked for a wire outline of a different color)
+  g.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(5.65,1)), new THREE.LineBasicMaterial({color:0x8fe6ff,transparent:true,opacity:0.30,blending:THREE.AdditiveBlending,depthWrite:false})));
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(6.7,16,12), new THREE.MeshBasicMaterial({color:0xffb066,transparent:true,opacity:0.13,blending:THREE.AdditiveBlending,depthWrite:false})));
+  if(R&&Math.abs(R-5.4)>0.01) g.scale.setScalar(R/5.4);
+  return g;
+}
 function _makeDroidBody(){
   const g=new THREE.Group(), inner=new THREE.Group(); inner.position.y=7; g.add(inner);
   const glowHex=0xff8a33, dark=0x1a0c04;
@@ -8326,9 +8355,8 @@ class AllyBot{
     // ── RENDER: BALL MODE = hide the legs-out body + show a solid ball that rolls STRAIGHT in its travel direction (legs IN). DEPLOYED = show the upright body (legs OUT) to shoot. ──
     const g=this._spider&&this._spider.group, R=(window._DK_BALL_R||14), col=(window._DK_BALL_COL!=null?window._DK_BALL_COL:0xff8a2a);
     if(!this._dkBallMesh && typeof THREE!=='undefined'){
-      const bm=new THREE.Group();
-      bm.add(new THREE.Mesh(new THREE.IcosahedronGeometry(R,1), new THREE.MeshStandardMaterial({color:0x1a0c04,emissive:col,emissiveIntensity:0.95,metalness:0.6,roughness:0.35,flatShading:true,toneMapped:false})));
-      bm.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(R+0.4,1)), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false})));
+      // filled-in orange ball shell — identical to the ground power-up pickup (was a faceted wireframe icosahedron)
+      const bm=(typeof _makeBallDroidShell==='function')?_makeBallDroidShell(R):(function(){ const b=new THREE.Group(); b.add(new THREE.Mesh(new THREE.IcosahedronGeometry(R,1), new THREE.MeshStandardMaterial({color:0x1a0c04,emissive:col,emissiveIntensity:0.95,metalness:0.6,roughness:0.35,flatShading:true,toneMapped:false}))); return b; })();
       this._dkBallMesh=bm; this.mesh.add(bm);
     }
     const balled=this._dkBall;
@@ -10487,14 +10515,14 @@ class Player{
   // LAUNCH the thrown melee weapon — called by _throwBomb in 'melee' mode, so it flies on the SAME bomb
   // trajectory (flick / hold-aim the right stick). It damages what it passes through (spear flies straight,
   // axe/hammer/sword tumble), bounces, and drops as a grabbable pickup. Throwing leaves you on fists.
-  _launchThrownMelee(sx,sy,sz,vx,vy,vz){
+  _launchThrownMelee(sx,sy,sz,vx,vy,vz,allowLock){
     const type=this._meleeThrowType||this._meleeType; if(!type) return;
     const _MS=(window._MELEE_STATS&&(window._MELEE_STATS[type]||window._MELEE_STATS.sword))||{dmg:6,bMag:9,bLift:130,bStn:24,eForce:4,eLift:0.9,eAir:6,thud:140};
     const straight=(type==='spear');
-    // LOCK-ON: pick whatever you're aiming at in the throw direction (enemy/bot/dummy/barrel/box) and hurl STRAIGHT at it,
-    // near or far. No lock -> fly flat along the flick direction. Spear = fastest + dead flat; others = fast + slight arc.
+    // LOCK-ON (press-and-hold only): pick whatever you're aiming at in the throw direction and hurl STRAIGHT at it, near or
+    // far. A FLICK (allowLock===false) flies flat along the flicked direction with NO seeking. Spear = fastest + dead flat.
     const throwAng=Math.atan2(vz,vx);
-    let lock=(typeof _aaPickTarget==='function')?_aaPickTarget(this, throwAng):null; if(lock&&lock.alive===false)lock=null;
+    let lock=(allowLock!==false && typeof _aaPickTarget==='function')?_aaPickTarget(this, throwAng):null; if(lock&&lock.alive===false)lock=null;
     let dx=vx, dz=vz;
     if(lock){ const lx=(lock.wx!=null?lock.wx:lock.x), lz=(lock.wz!=null?lock.wz:lock.z); if(lx!=null){ const ddx=lx-sx, ddz=lz-sz; if(Math.hypot(ddx,ddz)>4){ dx=ddx; dz=ddz; } } }
     let dm=Math.hypot(dx,dz)||1; dx/=dm; dz/=dm;
@@ -10569,7 +10597,7 @@ class Player{
     if(this._inPlanetGravity && this._bombLaunchVel){          // ON A BUILDING: launch in the surface frame (down-stick = down the wall), not world axes
       const v=this._bombLaunchVel, sp=this._bombSpawn||{x:this.wx,y:this.py+40,z:this.wz};
       const thrown=!!this._stickWasPushed;
-      if(this._bombMode==='melee'){ this._launchThrownMelee(sp.x,sp.y,sp.z,v.x+this.vx*0.3,v.y,v.z+this.vz*0.3); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
+      if(this._bombMode==='melee'){ this._launchThrownMelee(sp.x,sp.y,sp.z,v.x+this.vx*0.3,v.y,v.z+this.vz*0.3, power===undefined); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
       if(this._bombMode==='item'){ const pl=this._carryPayload||{kind:'item',type:'nuke'}; if(!window._itemShots)window._itemShots=[]; window._itemShots.push({x:sp.x,y:sp.y,z:sp.z,vx:v.x,vz:v.z,vy:v.y,type:pl.type,kind:pl.kind}); this._carryPayload=null; this._disarmBomb(); if(typeof announce==='function')announce(pl.kind==='crate'?'CRATE THROWN':((pl.type||'').toUpperCase()+' THROWN'),'#ffd84a'); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'sine',0.2,160); return; }
       const _ally=(this._bombMode==='ally'); const _crate=(this._bombMode==='crate');
       let _sp='crawler'; if(_ally){ let ow=_ownedSpecies(); if(ow.length) _sp=ow[Math.min(this._allySel||0,ow.length-1)]; }
@@ -10583,8 +10611,9 @@ class Player{
       return;
     }
     const isDrop=(dirX===0&&dirZ===0);
-    // LOCK-ON: if the aim ring settled on a target, throw to land right ON it (near or far) — bombs / items / crates / allies
-    let _lock=(!isDrop && this._throwLock && this._throwLock.alive!==false)?this._throwLock:null;
+    const _isFlick=(power!==undefined);   // a flick supplies power; a press-and-hold release does not
+    // LOCK-ON: ONLY on a press-and-hold aim release (the ground ring showed the target). A FLICK throws exactly where you flicked.
+    let _lock=(!isDrop && !_isFlick && this._throwLock && this._throwLock.alive!==false)?this._throwLock:null;
     let _lockDist=0;
     if(_lock){ const lx=(_lock.wx!=null?_lock.wx:_lock.x), lz=(_lock.wz!=null?_lock.wz:_lock.z); if(lx!=null){ const ddx=lx-this.wx, ddz=lz-this.wz, dd=Math.hypot(ddx,ddz); if(dd>4){ dirX=ddx/dd; dirZ=ddz/dd; _lockDist=dd; } else _lock=null; } else _lock=null; }
     // If power supplied (flick), convert to crossDist equivalent
@@ -10616,7 +10645,7 @@ class Player{
     const spawnX=this._bombHandPos?this._bombHandPos.x:this.wx+(isDrop?0:dirX*14);
     const spawnZ=this._bombHandPos?this._bombHandPos.z:this.wz+(isDrop?0:dirZ*14);
     const spawnY=this._bombHandPos?this._bombHandPos.y:launchY;
-    if(this._bombMode==='melee'){ this._launchThrownMelee(spawnX,spawnY,spawnZ,vx,launchVY,vz); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
+    if(this._bombMode==='melee'){ this._launchThrownMelee(spawnX,spawnY,spawnZ,vx,launchVY,vz, power===undefined); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
     if(this._bombMode==='item'){ const pl=this._carryPayload||{kind:'item',type:'nuke'}; if(!window._itemShots)window._itemShots=[]; window._itemShots.push({x:spawnX,y:spawnY,z:spawnZ,vx:vx,vz:vz,vy:launchVY,type:pl.type,kind:pl.kind}); this._carryPayload=null; this._disarmBomb(); if(typeof announce==='function')announce(pl.kind==='crate'?(isDrop?'CRATE DROPPED':'CRATE THROWN'):((pl.type||'').toUpperCase()+(isDrop?' DROPPED':' THROWN')),'#ffd84a'); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'sine',0.2,160); return; }
     const _ally=(this._bombMode==='ally'); const _crate=(this._bombMode==='crate');
     let _sp='crawler'; if(_ally){ let ow=_ownedSpecies(); if(ow.length) _sp=ow[Math.min(this._allySel||0,ow.length-1)]; }
@@ -11194,7 +11223,10 @@ class Player{
     // _softLock drives the ring in _aimAssistTick. Melee / ball / wall states opt out.
     if(window._AIM_ASSIST!==false && this.alive!==false && !this._hammer && !this._ballActive && !this._wallClimb && !this._wallRun && !this._crestSeq && !this._rollAimLock){
       const _w=this.primaryWeapon||'bullets';
-      const _pj=(_w==='bullets'||_w==='plasma'||_w==='rockets'||_w==='minigun'||_w==='bow');
+      // HORIZONTAL turn-assist (bend facing onto the target) is ONLY for the seeking weapons. Bullets/minigun DON'T bend —
+      // they go exactly where you push the stick (they're weak spray weapons). The VERTICAL aim-down below is independent
+      // and still runs for bullets so they angle DOWN onto barrels/low targets in front of you.
+      const _pj=(_w==='plasma'||_w==='rockets'||_w==='bow');
       const _al=Math.hypot(avx,avz), _spd=Math.hypot(this.vx||0,this.vz||0);
       if(firing) this._aaFireT=this.fireT;
       const _firedRecently=(this.fireT-(this._aaFireT!=null?this._aaFireT:-9999) < (window._AA_HOLD_F||30));
@@ -11544,16 +11576,10 @@ class Player{
     if(_droneOn){ const m=window._fireDrone.muzzle(a); spawnX=m.x; y0=m.y; spawnZ=m.z; window._fireDrone.flash(a,od); }
     else if(_mzKind){
       y0=_mz.y; spawnX=_mz.x; spawnZ=_mz.z;
-      // Muzzle flash at the barrel tip (hand or shoulder)
-      const fc=od?[1,0.9,0.2]:[0.4,0.9,1];
-      for(let i=0;i<5;i++){
-        ps._spawn(spawnX+rand(-3,3),y0,spawnZ+rand(-3,3),
-          Math.cos(a)*rand(60,140)+rand(-20,20),
-          rand(-10,20),
-          Math.sin(a)*rand(60,140)+rand(-20,20),
-          fc[0],fc[1],fc[2],0.03+rand(0.02));
-      }
-      ps.ring(spawnX,spawnZ,fc,3,40);
+      // Muzzle flash at the barrel TIP of the hand cannon (or shoulder launcher) — directional pop, spawned in 3D at the tip
+      const fc=od?[1,0.9,0.2]:[0.45,0.85,1];
+      if(ps.flash) ps.flash(spawnX,y0,spawnZ,a,fc,1);
+      else { for(let i=0;i<5;i++){ ps._spawn(spawnX+rand(-3,3),y0,spawnZ+rand(-3,3),Math.cos(a)*rand(60,140)+rand(-20,20),rand(-10,20),Math.sin(a)*rand(60,140)+rand(-20,20),fc[0],fc[1],fc[2],0.03+rand(0.02)); } }
     } else if(this.model?.userData?.isRobot){
       y0=22+this.py;
     }
@@ -11629,7 +11655,7 @@ class Player{
     else if(lvl>=2){ fire(ab,'normal');fire(ab+0.13,'normal');fire(ab-0.13,'normal'); }
     else fire(ab,'normal');
     if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:y0,a,lvl,od:!!od}});   // 1 event per shot -> remote shows every bullet
-    if(!_mzKind){ const _md=(this._aim3DActive&&this._aim3D)?this._aim3D:{x:Math.cos(a),z:Math.sin(a)}; const _my=(this._inPlanetGravity?(this.py+10):5); ps.spark(this.wx+_md.x*14,this.wz+_md.z*14,[1,0.85,0],_my); } }   // ground spark only for the bone-less procedural ship; the robot uses the hand/shoulder muzzle flash
+    if(!_mzKind && !bones){ const _md=(this._aim3DActive&&this._aim3D)?this._aim3D:{x:Math.cos(a),z:Math.sin(a)}; const _my=(this._inPlanetGravity?(this.py+10):5); ps.spark(this.wx+_md.x*14,this.wz+_md.z*14,[1,0.85,0],_my); } }   // ground spark ONLY for the truly bone-less procedural ship; any rigged robot uses the hand/shoulder muzzle flash at the barrel tip (never at the feet)
   _firePlasma(od){
     const a=this.aim;
     let y0=9+this.py, sx=this.wx, sz=this.wz;
@@ -13809,7 +13835,7 @@ function _updateCrates(dt){
     if(typeof GS!=='undefined'&&GS.missiles&&GS.missiles.length){ for(let j=GS.missiles.length-1;j>=0;j--){ const m=GS.missiles[j]; if(!m)continue; if(Math.hypot((m.wx||0)-c.x,(m.wz||0)-c.z)<18&&Math.abs((m.y||12)-12)<28){ c.hp-=(m.dmg||4); c.hitFlash=0.12; const dx=c.x-(m.wx||0),dz=c.z-(m.wz||0),dd=Math.hypot(dx,dz)||1; c.vx+=dx/dd*60; c.vz+=dz/dd*60; if(typeof m._explode==='function'){ try{ m._explode(); }catch(_){} } if(m.remove)m.remove(); GS.missiles.splice(j,1); if(typeof Audio!=='undefined'){try{Audio.blip(120,0.15,'square',0.25,60);}catch(_){}} if(c.hp<=0){ _smashCrate(c); break; } } } }
     if(window._crates.indexOf(c)<0) continue;
     // MELEE damages the crate
-    if(meleeActive && c._meleeCd<=0 && player){ const d=Math.hypot(c.x-player.wx,c.z-player.wz); if(d<34){ c.hp-=2; c._meleeCd=0.34; c.hitFlash=0.12; const dx=c.x-player.wx,dz=c.z-player.wz,dd=Math.hypot(dx,dz)||1; c.vx+=dx/dd*95; c.vz+=dz/dd*95; if(typeof ps!=='undefined')ps.ring(c.x,c.z,[1,0.9,0.4],5,42); if(typeof Audio!=='undefined'){try{Audio.blip(150,0.09,'square',0.16,90);}catch(_){}} if(c.hp<=0){ _smashCrate(c); continue; } } }
+    if(meleeActive && c._meleeCd<=0 && player){ const d=Math.hypot(c.x-player.wx,c.z-player.wz); if(d<34 && Math.abs((player.py||0)-(c.y||0))<(window._CRATE_MELEE_DY||40)){ c.hp-=2; c._meleeCd=0.34; c.hitFlash=0.12; const dx=c.x-player.wx,dz=c.z-player.wz,dd=Math.hypot(dx,dz)||1; c.vx+=dx/dd*95; c.vz+=dz/dd*95; if(typeof ps!=='undefined')ps.ring(c.x,c.z,[1,0.9,0.4],5,42); if(typeof Audio!=='undefined'){try{Audio.blip(150,0.09,'square',0.16,90);}catch(_){}} if(c.hp<=0){ _smashCrate(c); continue; } } }
     // bullets damage the crate
     if(typeof GS!=='undefined'&&GS.bullets&&GS.bullets.length){ for(let j=GS.bullets.length-1;j>=0;j--){ const bl=GS.bullets[j]; if(!bl)continue; const bx=(bl.wx!=null?bl.wx:bl.x), bz=(bl.wz!=null?bl.wz:bl.z); if(bx==null)continue; if(Math.hypot(bx-c.x,bz-c.z)<16){ c.hp--; c.hitFlash=0.12; const dx=c.x-bx, dz=c.z-bz, d=Math.hypot(dx,dz)||1; c.vx+=dx/d*70; c.vz+=dz/d*70; if(bl.mesh){scene.remove(bl.mesh); if(bl.mesh.geometry)bl.mesh.geometry.dispose();} GS.bullets.splice(j,1); if(typeof ps!=='undefined')ps.ring(c.x,c.z,[1,0.85,0.35],4,28); if(c.hp<=0){ _smashCrate(c); break; } } } }
     if(window._crates.indexOf(c)<0) continue;
@@ -13852,16 +13878,8 @@ function _makePUModel(type){
     if(!built){ g.add(new THREE.Mesh(new THREE.SphereGeometry(3.2,12,10), new THREE.MeshBasicMaterial({color:0x9af2ff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false})));
       const disc=new THREE.Mesh(new THREE.CylinderGeometry(5.4,5.4,1.4,20), new THREE.MeshStandardMaterial({color:0x0a2c3a,emissive:col,emissiveIntensity:1.4,metalness:0.55,roughness:0.32})); g.add(disc);
       const ring=new THREE.Mesh(new THREE.TorusGeometry(6.6,0.5,8,26), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=Math.PI/2; g.add(ring); }
-  } else if(type==='droid'){   // BALL DROID (droideka curled into its ball): orange metallic sphere + equatorial seam + glowing eye + folded leg nubs
-    const shell=new THREE.MeshStandardMaterial({color:0xcf5a12,emissive:0xff7a2a,emissiveIntensity:0.9,roughness:0.35,metalness:0.78,toneMapped:false});
-    g.add(new THREE.Mesh(new THREE.SphereGeometry(5.4,20,16),shell));
-    const seam=new THREE.Mesh(new THREE.TorusGeometry(5.45,0.55,8,30), new THREE.MeshStandardMaterial({color:0x241004,emissive:0x120802,emissiveIntensity:0.3,roughness:0.6,metalness:0.6,toneMapped:false})); seam.rotation.x=Math.PI/2; g.add(seam);
-    const seam2=new THREE.Mesh(new THREE.TorusGeometry(5.4,0.4,8,30), new THREE.MeshBasicMaterial({color:0xffb066,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false})); seam2.rotation.x=Math.PI/2; g.add(seam2);
-    const eye=new THREE.Mesh(new THREE.SphereGeometry(1.7,12,10), new THREE.MeshBasicMaterial({color:0xffe27a,transparent:true,opacity:0.98,blending:THREE.AdditiveBlending,depthWrite:false})); eye.position.set(0,0.6,4.9); g.add(eye);
-    const eyeRing=new THREE.Mesh(new THREE.TorusGeometry(2.4,0.38,8,20), new THREE.MeshBasicMaterial({color:0xff9a3a,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false})); eyeRing.position.set(0,0.6,4.6); g.add(eyeRing);
-    const legMat=new THREE.MeshStandardMaterial({color:0x3a1c08,emissive:0x160a02,emissiveIntensity:0.3,roughness:0.7,metalness:0.55,toneMapped:false});
-    for(let k=0;k<3;k++){ const a=k/3*Math.PI*2+0.5; const leg=new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,4.6),legMat); leg.position.set(Math.cos(a)*4.3,-2.3,Math.sin(a)*4.3); leg.lookAt(new THREE.Vector3(Math.cos(a)*10,-5,Math.sin(a)*10)); g.add(leg); }
-    g.add(new THREE.Mesh(new THREE.SphereGeometry(6.7,16,12), new THREE.MeshBasicMaterial({color:0xffb066,transparent:true,opacity:0.13,blending:THREE.AdditiveBlending,depthWrite:false})));
+  } else if(type==='droid'){   // BALL DROID (droideka curled into its ball): the shared filled-in orange metallic shell
+    g.add(_makeBallDroidShell(5.4));
   } else if(type==='dog'||type==='dragon'){   // SUMMON BALL — a glowing capsule with a motif hinting at the creature inside
     const c=(_ITEMDEF[type]||_ITEMDEF.drone).col;
     g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(5,0), new THREE.MeshStandardMaterial({color:0x0c0c12,emissive:c,emissiveIntensity:1.2,roughness:0.3,metalness:0.45,toneMapped:false})));
@@ -13976,7 +13994,7 @@ function _updatePU(dt){
   // ── BARRELS: take a bullet -> cook off; cook-off timer -> explode (chain handled in _detonateItem) ──
   for(let i=A.length-1;i>=0;i--){ const p=A[i]; if(!p||p.type!=='barrel')continue;
     if(!(p._cooking>0) && p.settled && typeof GS!=='undefined' && GS.bullets){ for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b)continue; const bw=(b.wx!=null?b.wx:b.x)||0, bz=(b.wz!=null?b.wz:b.z)||0; if(Math.hypot(bw-p.x,bz-p.z)<(window._BARREL_HIT_R||16) && Math.abs(((b.y!=null?b.y:9))-(p.y||7))<32){ if(b.remove)b.remove(); GS.bullets.splice(bi,1); _barrelImpactMark(p,[1,0.85,0.3]); p._cooking=(window._BARREL_FUSE||0.12); break; } } }
-    if(!(p._cooking>0) && p.settled){ const ud=player&&player.model&&player.model.userData; if(ud&&ud._meleeTimer>0 && player && Math.hypot(p.x-player.wx,p.z-player.wz)<(window._BARREL_MELEE_R||74)){ _barrelImpactMark(p); p._cooking=(window._BARREL_FUSE||0.12); if(typeof ps!=='undefined')ps.ring(p.x,p.z,[1,0.6,0.2],5,40); } }   // MELEE / FIST breaks a resting barrel (works before pickup)
+    if(!(p._cooking>0) && p.settled){ const ud=player&&player.model&&player.model.userData; if(ud&&ud._meleeTimer>0 && player && Math.hypot(p.x-player.wx,p.z-player.wz)<(window._BARREL_MELEE_R||74) && Math.abs((player.py||0)-(p.y||7))<(window._BARREL_MELEE_DY||40)){ _barrelImpactMark(p); p._cooking=(window._BARREL_FUSE||0.12); if(typeof ps!=='undefined')ps.ring(p.x,p.z,[1,0.6,0.2],5,40); } }   // MELEE / FIST breaks a resting barrel — Y-GATED: an air-slam only connects once you drop to the barrel's height (was bursting it from mid-air while jet-packing overhead on XZ overlap alone)
     if(p._cooking>0){ p._cooking-=dt; if(typeof ps!=='undefined'&&Math.random()<0.6)ps.spark(p.x+rand(-5,5),p.z+rand(-5,5),[1,0.5,0.1],(p.y||7)+rand(4,16)); if(p.cube)p.cube.scale.setScalar(1+0.12*Math.sin(performance.now()*0.05));
       if(p._cooking<=0){ if(p.grp){scene.remove(p.grp); p.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});} A.splice(i,1); if(p===window._nearOrb)window._nearOrb=null; _detonateItem('barrel',p.x,p.z,false); } }
   }
@@ -13994,9 +14012,16 @@ function _updatePU(dt){
           player.wx-=nx*ov*0.4; player.wz-=nz*ov*0.4; if(player.vx!==undefined){ player.vx*=0.78; player.vz*=0.78; } } }
       const sp0=Math.hypot(p.vx||0,p.vz||0);
       if(sp0>0.01){ p.x+=(p.vx||0)*dt; p.z+=(p.vz||0)*dt; const fr=Math.pow((p._lying?(window._BARREL_ROLL_DRAG||0.32):(window._BARREL_PUSH_DRAG||0.02)),dt); p.vx*=fr; p.vz*=fr; if(Math.hypot(p.vx,p.vz)<(window._BARREL_PUSH_STOP||6)){ p.vx=0; p.vz=0; } p.wx=p.x; p.wz=p.z;
-        if(!p._lying && sp0>(window._BARREL_TIP_SPD||120)){ p._lying=true; p.settled=true; if(typeof ps!=='undefined')ps.spark(p.x,p.z,[1,0.6,0.2],gy); if(typeof Audio!=='undefined'){try{Audio.blip(90,0.12,'sine',0.18,60);}catch(_){}} }   // tipped over
+        if(!p._lying && sp0>(window._BARREL_TIP_SPD||120)){ p._lying=true; p.settled=true; if(typeof ps!=='undefined')ps.spark(p.x,p.z,[1,0.6,0.2],gy); if(typeof Audio!=='undefined'){try{Audio.blip(90,0.12,'sine',0.18,60);}catch(_){}} }   // ram hard enough -> TIPS onto its side
         const sp=Math.hypot(p.vx,p.vz);
-        if(p._lying && sp>4 && p.cube){ const _ax=new THREE.Vector3(-p.vz/(sp||1),0,p.vx/(sp||1)); p._rollAng=(p._rollAng||0)+(sp/(BSZ||9))*dt; p.cube.quaternion.setFromAxisAngle(_ax,p._rollAng); }   // roll in the travel direction
+        // REAL barrel physics: UPRIGHT barrel just SLIDES on its flat base (no spin, like the cube crate). Only once it's
+        // LYING on its round side does it ROLL — spinning about the horizontal axis perpendicular to travel, laid flat.
+        if(p._lying && sp>4 && p.cube && typeof THREE!=='undefined'){
+          const axis=new THREE.Vector3(p.vz/sp,0,-p.vx/sp);   // horizontal roll axis = up × velocity (perpendicular to travel); this sign rolls it the way it's actually moving
+          p._rollAng=(p._rollAng||0)+(sp/(BSZ||9))*dt;         // angular speed = v / r
+          const qLay=new THREE.Quaternion().setFromUnitVectors((window._V_UP||(window._V_UP=new THREE.Vector3(0,1,0))),axis);   // lay the cylinder (local +Y) flat onto the roll axis
+          p.cube.quaternion.setFromAxisAngle(axis,p._rollAng).multiply(qLay);   // roll about the axis, applied after laying it flat
+        }
         p.y=gy; if(p.grp)p.grp.position.set(p.x,gy,p.z); p._pushMoving=true;
       } else p._pushMoving=false;
     }
@@ -19410,7 +19435,7 @@ jL.onTap=()=>{
               const sx=totalDx/totalDist, sy2=totalDy/totalDist;   // direction = net swipe (stable aim); power = peak speed
               const wx=sx*cy+sy2*sy, wz=-sx*sy+sy2*cy;
               const len=Math.hypot(wx,wz)||1;
-              { const _aa=_throwAssistDir(wx,wz); player._throwBomb(_aa.x,_aa.z, Math.max(vel*(window._FLICK_POWER_K||1.6),(window._FLICK_MIN_POWER||1.15))); }   // a genuine FLICK always throws HARD in the swipe dir (assist snaps it onto a nearby target) — never fall back to the barely-extended aimer
+              { player._throwBomb(wx/len,wz/len, Math.max(vel*(window._FLICK_POWER_K||1.6),(window._FLICK_MIN_POWER||1.15))); }   // FLICK throws HARD EXACTLY in the swipe direction — NO aim-assist snapping (the target lock-on is reserved for press-and-hold aim + the ground ring)
               threw=true;
             }
           }
