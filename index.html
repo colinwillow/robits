@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB98</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB99</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10515,14 +10515,14 @@ class Player{
   // LAUNCH the thrown melee weapon — called by _throwBomb in 'melee' mode, so it flies on the SAME bomb
   // trajectory (flick / hold-aim the right stick). It damages what it passes through (spear flies straight,
   // axe/hammer/sword tumble), bounces, and drops as a grabbable pickup. Throwing leaves you on fists.
-  _launchThrownMelee(sx,sy,sz,vx,vy,vz){
+  _launchThrownMelee(sx,sy,sz,vx,vy,vz,allowLock){
     const type=this._meleeThrowType||this._meleeType; if(!type) return;
     const _MS=(window._MELEE_STATS&&(window._MELEE_STATS[type]||window._MELEE_STATS.sword))||{dmg:6,bMag:9,bLift:130,bStn:24,eForce:4,eLift:0.9,eAir:6,thud:140};
     const straight=(type==='spear');
-    // LOCK-ON: pick whatever you're aiming at in the throw direction (enemy/bot/dummy/barrel/box) and hurl STRAIGHT at it,
-    // near or far. No lock -> fly flat along the flick direction. Spear = fastest + dead flat; others = fast + slight arc.
+    // LOCK-ON (press-and-hold only): pick whatever you're aiming at in the throw direction and hurl STRAIGHT at it, near or
+    // far. A FLICK (allowLock===false) flies flat along the flicked direction with NO seeking. Spear = fastest + dead flat.
     const throwAng=Math.atan2(vz,vx);
-    let lock=(typeof _aaPickTarget==='function')?_aaPickTarget(this, throwAng):null; if(lock&&lock.alive===false)lock=null;
+    let lock=(allowLock!==false && typeof _aaPickTarget==='function')?_aaPickTarget(this, throwAng):null; if(lock&&lock.alive===false)lock=null;
     let dx=vx, dz=vz;
     if(lock){ const lx=(lock.wx!=null?lock.wx:lock.x), lz=(lock.wz!=null?lock.wz:lock.z); if(lx!=null){ const ddx=lx-sx, ddz=lz-sz; if(Math.hypot(ddx,ddz)>4){ dx=ddx; dz=ddz; } } }
     let dm=Math.hypot(dx,dz)||1; dx/=dm; dz/=dm;
@@ -10597,7 +10597,7 @@ class Player{
     if(this._inPlanetGravity && this._bombLaunchVel){          // ON A BUILDING: launch in the surface frame (down-stick = down the wall), not world axes
       const v=this._bombLaunchVel, sp=this._bombSpawn||{x:this.wx,y:this.py+40,z:this.wz};
       const thrown=!!this._stickWasPushed;
-      if(this._bombMode==='melee'){ this._launchThrownMelee(sp.x,sp.y,sp.z,v.x+this.vx*0.3,v.y,v.z+this.vz*0.3); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
+      if(this._bombMode==='melee'){ this._launchThrownMelee(sp.x,sp.y,sp.z,v.x+this.vx*0.3,v.y,v.z+this.vz*0.3, power===undefined); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
       if(this._bombMode==='item'){ const pl=this._carryPayload||{kind:'item',type:'nuke'}; if(!window._itemShots)window._itemShots=[]; window._itemShots.push({x:sp.x,y:sp.y,z:sp.z,vx:v.x,vz:v.z,vy:v.y,type:pl.type,kind:pl.kind}); this._carryPayload=null; this._disarmBomb(); if(typeof announce==='function')announce(pl.kind==='crate'?'CRATE THROWN':((pl.type||'').toUpperCase()+' THROWN'),'#ffd84a'); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'sine',0.2,160); return; }
       const _ally=(this._bombMode==='ally'); const _crate=(this._bombMode==='crate');
       let _sp='crawler'; if(_ally){ let ow=_ownedSpecies(); if(ow.length) _sp=ow[Math.min(this._allySel||0,ow.length-1)]; }
@@ -10611,8 +10611,9 @@ class Player{
       return;
     }
     const isDrop=(dirX===0&&dirZ===0);
-    // LOCK-ON: if the aim ring settled on a target, throw to land right ON it (near or far) — bombs / items / crates / allies
-    let _lock=(!isDrop && this._throwLock && this._throwLock.alive!==false)?this._throwLock:null;
+    const _isFlick=(power!==undefined);   // a flick supplies power; a press-and-hold release does not
+    // LOCK-ON: ONLY on a press-and-hold aim release (the ground ring showed the target). A FLICK throws exactly where you flicked.
+    let _lock=(!isDrop && !_isFlick && this._throwLock && this._throwLock.alive!==false)?this._throwLock:null;
     let _lockDist=0;
     if(_lock){ const lx=(_lock.wx!=null?_lock.wx:_lock.x), lz=(_lock.wz!=null?_lock.wz:_lock.z); if(lx!=null){ const ddx=lx-this.wx, ddz=lz-this.wz, dd=Math.hypot(ddx,ddz); if(dd>4){ dirX=ddx/dd; dirZ=ddz/dd; _lockDist=dd; } else _lock=null; } else _lock=null; }
     // If power supplied (flick), convert to crossDist equivalent
@@ -10644,7 +10645,7 @@ class Player{
     const spawnX=this._bombHandPos?this._bombHandPos.x:this.wx+(isDrop?0:dirX*14);
     const spawnZ=this._bombHandPos?this._bombHandPos.z:this.wz+(isDrop?0:dirZ*14);
     const spawnY=this._bombHandPos?this._bombHandPos.y:launchY;
-    if(this._bombMode==='melee'){ this._launchThrownMelee(spawnX,spawnY,spawnZ,vx,launchVY,vz); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
+    if(this._bombMode==='melee'){ this._launchThrownMelee(spawnX,spawnY,spawnZ,vx,launchVY,vz, power===undefined); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
     if(this._bombMode==='item'){ const pl=this._carryPayload||{kind:'item',type:'nuke'}; if(!window._itemShots)window._itemShots=[]; window._itemShots.push({x:spawnX,y:spawnY,z:spawnZ,vx:vx,vz:vz,vy:launchVY,type:pl.type,kind:pl.kind}); this._carryPayload=null; this._disarmBomb(); if(typeof announce==='function')announce(pl.kind==='crate'?(isDrop?'CRATE DROPPED':'CRATE THROWN'):((pl.type||'').toUpperCase()+(isDrop?' DROPPED':' THROWN')),'#ffd84a'); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'sine',0.2,160); return; }
     const _ally=(this._bombMode==='ally'); const _crate=(this._bombMode==='crate');
     let _sp='crawler'; if(_ally){ let ow=_ownedSpecies(); if(ow.length) _sp=ow[Math.min(this._allySel||0,ow.length-1)]; }
@@ -19434,7 +19435,7 @@ jL.onTap=()=>{
               const sx=totalDx/totalDist, sy2=totalDy/totalDist;   // direction = net swipe (stable aim); power = peak speed
               const wx=sx*cy+sy2*sy, wz=-sx*sy+sy2*cy;
               const len=Math.hypot(wx,wz)||1;
-              { const _aa=_throwAssistDir(wx,wz); player._throwBomb(_aa.x,_aa.z, Math.max(vel*(window._FLICK_POWER_K||1.6),(window._FLICK_MIN_POWER||1.15))); }   // a genuine FLICK always throws HARD in the swipe dir (assist snaps it onto a nearby target) — never fall back to the barely-extended aimer
+              { player._throwBomb(wx/len,wz/len, Math.max(vel*(window._FLICK_POWER_K||1.6),(window._FLICK_MIN_POWER||1.15))); }   // FLICK throws HARD EXACTLY in the swipe direction — NO aim-assist snapping (the target lock-on is reserved for press-and-hold aim + the ground ring)
               threw=true;
             }
           }
