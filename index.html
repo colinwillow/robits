@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB132</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB133</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -8769,9 +8769,12 @@ class PlasmaLightning{
     this.group.visible=true;
     let ox=pl.wx, oy=9+pl.py, oz=pl.wz;
     const bones=pl.model&&pl.model.userData&&pl.model.userData.bones;
-    const _useL=pl._hammer?true:((Math.floor(this.t/0.2)%2)===1);   // melee equipped -> fire from the LEFT hand only
-    const hb=bones&&(_useL?(bones['mixamorig_LeftHand']||bones['mixamorig_RightHand']):(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']));
-    if(hb){ const hp=new THREE.Vector3(); hb.getWorldPosition(hp); ox=hp.x; oy=hp.y; oz=hp.z; }
+    const _useL=pl._hammer?true:((Math.floor(this.t/0.2)%2)===1);   // melee equipped -> fire from the LEFT hand / shoulder cannon
+    // Fire from the plasma cannon's BARREL TIP (or the shoulder cannon when a melee weapon is out), exactly like the other guns.
+    // It was spawning from the hand BONE — so the lightning came out of his wrist, well behind/below the cannon muzzle.
+    let _gotMz=false;
+    if(typeof _stanceMuzzle==='function'){ const _mz=new THREE.Vector3(); if(_stanceMuzzle(pl, _useL?1:0, _mz)){ ox=_mz.x; oy=_mz.y; oz=_mz.z; _gotMz=true; } }
+    if(!_gotMz){ const hb=bones&&(_useL?(bones['mixamorig_LeftHand']||bones['mixamorig_RightHand']):(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand'])); if(hb){ const hp=new THREE.Vector3(); hb.getWorldPosition(hp); ox=hp.x; oy=hp.y; oz=hp.z; } }
     const a=pl.aim; let dx=Math.cos(a),dy=0,dz=Math.sin(a);
     if(pl._aim3DActive&&pl._aim3D){ dx=pl._aim3D.x; dy=pl._aim3D.y; dz=pl._aim3D.z; }
     else if(pl._inPlanetGravity&&typeof _gN!=='undefined'){ const f=new THREE.Vector3(Math.cos(a),0,Math.sin(a)); f.addScaledVector(_gN,-f.dot(_gN)); if(f.lengthSq()>1e-4){ f.normalize(); dx=f.x;dy=f.y;dz=f.z; } }
@@ -10674,7 +10677,7 @@ class Player{
     this._aimerX=undefined; this._aimerZ=undefined;
   }
 
-  _throwBomb(dirX,dirZ,power){
+  _throwBomb(dirX,dirZ,power,hard){
     if(!this.bombArmed)return;
     this._throwAnimPending=true;   // play the throw_bomb clip (covers bombs, items, allies, crates — all route through here)
     if(this._inPlanetGravity && this._bombLaunchVel){          // ON A BUILDING: launch in the surface frame (down-stick = down the wall), not world axes
@@ -10704,7 +10707,8 @@ class Player{
     let crossDist;
     if(_lock){ crossDist=_lockDist; }
     else if(power!==undefined){
-      crossDist=clamp(power*(window._THROW_DIST_K||150), 60, (window._THROW_MAX_DIST||300));   // capped tighter — flick throws no longer hook them across the whole arena
+      const _maxD=hard?(window._THROW_HARD_MAX_DIST||560):(window._THROW_MAX_DIST||300);   // HARD (gamepad momentum tap-throw) can hurl much farther; the mobile flick stays tight
+      crossDist=clamp(power*(window._THROW_DIST_K||150), 60, _maxD);
     } else {
       crossDist=Math.hypot(
         (this._aimerX||this.wx)-this.wx,
@@ -10719,7 +10723,7 @@ class Player{
       const a2=0.5*GRAV, b2=-launchVY, c2=-(launchY-9);
       const disc=b2*b2-4*a2*c2;
       const totalTime=disc>=0?(-b2+Math.sqrt(disc))/(2*a2):1.2;
-      spd=clamp(crossDist/totalTime, 60, (window._THROW_MAX_SPD||440));
+      spd=clamp(crossDist/totalTime, 60, hard?(window._THROW_HARD_MAX_SPD||780):(window._THROW_MAX_SPD||440));   // HARD throw gets a higher speed ceiling so a full-momentum fastball actually rips
     }
     const vx=dirX*spd;
     const vz=dirZ*spd;
@@ -19300,7 +19304,7 @@ function pollGamepad(){
       if(!_bNow && player._bPrev){
         if(player.bombArmed && !player._bJustGrabbed){
           if(player._bAiming){ const _ax=(player._aimerX||player.wx)-player.wx, _az=(player._aimerZ||player.wz)-player.wz, _al=Math.hypot(_ax,_az); if(_al>15) player._throwBomb(_ax/_al,_az/_al); else player._throwBomb(0,0); }   // HOLD-release: throw at the aimer (drops if no aim)
-          else { const _vsp=Math.hypot(player.vx||0,player.vz||0), _vd=_vsp>(window._PAD_TAP_VMIN||12)?[player.vx/_vsp,player.vz/_vsp]:[Math.cos(player.aim||0),Math.sin(player.aim||0)]; const _pw=Math.max((window._PAD_TAP_MINPOW||0.95),Math.min(window._PAD_TAP_MAXPOW||2.6, _vsp/(window._PAD_TAP_VREF||150)*1.9+0.6)); player._throwBomb(_vd[0],_vd[1],_pw); }   // TAP: hurl along your movement, harder the faster you go
+          else { const _vsp=Math.hypot(player.vx||0,player.vz||0), _vd=_vsp>(window._PAD_TAP_VMIN||12)?[player.vx/_vsp,player.vz/_vsp]:[Math.cos(player.aim||0),Math.sin(player.aim||0)]; const _pw=Math.max((window._PAD_TAP_MINPOW||0.9),Math.min(window._PAD_TAP_MAXPOW||3.6, _vsp/(window._PAD_TAP_VREF||140)*2.6+0.55)); player._throwBomb(_vd[0],_vd[1],_pw,true); }   // TAP: hurl along your LOCOMOTION — the faster you're moving, the farther+harder it flies (momentum fastball, uncapped via hard=true)
         }
         player._bAiming=false; player._bJustGrabbed=false;
       }
