@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB101</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB102</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14045,18 +14045,30 @@ function _updatePU(dt){
           else { const cap=(window._BARREL_PUSH_MAX||95), sp=Math.hypot(p.vx,p.vz); if(sp>cap){ p.vx=p.vx/sp*cap; p.vz=p.vz/sp*cap; } }   // a gentle shove is capped BELOW the tip threshold so it just slides
           player.wx-=nx*ov*0.4; player.wz-=nz*ov*0.4; if(player.vx!==undefined){ player.vx*=0.78; player.vz*=0.78; } } }
       const sp0=Math.hypot(p.vx||0,p.vz||0);
-      if(sp0>0.01){ p.x+=(p.vx||0)*dt; p.z+=(p.vz||0)*dt; const fr=Math.pow((p._lying?(window._BARREL_ROLL_DRAG||0.32):(window._BARREL_PUSH_DRAG||0.02)),dt); p.vx*=fr; p.vz*=fr; if(Math.hypot(p.vx,p.vz)<(window._BARREL_PUSH_STOP||6)){ p.vx=0; p.vz=0; } p.wx=p.x; p.wz=p.z;
-        if(!p._lying && sp0>(window._BARREL_TIP_SPD||120)){ p._lying=true; p.settled=true; if(typeof ps!=='undefined')ps.spark(p.x,p.z,[1,0.6,0.2],gy); if(typeof Audio!=='undefined'){try{Audio.blip(90,0.12,'sine',0.18,60);}catch(_){}} }   // ram hard enough -> TIPS onto its side
+      if(sp0>0.01 || (p._tipT||0)>0){ p.x+=(p.vx||0)*dt; p.z+=(p.vz||0)*dt; const fr=Math.pow((p._lying?(window._BARREL_ROLL_DRAG||0.32):(window._BARREL_PUSH_DRAG||0.02)),dt); p.vx*=fr; p.vz*=fr; if(Math.hypot(p.vx,p.vz)<(window._BARREL_PUSH_STOP||6)){ p.vx=0; p.vz=0; } p.wx=p.x; p.wz=p.z;
+        if(!p._lying && sp0>(window._BARREL_TIP_SPD||120)){ p._lying=true; p.settled=true; const _ts=Math.hypot(p.vx,p.vz)||1; p._tipAxis=[p.vz/_ts,-p.vx/_ts]; p._tipT=(window._BARREL_TIP_DUR||0.24); p._rollAng=0; if(typeof ps!=='undefined')ps.spark(p.x,p.z,[1,0.6,0.2],gy); if(typeof Audio!=='undefined'){try{Audio.blip(90,0.12,'sine',0.18,60);}catch(_){}} }   // ram hard enough -> TIP onto its side (ANIMATED below, not an instant snap)
         const sp=Math.hypot(p.vx,p.vz);
-        // REAL barrel physics: UPRIGHT barrel just SLIDES on its flat base (no spin, like the cube crate). Only once it's
-        // LYING on its round side does it ROLL — spinning about the horizontal axis perpendicular to travel, laid flat.
-        if(p._lying && sp>4 && p.cube && typeof THREE!=='undefined'){
-          const axis=new THREE.Vector3(p.vz/sp,0,-p.vx/sp);   // horizontal roll axis = up × velocity (perpendicular to travel); this sign rolls it the way it's actually moving
-          p._rollAng=(p._rollAng||0)+(sp/(BSZ||9))*dt;         // angular speed = v / r
-          const qLay=new THREE.Quaternion().setFromUnitVectors((window._V_UP||(window._V_UP=new THREE.Vector3(0,1,0))),axis);   // lay the cylinder (local +Y) flat onto the roll axis
-          p.cube.quaternion.setFromAxisAngle(axis,p._rollAng).multiply(qLay);   // roll about the axis, applied after laying it flat
+        const _REST=(window._BARREL_REST_Y!=null?window._BARREL_REST_Y:7);
+        let _gyE=gy;   // effective render height — eased through the tip so it doesn't pop up as it goes onto its side
+        // REAL barrel physics: UPRIGHT barrel just SLIDES on its flat base (no spin, like the cube crate). When knocked over it
+        // TIPS over smoothly onto its round side, THEN ROLLS — spinning about the horizontal axis perpendicular to travel.
+        if(p.cube && typeof THREE!=='undefined'){
+          const _UP=(window._V_UP||(window._V_UP=new THREE.Vector3(0,1,0)));
+          if(p._lying && (p._tipT||0)>0){
+            // TIP-OVER: ease from standing upright to lying flat about the tip axis (no rolling yet) + ease the height up
+            p._tipT=Math.max(0,p._tipT-dt); const _k=1-(p._tipT/(window._BARREL_TIP_DUR||0.24)), _ke=_k*_k*(3-2*_k);   // smoothstep 0..1
+            const _ax=p._tipAxis||[0,1], axis=new THREE.Vector3(_ax[0],0,_ax[1]);
+            const qLay=new THREE.Quaternion().setFromUnitVectors(_UP,axis);
+            p.cube.quaternion.identity().slerp(qLay,_ke);
+            _gyE=_REST+(BSZ-_REST)*_ke;
+          } else if(p._lying && sp>4){
+            const axis=new THREE.Vector3(p.vz/sp,0,-p.vx/sp);   // horizontal roll axis = up × velocity (perpendicular to travel); this sign rolls it the way it's actually moving
+            p._rollAng=(p._rollAng||0)+(sp/(BSZ||9))*dt;         // angular speed = v / r
+            const qLay=new THREE.Quaternion().setFromUnitVectors(_UP,axis);   // lay the cylinder (local +Y) flat onto the roll axis
+            p.cube.quaternion.setFromAxisAngle(axis,p._rollAng).multiply(qLay);   // roll about the axis, applied after laying it flat
+          }
         }
-        p.y=gy; if(p.grp)p.grp.position.set(p.x,gy,p.z); p._pushMoving=true;
+        p.y=_gyE; if(p.grp)p.grp.position.set(p.x,_gyE,p.z); p._pushMoving=true;
       } else p._pushMoving=false;
     }
     if(GS.zone===-19){ const C=(window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{hx:560,hz:560,cham:130})); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9), mx=C.hx-ch-12, mz=C.hz-ch-12; if(p.x>mx){p.x=mx;if(p.vx>0)p.vx*=-0.3;} else if(p.x<-mx){p.x=-mx;if(p.vx<0)p.vx*=-0.3;} if(p.z>mz){p.z=mz;if(p.vz>0)p.vz*=-0.3;} else if(p.z<-mz){p.z=-mz;if(p.vz<0)p.vz*=-0.3;} }   // keep loot on the FLAT floor (inside the chamfer corners) so it can't land on the curve and fall through
@@ -19271,6 +19283,7 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
                 const _fcy=Math.cos(CAM.yaw), _fsy=Math.sin(CAM.yaw);
                 const _fwx=svx*_fcy+svy*_fsy, _fwz=-svx*_fsy+svy*_fcy;
                 player._meleeDownFlick=(svy>0 && Math.abs(svy)>=Math.abs(svx));   // downward flick -> air slam
+                player._meleeUpFlick=(svy<0 && Math.abs(svy)>=Math.abs(svx));   // upward flick -> air FLYING KICK
                 _doMeleeFlick(player.model&&player.model.userData, Math.atan2(_fwz,_fwx), undefined);
                 jL._tapMoved=true;
               }
@@ -20155,7 +20168,7 @@ function loop(ts){ requestAnimationFrame(loop);
                   let _mag =mag *(window._MELEE_BOT_MAG_K||0.22)*(0.85+q*0.45);   // ~half the old horizontal launch — they still fly, just not across the whole arena
                   if(_isSmash){ _lift*=(_SM.liftMul||1.2); _mag*=(_SM.magMul||1.2); }
                   _lift=Math.min(_lift,(_SM.liftCap||360));                                      // hard cap (raised so HEAVY weapons like the hammer really send them flying; horizontal distance is toned by _MELEE_BOT_MAG_K instead)
-                  if(player._sliding){ _lift=Math.max(_lift,(window._SLIDE_TRIP_LIFT||210)); _mag=Math.max(_mag,(window._SLIDE_TRIP_MAG||11)); }   // a SLIDE TACKLE always TRIPS them off their feet (guaranteed pop + shove)
+                  if(player._sliding){ _lift=Math.max(_lift,(window._SLIDE_TRIP_LIFT||185)); _mag=Math.min(Math.max(_mag,(window._SLIDE_TRIP_MAG||6.5)),(window._SLIDE_TRIP_MAG_CAP||8)); }   // a SLIDE TACKLE trips them off their feet (guaranteed pop + shove) — horizontal launch toned down + capped so they don't sail across the arena
                   e.knock(dx,dz,_mag,_lift,stn);
                   if(_isSmash){
                     if(typeof announce==='function')announce(q>=0.9?'HOME RUN!':'SMASH!','#ffe23c');
@@ -20523,6 +20536,7 @@ function loop(ts){ requestAnimationFrame(loop);
           const _ax=shootIn.x, _ay=shootIn.y;                                          // screen-relative flick -> which melee (up=-y)
           player._flickAx=_ax; player._flickAy=_ay;   // remembered for the cube AIR-flick = FLIP
           player._meleeDownFlick=(_ay>(window._AIR_SLAM_DOWN||0.4) && Math.abs(_ay)>=Math.abs(_ax));   // down-dominant flick -> air slam (vs up/forward -> air slashes)
+          player._meleeUpFlick=(_ay < -(window._AIR_KICK_UP||0.4) && Math.abs(_ay)>=Math.abs(_ax));   // up-dominant flick -> air FLYING KICK (in the air) / opens the ground combo
           player._flickStartMelee=(Math.abs(_ay)>=Math.abs(_ax))?((_ay<0)?2:3):1;       // flick UP=melee_2, DOWN=melee_3, LEFT/RIGHT=melee_1 — the combo continues forward from there, wrapping (melee_4 kick removed)
         }
       }
@@ -27515,8 +27529,17 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   if(_airMelee){
     // AIR COMBO: a DOWN flick -> dive slam; anything else (tap / up / forward flick) -> the melee_1..3 sequence (hips-up over floating legs)
     const _downSlam=!!player._meleeDownFlick && ud.clips['air_to_ground_melee'];
+    const _flyKick=!!player._meleeUpFlick && ud.clips['slide'];
     if(_downSlam){
       mname='air_to_ground_melee'; player._meleeStep=-1; player._airSlam=true; player._slamImpactDone=false; ud._slamHold=true; if((player.pvy||0)>0)player.pvy*=0.2;   // air slam -> the last frame HOLDS until he lands; commit downward so he dives
+    } else if(_flyKick){
+      // FLYING KICK — up-flick in the air: shoot forward and play the SLIDE (kick) clip full-body, regardless of equipped weapon.
+      // Uses the same _sliding hit window as the ground slide tackle so it connects + launches. Later this becomes weapon-specific.
+      mname='slide'; player._meleeStep=-1; player._meleeCombo=1; player._sliding=true; player._airSlam=false; ud._slamHold=false;
+      const _hsp=Math.hypot(player.vx||0,player.vz||0), _sd=_hsp>1?[player.vx/_hsp,player.vz/_hsp]:[Math.cos(player.aim||0),Math.sin(player.aim||0)];
+      player._dashDir=_sd; player._dashRamp=(window._AIR_KICK_FRAMES||22); player._dashRampMax=player._dashRamp; player._dashPeak=(window._AIR_KICK_SPEED||640); player.aim=Math.atan2(_sd[1],_sd[0]);
+      player._meleeLungeT=(window._AIR_KICK_LUNGE_T||0.24);
+      if((player.pvy||0) < (window._AIR_KICK_LIFT||60)) player.pvy=(window._AIR_KICK_LIFT||60);   // slight lift so he SAILS forward like a flying kick instead of dropping
     } else {
       // AIR COMBO: same melee sequence as the ground (minus the slide), default melee_1 -> melee_2 -> melee_3 (skip the melee_4 kick). Continues within the combo window, restarts at the first when fresh.
       const _aseq=(window._AIR_MELEE_SEQ&&window._AIR_MELEE_SEQ.length)?window._AIR_MELEE_SEQ:[1,2,3];
@@ -27576,7 +27599,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   if(!mc) return;
   const _airSlash=_airMelee && !player._airSlam;   // an air slash (not the slam, not a ground swing)
   const _ws=window._MELEE_STATS&&window._MELEE_STATS[player._meleeType||'sword'];
-  const spd=((typeof window!=='undefined'&&window._MELEE_SPEED!=null?window._MELEE_SPEED:_MELEE_SPEED)||1)*((_ws&&_ws.speed)||1)*(_airSlash?(window._AIR_SLASH_SPD||1.8):1);   // air slashes play faster
+  const spd=((typeof window!=='undefined'&&window._MELEE_SPEED!=null?window._MELEE_SPEED:_MELEE_SPEED)||1)*((_ws&&_ws.speed)||1)*((_airSlash&&mname!=='slide')?(window._AIR_SLASH_SPD||1.8):1);   // air slashes play faster (but the air flying-kick 'slide' plays at normal speed)
   const fullDur=((mc._clip&&mc._clip.duration)||0.6);
   const _tS=(typeof window!=='undefined'&&window._MELEE_TRIM_START!=null)?window._MELEE_TRIM_START:_MELEE_TRIM_START;
   const _tE=(typeof window!=='undefined'&&window._MELEE_TRIM_END!=null)?window._MELEE_TRIM_END:_MELEE_TRIM_END;
@@ -27615,7 +27638,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
 }
 function _doMeleeTap(){
   if(!player||!player.model||!player.model.userData) return;
-  player._meleeDownFlick=false;   // a tap is never a down-slam -> air taps do the sword slashes
+  player._meleeDownFlick=false; player._meleeUpFlick=false;   // a tap is never a down-slam or a flying kick -> air taps do the sword slashes
   if(player._onHoverboard){ _dismountHoverboard(); return; }   // riding: left-stick tap = hop off
   const ud=player.model.userData;
   if(ud._meleeTimer && ud._meleeTimer>0){ player._meleeBuf={tap:true}; return; }   // chain: re-target + re-lunge when the current swing finishes
