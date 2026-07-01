@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB118</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB119</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -19171,9 +19171,10 @@ function _padInteract(){ if(!player||GS.state!=='playing')return;
   if(player.bombArmed){ const a=player.aim||0; player._throwBomb(Math.cos(a),Math.sin(a)); return; }
   if(typeof _grabItem==='function' && _grabItem()) return;
 }
-// X = MELEE. _doMeleeTap auto-targets + cycles the combo, and opens with a kick-SLIDE when you're running (its slide logic
-// lives in _doMeleeFlick). Directional air melees (flying kick / slam) still come from the right-stick flick.
-function _padMelee(){ if(!player||GS.state!=='playing')return; if(typeof _doMeleeTap==='function')_doMeleeTap(); }
+// X = MELEE. Go straight through _doMeleeFlick (the SAME path the mobile right-stick flick uses) so a running press opens
+// with the kick-SLIDE + its forward locomotion — _doMeleeTap's auto-target lunge was overriding the slide's dash so it
+// played the animation in place. null dir = keep the running facing (slide goes where you're moving); standing = combo.
+function _padMelee(){ if(!player||GS.state!=='playing')return; const ud=player.model&&player.model.userData; if(ud&&typeof _doMeleeFlick==='function')_doMeleeFlick(ud, null, undefined); }
 window._padDiagOn = false;  // on-screen gamepad diagnostic hidden by default (press P to toggle when debugging)
 function _padDiag(msg){
   if(!window._padDiagOn){ const ex=document.getElementById('pad-dbg'); if(ex)ex.remove(); return; }
@@ -20743,6 +20744,10 @@ function loop(ts){ requestAnimationFrame(loop);
         // FIRE on right-stick HOLD past the deadzone (mirrors mobile) OR the RT trigger — but NOT during a flick (that's a melee)
         if(!grenadeActive && !flickActive && !_flickGuard && (sm > (window._PAD_FIRE_DEADZONE||window._FIRE_DEADZONE||0.22) || window._padFire)) firing=true;
         if(player&&player._gcur) player._gcur.visible=false;   // stick aiming: hide the mouse ground cursor
+        // STRAFE / always-face-forward: when you're NOT actively aiming (no right stick, no RT), still face CAMERA-FORWARD so
+        // the left stick strafes — run backward toward the camera / sideways while always facing into the screen (3rd-person
+        // shooter feel). Only sets facing, not firing. Toggle off with window._PAD_FACE_FORWARD=false.
+        if(window._PAD_FACE_FORWARD!==false && !aiming && !grenadeActive){ avx=-Math.sin(CAM.yaw); avz=-Math.cos(CAM.yaw); }
       }
       // GAMEPAD FLICK-THROW: while carrying a bomb/item/crate, a fast right-stick SNAP hurls it that direction (mirrors the
       // mobile flick-throw; tapping B also throws). Gamepad-only -> mobile's own flick-throw path is untouched.
