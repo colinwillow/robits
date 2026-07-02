@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB205</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB206</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -967,6 +967,7 @@ window._rippleTestPlane=function(){ try{ if(window._rippleTP&&window._rippleTP.p
   window._attachRipple(m); window._rippleTP=m; if(typeof announce==='function')announce('RIPPLE TEST PLANE — shoot / run to ripple it','#33e0ff');
 }catch(e){ console.warn('ripple test',e); } };
 try{ if(typeof location!=='undefined' && /[?&]ripple/i.test(location.search||'')) window._RIPPLE_TEST=true; }catch(_){}   // add ?ripple to drop the test plane in the cube arena
+try{ if(typeof location!=='undefined' && /[?&]animdbg/i.test(location.search||'')) window._animDbg=true; }catch(_){}   // add ?animdbg=1 for the on-screen animation-clip / slide-lock debug overlay
 
 function initPostProcessing(renderer, scene, camera){
   try{
@@ -21192,6 +21193,22 @@ function loop(ts){ requestAnimationFrame(loop);
         ud.runAction.setEffectiveTimeScale(animSpd);
       }
 
+      // ── ANIM DEBUG (add ?animdbg=1 to the URL) — log clip changes + slide/lock state so the slide->run hitch can be pinned ──
+      if(window._animDbg){
+        const _cc=ud.currentClip||'(null)';
+        const _cur=ud.clips&&ud.clips[ud.currentClip];
+        const _w=(_cur&&_cur.getEffectiveWeight)?_cur.getEffectiveWeight():0;
+        const _ts=(_cur&&_cur.getEffectiveTimeScale)?_cur.getEffectiveTimeScale():0;
+        const _now=(typeof performance!=='undefined'?performance.now():0);
+        if(!window._animLog)window._animLog=[];
+        if(ud._dbgPrevClip!==_cc){ window._animLog.push({t:_now, clip:_cc, spd:Math.round(spd), lock:player._rollAimLock?1:0, sld:player._sliding?1:0, sw:ud._swActive?1:0, mt:+(ud._meleeTimer||0).toFixed(2), dash:player._dashRamp||0}); if(window._animLog.length>10)window._animLog.shift(); ud._dbgPrevClip=_cc; }
+        let _d=document.getElementById('anim-dbg');
+        if(!_d){ _d=document.createElement('div'); _d.id='anim-dbg'; _d.style.cssText='position:fixed;left:6px;top:60px;z-index:99999;font:10px/1.35 monospace;color:#8fffd0;background:rgba(0,0,0,0.72);padding:5px 8px;border-radius:5px;pointer-events:none;white-space:pre;max-width:70vw'; document.body.appendChild(_d); }
+        const _live='NOW  clip='+_cc+' w='+_w.toFixed(2)+' ts='+_ts.toFixed(2)+'\n     spd='+Math.round(spd)+' lock='+(player._rollAimLock?1:0)+' sld='+(player._sliding?1:0)+' sw='+(ud._swActive?1:0)+' mt='+(ud._meleeTimer||0).toFixed(2)+' dash='+(player._dashRamp||0);
+        const _hist=window._animLog.map(e=>{ const _dt=((_now-e.t)/1000); return '-'+_dt.toFixed(2)+'s '+e.clip+' spd'+e.spd+' L'+e.lock+' S'+e.sld+' sw'+e.sw+' mt'+e.mt+' d'+e.dash; }).reverse().join('\n');
+        _d.textContent='ANIM DEBUG (clip changes, newest first)\n'+_live+'\n----\n'+_hist;
+      }
+
       // ── Procedural arm IK — runs AFTER mixer+blend ──
       if(ud2.ikEnabled&&ud2.bones){
         const bones=ud2.bones;
@@ -28656,14 +28673,16 @@ window._ballUpdate=function(dt){
   }
   // rolling
   B.t+=dt;
-  if(window._BALL_SHOOT_EXIT!==false && player._lastFiring && B.t>(window._BALL_FIRE_GRACE||0.18)){ window._ballExit(); return; }   // shooting cancels the ball
+  const _jetHeld=((typeof jR!=='undefined' && jR._holdingForJet) || player._padJetHold);   // right-stick HOLD = jetpack (not a shot)
+  const _jetStk=Math.hypot(shootIn.x||0, shootIn.y||0);
+  const _jetCentered=(window._BALL_JET!==false && _jetHeld && _jetStk<(window._BALL_JET_AIMEXIT||0.55));   // a CENTERED hold is the jet; a hard push is a real aim/shoot
+  if(window._BALL_SHOOT_EXIT!==false && player._lastFiring && B.t>(window._BALL_FIRE_GRACE||0.18) && !_jetCentered){ window._ballExit(); return; }   // shooting cancels the ball — but a centered jet-hold must NOT (its fire-latch would otherwise pop you out and upright-jet)
   if(player.pvy>100 && B.py<=4){ B.vy=Math.max(B.vy,(window._BALL_JUMP_V||480)); player.pvy=0; }                                     // jump while rolling = ball-pop (stays in ball)
   if(B._lerpT>0){ const _lk=Math.min(1, dt/Math.max(0.001,B._lerpT)); B.vx+=((B._tgtVx!=null?B._tgtVx:B.vx)-B.vx)*_lk; B.vz+=((B._tgtVz!=null?B._tgtVz:B.vz)-B.vz)*_lk; B._lerpT-=dt; }   // smooth the redirect
   // ── JETPACK IN BALL MODE ── hold the right stick (jetpack) while balled + airborne. Two modes:
   //   'thrust' (default, the crazy one): fire the jet ON the spinning ball — the thrust vector REVOLVES with the ball's
   //           rotation (B.q), so you corkscrew/spiral through the air. Tune _BALL_JET_SPIN (0=straight up, 1=full tumble).
   //   'eject': the 2nd-jump/hold pops you OUT of the ball into a normal jetpack instead.
-  const _jetHeld=((typeof jR!=='undefined' && jR._holdingForJet) || player._padJetHold);
   if(window._BALL_JET!==false && _jetHeld && !player.bombArmed && !player._wallClimb && !player._wallRun && (player.boostFuel||0)>0 && B.py>(window._BALL_JET_MINY||6)){
     if(window._BALL_JET_MODE==='eject'){
       window._ballExit();                                                                                   // pop out; normal jetpack (line ~20636) takes over since the stick is still held + we're airborne
