@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB155</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB156</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -2668,6 +2668,10 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
     scene._robotAmbient=true;
   }
 
+  // Clear any wire twins from a prior load of this scene so they don't stack on re-processing.
+  { const _old=[]; robotScene.traverse(o=>{ if(o._isWireTwin)_old.push(o); }); _old.forEach(o=>{ if(o.parent)o.parent.remove(o); if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
+  const _robotWires=[];   // glowing quad-wireframe twins for the DEFAULT robot (like the enemy variations / dragon) — collected here, attached after the traverse
+  const _isDefaultRobot = !isInterceptor && !isCyber && !isAlien;
   robotScene.traverse(c=>{
     if(c.isSkinnedMesh||c.isMesh){
       c.frustumCulled=false;
@@ -2709,15 +2713,22 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
         // texture, which flattened him into a uniform matte tint (worse than no glow). Here his real colours + detail stay and the
         // glow rides on top, so only the lit accents pop — like the dummies. Tune: _ROBOT_GLOW (intensity) / _ROBOT_GLOW_COL.
         const mats=Array.isArray(c.material)?c.material:[c.material];
-        const _g=(window._ROBOT_GLOW!=null?window._ROBOT_GLOW:1.6);
+        const _g=(window._ROBOT_GLOW!=null?window._ROBOT_GLOW:2.2);      // brighter accent glow to match the enemy variations (was 1.6 -> read as dim/solid next to them)
         mats.forEach(mt=>{ if(!mt||!('emissive' in mt))return;
           mt.emissive=(window._ROBOT_GLOW_COL!=null)?new THREE.Color(window._ROBOT_GLOW_COL):((mt.color&&(mt.color.r+mt.color.g+mt.color.b)>0.12)?mt.color.clone():new THREE.Color(0x4488ff));   // glow in the part's OWN colour (accent glow), not a flat wash
           mt.emissiveIntensity=_g;                                        // NOTE: base colour + map left alone -> detail survives
           if('toneMapped' in mt) mt.toneMapped=false; mt.needsUpdate=true;
         });
+        // GLOWING QUAD-WIREFRAME twin — the edge structure that "sells" the enemy variations. Shares geometry + skeleton so it deforms with the animation.
+        if(window._ROBOT_WIRE!==false && typeof _quadWireTwin==='function'){
+          try{ const _wc=new THREE.Color(window._ROBOT_WIRE_COL!=null?window._ROBOT_WIRE_COL:0x7fd4ff);
+            const w=_quadWireTwin(c, _wc, (window._ROBOT_WIRE_OP!=null?window._ROBOT_WIRE_OP:0.55)); w._isWireTwin=true; _robotWires.push({src:c, w});
+          }catch(_we){ console.warn('robot quad-wire skipped', _we); }
+        }
       }
     }
   });
+  _robotWires.forEach(({src,w})=>{ if(src.parent) src.parent.add(w); });   // attach the quad-wire twins as siblings of their source meshes (same transform + skeleton context)
 
   const oldUD=player.model.userData;
   robotScene.userData={...oldUD,isRobot:true};
@@ -23142,6 +23153,7 @@ function _ballHitPlayer(b, dt){
 }
 // ── A FAST-MOVING ball LAUNCHES whoever it nails — player, bots, and enemies alike. Makes the ball a live hazard/weapon even outside soccer: whack it (or let the dog/dragon knock it around) and it sends anyone it slams into flying. ──
 function _ballLaunchVictims(b){
+  if(window._BALL_WEAPON===false) return;   // SOCCER mode sets this false -> the ball just bounces off everyone (block goals) instead of launching them. BATTLE mode (default) = ball is a weapon.
   if(!b || b.hitCd>0) return;
   const spd=b.vel.length(), MIN=(window._BALL_HURT_MIN||360);
   if(spd < MIN) return;
