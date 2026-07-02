@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB156</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB157</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -8719,7 +8719,7 @@ class DeployPod{
   constructor(wx,wz,y,vx,vz,fuse,initVY,species,count,color){
     this.wx=wx;this.wz=wz;this.y=y;this.vx=vx;this.vz=vz;this.vy=initVY!==undefined?initVY:60;
     this.species=species||'crawler'; this.timer=fuse||2.0; this.dead=false; this.t=0; this.phase='fly'; this._pt=0;
-    this.count=count||1; this.tint=(color!=null?color:null);   // count = how many allies unfold; tint = team color for them + the pod
+    this.count=count||1; this.tint=(color!=null?color:(window._PLAYER_TEAM_COL!=null?window._PLAYER_TEAM_COL:0x7fd4ff));   // count = how many allies unfold; tint = OWNER colour for them + the pod (defaults to your team colour so thrown minions read as yours)
     const _bc=(color!=null?color:0x3aa0ff);
     const g=new THREE.Group();
     this._ball=new THREE.Mesh(new THREE.SphereGeometry(7,12,10), new THREE.MeshBasicMaterial({color:_bc,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false}));
@@ -9749,25 +9749,35 @@ function _deployAlly(){
   if(player._allySel==null||player._allySel>=owned.length) player._allySel=0;
   const id=owned[player._allySel], rec=Dex.list()[id];
   const ax=player.wx+Math.cos(player.aim)*44, az=player.wz+Math.sin(player.aim)*44;
-  GS.allies.push(new AllyBot(ax,az,id));
+  GS.allies.push(_ownerTint(new AllyBot(ax,az,id)));
   player._allyCool=1.0;
   if(typeof Audio!=='undefined')Audio.blip(523,0.12,'sine',0.2,900);
   if(typeof announce==='function')announce('DEPLOYED '+(rec?rec.name:id),'#44ff99');
 }
 window._deployAlly=_deployAlly;
 // ── SPIDER PACK power-up: throw a small green ball that bursts into a pack of allied spiders (colored to your team), which fight enemies for you ──
-function _tintAlly(bot, hex){ if(!bot)return; const c=new THREE.Color(hex);
-  const tint=(o)=>{ if(!o.material)return; const ms=Array.isArray(o.material)?o.material:[o.material]; for(const m of ms){ if(m.emissive&&m.emissive.isColor){ m.emissive.copy(c); } else if(m.color&&m.color.isColor&&m.isMeshBasicMaterial){ m.color.copy(c); } } };
-  try{ if(bot.mesh)bot.mesh.traverse(tint); if(bot._halo)bot._halo.traverse(tint); }catch(_){}
-}
-window._tintAlly=_tintAlly;
+function _tintAllyApply(root, c){ if(!root||!root.traverse)return 0; let n=0;
+  const tint=(o)=>{ if(!o.material)return; const ms=Array.isArray(o.material)?o.material:[o.material];
+    for(const m of ms){ if(!m)continue; let did=false;
+      if(m.emissive&&m.emissive.isColor){ m.emissive.copy(c); if('emissiveIntensity' in m && m.emissiveIntensity<0.5)m.emissiveIntensity=1.4; did=true; }   // recolour the GLOW to the owner's colour
+      if(m.color&&m.color.isColor && (m.isMeshBasicMaterial||m.isLineBasicMaterial||m.isLineDashedMaterial)){ m.color.copy(c); did=true; }   // wire twins + edge lines + basic glow bits -> owner colour (the "whose is whose" tell)
+      if(did){ m.needsUpdate=true; n++; } } };
+  try{ root.traverse(tint); }catch(_){}
+  return n; }
+function _tintAlly(bot, hex){ if(!bot)return 0; bot._teamCol=hex; const c=new THREE.Color(hex); let n=0;   // creatures load their model async -> the ally update loop RE-APPLIES this each frame (via _teamCol) until it lands
+  try{ if(bot.mesh)n+=_tintAllyApply(bot.mesh,c); if(bot.model&&bot.model!==bot.mesh)n+=_tintAllyApply(bot.model,c); if(bot._model&&bot._model!==bot.mesh)n+=_tintAllyApply(bot._model,c); if(bot._halo)n+=_tintAllyApply(bot._halo,c); }catch(_){}
+  if(n>0)bot._tintDone=true; return n; }
+window._tintAlly=_tintAlly; window._tintAllyApply=_tintAllyApply;
+if(window._PLAYER_TEAM_COL==null) window._PLAYER_TEAM_COL=(window._ROBOT_WIRE_COL!=null?window._ROBOT_WIRE_COL:0x7fd4ff);   // YOUR identity colour — thrown minions come out in this so you know they're yours (matches the robot wireframe)
+function _ownerTint(ally){ if(ally) _tintAlly(ally,(window._PLAYER_TEAM_COL!=null?window._PLAYER_TEAM_COL:0x7fd4ff)); return ally; }
+window._ownerTint=_ownerTint;
 window._throwSpiderPack=function(dirX,dirZ){
   if(typeof player==='undefined'||!player||!player.alive||typeof GS==='undefined'||GS.state!=='playing'||typeof DeployPod==='undefined')return;
   let a=player.aim||0; if(dirX!=null&&dirZ!=null&&(dirX||dirZ)) a=Math.atan2(dirZ,dirX);
   const dx=Math.cos(a), dz=Math.sin(a);
   const spawnX=player.wx+dx*14, spawnZ=player.wz+dz*14, spawnY=(player.py||0)+14;
   const sp=(window._SPIDERPACK_SPD||260), vy=(window._SPIDERPACK_VY||120);
-  const color=(window._SPIDERPACK_COLOR!=null?window._SPIDERPACK_COLOR:0x66ff55), count=(window._SPIDERPACK_COUNT||1);
+  const color=(window._SPIDERPACK_COLOR!=null?window._SPIDERPACK_COLOR:(window._PLAYER_TEAM_COL!=null?window._PLAYER_TEAM_COL:0x7fd4ff)), count=(window._SPIDERPACK_COUNT||1);
   const b=new DeployPod(spawnX, spawnZ, spawnY, dx*sp, dz*sp, 1.8, vy, 'crawler', count, color);
   if(GS.zone===-16 && player._onPlatform) b._noOrbit=true;
   GS.crates.push(b);   // pods/crates update + render from GS.crates
@@ -13815,7 +13825,7 @@ function _detonateItem(type,x,z,od){
     } else if(type==='singularity'){ if(!GS.wells)GS.wells=[]; if(typeof Singularity!=='undefined')GS.wells.push(new Singularity(x,z,!!od)); }
     else if(type==='quake'){ if(!GS.quakes)GS.quakes=[]; if(typeof QuakeStorm!=='undefined')GS.quakes.push(new QuakeStorm(x,z,!!od)); }
     else if(type==='spiders'||type==='spiderpack'){   // bursts into a pack of allied spiders that fight enemies for you
-      const _n=(window._SPIDERPACK_COUNT||1), _tint=(window._SPIDERPACK_COLOR!=null?window._SPIDERPACK_COLOR:0x66ff55);
+      const _n=(window._SPIDERPACK_COUNT||1), _tint=(window._SPIDERPACK_COLOR!=null?window._SPIDERPACK_COLOR:(window._PLAYER_TEAM_COL!=null?window._PLAYER_TEAM_COL:0x7fd4ff));
       for(let i=0;i<_n;i++){ if(!GS.allies||GS.allies.length>=12)break; if(typeof AllyBot==='undefined')break; const _a=(i/Math.max(1,_n))*Math.PI*2, _rr=_n>1?16:0; const _bot=new AllyBot(x+Math.cos(_a)*_rr, z+Math.sin(_a)*_rr, 'crawler'); if(typeof _tintAlly==='function')_tintAlly(_bot,_tint); GS.allies.push(_bot); }
       if(typeof ps!=='undefined'){ ps.ring(x,z,[0.4,1,0.35],18,120); ps.burst(x,z,[0.4,1,0.35],16,140); }
       if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(420,0.12,'square',0.16,720);
@@ -13828,18 +13838,18 @@ function _detonateItem(type,x,z,od){
       if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(360,0.1,'square',0.14,600);
     }
     else if(type==='drone'){   // bursts into a wandering combat drone that follows you + shoots enemies
-      if(typeof DroneBuddy!=='undefined' && GS.allies && GS.allies.length<12){ GS.allies.push(new DroneBuddy(x,z,(window._DRONE_COLOR!=null?window._DRONE_COLOR:0x27c8ff))); }
+      if(typeof DroneBuddy!=='undefined' && GS.allies && GS.allies.length<12){ const _d=new DroneBuddy(x,z,(window._DRONE_COLOR!=null?window._DRONE_COLOR:0x27c8ff)); _ownerTint(_d); GS.allies.push(_d); }
       if(typeof ps!=='undefined'){ ps.ring(x,z,[0.4,0.95,1],18,120); ps.burst(x,z,[0.4,0.95,1],16,140); }
       if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(700,0.12,'sawtooth',0.16,1300);
     }
     else if(type==='droid'||type==='dog'||type==='dragon'){   // SUMMON BALL — unleashes a creature that fights FOR you (Poke-ball style)
       if(GS.allies && GS.allies.length<(window._ALLY_CAP||12)){
         try{
-          if(type==='dragon' && typeof AllyDragon!=='undefined'){ const a=new AllyDragon(x,z); a.addToScene(); if(a.mesh)a.mesh.visible=true; GS.allies.push(a); }   // full boss AI: flies, breathes fire, claws — at enemies
-          else if(type==='dog' && typeof AllyDog!=='undefined'){ const a=new AllyDog(x,z); a.addToScene(); if(a.mesh)a.mesh.visible=true; GS.allies.push(a); }   // full Cerberus AI: chases + maul-bites enemies
-          else if(type==='droid' && typeof AllyDroideka!=='undefined'){ const a=new AllyDroideka(x,z); a.addToScene(); if(a.mesh)a.mesh.visible=true; GS.allies.push(a); }   // the REAL droideka: ball -> tripod -> shoot -> ball
-          else if(typeof AllyBot!=='undefined'){ GS.allies.push(new AllyBot(x,z,'crawler')); }
-        }catch(_){ try{ if(typeof AllyBot!=='undefined') GS.allies.push(new AllyBot(x,z,{droid:'droideka',dog:'three_headed_dog',dragon:'blue_dragon'}[type])); }catch(__){} }
+          if(type==='dragon' && typeof AllyDragon!=='undefined'){ const a=new AllyDragon(x,z); a.addToScene(); if(a.mesh)a.mesh.visible=true; _ownerTint(a); GS.allies.push(a); }   // full boss AI: flies, breathes fire, claws — at enemies
+          else if(type==='dog' && typeof AllyDog!=='undefined'){ const a=new AllyDog(x,z); a.addToScene(); if(a.mesh)a.mesh.visible=true; _ownerTint(a); GS.allies.push(a); }   // full Cerberus AI: chases + maul-bites enemies
+          else if(type==='droid' && typeof AllyDroideka!=='undefined'){ const a=new AllyDroideka(x,z); a.addToScene(); if(a.mesh)a.mesh.visible=true; _ownerTint(a); GS.allies.push(a); }   // the REAL droideka: ball -> tripod -> shoot -> ball
+          else if(typeof AllyBot!=='undefined'){ GS.allies.push(_ownerTint(new AllyBot(x,z,'crawler'))); }
+        }catch(_){ try{ if(typeof AllyBot!=='undefined') GS.allies.push(_ownerTint(new AllyBot(x,z,{droid:'droideka',dog:'three_headed_dog',dragon:'blue_dragon'}[type]))); }catch(__){} }
       }
       const def=_ITEMDEF[type]||_ITEMDEF.drone, c=new THREE.Color(def.col);
       if(typeof ps!=='undefined'){ ps.ring(x,z,[c.r,c.g,c.b],22,150); ps.burst(x,z,[c.r,c.g,c.b],20,170); }
@@ -21414,6 +21424,8 @@ function loop(ts){ requestAnimationFrame(loop);
         if(!GS.crates[i].update(dt)){ GS.crates[i].remove(); GS.crates.splice(i,1); }
       }
       for(let i=GS.allies.length-1;i>=0;i--){
+        const _al=GS.allies[i];
+        if(_al&&_al._teamCol!=null&&!_al._tintDone&&typeof _tintAlly==='function') _tintAlly(_al,_al._teamCol);   // re-apply owner tint until the async-loaded model lands (sets _tintDone once it takes)
         if(!GS.allies[i].update(dt)){ GS.allies[i].remove(); GS.allies.splice(i,1); }
       }
       for(let i=GS.acid.length-1;i>=0;i--){
