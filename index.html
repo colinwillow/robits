@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB212</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB213</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -24173,7 +24173,7 @@ function buildCubeArena(){
     window._cubeSpawnPads=[]; window._cubePlatforms=window._cubePlatforms||[];
     _pos.forEach((p,i)=>{ try{ const col=_cols[i%_cols.length]; const g=_makePowerPad(p.x,p.z,col); g.scale.setScalar(_spSc); g.position.set(p.x,_spY-(window._SPAWN_PLAT_DECK_DROP||8),p.z); if(_cubeGroup)_cubeGroup.add(g); else scene.add(g);
       window._cubePlatforms.push({x:p.x,z:p.z,hw:_hw,hd:_hw,top:_spY});   // standable deck
-      window._cubeSpawnPads.push({x:p.x,z:p.z,y:_spY,col}); }catch(_){} });
+      window._cubeSpawnPads.push({x:p.x,z:p.z,y:_spY,col,g}); }catch(_){} });
   } }catch(e){ console.warn('spawn platforms',e); }
   window._cubeRandomSpawn=function(exclude){ const A=window._cubeSpawnPads; if(!A||!A.length)return null; if(A.length>1&&exclude!=null){ const pool=A.filter((p,i)=>i!==exclude); return pool.length?pool[(Math.random()*pool.length)|0]:A[(Math.random()*A.length)|0]; } return A[(Math.random()*A.length)|0]; };
   try{ if(window._RIPPLE_TEST && typeof window._rippleTestPlane==='function') setTimeout(()=>window._rippleTestPlane(),300); }catch(_){}   // ?ripple -> drop the field-ripple test plane so it can be tried in the cube
@@ -24361,6 +24361,45 @@ function _ensureColliderMenu(){
   document.body.appendChild(btn); document.body.appendChild(pop);
 }
 function _showColliderMenu(show){ _ensureColliderMenu(); const b=document.getElementById('dbg-col-btn'); if(b)b.style.display=show?'block':'none'; if(!show){ const p=document.getElementById('dbg-col-pop'); if(p)p.style.display='none'; } }
+// ── GENERAL SEE-THROUGH OCCLUSION — any registered prop between the camera and the player fades out (like the walls/towers
+//    already do). Used for the power pads, spawn/starting pads, centre medallion, weapon pads and the barrel PEZ dispensers
+//    so they can't hide the character. Lazily caches each object's materials; restores them cleanly when unoccluded.
+const _occTmp={a:null,b:null};
+function _occCollect(obj){
+  if(obj.userData._occMats) return;
+  const mats=[]; obj.traverse(o=>{ if(o.material){ const ms=Array.isArray(o.material)?o.material:[o.material]; for(const m of ms){ if(m) mats.push({m,o0:(m.opacity!=null?m.opacity:1),t0:!!m.transparent,dw0:(m.depthWrite!==false)}); } } });
+  let r=48; try{ const box=new THREE.Box3().setFromObject(obj); const sph=new THREE.Sphere(); box.getBoundingSphere(sph); r=(sph.radius||48); }catch(_){}
+  obj.userData._occMats=mats; obj.userData._occR=r*(window._OCC_R_MUL||0.7); obj.userData._occGhost=0;
+}
+function _occList(){
+  const out=[];
+  if(window._cubePowerPads)for(const g of window._cubePowerPads)if(g)out.push(g);
+  if(window._cubeCenterPad)out.push(window._cubeCenterPad);
+  if(window._cubeSpawnPads)for(const p of window._cubeSpawnPads)if(p&&p.g)out.push(p.g);
+  if(window._barrelDispensers)for(const d of window._barrelDispensers)if(d&&d.g)out.push(d.g);
+  if(window._weaponPads)for(const w of window._weaponPads){ const g=w&&(w.grp||w.g||w.group); if(g)out.push(g); }
+  return out;
+}
+function _updateOccluders(dt){
+  if(window._OCC_FADE===false || !player || typeof camera==='undefined') return;
+  const L=_occList(); if(!L.length) return;
+  if(!_occTmp.a)_occTmp.a=new THREE.Vector3(); if(!_occTmp.b)_occTmp.b=new THREE.Vector3();
+  const camP=camera.position, seg=_occTmp.a.set(player.wx,(player.py||0)+16,player.wz).sub(camP);
+  const segLen=seg.length()||1; seg.multiplyScalar(1/segLen);
+  const fade=(window._OCC_FADE_AMT!=null?window._OCC_FADE_AMT:0.9), minOp=(window._OCC_MIN_OP!=null?window._OCC_MIN_OP:0.1), wp=_occTmp.b;
+  for(const obj of L){
+    if(!obj||!obj.parent) continue;
+    _occCollect(obj); obj.getWorldPosition(wp);
+    const dvx=wp.x-camP.x, dvy=wp.y-camP.y, dvz=wp.z-camP.z, t=dvx*seg.x+dvy*seg.y+dvz*seg.z;
+    let occ=false;
+    if(t>16 && t<segLen-24){ const px=dvx-seg.x*t, py=dvy-seg.y*t, pz=dvz-seg.z*t; if(Math.hypot(px,py,pz) < (obj.userData._occR||48)) occ=true; }
+    const g0=obj.userData._occGhost||0, g=g0+((occ?1:0)-g0)*Math.min(1,dt*(window._OCC_EASE||12)); obj.userData._occGhost=g;
+    const mats=obj.userData._occMats; if(!mats) continue;
+    if(g<0.004){ if(obj.userData._occDirty){ for(const e of mats){ e.m.opacity=e.o0; e.m.transparent=e.t0; e.m.depthWrite=e.dw0; } obj.userData._occDirty=false; } continue; }
+    obj.userData._occDirty=true;
+    for(const e of mats){ if(!e.m.transparent)e.m.transparent=true; e.m.opacity=Math.max(minOp, e.o0*(1-g*fade)); e.m.depthWrite=(g<0.5)?e.dw0:false; }
+  }
+}
 function updateCubeArena(dt){
   if(GS.zone!==-19 || !player) return;
   _showColliderMenu(true);
@@ -24373,6 +24412,7 @@ function updateCubeArena(dt){
       if(ud._btnMat){ ud._btnMat.emissiveIntensity=1.5+ud._flashT*3 + 0.3*Math.sin(_pt*4); if(ud._btnRing&&ud._btnRing.material)ud._btnRing.material.opacity=0.55+0.35*Math.sin(_pt*4)+ud._flashT*0.4; }
       if(D.btn){ D._btnCD=Math.max(0,(D._btnCD||0)-dt); if(D._btnCD<=0 && typeof _dispBtnHit==='function' && _dispBtnHit(D.btn)){ D._btnCD=(window._DISP_BTN_CD||0.4); if(typeof _dropBarrelFrom==='function')_dropBarrelFrom(D); } } }
   }
+  if(typeof _updateOccluders==='function') _updateOccluders(dt);   // AFTER the pad/dispenser anim step so the fade has the last word on their opacities -> props between the camera and you go see-through
   if(typeof _powerPadTick==='function') _powerPadTick(dt);   // spiral tractor-lift + standable pads (runs after player.update, so it owns the transform)
   if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
   if(player._cwSetGrav){ player._inPlanetGravity=false; player._glGrounded=false; player._cwAir=0; player._cwSetGrav=false; }   // left wall-walk -> restore normal gravity/anim
