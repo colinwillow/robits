@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB178</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB179</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14321,6 +14321,20 @@ function _makeItemLabel(type, col){
     const lab=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,depthTest:false})); const w=(window._ITEM_LABEL_W||30); lab.scale.set(w, w*88/512, 1); lab.renderOrder=30; return lab;
   }catch(_){ return null; }
 }
+// item name bent in an arc on the GROUND ring — same bold curved style the weapon/hand-cannon pads use (way more readable + cohesive than the old tiny floating billboard).
+function _makeItemGroundLabel(type, col){
+  const txt=_ITEM_LABELS[type]||((type||'').toUpperCase()); if(!txt) return null;
+  try{
+    const cv=document.createElement('canvas'); cv.width=256; cv.height=256; const ctx=cv.getContext('2d');
+    const hex='#'+((((col||0xffffff)>>>0)&0xffffff)).toString(16).padStart(6,'0');
+    if(typeof _curvedText==='function') _curvedText(ctx,txt,128,128,98,hex);
+    else { ctx.font='800 30px Orbitron,system-ui,Arial,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle=hex; ctx.fillText(txt,128,40); }
+    const tex=new THREE.CanvasTexture(cv); tex.minFilter=THREE.LinearFilter; if(THREE.SRGBColorSpace)tex.colorSpace=THREE.SRGBColorSpace;
+    const mat=new THREE.MeshBasicMaterial({map:tex,transparent:true,opacity:0.95,depthWrite:false,depthTest:true,side:THREE.DoubleSide,toneMapped:false});
+    const mesh=new THREE.Mesh(new THREE.PlaneGeometry((window._ITEM_LABEL_D||50),(window._ITEM_LABEL_D||50)),mat); mesh.rotation.x=-Math.PI/2; mesh.renderOrder=20; mesh._tex=tex; mesh._mat=mat;
+    return mesh;
+  }catch(_){ return null; }
+}
 // Keep at most _PU_CAP temp pickups on the map (perf): if a fresh spawn would exceed it, poof the one with the least life left.
 function _capItemPU(){ const A=window._itemPU; if(!A) return; const cap=(window._PU_CAP||10);
   let temps=A.filter(p=>p&&p._ttl!=null&&!p._loot&&!p._cooking&&!p._mirror);
@@ -14351,7 +14365,7 @@ function _spawnPU(x,y,z,type,vx,vy,vz,opts){
   const g=new THREE.Group();
   const cube=_makePUModel(type); cube.scale.setScalar(type==='barrel'?(window._BARREL_PU_SCALE||1.3):(window._PU_SCALE||1.4)); if(type==='barrel'&&window._BARREL_LIFT)cube.position.y=window._BARREL_LIFT; g.add(cube);
   const ring=new THREE.Mesh(new THREE.RingGeometry(18,22,40), new THREE.MeshBasicMaterial({color:def.glow,transparent:true,opacity:0.0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=-6.5; g.add(ring);
-  if(window._ITEM_LABELS_ON!==false){ const lab=_makeItemLabel(type, def.glow); if(lab){ lab.position.set(0,(window._ITEM_LABEL_Y!=null?window._ITEM_LABEL_Y:-2.5),0); g.add(lab); } }   // little name tag on the ring
+  if(window._ITEM_LABELS_ON!==false){ const lab=_makeItemGroundLabel(type, def.glow); if(lab){ lab.position.set(0,(window._ITEM_LABEL_Y!=null?window._ITEM_LABEL_Y:-6),0); g.add(lab); } }   // name arced on the ground ring (matches the weapon pads)
   g.position.set(x,y,z); scene.add(g);
   const _it=_mpTagSpawn({grp:g,cube,ring,x,y,z,vx,vy,vz,type,settled:false,t:Math.random()*6},opts); _it._fn='pu';
   window._itemPU.push(_it); return _it;
@@ -14365,7 +14379,7 @@ function _spawnRestedBarrel(x,y,z,opts){
   const cube=_makePUModel('barrel'); cube.scale.setScalar(window._BARREL_PU_SCALE||1.3); cube.rotation.z=Math.PI/2;   // tip it onto its side
   g.add(cube);
   const ring=new THREE.Mesh(new THREE.RingGeometry(18,22,40), new THREE.MeshBasicMaterial({color:def.glow,transparent:true,opacity:0.0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=-(BSZ-2); g.add(ring);
-  if(window._ITEM_LABELS_ON!==false){ const lab=_makeItemLabel('barrel', def.glow); if(lab){ lab.position.set(0,(window._ITEM_LABEL_Y!=null?window._ITEM_LABEL_Y:-2.5),0); g.add(lab); } }
+  if(window._ITEM_LABELS_ON!==false){ const lab=_makeItemGroundLabel('barrel', def.glow); if(lab){ lab.position.set(0,(window._ITEM_LABEL_Y!=null?window._ITEM_LABEL_Y:-6),0); g.add(lab); } }
   const yy=(y!=null?Math.min(y,BSZ+2):BSZ);
   g.position.set(x,yy,z); scene.add(g);
   const _it=_mpTagSpawn({grp:g,cube,ring,x,y:yy,z,vx:0,vy:0,vz:0,type:'barrel',settled:true,_lying:true,t:Math.random()*6},opts); _it._fn='rested';
@@ -21547,7 +21561,10 @@ function loop(ts){ requestAnimationFrame(loop);
         // OWNER RING — a flat glowing ring in the owner's colour, attached under the model (follows it + cleans up with it). Re-attaches if the model async-swaps (new root, ._ownRing undefined).
         if(window._ALLY_RING!==false && _al && _al._teamCol!=null){ const _root=_al.model||_al.mesh;
           if(_root && _root._ownRing===undefined){ try{ const rr=(_al.size||16)*(window._ALLY_RING_K||1.25); const g=new THREE.RingGeometry(rr*0.82,rr*1.08,30); const m=new THREE.MeshBasicMaterial({color:_al._teamCol,transparent:true,opacity:(window._ALLY_RING_OP||0.55),blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false}); const ring=new THREE.Mesh(g,m); ring.rotation.x=-Math.PI/2; ring.position.y=(window._ALLY_RING_Y||0.6); ring.renderOrder=2; _root.add(ring); _root._ownRing=ring; }catch(_){ if(_root)_root._ownRing=null; } }
-          if(_root && _root._ownRing){ _root._ownRing.material.opacity=(window._ALLY_RING_OP||0.55)*(0.72+0.28*Math.sin(performance.now()*0.005)); }   // gentle breathe so it reads as a live marker
+          if(_root && _root._ownRing){ const _rg=_root._ownRing; _rg.material.opacity=(window._ALLY_RING_OP||0.55)*(0.72+0.28*Math.sin(performance.now()*0.005));   // gentle breathe so it reads as a live marker
+            // keep the ring FLAT on the ground even when the model rolls (ball droid): counter the parent's world rotation so the ring never spins with the body
+            try{ const _pq=(window._ownRingPQ||(window._ownRingPQ=new THREE.Quaternion())); const _fq=(window._ownRingFQ||(window._ownRingFQ=new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI/2,0,0)))); _root.getWorldQuaternion(_pq); _pq.invert(); _rg.quaternion.copy(_pq).multiply(_fq); }catch(_){}
+          }
         }
         if(!GS.allies[i].update(dt)){ GS.allies[i].remove(); GS.allies.splice(i,1); }
       }
@@ -28546,7 +28563,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
       const _slideCD=(window._SLIDE_CD!=null?window._SLIDE_CD:1500);   // ms between slides — longer so once you slide, follow-up flicks fall through to the melee_1/2/3 combo instead of slide-spamming. A fresh run->flick after the gap opens with a slide again.
       if(_grnd && _hsp>(window._SLIDE_MIN_SPD||90) && (_nw-(player._lastSlideT||0))>_slideCD){
         mname='slide'; player._lastSlideT=_nw;
-        const _sd=_hsp>1?[player.vx/_hsp,player.vz/_hsp]:[Math.cos(player.aim||0),Math.sin(player.aim||0)];
+        const _sd=(typeof dirAngle==='number')?[Math.cos(dirAngle),Math.sin(dirAngle)]:(_hsp>1?[player.vx/_hsp,player.vz/_hsp]:[Math.cos(player.aim||0),Math.sin(player.aim||0)]);   // a FLICKED slide goes where you FLICK (not where you're running); null-dir gamepad X/B keeps the running direction
         player._dashDir=_sd; player._dashRamp=(window._SLIDE_FRAMES||24); player._dashRampMax=player._dashRamp; player._dashPeak=(window._SLIDE_SPEED||600);
         player._meleeStep=-1; player._meleeCombo=1; player._sliding=true; player.aim=Math.atan2(_sd[1],_sd[0]);
       }
