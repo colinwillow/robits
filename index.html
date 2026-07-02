@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB210</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB211</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14690,7 +14690,9 @@ function _grabItem(fromSlide){
 // THROW/SHOT ASSIST — flick roughly toward an opponent and it snaps the throw straight at them (with a little lead). Mobile-friendly; not a guaranteed hit since they can still move.
 function _throwAssistDir(dx,dz){
   if(window._THROW_ASSIST===false || typeof player==='undefined' || !player) return {x:dx,z:dz};
-  const L=(typeof _lockList==='function')?_lockList():[]; if(!L||!L.length) return {x:dx,z:dz};
+  const L=((typeof _lockList==='function')?_lockList():[]).slice();
+  if(window._THROW_ASSIST_BALL!==false && typeof _cubeBall!=='undefined' && _cubeBall && _cubeBall.pos){ L.push({wx:_cubeBall.pos.x, wz:_cubeBall.pos.z, vx:(_cubeBall.vel?_cubeBall.vel.x:0), vz:(_cubeBall.vel?_cubeBall.vel.z:0), _isBall:true}); }   // the RL ball is a throw target too — flick a melee/weapon toward it and the trajectory snaps ON so you can whack it like a character
+  if(!L||!L.length) return {x:dx,z:dz};
   const dl=Math.hypot(dx,dz)||1, fnx=dx/dl, fnz=dz/dl;
   const cone=Math.cos((window._THROW_ASSIST_CONE||42)*Math.PI/180);
   let best=null,bestDot=cone;
@@ -16857,7 +16859,7 @@ function startGame(levelIdx){
     // BOMB button — centered above right stick
     const bombBtn=document.getElementById('btn-bomb-arm');
     if(bombBtn){
-      bombBtn.style.display='flex';
+      bombBtn.style.display='none';   // starts HIDDEN — the per-frame throwable check reveals it only when you hold a bomb pickup or a throwable weapon
       bombBtn.style.width=BTN_SIZE+'px'; bombBtn.style.height=BTN_SIZE+'px';
       // Center of right stick: safe-area-right + 22px margin + 75px (half stick width)
       bombBtn.style.right='calc(max(env(safe-area-inset-right), 22px) + 75px - '+Math.round(BTN_SIZE/2)+'px)';
@@ -21594,7 +21596,13 @@ function loop(ts){ requestAnimationFrame(loop);
         try{ if(_grabItem(true)) player._slideGrabCD=(window._SLIDE_PICKUP_CD||0.6); }catch(_){}   // fromSlide=true -> powerups/weapons get picked up, crates/barrels get BUSTED open
       }
       if(typeof window._barrelTick==='function')window._barrelTick(dt);
-      if(IS_TOUCH&&player){ const _bb=document.getElementById('btn-bomb-arm'); if(_bb){ const _m=!!player._meleeType; if(_bb.classList.contains('melee')!==_m)_bb.classList.toggle('melee',_m); } }   // swap the bomb button icon -> THROW WEAPON whenever a melee weapon is in hand
+      if(IS_TOUCH&&player){ const _bb=document.getElementById('btn-bomb-arm'); if(_bb){   // THROW button is now CONTEXT-SENSITIVE: hidden unless you actually have something to throw (a picked-up bomb, or a weapon in hand). No more ever-present button implying an endless bomb supply — bombs are a physical pickup only.
+        const _gun=(player._hasThrowableGun&&player._hasThrowableGun());
+        const _throwable=(player.bombArmed||(player.bombs||0)>0||!!player._meleeType||!!_gun||!!player._carryPayload);
+        const _show=(window._BOMB_BTN_ALWAYS===true)||_throwable;
+        const _disp=_show?'flex':'none'; if(_bb.style.display!==_disp)_bb.style.display=_disp;
+        const _m=!!player._meleeType||!!_gun; if(_bb.classList.contains('melee')!==_m)_bb.classList.toggle('melee',_m);   // swap icon -> THROW WEAPON when a weapon (melee/gun) is in hand; bomb icon when it's a picked-up bomb
+      } }
       if(GS.zone===-16) updateGrindRail(dt);
       { // ── DROP-THROUGH: HOLD the left stick down (a flick = dash) while on a platform ──
         const downHeld=(moveIn.y>0.55)||((keys['KeyS']||keys['ArrowDown'])&&!(keys['KeyW']||keys['ArrowUp']));
@@ -28701,7 +28709,7 @@ window._ballEnter=function(charge, dx, dz){
   if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(320,0.2,'sawtooth',0.14,1500); Audio.blip(620,0.12,'square',0.08,1900); }
   if(typeof addTrauma==='function')addTrauma(0.05);
 };
-window._ballExit=function(){ const B=window._BALL; const _sp=Math.hypot(B.vx||0,B.vz||0); B.state=null; B.charge=0;
+window._ballExit=function(){ const B=window._BALL; const _sp=Math.hypot(B.vx||0,B.vz||0); B.state=null; B.charge=0; B._enterY=null; B._slowT=0;
   if(typeof player!=='undefined'&&player){ player._ballActive=false; player._rollAimLock=false; if(_sp>1)player.aim=Math.atan2(B.vz,B.vx);   // keep facing the way you were rolling
     if(player.model){ player.model.rotation.x=0; player.model.rotation.z=0; player.model.rotation.y=-(player.aim||0)+Math.PI/2; if(player._flip)player._flip=null; if(player._flipQ&&player._flipQ.identity)player._flipQ.identity(); } }
   _ballPose(false);   // shell is NOT hidden here — _ballFrame folds it back in, then hides when the morph reaches 0
@@ -28712,8 +28720,13 @@ window._ballUpdate=function(dt){
   if((typeof performance!=='undefined'?performance.now():0) >= (player._ballPoseFadeUntil||0)){ const ud=player.model.userData; const a=(ud.clips&&ud.clips['ball'])||ud._ballPh; if(a){ try{ if(!a.isRunning())a.reset().play(); a.setLoop(THREE.LoopRepeat,Infinity); a.clampWhenFinished=false; a.enabled=true; a.setEffectiveWeight(1); }catch(_){} for(const k in ud.clips){ const o=ud.clips[k]; if(o!==a && o.getEffectiveWeight && o.getEffectiveWeight()>0.01){ try{o.setEffectiveWeight(0);}catch(_){} } } ud.currentClip=(ud.clips&&ud.clips['ball']&&a===ud.clips['ball'])?'ball':ud.currentClip; } }   // LOCK the ball pose: force it dominant + zero every other clip each frame, so aiming/shooting (right stick) can't pop the body into a shoot/idle/T-pose. (Skipped during the entry fade-in so the crossfade-in still reads.)
   if(B.state==='charging'){
     B.charge=Math.min(1, B.charge + dt/(window._BALL_CHARGE_T||1.1));
-    const lift=(window._BALL_CHARGE_LIFT||12)*B.charge; B.py=lift;
-    player.wx=B.px; player.wz=B.pz; player.py=lift; player.vx=0; player.vz=0; player.pvy=0;
+    const lift=(window._BALL_CHARGE_LIFT||12)*B.charge;
+    if(B._enterY==null) B._enterY=(B.py!=null?B.py:(player.py||0));
+    // Don't SNAP to the ground when you ball up in the air (jetpack/float) — ease your height down to the charge lift so it
+    // reads as sinking into the ball instead of teleporting. On the ground (_enterY≈lift) this is a no-op.
+    const _py=(window._BALL_CHARGE_EASE!==false) ? lerp((B.py!=null?B.py:lift), lift, Math.min(1,dt*(window._BALL_CHARGE_SETTLE||4))) : lift;
+    B.py=_py;
+    player.wx=B.px; player.wz=B.pz; player.py=_py; player.vx=0; player.vz=0; player.pvy=0;
     const rate=3 + B.charge*(window._BALL_CHARGE_SPIN||30); const aa=player.aim||0; const axis=new THREE.Vector3(Math.sin(aa),0,-Math.cos(aa));
     B.q.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, rate*dt));
     _ballPlaceModel(B); _ballShellTick(B.charge, 0, true);
