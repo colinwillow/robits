@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB164</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB165</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10868,6 +10868,7 @@ class Player{
     this._aimerX=undefined; this._aimerZ=undefined;
   }
 
+  _faceThrow(dx,dz){ if(!dx&&!dz)return; const a=Math.atan2(dz,dx); this.aim=a; this.facing=a; this._throwFaceLockT=(window._THROW_FACE_T||0.32); }   // turn the body to face the throw direction (like a melee flick) so the throw anim + release read correctly
   _throwBomb(dirX,dirZ,power,hard){
     if(!this.bombArmed)return;
     this._throwAnimPending=true;   // play the throw_bomb clip (covers bombs, items, allies, crates — all route through here)
@@ -10906,6 +10907,7 @@ class Player{
         (this._aimerZ||this.wz)-this.wz
       );
     }
+    if(!isDrop) this._faceThrow(dirX,dirZ);   // FACE the throw: he turns his body toward it (fixes the wrong-way throw when running toward camera + flicking away)
     const launchVY=isDrop?-30:clamp(60+crossDist*0.5,60,160);
     const launchY=9+this.py+28;
     const GRAV=320;
@@ -11316,6 +11318,7 @@ class Player{
     this._plasmaWantFire=(this.primaryWeapon==='plasma'&&!!firing); this._plasmaOD=!!od; this._flameWantFire=(this.primaryWeapon==='flamethrower'&&!!firing); this._flameOD=!!od; this._aimMag=Math.hypot(avx||0,avz||0);
     if(this._bombCool>0) this._bombCool=Math.max(0,this._bombCool-dt);
     if(this._crateCool>0) this._crateCool=Math.max(0,this._crateCool-dt);   // bomb reload cooldown
+    if(this._throwFaceLockT>0) this._throwFaceLockT=Math.max(0,this._throwFaceLockT-dt);   // brief window after a throw where the body HOLDS the throw direction (so a flick throw turns him to face it, like melee)
     if(this._allyCool>0) this._allyCool=Math.max(0,this._allyCool-dt);   // ally deploy cooldown
     if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)){ _cubeWalkMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1);
       if(!window._ballCam){ const _am=Math.hypot(avx||0,avz||0); if(_am>(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.06)){ const desired=-this.aim-Math.PI/2; let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI; if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4); } }   // camera eases BEHIND the right-stick aim (follows on ANY aim input now) -> full 360, correct handedness
@@ -11489,7 +11492,7 @@ class Player{
         let diff=behindYaw-CAM.tyaw;
         if(diff>Math.PI) diff-=TAU; if(diff<-Math.PI) diff+=TAU;
         CAM.tyaw+=clamp(diff*0.04,-0.05,0.05);
-        if(!this._wallClimb&&!this._crestSeq&&!this._rollAimLock){
+        if(!this._wallClimb&&!this._crestSeq&&!this._rollAimLock&&!((this._throwFaceLockT||0)>0)){
           const ws=rotInput(moveIn.x,moveIn.y);
           const moveAngle=Math.atan2(ws.z,ws.x);
           let fd=((moveAngle-this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
@@ -11499,7 +11502,7 @@ class Player{
     } else if(window.CTRL_MODE==='hybrid'){
       // HYBRID: camera 100% follows left stick. Right stick ONLY aims/shoots, never camera.
       const mvMag=Math.hypot(moveIn.x,moveIn.y);
-      if(!this._wallClimb&&!this._crestSeq&&!this._rollAimLock){
+      if(!this._wallClimb&&!this._crestSeq&&!this._rollAimLock&&!((this._throwFaceLockT||0)>0)){
         if(mvMag>0.15){
           const ws=rotInput(moveIn.x,moveIn.y);
           const moveAngle=Math.atan2(ws.z,ws.x);
@@ -11516,7 +11519,7 @@ class Player{
       CAM.tyaw+=clamp(diff*0.04,-0.05,0.05);
     } else {
       // STANDARD: camera softly follows aim, right stick fully controls aim+camera
-      if(!this._wallClimb&&!this._crestSeq&&!this._rollAimLock){
+      if(!this._wallClimb&&!this._crestSeq&&!this._rollAimLock&&!((this._throwFaceLockT||0)>0)){
         if(mvMagnitude>0.15){
           const moveAngleWorld=Math.atan2(rawZ,rawX);
           const rightOpposes=al>0.3&&(avx*rawX+avz*rawZ)<-0.1*al*mvMagnitude;
