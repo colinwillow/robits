@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB206</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB207</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -20715,7 +20715,11 @@ function loop(ts){ requestAnimationFrame(loop);
           si={x:kx,y:ky};
         }
         const stickMagForAnim=wallPushing?Math.hypot(si.x,si.y):0;
-        const moving=wallPushing ? stickMagForAnim>0.2 : spd>20;
+        // HYSTERESIS: start running above _MOVE_START, keep running until below _MOVE_STOP — so spd wobbling around the
+        // threshold (e.g. decelerating out of a slide) doesn't flip idle↔run every frame.
+        const _movingNow=(ud.currentClip&&(ud.currentClip.indexOf('run')===0||ud.currentClip.indexOf('strafe')===0));
+        const _moveThresh=_movingNow?(window._MOVE_STOP!=null?window._MOVE_STOP:12):(window._MOVE_START!=null?window._MOVE_START:22);
+        const moving=wallPushing ? stickMagForAnim>0.2 : spd>_moveThresh;
 
         // Wall push: use raw stick input for angleDiff — player velocity is zeroed
         if(wallPushing&&moving){
@@ -21167,7 +21171,15 @@ function loop(ts){ requestAnimationFrame(loop);
 
           if(window._animTest && ud.clips[window._animTest]) targetClip=window._animTest;   // DEBUG anim-test: force-play a clip to verify it loaded
 
-          if(targetClip!==ud.currentClip&&ud.clips[targetClip]){
+          if(ud._locoDwell>0) ud._locoDwell-=dt;
+          // DEBOUNCE loco↔loco flips. Decelerating out of a slide, spd wobbles across the moving threshold and angleDiff
+          // swings across the run/strafe boundary, so the clip thrashed run→strafe→idle→run in <0.2s (each a reset+fadeIn
+          // = the visible "pause then resume"). Hold a locomotion clip briefly before letting it flip to ANOTHER loco clip;
+          // switches to/from non-loco clips (melee/slide/jump/land) stay instant.
+          const _locoFam=(n)=> !!n && (n.indexOf('run')===0 || n.indexOf('strafe')===0 || n.indexOf('idle')===0);
+          const _tgtLoco=_locoFam(targetClip), _curLoco=_locoFam(ud.currentClip);
+          const _debounced=(window._LOCO_DEBOUNCE!==false && _tgtLoco && _curLoco && (ud._locoDwell||0)>0);
+          if(targetClip!==ud.currentClip&&ud.clips[targetClip]&&!_debounced){
             // SLIDE→RUN handoff: after a full-body swing/slide ends while still moving, snap the run/strafe clip in fast (and seed it mid-stride) so it reads as motion instead of a brief "stuck running man" crossfade from the planted slide pose.
             const _isLoco=(targetClip.indexOf('run')===0||targetClip.indexOf('strafe')===0);
             const _snap=(ud._locoResumeSnap>0 && _isLoco)?ud._locoResumeSnap:0;
@@ -21177,6 +21189,7 @@ function loop(ts){ requestAnimationFrame(loop);
             if(!next.isRunning()){ next.reset(); if(_snap>0 && next._clip && next._clip.duration>0) next.time=next._clip.duration*(window._LOCO_RESUME_PHASE!=null?window._LOCO_RESUME_PHASE:0.28); }
             next.setEffectiveWeight(1).setEffectiveTimeScale(1.0).fadeIn(_fadeIn).play();
             ud.currentClip=targetClip;
+            if(_tgtLoco) ud._locoDwell=(window._LOCO_MIN_DWELL!=null?window._LOCO_MIN_DWELL:0.16);   // arm the debounce whenever we enter a locomotion clip
           }
           ud._locoResumeSnap=0;
         }
