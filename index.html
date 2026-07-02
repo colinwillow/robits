@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB158</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB159</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -4030,10 +4030,11 @@ AllyDroideka.prototype.remove=function(){ if(this._grabRing){try{scene.remove(th
 window.AllyDroideka=AllyDroideka;
 // ── A rival bot grabbed a summon ball -> unleash that creature as a HOSTILE enemy (it targets the player like any
 //    enemy, your weapons + your own summoned allies can kill it). Mirrors the player's summon, opposite faction. ──
-function _botSummonCreature(type,x,z){
+function _botSummonCreature(type,x,z,owner){
   if(typeof GS==='undefined'||!GS.enemies) return;
   const CAP=(window._ENEMY_CAP||60); if(GS.enemies.length>=CAP) return;
-  const _push=(e)=>{ try{ if(e){ if(e.addToScene)e.addToScene(); GS.enemies.push(e); } }catch(_){} };
+  const _col=(owner&&owner._color!=null)?owner._color:(window._ENEMY_SUMMON_COL||0xff2a2a);   // OWNER colour: the summoned creature wears the hue of the AI that spawned it, so you can tell whose is whose
+  const _push=(e)=>{ try{ if(e){ if(e.addToScene)e.addToScene(); if(typeof _tintAlly==='function')_tintAlly(e,_col); GS.enemies.push(e); } }catch(_){} };
   try{
     if(type==='dragon' && typeof BlueDragon!=='undefined') _push(new BlueDragon(x,z,2));
     else if(type==='dog' && typeof ThreeHeadedDog!=='undefined') _push(new ThreeHeadedDog(x,z,2));
@@ -13045,7 +13046,7 @@ class BotPilot{
         if(typeof _detonateItem==='function')try{ _detonateItem(type, tx, tz, false); }catch(_){}
         if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL THREW '+(''+type).toUpperCase(),'#ff7a7a');}catch(_){}
       } else if(type==='droid'||type==='dog'||type==='dragon'||type==='spiders'||type==='spiderpack'||type==='drone'){   // SUMMON ball -> the rival UNLEASHES the creature on YOU (spawned as a hostile enemy you can gun down)
-        if(typeof _botSummonCreature==='function') _botSummonCreature(type, this.wx, this.wz);
+        if(typeof _botSummonCreature==='function') _botSummonCreature(type, this.wx, this.wz, this);   // pass the owning bot -> creature wears the bot's colour
         if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL SUMMONED '+(''+type).toUpperCase(),'#ff5555');}catch(_){}
       } else {   // any other utility ball -> the rival just powers up (heal + brief i-frames)
         this.hp=Math.min(this.maxHp,this.hp+(window._BOT_PU_HEAL!=null?window._BOT_PU_HEAL:(window._UNIT_HP||100)*0.35)); if(this._updateHpBar)this._updateHpBar();
@@ -21346,6 +21347,7 @@ function loop(ts){ requestAnimationFrame(loop);
           }
           continue;
         }
+        if(e._teamCol!=null&&!e._tintDone&&typeof _tintAlly==='function') _tintAlly(e,e._teamCol);   // owner tint for bot-summoned creatures — re-applies until the async model lands
         e.update(player,dt);
         // ── Ground enemies can't stand on the void — if they wander over a gap, they fall ──
         if(window._arenaVoid && !e._ro && !e._burn && !e._climbing && !e.isBoss
@@ -23851,13 +23853,16 @@ function _cubeSDF(x,y,z){   // signed distance to the rounded interior shell (ne
   return Math.hypot(Math.max(qx,0),Math.max(qy,0),Math.max(qz,0)) + Math.min(Math.max(qx,Math.max(qy,qz)),0) - r;
 }
 function _cubeGrad(x,y,z,out){ if(!out)out=new THREE.Vector3(); const e=1.5, d=_cubeSDF(x,y,z); out.set(_cubeSDF(x+e,y,z)-d,_cubeSDF(x,y+e,z)-d,_cubeSDF(x,y,z+e)-d); if(out.lengthSq()<1e-9)out.set(0,-1,0); out.normalize(); return out; }   // outward normal (toward the nearest surface); self-allocates out if a caller forgot it
-function _cubeClampXZ(nx,nz,yh,skin){   // HEIGHT-AWARE containment: pull (nx,nz) radially inward until it's inside the rounded shell at height yh. On the FLOOR (yh~0) this stops you at the chamfer/arc base; as you rise (jump/airborne) the shell opens out so you can approach the actual walls -> wall-run can finally engage + you can climb the chamfer. Returns {x,z} or null when already inside.
+function _cubeClampXZ(nx,nz,yh,skin){   // HEIGHT-AWARE containment, computed PER-AXIS from the rounded-box geometry (the old radial version coupled X and Z, so a wide rectangular pitch let you reach the ends but not the sides). On the FLOOR (yh~0) each axis stops at its own chamfer/arc base; as you rise the shell opens out to the walls so you can climb + wall-run.
   skin=(skin!=null?skin:14);
-  if(_cubeSDF(nx,yh,nz) <= -skin) return null;                                   // already inside the skin
-  const r=Math.hypot(nx,nz); if(r<1) return null;
-  let lo=0, hi=r;                                                                // binary-search the radial scale that puts the point on the interior surface (robust regardless of gradient direction — the floor's gradient is vertical, so a straight projection under-corrects)
-  for(let it=0; it<14; it++){ const mid=(lo+hi)*0.5, k=mid/r; if(_cubeSDF(nx*k,yh,nz*k) > -skin) hi=mid; else lo=mid; }
-  const k=lo/r; return {x:nx*k, z:nz*k};
+  const C=window._CUBE||_CUBE, hx=C.hx, hz=C.hz, h=C.h, r=Math.min(C.cham,hx*0.9,hz*0.9,h*0.45);
+  const qy=Math.abs(yh - h*0.5) - (h*0.5 - r);                                   // how far into the top/bottom rounding this height sits (>0 near floor/ceiling)
+  const horiz = qy>0 ? Math.sqrt(Math.max(0, r*r - qy*qy)) : r;                  // horizontal reach of the rounded edge at this height (0 at the very floor -> full r through the mid-band)
+  const mx = Math.max(20,(hx - r) + horiz - skin), mz = Math.max(20,(hz - r) + horiz - skin);   // independent half-extents for X (ends) and Z (sides)
+  let cx=nx, cz=nz, hit=false;
+  if(cx> mx){cx= mx; hit=true;} else if(cx<-mx){cx=-mx; hit=true;}
+  if(cz> mz){cz= mz; hit=true;} else if(cz<-mz){cz=-mz; hit=true;}
+  return hit?{x:cx,z:cz}:null;
 }
 // DISLODGED — a 2nd jump in the air drops you off the surface; you fall under TRUE-world gravity to the floor, upright.
 function _cubeDislodgeFall(P,rawX,rawZ,dt){
