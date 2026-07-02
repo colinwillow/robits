@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB219</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB220</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11640,10 +11640,15 @@ class Player{
         }
         if(al>0.08) this.aim=_easeAng(this.aim,Math.atan2(avz,avx),window._AIM_TURN||0.5);   // eased aim -> body+weapons blend to the new direction instead of snapping
       }
-      if(al>(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.06)){
-        const desired=-this.aim-Math.PI/2;
-        let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-        if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4);   // stay centered behind the right-stick aim: now follows on ANY aim input (was gated at 0.15, lagging small/flick inputs)
+      // CAMERA-FOLLOW GATE: only swivel behind the aim when the stick is pushed PAST a real deadzone and HELD there past a
+      // short grace — so quick aim/shoot/flick taps don't yank the camera around mid-fight. Tune _CAM_AIM_DEAD / _CAM_AIM_GRACE.
+      { const _dead=(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.3);
+        if(al>_dead){ this._camAimT=(this._camAimT||0)+dt; } else { this._camAimT=0; }
+        if(this._camAimT>(window._CAM_AIM_GRACE!=null?window._CAM_AIM_GRACE:0.18)){
+          const desired=-this.aim-Math.PI/2;
+          let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
+          if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4);
+        }
       }
     }
 
@@ -24576,8 +24581,8 @@ const _occTmp={a:null,b:null};
 function _occCollect(obj){
   if(obj.userData._occMats) return;
   const mats=[]; obj.traverse(o=>{ if(o.material){ const ms=Array.isArray(o.material)?o.material:[o.material]; for(const m of ms){ if(m) mats.push({m,o0:(m.opacity!=null?m.opacity:1),t0:!!m.transparent,dw0:(m.depthWrite!==false)}); } } });
-  let r=48; try{ const box=new THREE.Box3().setFromObject(obj); const sph=new THREE.Sphere(); box.getBoundingSphere(sph); r=(sph.radius||48); }catch(_){}
-  obj.userData._occMats=mats; obj.userData._occR=r*(window._OCC_R_MUL||0.7); obj.userData._occGhost=0;
+  let rxz=40, topY=1e6, botY=-1e6; try{ const box=new THREE.Box3().setFromObject(obj); rxz=Math.hypot((box.max.x-box.min.x)*0.5,(box.max.z-box.min.z)*0.5)||40; topY=box.max.y; botY=box.min.y; }catch(_){}
+  obj.userData._occMats=mats; obj.userData._occRxz=rxz*(window._OCC_R_MUL||0.6); obj.userData._occTopY=topY; obj.userData._occBotY=botY; obj.userData._occGhost=0;
 }
 function _occList(){
   const out=[];
@@ -24600,7 +24605,11 @@ function _updateOccluders(dt){
     _occCollect(obj); obj.getWorldPosition(wp);
     const dvx=wp.x-camP.x, dvy=wp.y-camP.y, dvz=wp.z-camP.z, t=dvx*seg.x+dvy*seg.y+dvz*seg.z;
     let occ=false;
-    if(t>16 && t<segLen-24){ const px=dvx-seg.x*t, py=dvy-seg.y*t, pz=dvz-seg.z*t; if(Math.hypot(px,py,pz) < (obj.userData._occR||48)) occ=true; }
+    // Fade only when the camera->player sightline passes horizontally OVER the prop AND vertically THROUGH its body. A short
+    // ground pad the elevated camera looks down past (sightline above the pad top) no longer fades — that was the "pads/ground
+    // change colour for no reason" bug (a bounding SPHERE let wide flat pads count as blockers even when the ray cleared them).
+    if(t>16 && t<segLen-24){ const px=dvx-seg.x*t, pz=dvz-seg.z*t, rayY=camP.y+seg.y*t, m=(window._OCC_TOP_MARGIN!=null?window._OCC_TOP_MARGIN:14);
+      if(Math.hypot(px,pz) < (obj.userData._occRxz||40) && rayY < (obj.userData._occTopY||1e6)+m && rayY > (obj.userData._occBotY||-1e6)-m) occ=true; }
     const g0=obj.userData._occGhost||0, g=g0+((occ?1:0)-g0)*Math.min(1,dt*(window._OCC_EASE||12)); obj.userData._occGhost=g;
     const mats=obj.userData._occMats; if(!mats) continue;
     if(g<0.004){ if(obj.userData._occDirty){ for(const e of mats){ e.m.opacity=e.o0; e.m.transparent=e.t0; e.m.depthWrite=e.dw0; } obj.userData._occDirty=false; } continue; }
