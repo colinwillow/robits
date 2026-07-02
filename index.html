@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB190</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB191</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -28642,20 +28642,23 @@ function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
   // airborne? -> single air_to_ground_melee, leave the ground combo to restart fresh on landing
   let _airMelee=false;
   { const _og=(player.py<=4)||player._onPlatform||(player._inPlanetGravity&&player._glGrounded); _airMelee = player._inPlanetGravity ? !player._glGrounded : (!_og && player.py>8); }
-  const _airSlamNow=_airMelee && !!player._meleeDownFlick && ud.clips['air_to_ground_melee'];   // air DOWN-flick = straight-down dive slam
+  // AIR SLAM is now RELATIVE TO TRAVEL: flick roughly AWAY from the way you're moving (backward) -> dive slam; forward/left/right -> a kick (then the melee combo). Falls back to the literal down-flick flag when you have little air speed (jumped straight up).
+  if(_airMelee && typeof dirAngle==='number' && window._AIR_SLAM_REL!==false){ const _tvx=player.vx||0,_tvz=player.vz||0,_tsp=Math.hypot(_tvx,_tvz);
+    if(_tsp>(window._AIR_TRAVEL_DEAD||70)){ const dot=(Math.cos(dirAngle)*_tvx+Math.sin(dirAngle)*_tvz)/_tsp; player._meleeDownFlick=(dot < (window._AIR_SLAM_DOT!=null?window._AIR_SLAM_DOT:-0.3)); } }   // opposing travel -> slam
+  const _airSlamNow=_airMelee && !!player._meleeDownFlick && ud.clips['air_to_ground_melee'];   // dive slam (flicked away from travel / hard down)
   if(typeof dirAngle==='number' && !_airSlamNow){ let _maa=(typeof _meleeAimAssist==='function')?_meleeAimAssist(player,dirAngle):null; player.aim=_maa?_maa.ang:dirAngle; player._meleeAAtarget=_maa?_maa.e:null; }       // MELEE AIM-ASSIST: a flick generally toward a nearby foe SNAPS the swing's facing onto it (spam melee -> reliably connect, Smash-style). No foe near -> face exactly where you flicked. Air DOWN-SLAM keeps its left-stick facing.
   else if(!_airSlamNow && window._MELEE_AA_TAP!==false){ const _maa=(typeof _meleeAimAssist==='function')?_meleeAimAssist(player, player.aim||0):null; if(_maa){ player.aim=_maa.ang; player._meleeAAtarget=_maa.e; } else player._meleeAAtarget=null; }   // NULL-dir melee (gamepad-X tap spam): snap onto a foe roughly in front (covers bots + the dummy that the tap search missed)
   let mname;
   if(_airMelee){
-    // AIR COMBO: a DOWN flick -> dive slam; anything else (tap / up / forward flick) -> the melee_1..3 sequence (hips-up over floating legs)
+    // AIR: flick AWAY from travel -> dive slam. Otherwise the FIRST air attack is a flying KICK, and continued flicks string into the melee_1..3 sequence (interrupt the kick mid-clip via the slide-cancel above).
     const _downSlam=_airSlamNow;
-    const _flyKick=!!player._meleeUpFlick && ud.clips['slide'];
+    const _flyKick=!_downSlam && ((player._meleeComboT||0)<=0) && ud.clips['slide'];   // fresh air attack = flying kick; mid-combo flicks = the slashes
     if(_downSlam){
       mname='air_to_ground_melee'; player._meleeStep=-1; player._airSlam=true; player._slamImpactDone=false; ud._slamHold=true; if((player.pvy||0)>0)player.pvy*=0.2;   // air slam -> the last frame HOLDS until he lands; commit downward so he dives
     } else if(_flyKick){
       // FLYING KICK — up-flick in the air: shoot forward and play the SLIDE (kick) clip full-body, regardless of equipped weapon.
       // Uses the same _sliding hit window as the ground slide tackle so it connects + launches. Later this becomes weapon-specific.
-      mname='slide'; player._meleeStep=-1; player._meleeCombo=1; player._sliding=true; player._airSlam=false; ud._slamHold=false;
+      mname='slide'; player._meleeStep=-1; player._meleeCombo=1; player._sliding=true; player._airSlam=false; ud._slamHold=false; player._airComboStep=-1;   // -1 so the first slash after the kick is melee_1
       const _hsp=Math.hypot(player.vx||0,player.vz||0), _sd=_hsp>1?[player.vx/_hsp,player.vz/_hsp]:[Math.cos(player.aim||0),Math.sin(player.aim||0)];
       player._dashDir=_sd; player._dashRamp=(window._AIR_KICK_FRAMES||22); player._dashRampMax=player._dashRamp; player._dashPeak=(window._AIR_KICK_SPEED||640); player.aim=Math.atan2(_sd[1],_sd[0]);
       player._meleeLungeT=(window._AIR_KICK_LUNGE_T||0.24);
