@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB141</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB142</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -23535,9 +23535,9 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
   P._cwDashT=0; P._wallDashRaw=null;                                   // left the surface -> drop any flip-drift so it can't resume (and override your stick) when you re-catch a wall
   const C=window._CUBE||_CUBE, RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
   let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
-  v.y-=(window._CUBE_FALLG||1100)*dt;               // world-down gravity
+  v.y-=(window._CUBE_FALLG||820)*dt;               // world-down gravity (toned down from 1100 — boots free-flight was way heavier/floatier than the normal jetpack)
   if(P._jetting && P.boostFuel>0){                  // JETPACK in free flight -> push straight toward TRUE-world up
-    v.y += (window._CUBE_JET_WORLD!=null?window._CUBE_JET_WORLD:1900)*dt;
+    v.y += (window._CUBE_JET_WORLD!=null?window._CUBE_JET_WORLD:1080)*dt;   // net +260/s² up (was +800 -> he rocketed up 5x faster than the normal jetpack)
     P.boostFuel=Math.max(0,P.boostFuel-(window._CUBE_JET_DRAIN||55)*dt); P._jetFlash=1;
     if(typeof ps!=='undefined'&&Math.random()<0.85){ ps._spawn(P.wx+rand(-3,3),P.py-6,P.wz+rand(-3,3), rand(-16,16),-rand(70,150),rand(-16,16), 0.7,0.6+rand(0.3),1,0.05+rand(0.03)); }
     if(typeof Audio!=='undefined'&&(!P._jetSoundT||P._jetSoundT<=0)){ try{Audio.blip(220,0.08,'sawtooth',0.05,90);}catch(_){} P._jetSoundT=8; }
@@ -23549,9 +23549,13 @@ function _cubeDislodgeFall(P,rawX,rawZ,dt){
     const sx=_cy*rawX - _sy*rawZ, sz=_sy*rawX + _cy*rawZ;          // recover the RAW screen stick (undo the CAM.yaw rotInput)
     const cr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0); cr.y=0; if(cr.lengthSq()<1e-5)cr.set(1,0,0); cr.normalize();   // ACTUAL camera right
     const cf=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,2).multiplyScalar(-1); cf.y=0; if(cf.lengthSq()<1e-5)cf.set(0,0,1); cf.normalize();   // ACTUAL camera forward (flattened)
-    const _as=(window._CUBE_AIRSTEER||650);
+    const _as=(window._CUBE_AIRSTEER||400);   // gentler air push (was 650)
     v.x += (cr.x*sx + cf.x*(-sz))*_as*dt; v.z += (cr.z*sx + cf.z*(-sz))*_as*dt;   // screen-relative: up=away from camera, down=toward camera, left/right match the screen
   }   // air steer — relative to where the camera ACTUALLY looks, so pulling toward you moves him toward the camera
+  // DRAG + CAPS so he doesn't keep floating forward faster and faster (there was no horizontal damping -> runaway drift)
+  { const _dr=Math.pow((window._CUBE_AIR_DRAG!=null?window._CUBE_AIR_DRAG:0.35),dt); v.x*=_dr; v.z*=_dr;
+    const _hs=Math.hypot(v.x,v.z), _hc=(window._CUBE_AIR_MAXH||420); if(_hs>_hc){ v.x=v.x/_hs*_hc; v.z=v.z/_hs*_hc; }
+    const _uc=(window._CUBE_AIR_MAXUP||560); if(v.y>_uc)v.y=_uc; const _dc=(window._CUBE_AIR_MAXDN||760); if(v.y<-_dc)v.y=-_dc; }
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
   const hx=C.hx-RIDE, hz=C.hz-RIDE;                 // stay inside the walls while falling
   if(P.wx> hx){P.wx=hx;v.x=0;} if(P.wx<-hx){P.wx=-hx;v.x=0;}
