@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB220</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB221</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1348,7 +1348,7 @@ window._spawnBot=function(diff){
     if(typeof GS!=='undefined'&&GS.zone===-19 && window._SPAWN_ON_PLATS!==false && typeof window._cubeRandomSpawn==='function'){ _pad=window._cubeRandomSpawn((player&&player._spawnPadIdx!=null)?player._spawnPadIdx:null); if(_pad){ bx=_pad.x; bz=_pad.z; } }
     if(bx==null){ const a=Math.random()*Math.PI*2, r=120; bx=(player.wx||0)+Math.cos(a)*r; bz=(player.wz||0)+Math.sin(a)*r; }
     const bot=new BotPilot(bx,bz,{difficulty:diff,round:1});
-    if(_pad){ try{ const _hy=_pad.y+(window._SPAWN_PAD_LIFT||55); bot.py=_hy; bot._onPlatform=true; if(bot.model)bot.model.position.y=_hy; }catch(_){} }   // spawn floating ABOVE the pad — the spawn-pad tractor field holds them there (then their AI walks them off into play)
+    if(_pad){ try{ bot.py=_pad.y; bot._onPlatform=true; if(bot.model)bot.model.position.y=_pad.y; }catch(_){} }   // spawn standing ON the elevated deck (the spawn-pad tick keeps bots/dummy from falling through)
     GS_bots.push(bot);
     if(typeof announce==='function') announce('BOT SPAWNED \u2022 '+diff.toUpperCase(),'#ff66aa');
   }catch(e){ console.warn('spawn bot',e); if(typeof announce==='function')announce('BOT SPAWN FAILED','#ff5555'); }
@@ -23715,19 +23715,28 @@ function _buildCubeGoals(parent){
   window._cubeGoals=[];
   const defs=[{sign:-1,team:'BLUE',col:0x33aaff},{sign:1,team:'ORANGE',col:0xff8a33}];
   const P=(x,y,z)=>new THREE.Vector3(x,y,z);
+  const PR=(window._GOAL_POST_R||10), CR=(window._GOAL_CREASE||240);
   for(const d of defs){
     const sx=d.sign*hx, ox=d.sign*DP, g=new THREE.Group();
-    const lineMat=new THREE.LineBasicMaterial({color:d.col,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
-    const netMat =new THREE.LineBasicMaterial({color:d.col,transparent:true,opacity:0.3,blending:THREE.AdditiveBlending,depthWrite:false});
-    const backMat=new THREE.MeshBasicMaterial({color:d.col,transparent:true,opacity:0.13,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+    const glowMat=(o)=>new THREE.MeshBasicMaterial({color:d.col,transparent:true,opacity:o,blending:THREE.AdditiveBlending,depthWrite:false});
+    const solid=new THREE.MeshStandardMaterial({color:0x0e1622,emissive:d.col,emissiveIntensity:1.3,metalness:0.4,roughness:0.4,toneMapped:false});
+    const netMat=new THREE.LineBasicMaterial({color:d.col,transparent:true,opacity:0.34,blending:THREE.AdditiveBlending,depthWrite:false});
+    const backMat=new THREE.MeshBasicMaterial({color:d.col,transparent:true,opacity:0.2,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+    // solid glowing UPRIGHTS + a glow sheath around each
+    for(const z of [-HW,HW]){ const up=new THREE.Mesh(new THREE.CylinderGeometry(PR,PR,GH,14),solid); up.position.set(sx,GH/2,z); g.add(up);
+      const gs=new THREE.Mesh(new THREE.CylinderGeometry(PR*1.35,PR*1.35,GH,14),glowMat(0.5)); gs.position.copy(up.position); g.add(gs); }
+    // CROSSBAR + glow
+    { const cb=new THREE.Mesh(new THREE.CylinderGeometry(PR,PR,HW*2+PR*2,14),solid); cb.rotation.x=Math.PI/2; cb.position.set(sx,GH,0); g.add(cb);
+      const cg=new THREE.Mesh(new THREE.CylinderGeometry(PR*1.35,PR*1.35,HW*2+PR*2,14),glowMat(0.5)); cg.rotation.x=Math.PI/2; cg.position.copy(cb.position); g.add(cg); }
+    // glowing back panel + net
     const back=new THREE.Mesh(new THREE.PlaneGeometry(HW*2,GH),backMat); back.rotation.y=Math.PI/2; back.position.set(sx+ox,GH/2,0); g.add(back);
-    const _rect=(x)=>[P(x,0,-HW),P(x,GH,-HW), P(x,GH,-HW),P(x,GH,HW), P(x,GH,HW),P(x,0,HW), P(x,0,HW),P(x,0,-HW)];   // mouth/back frame
-    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([..._rect(sx),..._rect(sx+ox)]),lineMat));
-    const depthPts=[]; for(const z of [-HW,HW])for(const y of [0,GH]) depthPts.push(P(sx,y,z),P(sx+ox,y,z));   // connect mouth->back
-    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(depthPts),lineMat));
     const net=[],NZ=8,NY=5; for(let i=0;i<=NZ;i++){ const z=-HW+i*(2*HW/NZ); net.push(P(sx+ox,0,z),P(sx+ox,GH,z)); } for(let j=0;j<=NY;j++){ const y=j*(GH/NY); net.push(P(sx+ox,y,-HW),P(sx+ox,y,HW)); }
     g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(net),netMat));
-    g.userData._mats=[lineMat,netMat,backMat];
+    // FLOOR CREASE — a bright coloured rectangle on the pitch in FRONT of the goal so it's unmistakable where each net is
+    const floor=new THREE.Mesh(new THREE.PlaneGeometry(CR,HW*2),glowMat(0.14)); floor.rotation.x=-Math.PI/2; floor.position.set(sx - d.sign*CR/2, 2.5, 0); g.add(floor);
+    const fEdge=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([P(sx - d.sign*CR,0.5,-HW),P(sx - d.sign*CR,0.5,HW)]), new THREE.LineBasicMaterial({color:d.col,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false})); g.add(fEdge);   // the goal LINE on the pitch
+    g.traverse(o=>{ o.frustumCulled=false; });
+    g.userData._mats=[netMat,backMat];
     if(parent)parent.add(g); else scene.add(g);
     window._cubeGoals.push({sign:d.sign,team:d.team,col:d.col,hw:HW,h:GH,depth:DP,wallX:sx,grp:g,flash:0});
   }
@@ -23797,57 +23806,37 @@ function _geyserTick(dt){
     }
   } else if(player&&player._geyserHold){ player._geyserHold=false; }
 }
-// ── SILO IRIS — a ring of rounded "claw" petals on a spawn pad. Closed = petals lie flat across the hole; a character rising
-//    through tractors them OPEN (petals tilt up + the ring spins), then they settle shut behind. Built per big spawn pad. ──
-function _makeSiloIris(R, col){
+// ── PAD BEACON — a floor marker under a spawn pad: a "stand here" ground ring, a thin illuminated up-arrow (pulsing), and
+//    three small rings around its base that oscillate up/down. Purely a visual cue for where to step to get tractored up. ──
+function _makePadBeacon(col){
   if(typeof THREE==='undefined') return null;
-  const g=new THREE.Group(); g.userData.hinges=[];
-  const N=(window._IRIS_CLAWS||8);
-  const mat=new THREE.MeshStandardMaterial({color:0x162230,metalness:0.75,roughness:0.34,emissive:col,emissiveIntensity:0.35,toneMapped:false});
-  const glow=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false});
-  const ring=new THREE.Mesh(new THREE.TorusGeometry(R*1.04, R*0.06, 10, 44), glow); ring.rotation.x=Math.PI/2; g.add(ring);
-  for(let i=0;i<N;i++){ const a=i/N*Math.PI*2;
-    const pivot=new THREE.Group(); pivot.position.set(Math.cos(a)*R, 0, Math.sin(a)*R); pivot.rotation.y=-a; g.add(pivot);
-    const hinge=new THREE.Group(); pivot.add(hinge);
-    const seg=new THREE.Mesh(new THREE.BoxGeometry(R*1.0, R*0.13, R*0.40), mat); seg.position.x=-R*0.5; hinge.add(seg);
-    const tip=new THREE.Mesh(new THREE.ConeGeometry(R*0.13, R*0.34, 6), mat); tip.rotation.z=-Math.PI/2; tip.position.x=-R*1.0; hinge.add(tip);
-    const edge=new THREE.Mesh(new THREE.BoxGeometry(R*1.0, R*0.02, R*0.07), glow); edge.position.set(-R*0.5, R*0.075, 0); hinge.add(edge);
-    g.userData.hinges.push(hinge);
-  }
+  const g=new THREE.Group();
+  const glow=(o)=>new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:o,blending:THREE.AdditiveBlending,depthWrite:false});
+  const gr=new THREE.Mesh(new THREE.RingGeometry((window._PADBEACON_RING_IN||26),(window._PADBEACON_RING_OUT||31),44), glow(0.5)); gr.rotation.x=-Math.PI/2; gr.position.y=0.8; g.add(gr); g.userData.gr=gr;
+  const arrow=new THREE.Group();
+  const shaft=new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,30,8), glow(0.85)); shaft.position.y=18; arrow.add(shaft);
+  const head=new THREE.Mesh(new THREE.ConeGeometry(4.4,10,14), glow(0.95)); head.position.y=39; arrow.add(head);
+  g.add(arrow); g.userData.arrow=arrow;
+  const rings=[]; for(let i=0;i<3;i++){ const r=new THREE.Mesh(new THREE.TorusGeometry(6.5-i*1.1,0.5,6,26), glow(0.7)); r.rotation.x=Math.PI/2; r.position.y=5+i*7; g.add(r); rings.push(r); } g.userData.rings=rings;
   g.traverse(o=>{ o.frustumCulled=false; });
   return g;
 }
-// ── SPAWN-PAD TRACTOR FIELD — any character (player, bot, dummy) inside a big pad's column is pulled UP and HELD floating
-//    above it (fixes AI spawning below the pad + gives the held-in-air effect). Player lets go on jump; a bot leaves when its
-//    AI walks it out of the column. Also drives each pad's iris open while occupied. ──
+// ── SPAWN-PAD TICK — animate each pad's floor beacon (arrow pulse + oscillating base rings), and keep bots/dummy STANDING on
+//    the deck (so they don't fall through on spawn). The PLAYER uses the normal spiral tractor-lift (_powerPadTick anchors). ──
 function _spawnPadFieldTick(dt){
-  if(GS.zone!==-19 || window._SPAWN_PAD_FIELD===false) return;
+  if(GS.zone!==-19) return;
   const pads=window._cubeSpawnPads; if(!pads||!pads.length) return;
-  const LIFT=(window._SPAWN_PAD_LIFT||55), R=(window._SPAWN_PAD_FIELD_R||72), PULL=(window._SPAWN_PAD_PULL||5);
-  const bob=Math.sin(performance.now()*0.003)*(window._SPAWN_PAD_BOB||8);
-  const active=new Set();
-  const _hold=(o,isPlayer)=>{
-    if(!o||o.alive===false) return;
-    for(const p of pads){ if(Math.hypot((o.wx||0)-p.x,(o.wz||0)-p.z)>R) continue;
-      if(isPlayer && (o._jumpTapped || (o.pvy||0)>(window._SPAWN_PAD_JUMP_OUT||200) || (o._hasBoots&&o._bootsEquipped) || o._ballActive)) return;   // player jumped / balled -> release
-      const holdY=p.y+LIFT;
-      if((o.py||0) < holdY+30){
-        o.py=(o.py||0)+((holdY+bob)-(o.py||0))*Math.min(1,dt*PULL);
-        if(o.pvy!=null && o.pvy<0) o.pvy=0;
-        o._onPlatform=true; if(o.model) o.model.position.y=o.py;
-        active.add(p);
-        if(typeof ps!=='undefined'&&Math.random()<0.2) ps.spark((o.wx||0)+rand(-10,10),(o.wz||0)+rand(-10,10),[0.4,0.9,1],(o.py||0)-rand(0,40));
-      }
-      return;
-    }
-  };
-  _hold(player,true);
-  if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots) _hold(b,false);
-  if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _hold(GS_trainingDummy,false);
-  for(const p of pads){ if(!p.iris)continue;
-    const want=active.has(p)?1:0; p._irisT=(p._irisT==null?0:p._irisT)+(want-(p._irisT||0))*Math.min(1,dt*(window._IRIS_SPEED||4));
-    const t=p._irisT; const hs=p.iris.userData.hinges; if(hs)for(const h of hs)h.rotation.z=-t*(window._IRIS_OPEN||1.15);
-    p.iris.rotation.y+=dt*(0.4+t*2.4);
+  const now=performance.now()*0.001, R=(window._SPAWN_PAD_FIELD_R||72);
+  // bots + dummy: pin to the deck when they're over a pad footprint near deck height (stand, don't float / don't fall through)
+  if(window._SPAWN_PAD_BOTSTAND!==false){
+    const _stand=(o)=>{ if(!o||o.alive===false)return; for(const p of pads){ if(Math.hypot((o.wx||0)-p.x,(o.wz||0)-p.z)>R)continue; if((o.py||0)>p.y-40 && (o.py||0)<p.y+40){ o.py=p.y; if(o.pvy!=null&&o.pvy<0)o.pvy=0; o._onPlatform=true; if(o.model)o.model.position.y=p.y; } return; } };
+    if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots) _stand(b);
+    if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _stand(GS_trainingDummy);
+  }
+  for(const p of pads){ const bc=p.beacon; if(!bc)continue;
+    if(bc.userData.arrow){ const s=1+0.14*Math.sin(now*4); bc.userData.arrow.scale.set(s,1,s); bc.userData.arrow.rotation.y+=dt*0.8; bc.userData.arrow.children.forEach(c=>{ if(c.material)c.material.opacity=(c.geometry&&c.geometry.type==='ConeGeometry'?0.95:0.85)*(0.6+0.4*Math.sin(now*4)); }); }
+    if(bc.userData.rings)bc.userData.rings.forEach((r,i)=>{ r.position.y=6+i*7+Math.sin(now*2.2 - i*0.9)*3.5; if(r.material)r.material.opacity=0.5+0.3*Math.sin(now*2.2 - i*0.9); });
+    if(bc.userData.gr && bc.userData.gr.material){ bc.userData.gr.material.opacity=0.35+0.25*Math.sin(now*2.5); const gs=1+0.05*Math.sin(now*2.5); bc.userData.gr.scale.set(gs,gs,gs); }
   }
 }
 function _cubeGoalTick(dt){
@@ -24380,11 +24369,14 @@ function buildCubeArena(){
     const _pos=[ {x:_px,z:0}, {x:-_px,z:0}, {x:0,z:_pz}, {x:0,z:-_pz} ];
     window._cubeSpawnPads=[]; window._cubePlatforms=window._cubePlatforms||[];
     window._PAD_TUBE_K=(window._BIGPAD_TUBE_K!=null?window._BIGPAD_TUBE_K:(window._POWERPAD_BIG||30)/_spSc);   // thin the rings so the big spawn pads read like the small ones (not fat)
+    const _spawnAnchors=[];
     _pos.forEach((p,i)=>{ try{ const col=_cols[i%_cols.length]; const g=_makePowerPad(p.x,p.z,col); g.scale.setScalar(_spSc); g.position.set(p.x,_spY-(window._SPAWN_PLAT_DECK_DROP||8),p.z); if(_cubeGroup)_cubeGroup.add(g); else scene.add(g);
       window._cubePlatforms.push({x:p.x,z:p.z,hw:_hw,hd:_hw,top:_spY});   // standable deck
-      let _iris=null; try{ if(window._IRIS_ON!==false && typeof _makeSiloIris==='function'){ _iris=_makeSiloIris((window._IRIS_R||_hw*0.95), col); _iris.position.set(p.x, _spY-(window._IRIS_DROP||3), p.z); if(_cubeGroup)_cubeGroup.add(_iris); else scene.add(_iris); } }catch(_){}
-      window._cubeSpawnPads.push({x:p.x,z:p.z,y:_spY,col,g,iris:_iris,_irisT:0}); }catch(_){} });
+      let _beacon=null; try{ if(window._PADBEACON_ON!==false && typeof _makePadBeacon==='function'){ _beacon=_makePadBeacon(col); _beacon.position.set(p.x,0,p.z); if(_cubeGroup)_cubeGroup.add(_beacon); else scene.add(_beacon); } }catch(_){}   // floor "stand here" marker under the pad
+      _spawnAnchors.push({x:p.x,z:p.z,y:_spY,r:(window._SPAWN_PAD_TRACTOR_R||70),t:0,beam:null});   // stand under it -> the SAME spiral tractor-lift as the small pads eases you up onto the deck
+      window._cubeSpawnPads.push({x:p.x,z:p.z,y:_spY,col,g,beacon:_beacon}); }catch(_){} });
     window._PAD_TUBE_K=1;
+    window._cubePadAnchors=(window._cubePadAnchors||[]).concat(_spawnAnchors);
   } }catch(e){ console.warn('spawn platforms',e); }
   try{ if(typeof _buildCubeGoals==='function') _buildCubeGoals(_cubeGroup); }catch(e){ console.warn('cube goals',e); }   // RL goals inset into the ±X walls + scoreboard
   try{ if(typeof _buildGeyser==='function') _buildGeyser(_cubeGroup); }catch(e){ console.warn('geyser',e); }   // centre force-field fountain that floats the ball (and you)
@@ -24392,7 +24384,7 @@ function buildCubeArena(){
   try{ if(window._RIPPLE_TEST && typeof window._rippleTestPlane==='function') setTimeout(()=>window._rippleTestPlane(),300); }catch(_){}   // ?ripple -> drop the field-ripple test plane so it can be tried in the cube
   // ── spawn on a random elevated platform (the ball kicks off in the centre below); fall back to off-centre floor if platforms are off ──
   { const _sp=(window._SPAWN_ON_PLATS!==false && typeof window._cubeRandomSpawn==='function')?window._cubeRandomSpawn():null;
-    if(_sp){ player.wx=_sp.x; player.wz=_sp.z; player.py=_sp.y+(window._SPAWN_PAD_LIFT||55); player._onPlatform=true; player._platformY=_sp.y; player._spawnPadIdx=(window._cubeSpawnPads?window._cubeSpawnPads.indexOf(_sp):-1); }   // spawn floating above the pad (the tractor field holds you there until you jump off)
+    if(_sp){ player.wx=_sp.x; player.wz=_sp.z; player.py=_sp.y; player._onPlatform=true; player._platformY=_sp.y; player._spawnPadIdx=(window._cubeSpawnPads?window._cubeSpawnPads.indexOf(_sp):-1); }   // spawn standing on the elevated deck
     else { player.wx=(window._CUBE_START_X||0); player.wz=(window._CUBE_START_Z!=null?window._CUBE_START_Z:-150); player.py=0; player._spawnPadIdx=-1; } }
   player.pvy=0; player.vx=0; player.vz=0; player._inPlanetGravity=false; if(player.model)player.model.visible=true;
   try{ if(CAM){ const _fyaw=Math.atan2(-player.wz,-player.wx); CAM.tyaw=-_fyaw-Math.PI/2; CAM.yaw=CAM.tyaw; if(CAM.tfocus)CAM.tfocus.set(player.wx,40,player.wz); if(CAM.focus)CAM.focus.copy(CAM.tfocus); } }catch(_){}
@@ -24633,7 +24625,7 @@ function updateCubeArena(dt){
   if(typeof _updateOccluders==='function') _updateOccluders(dt);   // AFTER the pad/dispenser anim step so the fade has the last word on their opacities -> props between the camera and you go see-through
   if(typeof _powerPadTick==='function') _powerPadTick(dt);   // spiral tractor-lift + standable pads (runs after player.update, so it owns the transform)
   if(typeof _geyserTick==='function') _geyserTick(dt);   // centre geyser: animate the distortion column + float the player when they're in it
-  if(typeof _spawnPadFieldTick==='function') _spawnPadFieldTick(dt);   // big spawn pads: tractor + hold any character above them, open/close their silo iris
+  if(typeof _spawnPadFieldTick==='function') _spawnPadFieldTick(dt);   // big spawn pads: animate the floor beacons + keep bots/dummy standing on the deck
   if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
   if(player._cwSetGrav){ player._inPlanetGravity=false; player._glGrounded=false; player._cwAir=0; player._cwSetGrav=false; }   // left wall-walk -> restore normal gravity/anim
   const C=window._CUBE||_CUBE; const pad=(window._CUBE_PAD!=null?window._CUBE_PAD:22); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9);
