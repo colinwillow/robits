@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB179</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB180</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3306,7 +3306,7 @@ class DroidekaBot extends Enemy{
         const spread=(Math.random()-0.5)*0.12, cs=Math.cos(spread), sn=Math.sin(spread);
         const ndx=dx/d, ndz=dz/d, spd=380;
         const bvx=(ndx*cs-ndz*sn)*spd, bvz=(ndx*sn+ndz*cs)*spd;
-        if(_ally){ try{ const b=new Bullet(this.wx+ndx*12,this.wz+ndz*12,bvx,bvz,'laser',19,0,true); b.dmg=(window._ALLY_GUN_DMG!=null?window._ALLY_GUN_DMG:0.4); b.pierce=0; GS.bullets.push(b); }catch(e){} }
+        if(_ally){ try{ const b=new Bullet(this.wx+ndx*12,this.wz+ndz*12,bvx,bvz,'laser',19,0,true); b.dmg=(window._ALLY_GUN_DMG!=null?window._ALLY_GUN_DMG:0.4); b.pierce=0; b._ally=true; GS.bullets.push(b); }catch(e){} }
         else { try{ const b=new EnemyBullet(this.wx+ndx*12, this.wz+ndz*12, bvx, bvz); if(b&&b.mesh&&b.mesh.material) b.mesh.material.color.setHex(0xff7722); }catch(e){} }
         ps.spark(this.wx+ndx*14, this.wz+ndz*14,[1,0.5,0.1]); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(220+rand(40),0.06,'square',0.07,120);
         this._gun^=1;
@@ -8568,13 +8568,14 @@ class AllyBot{
   }
   _allyAttack(TX,TY,TZ){
     if(this._atkType==='acid'){ _spiderSpitAcid(this, TX, TY, TZ, true); return; }
-    const y0=this.py+12, sx=this.wx, sz=this.wz, dx=TX-sx, dy=(TY-y0), dz=TZ-sz, spd=560;
+    const y0=this.py+12, _dxa=TX-this.wx, _dza=TZ-this.wz, _da=Math.hypot(_dxa,_dza)||1, _mo=(this.size||16)*0.6+10;   // MUZZLE OFFSET: spawn the shot out in FRONT of the body (toward the target) so it doesn't start inside its own shell
+    const sx=this.wx+_dxa/_da*_mo, sz=this.wz+_dza/_da*_mo, dx=TX-sx, dy=(TY-y0), dz=TZ-sz, spd=560;
     if(this._atkType==='gun'){                       // DROID — twin laser guns, fired straight at the target
       for(const off of [-0.05,0.05]){ const ca=Math.cos(off),sa=Math.sin(off), ndx=dx*ca-dz*sa, ndz=dx*sa+dz*ca, nd=Math.hypot(ndx,dy,ndz)||1;
-        const b=new Bullet(sx,sz,ndx/nd*spd,ndz/nd*spd,'laser',y0,dy/nd*spd,true); b.dmg=(window._ALLY_GUN_DMG!=null?window._ALLY_GUN_DMG:0.4); b.pierce=0; GS.bullets.push(b); }   // dmg 1 (was laser's 2) + no pierce -> with shared-HP scaling it's ~3 hits to drop a fighter, not a one-shot line-clear
+        const b=new Bullet(sx,sz,ndx/nd*spd,ndz/nd*spd,'laser',y0,dy/nd*spd,true); b.dmg=(window._ALLY_GUN_DMG!=null?window._ALLY_GUN_DMG:0.4); b.pierce=0; b._ally=true; GS.bullets.push(b); }   // _ally -> the FF loop won't let it hit its own body/other summons (was shooting itself + hit-marking itself); dmg tuned for shared-HP scaling
       if(typeof ps!=='undefined')ps.ring(sx,sz,[1,0.6,0.2],3,28); if(typeof Audio!=='undefined')Audio.blip(440,0.05,'square',0.08,920);
     } else {                                         // GHOST — slow homing spirit orb
-      const d=Math.hypot(dx,dy,dz)||1; const b=new Bullet(sx,sz,dx/d*spd*0.7,dz/d*spd*0.7,'homing',y0,dy/d*spd*0.7,true); b.dmg=(window._ALLY_GUN_DMG!=null?window._ALLY_GUN_DMG:0.4); GS.bullets.push(b);
+      const d=Math.hypot(dx,dy,dz)||1; const b=new Bullet(sx,sz,dx/d*spd*0.7,dz/d*spd*0.7,'homing',y0,dy/d*spd*0.7,true); b.dmg=(window._ALLY_GUN_DMG!=null?window._ALLY_GUN_DMG:0.4); b._ally=true; GS.bullets.push(b);
       if(typeof ps!=='undefined')ps.spark(sx,sz,[0.5,1,0.92],y0); if(typeof Audio!=='undefined')Audio.blip(540,0.08,'sine',0.12,740);
     }
   }
@@ -8604,7 +8605,7 @@ class AllyBot{
       // ── PLAYER CAN BAT THE FRIENDLY BALL AROUND (Rocket-League style): shoot it -> rolls the way you fired; melee/ram it -> kicked away. No damage (it's your guy + shielded). ──
       if(window._DK_PLAYER_KNOCK!==false){
         const _by=9+(this._dkY||0), R=(window._DK_BALL_R||14);
-        if(typeof GS!=='undefined'&&GS.bullets)for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b||b._fromBot)continue; const bw=(b.wx!=null?b.wx:b.x), bz=(b.wz!=null?b.wz:b.z); if(bw==null)continue; if(Math.hypot(bw-this.wx,bz-this.wz)<R+6 && Math.abs(((b.y!=null?b.y:9))-_by)<28){ const bs=Math.hypot(b.vx||0,b.vz||0)||1, K=(window._DK_BULLET_KNOCK||150); this._dkVx+=((b.vx||0)/bs)*K; this._dkVz+=((b.vz||0)/bs)*K; this._dkVy=(this._dkVy||0)+90; if(b.remove)b.remove(); if(b.mesh){ try{scene.remove(b.mesh);}catch(_){} } GS.bullets.splice(bi,1); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.5,0.9,1],8,50,_by); break; } }
+        if(typeof GS!=='undefined'&&GS.bullets)for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b||b._fromBot||b._ally)continue; const bw=(b.wx!=null?b.wx:b.x), bz=(b.wz!=null?b.wz:b.z); if(bw==null)continue; if(Math.hypot(bw-this.wx,bz-this.wz)<R+6 && Math.abs(((b.y!=null?b.y:9))-_by)<28){ const bs=Math.hypot(b.vx||0,b.vz||0)||1, K=(window._DK_BULLET_KNOCK||150); this._dkVx+=((b.vx||0)/bs)*K; this._dkVz+=((b.vz||0)/bs)*K; this._dkVy=(this._dkVy||0)+90; if(b.remove)b.remove(); if(b.mesh){ try{scene.remove(b.mesh);}catch(_){} } GS.bullets.splice(bi,1); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.5,0.9,1],8,50,_by); break; } }
         if(owner){ const pd=Math.hypot(owner.wx-this.wx,owner.wz-this.wz), ud=owner.model&&owner.model.userData, melee=!!(ud&&ud._meleeTimer>0), pspd=Math.hypot(owner.vx||0,owner.vz||0); if(pd<R+18 && (melee||pspd>(window._DK_RAM_SPD||130))){ const l=pd||1, K=melee?(window._DK_MELEE_KNOCK||380):(window._DK_BODY_KNOCK||200); this._dkVx+=(this.wx-owner.wx)/l*K; this._dkVz+=(this.wz-owner.wz)/l*K; if(melee){ this._dkVy=(this._dkVy||0)+210; if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[1,0.7,0.3],10,70,_by); } } }
       }
       // ── ROLL: drive toward the foe (or loosely follow the owner) with momentum; coast when knocked ──
@@ -10827,7 +10828,11 @@ class Player{
     const UP=straight?(window._MTHROW_UP_SPEAR||8):(window._MTHROW_UP||55);
     vx=dx*SPD; vz=dz*SPD; vy=UP;
     let mesh=null; try{ mesh=_makeMeleeWeapon(type); }catch(_){}
-    if(mesh){ mesh.scale.setScalar(window._MTHROW_SCALE||(typeof _HAMMER_SCALE!=='undefined'?_HAMMER_SCALE:1.7)); mesh.position.set(sx,sy,sz); mesh.traverse(o=>{o.frustumCulled=false;}); scene.add(mesh); }   // SAME world size as the held/swung weapon and the pickup station (1.7) — no shrink-then-grow
+    if(mesh){ mesh.scale.setScalar(window._MTHROW_SCALE||(typeof _HAMMER_SCALE!=='undefined'?_HAMMER_SCALE:1.7));
+      // TUMBLE ABOUT THE CENTER: the weapon model's origin is at the HILT, so spinning it about that origin swung the whole blade around the handle. Wrap it in a pivot and shift the model so the midpoint between hilt & tip sits at the pivot origin -> it tumbles about its middle like a real thrown weapon (spear still just points along flight).
+      const pivot=new THREE.Group();
+      if(window._MTHROW_CENTER_SPIN!==false){ try{ mesh.updateMatrixWorld(true); const bb=new THREE.Box3().setFromObject(mesh); const c=new THREE.Vector3(); bb.getCenter(c); mesh.position.sub(c); }catch(_){} }
+      pivot.add(mesh); pivot.position.set(sx,sy,sz); pivot.traverse(o=>{o.frustumCulled=false;}); scene.add(pivot); mesh=pivot; }   // SAME world size as the held/swung weapon and the pickup station (1.7) — no shrink-then-grow
     const spin=(type==='hammer'||type==='axe')?(window._MTHROW_SPIN_HEAVY||17):(straight?0:(window._MTHROW_SPIN||13));
     if(!window._thrownMelee)window._thrownMelee=[];
     window._thrownMelee.push({ type, mesh, x:sx,y:sy,z:sz, vx,vz,vy, aim:Math.atan2(vz,vx), straight, spin, dmg:_MS.dmg, ms:_MS, hitSet:new Set(), life:(window._MTHROW_LIFE||4.5), bounces:0, target:lock });
@@ -10919,8 +10924,8 @@ class Player{
     let crossDist;
     if(_lock){ crossDist=_lockDist; }
     else if(power!==undefined){
-      const _maxD=hard?(window._THROW_HARD_MAX_DIST||560):(window._THROW_MAX_DIST||300);   // HARD (gamepad momentum tap-throw) can hurl much farther; the mobile flick stays tight
-      crossDist=clamp(power*(window._THROW_DIST_K||150), 60, _maxD);
+      const _maxD=hard?(window._THROW_HARD_MAX_DIST||620):(window._THROW_MAX_DIST||520);   // a good FLICK now really HURLS it (was capped at 300 -> bombs/nukes plopped); barrels already got a 1.8x boost so they flew, now everything does
+      crossDist=clamp(power*(window._THROW_DIST_K||230), 60, _maxD);
     } else {
       crossDist=Math.hypot(
         (this._aimerX||this.wx)-this.wx,
@@ -10936,7 +10941,7 @@ class Player{
       const a2=0.5*GRAV, b2=-launchVY, c2=-(launchY-9);
       const disc=b2*b2-4*a2*c2;
       const totalTime=disc>=0?(-b2+Math.sqrt(disc))/(2*a2):1.2;
-      spd=clamp(crossDist/totalTime, 60, hard?(window._THROW_HARD_MAX_SPD||780):(window._THROW_MAX_SPD||440));   // HARD throw gets a higher speed ceiling so a full-momentum fastball actually rips
+      spd=clamp(crossDist/totalTime, 60, hard?(window._THROW_HARD_MAX_SPD||820):(window._THROW_MAX_SPD||700));   // higher speed ceiling so a hard flick rips the item across the arena instead of lobbing it
     }
     const vx=dirX*spd;
     const vz=dirZ*spd;
@@ -21562,8 +21567,9 @@ function loop(ts){ requestAnimationFrame(loop);
         if(window._ALLY_RING!==false && _al && _al._teamCol!=null){ const _root=_al.model||_al.mesh;
           if(_root && _root._ownRing===undefined){ try{ const rr=(_al.size||16)*(window._ALLY_RING_K||1.25); const g=new THREE.RingGeometry(rr*0.82,rr*1.08,30); const m=new THREE.MeshBasicMaterial({color:_al._teamCol,transparent:true,opacity:(window._ALLY_RING_OP||0.55),blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false}); const ring=new THREE.Mesh(g,m); ring.rotation.x=-Math.PI/2; ring.position.y=(window._ALLY_RING_Y||0.6); ring.renderOrder=2; _root.add(ring); _root._ownRing=ring; }catch(_){ if(_root)_root._ownRing=null; } }
           if(_root && _root._ownRing){ const _rg=_root._ownRing; _rg.material.opacity=(window._ALLY_RING_OP||0.55)*(0.72+0.28*Math.sin(performance.now()*0.005));   // gentle breathe so it reads as a live marker
-            // keep the ring FLAT on the ground even when the model rolls (ball droid): counter the parent's world rotation so the ring never spins with the body
-            try{ const _pq=(window._ownRingPQ||(window._ownRingPQ=new THREE.Quaternion())); const _fq=(window._ownRingFQ||(window._ownRingFQ=new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI/2,0,0)))); _root.getWorldQuaternion(_pq); _pq.invert(); _rg.quaternion.copy(_pq).multiply(_fq); }catch(_){}
+            // PIN IT FLAT ON THE GROUND under the creature. The model root sits at the body's MID-height (and a ball droid ROLLS), so a fixed local offset floated the ring at the midpoint + spun it. Re-derive the ring's local transform each frame: keep the body's XZ, drop Y to the floor, and cancel the parent's world rotation so it's always level.
+            try{ const _pq=(window._ownRingPQ||(window._ownRingPQ=new THREE.Quaternion())); const _fq=(window._ownRingFQ||(window._ownRingFQ=new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI/2,0,0)))); _root.getWorldQuaternion(_pq); _pq.invert(); _rg.quaternion.copy(_pq).multiply(_fq);
+              const _wp=(window._ownRingWP||(window._ownRingWP=new THREE.Vector3())); _root.getWorldPosition(_wp); _wp.y=((typeof GS!=='undefined'&&GS.zone===-19)?(window._ALLY_RING_Y_CUBE!=null?window._ALLY_RING_Y_CUBE:10):(window._ALLY_RING_Y!=null?window._ALLY_RING_Y:1.5)); _root.worldToLocal(_wp); _rg.position.copy(_wp); }catch(_){}
           }
         }
         if(!GS.allies[i].update(dt)){ GS.allies[i].remove(); GS.allies.splice(i,1); }
@@ -22023,7 +22029,7 @@ function loop(ts){ requestAnimationFrame(loop);
       }
       // YOUR OWN summons are killable by your fire too (friendly fire). Balled droidekas are shielded (their shell) -> the punt handles those bullets.
       if(window._PLAYER_KILLS_ALLIES!==false && GS.allies && GS.allies.length && GS.bullets && GS.bullets.length){ for(let ai=GS.allies.length-1;ai>=0;ai--){ const a=GS.allies[ai]; if(!a||a.alive===false)continue; if(a._open!=null && a._open<0.5)continue; if(a._isDrone)continue;   /* the drone dodges + handles its own bullet hits */
-        for(let j=GS.bullets.length-1;j>=0;j--){ const b=GS.bullets[j]; if(!b||b._fromBot)continue; const bw=(b.wx!=null?b.wx:b.x),bz=(b.wz!=null?b.wz:b.z); if(bw==null)continue; const ay=(a.py!=null?a.py:(a._cy!=null?a._cy:9));
+        for(let j=GS.bullets.length-1;j>=0;j--){ const b=GS.bullets[j]; if(!b||b._fromBot||b._ally)continue; const bw=(b.wx!=null?b.wx:b.x),bz=(b.wz!=null?b.wz:b.z); if(bw==null)continue; const ay=(a.py!=null?a.py:(a._cy!=null?a._cy:9));
           if(Math.hypot(bw-a.wx,bz-a.wz)<((a.size||14)*0.7+10) && Math.abs(((b.y!=null?b.y:9))-(ay+10))<48){
             if(window._FRIENDLY_FIRE===true){ if(a.hit)try{a.hit(b.dmg||1);}catch(_){} }   // FF OFF by default now: your shots DON'T hurt your own guys...
             else if(a.knock)try{a.knock(a.wx-bw,a.wz-bz,(window._FF_KNOCK||1.6),0,6);}catch(_){}   // ...but they still SHOVE them (kickback) so you can launch your drone/ball-droid/spider into the fray
