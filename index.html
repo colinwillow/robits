@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB174</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB175</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10429,7 +10429,10 @@ class Player{
     // break out of conflicting states so the arc owns the body
     this.dashing=0; this._dashRamp=0; this._dashDir=null; this._jetting=false; this._sliding=false; this._airSlam=false;
     if(this._ballActive && typeof window._ballExit==='function'){ try{window._ballExit();}catch(_){} }
-    if(this.bombArmed && typeof this._disarmBomb==='function'){ try{this._disarmBomb();}catch(_){} }
+    if((this.bombArmed||this._carryPayload) && typeof this._disarmBomb==='function'){ const _pl=this._carryPayload; try{this._disarmBomb();}catch(_){}
+      if(_pl && _pl.kind==='item' && _pl.type && typeof _spawnPU==='function'){ try{ _spawnPU(this.wx+rand(-14,14),16,this.wz+rand(-14,14),_pl.type,rand(-40,40),50,rand(-40,40)); }catch(_){} }   // knocked loose -> drop what you were carrying as a grabbable so you don't lose it
+      this._carryPayload=null; this._bombMode='bomb';   // CRITICAL: clear the carry state so a smash mid-carry can't soft-lock grabbing forever
+    }
     if(this._meleeAdditive){ try{this._meleeAdditive.stop();}catch(_){} this._meleeAdditive=null; }
     const ud=this.model&&this.model.userData; if(ud){ ud._meleeTimer=0; if(ud._meleeHitSet)ud._meleeHitSet.clear(); this._swingAction=null;
       // getting hit CANCELS your swing -> also release the facing lock + any buffered follow-up. Otherwise _rollAimLock
@@ -10473,7 +10476,7 @@ class Player{
       if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{h:600}), ceil=(C.h||600)-(window._CUBE_PAD!=null?window._CUBE_PAD:22); if(this.py>ceil){ this.py=ceil; if(this.pvy>0)this.pvy=-this.pvy*(window._PLKB_REST!=null?window._PLKB_REST:0.55); } }
       if(this.py<=0 && this.pvy<=0){ this.py=0; this.pvy=0; this._launched=false; this._kbVx*=0.3; this._kbVz*=0.3;
         // play the FULL get_up before control returns (sized to the clip, like the AI) — no more snap-to-feet
-        const ud=this.model&&this.model.userData, gu=ud&&ud.clips&&ud.clips['get_up'], guDur=(gu&&gu._clip&&gu._clip.duration)||0, _gspd=(window._PLKB_GETUP_SPD||1.5);
+        const ud=this.model&&this.model.userData, gu=ud&&ud.clips&&ud.clips['get_up'], guDur=(gu&&gu._clip&&gu._clip.duration)?gu._clip.duration*(window._PLKB_GETUP_END||0.6):0, _gspd=(window._PLKB_GETUP_SPD||1.5);   // TRIM the get_up: only count the LIVE portion (the GLB has trailing dead frames that were freezing him on the last frame for way too long)
         this._kbStun=Math.max(this._kbStun||0, Math.min((window._PLKB_GETUP_MAX||42), (guDur>0.1?Math.round(guDur*60/_gspd):(window._PLKB_GETUP||26))+(window._PLKB_DOWN_HOLD||3)));   // _kbStun in FRAMES, sized to the (trimmed) clip at the sped-up rate, HARD-CAPPED so it can never stall control
         if(gu){ try{ Object.values(ud.clips).forEach(a=>{ if(a&&a.fadeOut&&a!==gu)a.fadeOut(0.1); }); gu.reset().setLoop(THREE.LoopOnce,1); gu.clampWhenFinished=true; gu.setEffectiveTimeScale(_gspd); gu.setEffectiveWeight(1).fadeIn(0.06).play(); ud.currentClip='get_up'; ud._launchClip=true; ud._oneShotAct=gu; ud._oneShotSpeed=_gspd; }catch(_){} }   // register with the loop's manual speed-up (the rig's timeScale doesn't stick on its own) so it actually plays fast
         if(typeof ps!=='undefined')ps.burst(this.wx,this.wz,[1,0.8,0.4],12,95); if(typeof addTrauma==='function')addTrauma(0.06); }
@@ -28360,18 +28363,20 @@ function _ballPose(on){
 }
 window._ballChargeStart=function(){
   const B=window._BALL; if(typeof player==='undefined'||!player||!player.alive||B.state)return;
+  if(player._launched||(player._kbStun||0)>0)return;   // can't ball up mid-knockback
   if(player._ballCharge!=null && player._ballCharge<(window._BALL_MIN_ENTER||15)){ if(typeof announce==='function')announce('BALL CHARGING…','#66e0ff'); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(140,0.08,'square',0.1,90); return; }   // not enough charge to spin up
   B.state='charging'; B.charge=0; B.px=player.wx; B.pz=player.wz; B.py=player.py||0; B.vx=B.vz=B.vy=0; B.t=0; B.q=new THREE.Quaternion();
   player._ballActive=true; player.inv=Math.max(player.inv||0,4); _ballPose(true); _ballShell(); _ballShellTick(0,0,true);
   if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(150,0.12,'sawtooth',0.1,360);
 };
 window._ballChargeRelease=function(){ const B=window._BALL; if(B.state!=='charging')return; const a=player.aim||0; window._ballEnter(B.charge, Math.cos(a), Math.sin(a)); };
-window._ballQuickRoll=function(dx,dz){ if(typeof player==='undefined'||!player||!player.alive)return; const B=window._BALL;
+window._ballQuickRoll=function(dx,dz){ if(typeof player==='undefined'||!player||!player.alive)return; if(player._launched||(player._kbStun||0)>0)return; const B=window._BALL;
   if(B.state==='rolling'){ const cur=Math.hypot(B.vx,B.vz); const sp=Math.max(cur,(window._BALL_MIN_SPD||210))*(window._BALL_REDIRECT_BOOST||1.06); const dl=Math.hypot(dx,dz)||1; B._tgtVx=dx/dl*sp; B._tgtVz=dz/dl*sp; B._lerpT=(window._BALL_REDIR_LERP||0.16); player.aim=Math.atan2(dz,dx); B.t=Math.max(0,B.t-1.2); B._lastPuff=null; if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.3,0.95,1],14,90); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(450,0.09,'square',0.1,1300); return; }
   if(B.state==='charging')return;
   window._ballEnter((window._BALL_QUICK_CHARGE!=null?window._BALL_QUICK_CHARGE:0.34), dx, dz); };
 window._ballEnter=function(charge, dx, dz){
   const B=window._BALL; if(typeof player==='undefined'||!player)return;
+  if(player._launched||(player._kbStun||0)>0)return;   // can't ball up mid-knockback
   if(player._ballCharge!=null && player._ballCharge<(window._BALL_MIN_ENTER||15)){ if(typeof announce==='function')announce('BALL CHARGING…','#66e0ff'); return; }   // gated on charge
   const lo=(window._BALL_MIN_SPD||210), hi=(window._BALL_MAX_SPD||840);
   const sp=lo + Math.max(0,Math.min(1,charge))*(hi-lo); const dl=Math.hypot(dx,dz)||1;
@@ -28465,6 +28470,7 @@ function _proceduralMelee(dirAngle){
 }
 function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
   if(!player) return;
+  if(player._launched || (player._kbStun||0)>0) return;   // no melee while getting knocked around (was triggering stray anims mid-flight)
   if(!ud||!ud.clips){ if(window._PROC_MELEE!==false) _proceduralMelee(dirAngle); return; }
   if(ud._meleeTimer && ud._meleeTimer>0){ player._meleeBuf={dir:(typeof dirAngle==='number'?dirAngle:null),combo:comboOverride}; return; }   // swing in progress -> buffer ONE, fired on finish (1 swing = 1 hit)
   // SLIDE-ONLY (gamepad B while running): fire a slide ONLY if one is actually available right now; otherwise bail with false so
