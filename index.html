@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB217</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB218</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -20046,7 +20046,7 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
             if(window._BALL_ON){ const _bcy=Math.cos(CAM.yaw),_bsy=Math.sin(CAM.yaw), _bwx=svx*_bcy+svy*_bsy, _bwz=-svx*_bsy+svy*_bcy;
               if(window._BALL&&window._BALL.state==='charging'){ window._ballEnter(window._BALL.charge, _bwx, _bwz); jL._tapMoved=true; }   // charged launch
               else if(window._BALL&&window._BALL.state==='rolling'){ window._ballQuickRoll(_bwx, _bwz); jL._tapMoved=true; }   // redirect mid-roll stays responsive
-              else { const _fd=Math.hypot(newest.x-oldest.x,newest.y-oldest.y); if(spd>(window._BALL_FLICK_SPD||0.85)&&_fd>(window._BALL_FLICK_DIST||34)){ window._ballQuickRoll(_bwx, _bwz); jL._tapMoved=true; } } }   // ENTER ball only on a deliberate fast+long flick (so running/turning never trips it)
+              else { const _fd=Math.hypot(newest.x-oldest.x,newest.y-oldest.y); if(spd>(window._BALL_FLICK_SPD||0.55)&&_fd>(window._BALL_FLICK_DIST||24)){ window._ballQuickRoll(_bwx, _bwz); jL._tapMoved=true; } } }   // ENTER ball on a deliberate flick (thresholds lowered so a normal left-stick swipe reliably balls up)
             else if(window._meleeOnLeftStick){
               // ── LEFT-STICK FLICK MELEE — SURGICAL: turn toward the flicked direction and swing (cycles the combo) ──
               if(player.alive&&!player._wallClimb&&!player._hang&&!player._crestSeq&&GS.state==='playing'){
@@ -20235,7 +20235,7 @@ jL.onTap=()=>{
 
         // Right stick toward wall = grab; jump or stick away = release
 
-        if(player&&GS.state==='playing'&&player.bombArmed&&!CAM.aimMode){
+        if(player&&GS.state==='playing'&&player.bombArmed&&!CAM.aimMode&&!player._ballActive){   // NOT in ball mode — a right-stick tap there is hop/exit (the ball branch owns it), never a throw
           const hist=jR._swipeHist||[];
           let threw=false;
 
@@ -20249,8 +20249,8 @@ jL.onTap=()=>{
             // THROW POWER = PEAK flick SPEED (not the averaged total). A fast snap throws far even if short; a slow drag throws weak even if long.
             let peakV=0; for(let _i=1;_i<hist.length;_i++){ const _a=hist[_i-1],_b=hist[_i]; const _dt=(_b.time-_a.time)||1; const _v=Math.hypot(_b.x-_a.x,_b.y-_a.y)/_dt; if(_v>peakV)peakV=_v; }
             const vel=peakV; // px/ms peak
-            // Flick = moved at least 12px and a quick peak (>0.25px/ms) within 400ms
-            if(totalDist>12&&vel>0.25&&elapsed<400){
+            // Flick = a real swipe (min distance so a jittery TAP jumps instead of throwing) with a quick peak within 400ms
+            if(totalDist>(window._THROW_FLICK_DIST||30)&&vel>0.25&&elapsed<400){
               const cy=Math.cos(CAM.yaw), sy=Math.sin(CAM.yaw);
               const sx=totalDx/totalDist, sy2=totalDy/totalDist;   // direction = net swipe (stable aim); power = peak speed
               const wx=sx*cy+sy2*sy, wz=-sx*sy+sy2*cy;
@@ -23757,7 +23757,7 @@ function _scoreGoal(G){
 //    with a fresnel-only fragment (faint body, brighter rim) so it reads like a distorted gravity/heat-haze column, not a solid. ──
 function _buildGeyser(parent){
   if(window._GEYSER_ON===false || typeof THREE==='undefined') return;
-  const GY=(window._GEYSER_Y||130), GR=(window._GEYSER_R||80), H=GY+(window._GEYSER_TOP||60);
+  const GY=(window._GEYSER_Y||130), GR=(window._GEYSER_R||80)*(window._GEYSER_VIS_SCALE||0.5), H=GY+(window._GEYSER_TOP||60);   // visual column ~half the capture radius
   const geo=new THREE.CylinderGeometry(GR*0.62, GR*0.82, H, 44, 26, true);
   const mat=new THREE.ShaderMaterial({
     uniforms:{ uT:{value:0}, uCol:{value:new THREE.Color(window._GEYSER_COL!=null?window._GEYSER_COL:0x9be4ff)}, uAmp:{value:(window._GEYSER_AMP||7)} },
@@ -23780,8 +23780,8 @@ function _buildGeyser(parent){
 function _geyserTick(dt){
   const G=window._cubeGeyser; const GY=(window._GEYSER_Y||130), GR=(window._GEYSER_R||80), gcx=(window._GEYSER_X||0), gcz=(window._GEYSER_Z||0);
   if(G){ if(G.mat)G.mat.uniforms.uT.value+=dt; if(G.ring)G.ring.opacity=0.3+0.18*(0.5+0.5*Math.sin(performance.now()*0.003)); }
-  // ── the geyser HOLDS the character too — walk into the column and an invisible field floats you up (floating anim); jump or walk out to leave ──
-  if(window._GEYSER_HOLD_PLAYER!==false && window._GEYSER_ON!==false && player && player.alive!==false && !player._ballActive && !player._launched && (player._kbStun||0)<=0 && GS.state==='playing'){
+  // ── the geyser can HOLD the character too (opt-in: window._GEYSER_HOLD_PLAYER=true) — walk in and float up; jump/walk out to leave ──
+  if(window._GEYSER_HOLD_PLAYER===true && window._GEYSER_ON!==false && player && player.alive!==false && !player._ballActive && !player._launched && (player._kbStun||0)<=0 && GS.state==='playing'){
     const hd=Math.hypot(player.wx-gcx, player.wz-gcz);
     if(player._geyserHold){
       if(hd>GR*1.3 || player._jumpTapped || (player.pvy||0)>(window._GEYSER_JUMP_OUT||200) || (player._hasBoots&&player._bootsEquipped)){ player._geyserHold=false; }
