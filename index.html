@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB208</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB209</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -19714,6 +19714,13 @@ function rotInput(ix,iy){ const c=Math.cos(CAM.yaw),s=Math.sin(CAM.yaw);
 const _padPrev=[]; window._padActive=false; window._padFire=false; window._lastInput='mouse';
 function _padJump(){ if(!player||GS.state!=='playing')return;
   if(player._onHoverboard){ return; }
+  if(player._ballActive && window._BALL && window._BALL.state){   // BALL MODE: A tap = hop (repeatable); double-tap A = exit
+    const B=window._BALL, _now=(typeof performance!=='undefined'?performance.now():Date.now());
+    if(player._ballJumpTapT && (_now-player._ballJumpTapT)<(window._BALL_EXIT_DTAP||280)){ player._ballJumpTapT=0; if(window._ballExit)window._ballExit(); return; }
+    player._ballJumpTapT=_now;
+    if(B.py<=(window._BALL_HOP_GND||6)){ B.vy=Math.max(B.vy||0,(window._BALL_JUMP_V||480)); player._ballHopT=_now; if(typeof ps!=='undefined')ps.ring(B.px,B.pz,[0.3,0.95,1],12,80); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(420,0.1,'sine',0.1,520); }
+    return;
+  }
   if(GS.zone===-4||GS.zone===-12){ if(_gOnSurface){player._charging=true;player._chargeStart=performance.now();player._jumpCharge=0;} return; }
   if(player._inPlanetGravity){ if(GS.zone===-16&&player._glGrounded===false){ player._wallDislodge=true; return; } player._jumpTapped=true; setTimeout(()=>{if(player)player._jumpTapped=false;},90); return; }
   if(player._grinding||player._wallClimb||player._hang||player._wallRun){ player._jumpTapped=true; setTimeout(()=>{if(player)player._jumpTapped=false;},90); return; }
@@ -20241,6 +20248,17 @@ function _chargeJumpVel(charge){
 jR.onTap=()=>{
   if(!player||GS.state!=='playing')return;
   if(player._onHoverboard){ return; }   // riding: NO jump on the board — it only hovers up/down (left-stick tap dismounts)
+  if(player._ballActive && window._BALL && window._BALL.state){   // BALL MODE: single tap = HOP (repeatable, stays balled); DOUBLE-tap = exit the ball
+    const B=window._BALL, _now=(typeof performance!=='undefined'?performance.now():Date.now());
+    if(player._ballJumpTapT && (_now-player._ballJumpTapT)<(window._BALL_EXIT_DTAP||280)){   // second quick tap -> pop out
+      player._ballJumpTapT=0; if(window._ballExit)window._ballExit();
+      if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.4,0.9,1],14,95); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(300,0.12,'square',0.12,220);
+      return;
+    }
+    player._ballJumpTapT=_now;
+    if(B.py<=(window._BALL_HOP_GND||6)){ B.vy=Math.max(B.vy||0,(window._BALL_JUMP_V||480)); player._ballHopT=_now; if(typeof ps!=='undefined')ps.ring(B.px,B.pz,[0.3,0.95,1],12,80); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(420,0.1,'sine',0.1,520); }   // grounded -> hop (spaced hops never trip the double-tap since each arc lasts > the window)
+    return;
+  }
   if(!player._carryPayload && typeof _grabItem==='function' && _grabItem()) return;   // tap right stick near a crate/power-up -> grab it
   if(GS.zone===-14){ if(_ropeZ&&_ropeZ.grabbed){ player._ropeJumpReq=true; } else { player._jumpTapped=true; setTimeout(()=>{ if(player) player._jumpTapped=false; },90); } return; }
   // Galaxy planet: use hold duration for charge (set in _start/_end hooks below)
@@ -28765,7 +28783,12 @@ window._ballUpdate=function(dt){
   if(!B._lastPuff || Math.hypot(B.px-B._lastPuff[0], B.pz-B._lastPuff[1]) > (window._BALL_TRAIL_GAP||16)){ B._lastPuff=[B.px,B.pz]; _ballTrailPuff(B.px, B.py+(window._BALL_VIS_R||16), B.pz, (window._BALL_VIS_R||16)*0.72, window._BALL_GLOW2||0x4cf0ff); }
   if(typeof grid!=='undefined'&&grid.push&&Math.random()<0.9)grid.push(B.px,B.pz,-2,42);
   if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(B.px+rand(-6,6),B.pz+rand(-6,6),[0.3,0.9,1]);
-  if((sp<(window._BALL_EXIT_SPD||95) && B.py<=0) || (window._BALL_INFINITE===false && B.t>(window._BALL_MAX_T||7))) window._ballExit();   // AUTO-EXIT when you slow to a crawl on the ground (no fuel drain / no timeout — just pop out when you run out of momentum)
+  // AUTO-EXIT — only after sitting SLOW + GROUNDED for a sustained beat (so a bounce-in-place / land-then-hop keeps you in
+  // the ball). A recent hop (_ballHopT) or any real speed resets the timer. Deliberate exit is a double-tap / swipe (jR.onTap).
+  { const _nw2=(typeof performance!=='undefined'?performance.now():Date.now());
+    const _slow=(sp<(window._BALL_EXIT_SPD||95) && B.py<=0.5 && (B.vy||0)<=1 && (_nw2-(player._ballHopT||0))>(window._BALL_HOP_GRACE||500));
+    if(_slow){ B._slowT=(B._slowT||0)+dt; } else { B._slowT=0; }
+    if((window._BALL_AUTO_EXIT!==false && B._slowT>(window._BALL_SLOW_EXIT_T||1.1)) || (window._BALL_INFINITE===false && B.t>(window._BALL_MAX_T||7))) window._ballExit(); }   // pop out when you genuinely run out of momentum (or the optional hard timeout)
 };
 // procedural ship melee — fires when there is no animation rig (sandbox / model-less). Reusable.
 function _proceduralMelee(dirAngle){
