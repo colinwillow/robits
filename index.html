@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB149</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB150</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -927,6 +927,46 @@ function _bwUpdateSplashes(dt){
   }
 }
 window._bwUpdateSplashes=_bwUpdateSplashes;
+
+// ── DISPLACEMENT-FIELD RIPPLE — topology-agnostic. ANY mesh (native or imported GLB, triangulated, unordered) ripples from a
+//    live list of impact sources: each vertex displaces along its normal by an expanding-ring field summed over the sources.
+//    No grid ordering, no quads, no neighbours — just each vertex's world position. Patched into the material's VERTEX shader
+//    (onBeforeCompile) so it's ~free even on huge meshes. window._rippleHit(x,y,z,amp) drops a ring; _attachRipple(mesh) opts in. ──
+const _RIPPLE_MAX=12;
+const _RIPPLE_U={ uRip:{value:Array.from({length:_RIPPLE_MAX},()=>new THREE.Vector4(0,0,0,0))}, uRipAge:{value:new Array(_RIPPLE_MAX).fill(0)},
+  uRipSpeed:{value:260}, uRipWidth:{value:90}, uRipAmp:{value:16} };
+window._rippleSources=window._rippleSources||[];
+window._rippleHit=function(x,y,z,amp,life){ const L=window._rippleSources; L.push({x:x||0,y:y||0,z:z||0,amp:(amp!=null?amp:1),t:0,life:(life||(window._RIP_LIFE||1.5))}); if(L.length>(window._RIP_SRC_MAX||40))L.shift(); };
+function _rippleTick(dt){
+  const uR=_RIPPLE_U.uRip.value, uA=_RIPPLE_U.uRipAge.value;
+  for(let i=0;i<_RIPPLE_MAX;i++){ uR[i].set(0,0,0,0); uA[i]=0; }
+  const L=window._rippleSources; if(!L||!L.length) return;
+  for(let i=L.length-1;i>=0;i--){ const s=L[i]; s.t+=dt; if(s.t>=s.life)L.splice(i,1); }
+  L.sort((a,b)=>((b.amp*(1-b.t/b.life))-(a.amp*(1-a.t/a.life))));   // strongest (young + big) first -> the 12 packed into the shader
+  const n=Math.min(_RIPPLE_MAX,L.length);
+  for(let i=0;i<n;i++){ const s=L[i]; const str=s.amp*Math.pow(Math.max(0,1-s.t/s.life),1.3); uR[i].set(s.x,s.y,s.z,str); uA[i]=s.t; }
+  _RIPPLE_U.uRipSpeed.value=(window._RIP_SPEED||260); _RIPPLE_U.uRipWidth.value=(window._RIP_WIDTH||90); _RIPPLE_U.uRipAmp.value=(window._RIP_AMP||16);
+}
+window._rippleTick=_rippleTick;
+window._attachRipple=function(root){ if(!root)return; root.traverse(o=>{ if(!(o.isMesh||o.isSkinnedMesh)||!o.material)return;
+  const mats=Array.isArray(o.material)?o.material:[o.material];
+  const out=mats.map(mt=>{ if(!mt||mt._rippled)return mt;
+    mt.onBeforeCompile=(sh)=>{ sh.uniforms.uRip=_RIPPLE_U.uRip; sh.uniforms.uRipAge=_RIPPLE_U.uRipAge; sh.uniforms.uRipSpeed=_RIPPLE_U.uRipSpeed; sh.uniforms.uRipWidth=_RIPPLE_U.uRipWidth; sh.uniforms.uRipAmp=_RIPPLE_U.uRipAmp;
+      sh.vertexShader='uniform vec4 uRip['+_RIPPLE_MAX+'];\nuniform float uRipAge['+_RIPPLE_MAX+'];\nuniform float uRipSpeed;\nuniform float uRipWidth;\nuniform float uRipAmp;\n'+
+        sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n vec3 _rwp=(modelMatrix*vec4(transformed,1.0)).xyz;\n float _rdsp=0.0;\n for(int _i=0;_i<'+_RIPPLE_MAX+';_i++){ float _rs=uRip[_i].w; if(_rs<=0.001)continue; float _rd=distance(_rwp.xz,uRip[_i].xz); float _rr=uRipAge[_i]*uRipSpeed; float _rw=(_rd-_rr)/uRipWidth; _rdsp+=exp(-_rw*_rw)*uRipAmp*_rs; }\n transformed += normal*_rdsp;');
+    };
+    mt._rippled=true; mt.needsUpdate=true; return mt; });
+  o.material=Array.isArray(o.material)?out:out[0];
+}); window._RIPPLE_ON=true; };
+// TEST: a big subdivided wire-grid plane that ripples — proof the effect works on native geometry (same path an imported mesh uses)
+window._rippleTestPlane=function(){ try{ if(window._rippleTP&&window._rippleTP.parent)window._rippleTP.parent.remove(window._rippleTP);
+  const C=window._CUBE||{hx:1300,hz:1000}; const seg=(window._RIP_TEST_SEG||70);
+  const geo=new THREE.PlaneGeometry(C.hx*1.7,C.hz*1.7,seg,seg);
+  const mat=new THREE.MeshStandardMaterial({color:0x0a1826,metalness:0.4,roughness:0.55,emissive:0x2b6fa0,emissiveIntensity:0.7,wireframe:true,toneMapped:false});
+  const m=new THREE.Mesh(geo,mat); m.rotation.x=-Math.PI/2; m.position.y=(window._RIP_TEST_Y||4); m.frustumCulled=false; scene.add(m);
+  window._attachRipple(m); window._rippleTP=m; if(typeof announce==='function')announce('RIPPLE TEST PLANE — shoot / run to ripple it','#33e0ff');
+}catch(e){ console.warn('ripple test',e); } };
+try{ if(typeof location!=='undefined' && /[?&]ripple/i.test(location.search||'')) window._RIPPLE_TEST=true; }catch(_){}   // add ?ripple to drop the test plane in the cube arena
 
 function initPostProcessing(renderer, scene, camera){
   try{
@@ -2080,12 +2120,12 @@ class Particles{
     for(let i=0;i<cap;i++)this.pos[i*3+1]=-9999;
   }
   // Spawn fewer particles on mobile
-  burst(wx,wz,col,n=28,spd=90,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); if(window._BW_MODE&&window._inkSplash&&n>=(window._INK_MIN_N||14))window._inkSplash(wx,Y,wz,col); const nn=IS_MOBILE?Math.ceil(n*0.5):n; for(let i=0;i<nn;i++){const a=rand(TAU),up=rand(0.2,1.1),s=spd*(0.3+Math.random());this._spawn(wx,Y,wz,Math.cos(a)*s,up*s*0.6,Math.sin(a)*s,r,g,b,0.014+rand(0.02));} }
+  burst(wx,wz,col,n=28,spd=90,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); if(window._BW_MODE&&window._inkSplash&&n>=(window._INK_MIN_N||14))window._inkSplash(wx,Y,wz,col); if((window._RIPPLE_ON||window._rippleTP)&&window._rippleHit&&n>=10)window._rippleHit(wx,Y,wz,Math.min(2.2,n/18)); const nn=IS_MOBILE?Math.ceil(n*0.5):n; for(let i=0;i<nn;i++){const a=rand(TAU),up=rand(0.2,1.1),s=spd*(0.3+Math.random());this._spawn(wx,Y,wz,Math.cos(a)*s,up*s*0.6,Math.sin(a)*s,r,g,b,0.014+rand(0.02));} }
   ring(wx,wz,col,n=40,spd=120,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); const nn=IS_MOBILE?Math.ceil(n*0.5):n; for(let i=0;i<nn;i++){const a=(i/nn)*TAU,s=spd*(0.6+Math.random()*0.5);this._spawn(wx,Y,wz,Math.cos(a)*s,rand(10,60),Math.sin(a)*s,r,g,b,0.012+rand(0.014));} }
   _spawn(x,y,z,vx,vy,vz,r,g,b,dec){ let i=this.n<this.cap?this.n++:Math.floor(rand(this.cap));
     this.pos[i*3]=x;this.pos[i*3+1]=y;this.pos[i*3+2]=z; this.vel[i*3]=vx;this.vel[i*3+1]=vy;this.vel[i*3+2]=vz;
     this.base[i*3]=r;this.base[i*3+1]=g;this.base[i*3+2]=b; this.col[i*3]=r;this.col[i*3+1]=g;this.col[i*3+2]=b; this.life[i]=1;this.decay[i]=dec; }
-  burst(wx,wz,col,n=28,spd=90,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); if(window._BW_MODE&&window._inkSplash&&n>=(window._INK_MIN_N||14))window._inkSplash(wx,Y,wz,col); for(let i=0;i<n;i++){const a=rand(TAU),up=rand(0.2,1.1),s=spd*(0.3+Math.random());this._spawn(wx,Y,wz,Math.cos(a)*s,up*s*0.6,Math.sin(a)*s,r,g,b,0.014+rand(0.02));} }
+  burst(wx,wz,col,n=28,spd=90,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); if(window._BW_MODE&&window._inkSplash&&n>=(window._INK_MIN_N||14))window._inkSplash(wx,Y,wz,col); if((window._RIPPLE_ON||window._rippleTP)&&window._rippleHit&&n>=10)window._rippleHit(wx,Y,wz,Math.min(2.2,n/18)); for(let i=0;i<n;i++){const a=rand(TAU),up=rand(0.2,1.1),s=spd*(0.3+Math.random());this._spawn(wx,Y,wz,Math.cos(a)*s,up*s*0.6,Math.sin(a)*s,r,g,b,0.014+rand(0.02));} }
   ring(wx,wz,col,n=40,spd=120,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); for(let i=0;i<n;i++){const a=(i/n)*TAU,s=spd*(0.6+Math.random()*0.5);this._spawn(wx,Y,wz,Math.cos(a)*s,rand(10,60),Math.sin(a)*s,r,g,b,0.012+rand(0.014));} }
   spark(wx,wz,col,y){ const[r,g,b]=col,Y=(y!==undefined?y:5); for(let i=0;i<4;i++){const a=rand(TAU);this._spawn(wx,Y,wz,Math.cos(a)*rand(40,120),rand(20,80),Math.sin(a)*rand(40,120),r,g,b,0.05+rand(0.04));} }
   // Directional MUZZLE FLASH at a 3D point: a hot white core POP + a forward-thrown fan of colored streaks along `ang`.
@@ -21123,6 +21163,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
       if(player&&player._onHoverboard){ firing=false; avx=0; avz=0; aiming=false; if(player._gcur)player._gcur.visible=false; }   // riding: right stick is throttle, not fire; no aim cursor
       player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); resolveBodyCollisions(player); if(typeof _updateWallRun==='function'){ try{ _updateWallRun(dt); }catch(_wre){ try{ player._wallRun=null; }catch(_){} } } if(window._aimAssistTick){ try{ window._aimAssistTick(dt,firing,Math.hypot(avx,avz)); }catch(_){} } player.draw(od); if(player._spawnAura){ player._spawnAuraMs=(player._spawnAuraMs||0)+dt; if(player._spawnAuraMs>(window._SPAWN_AURA_SEC||4.2)){ try{player._spawnAura.remove();}catch(_){} player._spawnAura=null; player._respawnBlink=0; } } /* FAILSAFE: spawn-in glow shell normally removed in draw() as _respawnBlink counts down; an early-return draw path can freeze it on forever, so force-remove after a fixed time */ if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt); if(window._ballFrame)window._ballFrame(dt); if(window._riflePoseTick)window._riflePoseTick(dt);
+      if(window._rippleTick){ window._rippleTick(rawDt); if((window._RIPPLE_ON||window._rippleTP)&&player){ const _rsp=Math.hypot(player.vx||0,player.vz||0); player._ripTrailT=(player._ripTrailT||0)-rawDt; if(_rsp>(window._RIP_TRAIL_SPD||190)&&player._ripTrailT<=0){ window._rippleHit(player.wx,player.py,player.wz,(window._RIP_TRAIL_AMP||0.5),(window._RIP_TRAIL_LIFE||0.9)); player._ripTrailT=(window._RIP_TRAIL_CD||0.12); } } }   // ripple field: advance the impact rings + drop a faint trailing ring as the player runs
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _ww=(typeof _cubeWalkOn==='function'&&_cubeWalkOn(player)&&player._cubeUp&&player._cubeUp.y<0.9); const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(_ww||!_bmv) window._reorientGameBoots(); }   // on a wall/ceiling re-aim the boots to the surface every frame; on the floor only when standing still (avoids stride jitter)
       if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
@@ -23540,6 +23581,7 @@ function buildCubeArena(){
   // ── LEVEL GEOMETRY: platforms / ramps / cover pillars / high perches (data-driven kit; edit _CUBE_LEVEL to redesign) ──
   window._cubePlatforms=null;
   try{ if(window._CUBE_LEVEL_ON===true && typeof _buildCubeLevel==='function') _buildCubeLevel(_cubeGroup); }catch(e){ console.warn('cube level',e); }   // auto-layout OFF by default — levels get hand-built / imported, not procedurally scattered
+  try{ if(window._RIPPLE_TEST && typeof window._rippleTestPlane==='function') setTimeout(()=>window._rippleTestPlane(),300); }catch(_){}   // ?ripple -> drop the field-ripple test plane so it can be tried in the cube
   // ── spawn robot at center floor, normal controls ──
   player.wx=0; player.wz=0; player.py=0; player.pvy=0; player.vx=0; player.vz=0; player._inPlanetGravity=false; if(player.model)player.model.visible=true;
   try{ if(CAM){ CAM.tyaw=0; CAM.yaw=0; if(CAM.tfocus)CAM.tfocus.set(0,40,0); if(CAM.focus)CAM.focus.set(0,40,0); } }catch(_){}
