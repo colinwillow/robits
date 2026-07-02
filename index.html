@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB180</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB181</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3937,6 +3937,7 @@ function _allyAcquireFoe(){
   let best=null, bd=(this._aggroR||720);
   if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._invulnerable)continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<bd){ bd=d; best=e; } }
   if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false)continue; const d=Math.hypot(b.wx-this.wx,b.wz-this.wz); if(d<bd){ bd=d; best=b; } }
+  if(window._ALLY_TARGET_DUMMY!==false && typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.alive!==false){ const dm=GS_trainingDummy; const d=Math.hypot(dm.wx-this.wx,dm.wz-this.wz); if(d<bd){ bd=d; best=dm; } }   // TARGET THE TRAINING DUMMY like any foe so you can always test your summons' fire/tracking/effects
   // VERSUS/cube MP: the enemy PLAYER is a valid foe for your summons too (co-op leaves the partner alone).
   if(typeof MP!=='undefined'&&MP.active&&MP.versus&&MP.players)for(const id in MP.players){ const rp=MP.players[id]; if(!rp||!rp.mesh||(rp.state&&rp.state.dead))continue; const d=Math.hypot(rp.mesh.position.x-this.wx,rp.mesh.position.z-this.wz); if(d<bd){ bd=d; best=_mpFoeProxy(rp,id); } }
   return best;
@@ -19088,7 +19089,15 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
             }
           }
         }
-        if(b.life<=0)break; } } }
+        if(b.life<=0)break; } }
+    // TRAINING DUMMY takes bullets too — it's a separate global (not in GS.enemies), so any shooter's fire (yours OR your summons') registers on it with the same hit FX, for always-on testing.
+    if(b.life>0 && !mpNonHost && typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.alive!==false && !(b.hitSet&&b.hitSet.has(GS_trainingDummy))){ const dm=GS_trainingDummy; const dx=b.wx-dm.wx, dz=b.wz-dm.wz, rr=(dm.size||16)+6;
+      if(dx*dx+dz*dz<rr*rr){ const dmy=(dm.mesh?dm.mesh.position.y:(dm.py||9)), by=(b.y!=null?b.y:9);
+        if(by>dmy-(window._BULLET_VERT_DOWN||30) && by<dmy+Math.max((window._BULLET_VERT_UP||48),(dm._tall||0))){
+          if(dm.hit)try{dm.hit(b.dmg, b.wx, b.wz, b.y);}catch(_){}   // the dummy's hit() already imparts the sway-shove, so no separate knock() (would double it)
+          if(typeof _hitMark==='function')_hitMark(b.wx, by, b.wz, (window._HITMARK_COL||0x9fd8ff), ((dm.size||16)>=24));
+          if(b.pierce>0){b.pierce--;b.hitSet.add(dm);}else b.life=0; } } }
+  }
   if(kt>0)addTrauma(Math.min(kt,0.25));
   if(player.alive&&player.inv<=0&&player.dashing<=0){
     for(const e of GS.enemies){
