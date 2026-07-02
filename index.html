@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB207</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB208</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11525,6 +11525,7 @@ class Player{
         if(typeof ps!=='undefined'&&Math.random()<0.55) ps.spark(this.wx+rand(-7,7),this.wz+rand(-7,7),[0.85,0.4,1],9+(this.py||0)+rand(0,20)); }   // electrocuted: slowed + jolting until you dodge/push out
       const inMag=Math.hypot(rawX,rawZ);
       let e = inMag>0.05 ? MOVE.velEaseUp : MOVE.velEaseDown;
+      if((this._ejectFlyT||0)>0){ this._ejectFlyT-=dt; if(inMag<0.05){ tvx=this.vx; tvz=this.vz; e=Math.min(e,(window._BALL_EJECT_DRAG||0.04)); } }   // BALL-JET EJECT: preserve the carried forward momentum through the jet arc unless you actively steer
       if(this.model&&this.model.userData&&this.model.userData._meleeTimer>0 && !(this._meleeLungeT>0)){
         if(window._meleeLandLock){ tvx=0; tvz=0; e=Math.max(e,0.35); this._jumpTapped=false; }   // opt-in: PLANT in place for the swing
         else { const _cd=Math.pow((window._MELEE_CARRY_DECAY!=null?window._MELEE_CARRY_DECAY:0.3),dt); tvx=this.vx*_cd; tvz=this.vz*_cd; e=1; this._jumpTapped=false; }   // DEFAULT: CARRY entry momentum through the swing (running slam slides forward then settles; air-melee arcs forward+down), no re-steer
@@ -28693,13 +28694,20 @@ window._ballUpdate=function(dt){
   if(player.pvy>100 && B.py<=4){ B.vy=Math.max(B.vy,(window._BALL_JUMP_V||480)); player.pvy=0; }                                     // jump while rolling = ball-pop (stays in ball)
   if(B._lerpT>0){ const _lk=Math.min(1, dt/Math.max(0.001,B._lerpT)); B.vx+=((B._tgtVx!=null?B._tgtVx:B.vx)-B.vx)*_lk; B.vz+=((B._tgtVz!=null?B._tgtVz:B.vz)-B.vz)*_lk; B._lerpT-=dt; }   // smooth the redirect
   // ── JETPACK IN BALL MODE ── hold the right stick (jetpack) while balled + airborne. Two modes:
-  //   'thrust' (default, the crazy one): fire the jet ON the spinning ball — the thrust vector REVOLVES with the ball's
-  //           rotation (B.q), so you corkscrew/spiral through the air. Tune _BALL_JET_SPIN (0=straight up, 1=full tumble).
-  //   'eject': the 2nd-jump/hold pops you OUT of the ball into a normal jetpack instead.
+  //   'eject' (default): pop OUT of the ball into the normal upright jetpack, CARRYING your ball trajectory — if you were
+  //           arcing up+forward you keep flying up+forward while the jet takes over. Tune _BALL_EJECT_CARRY / _VLIFT.
+  //   'thrust': fire the jet ON the spinning ball — thrust vector REVOLVES with the spin (B.q) so you corkscrew. _BALL_JET_SPIN.
   if(window._BALL_JET!==false && _jetHeld && !player.bombArmed && !player._wallClimb && !player._wallRun && (player.boostFuel||0)>0 && B.py>(window._BALL_JET_MINY||6)){
-    if(window._BALL_JET_MODE==='eject'){
-      window._ballExit();                                                                                   // pop out; normal jetpack (line ~20636) takes over since the stick is still held + we're airborne
-      player.pvy=Math.max(player.pvy||0, (B.vy*0.5)+(window._BALL_EJECT_JET_LIFT||140)); player._jetting=true;
+    if((window._BALL_JET_MODE||'eject')!=='thrust'){
+      const _k=(window._BALL_EJECT_CARRY!=null?window._BALL_EJECT_CARRY:1.0);                                // horizontal momentum carried into the jet flight (1 = keep all of it)
+      const _vl=(window._BALL_EJECT_VLIFT!=null?window._BALL_EJECT_VLIFT:0.85);                              // how much of the ball's climb speed carries up
+      const _bvx=B.vx, _bvz=B.vz, _bvy=B.vy;
+      window._ballExit();                                                                                   // pop out; normal upright jetpack (line ~20636 / vertical physics) takes over since the stick is still held + we're airborne
+      player.vx=_bvx*_k; player.vz=_bvz*_k;                                                                 // keep flying the way you were rolling (forward carry)
+      player.pvy=Math.max((player.pvy||0), _bvy*_vl+(window._BALL_EJECT_JET_LIFT||120));                    // carry the climb + a pop so the jet catches cleanly
+      player._jetting=true; player._ejectFlyT=(window._BALL_EJECT_FLY_T||0.5);                              // brief window where air-momentum is preserved (less auto-decel) so the forward carry reads
+      if(typeof ps!=='undefined'){ ps.ring(player.wx,player.wz,[0.4,0.85,1],16,110); ps.burst(player.wx,player.py+10,[0.3,0.95,1],10,90); }
+      if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(360,0.12,'sawtooth',0.14,900);
       return;
     }
     const F=(window._BALL_JET_FORCE||1650), burn=(window._BALL_JET_BURN||40), rev=(window._BALL_JET_SPIN!=null?window._BALL_JET_SPIN:0.6);
