@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB200</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB201</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -28732,14 +28732,21 @@ function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
   { const _og=(player.py<=4)||player._onPlatform||(player._inPlanetGravity&&player._glGrounded); _airMelee = player._inPlanetGravity ? !player._glGrounded : (!_og && player.py>8); }
   // SLAM = a DOWNWARD swipe of the right stick (airborne only). Every other direction stays a melee (kick/combo/tracking).
   const _airSlamNow=_airMelee && !!player._meleeDownFlick && window._AIR_SLAM_DOWN!==false && ud.clips['air_to_ground_melee'];   // down-swipe in the air = dive slam
-  // COMBO TRACKING (Smash-style juggle): while a combo is live and the last foe you hit is still in reach, the NEXT flick TRANSPORTS you straight at THEM (ignoring the exact flick direction) so you can chase the pop-up and keep hitting.
-  let _ct=(player._comboTarget && player._comboTarget.alive!==false && (player._meleeComboT||0)>0 && !_airSlamNow && window._COMBO_TRACK!==false)?player._comboTarget:null;
-  if(_ct){ const _cx=(_ct.wx!=null?_ct.wx:_ct.x), _cz=(_ct.wz!=null?_ct.wz:_ct.z); if(_cx==null || Math.hypot(_cx-player.wx,_cz-player.wz)>(window._COMBO_TRACK_R||440)) _ct=null; }   // sent them too far (home-run) -> combo drops
-  if(_ct){ const _cx=(_ct.wx!=null?_ct.wx:_ct.x), _cz=(_ct.wz!=null?_ct.wz:_ct.z); player.aim=Math.atan2(_cz-player.wz,_cx-player.wx); player._meleeAAtarget=_ct; player._comboTransport=true; }
-  else { player._comboTransport=false;
-    if(typeof dirAngle==='number' && !_airSlamNow){ let _maa=(typeof _meleeAimAssist==='function')?_meleeAimAssist(player,dirAngle):null; player.aim=_maa?_maa.ang:dirAngle; player._meleeAAtarget=_maa?_maa.e:null; }       // MELEE AIM-ASSIST: a flick generally toward a nearby foe SNAPS the swing's facing onto it
-    else if(!_airSlamNow && window._MELEE_AA_TAP!==false){ const _maa=(typeof _meleeAimAssist==='function')?_meleeAimAssist(player, player.aim||0):null; if(_maa){ player.aim=_maa.ang; player._meleeAAtarget=_maa.e; } else player._meleeAAtarget=null; }   // NULL-dir tap spam
+  // MELEE TARGETING — GROUP-AWARE & directional (Smash-style):
+  //  1) a flick TOWARD a nearby foe PICKS that foe — so surrounded by a group you flick at whichever one you want to bounce to next, and it transports you onto them;
+  //  2) if the flick isn't pointing at anyone, keep chasing the CURRENT combo target (the pop-up you're juggling);
+  //  3) a null-dir tap snaps onto whoever's in front.
+  let _pick=null, _transport=false;
+  if(!_airSlamNow){
+    if(typeof dirAngle==='number'){ const _maa=(typeof _meleeAimAssist==='function')?_meleeAimAssist(player,dirAngle):null;
+      if(_maa){ _pick=_maa.e; player.aim=_maa.ang; _transport=true; }   // flicked AT a foe (or the ball) -> go to THAT one
+      else { player.aim=dirAngle; }                                     // flicked at empty space -> just face the flick
+    }
+    if(!_pick && window._COMBO_TRACK!==false){ const _ct=(player._comboTarget && player._comboTarget.alive!==false && (player._meleeComboT||0)>0)?player._comboTarget:null;   // nobody in the flicked dir -> keep juggling the current foe
+      if(_ct){ const _cx=(_ct.wx!=null?_ct.wx:_ct.x), _cz=(_ct.wz!=null?_ct.wz:_ct.z); if(_cx!=null && Math.hypot(_cx-player.wx,_cz-player.wz)<=(window._COMBO_TRACK_R||440)){ player.aim=Math.atan2(_cz-player.wz,_cx-player.wx); _pick=_ct; _transport=true; } } }
+    if(!_pick && typeof dirAngle!=='number' && window._MELEE_AA_TAP!==false){ const _maa=(typeof _meleeAimAssist==='function')?_meleeAimAssist(player, player.aim||0):null; if(_maa){ _pick=_maa.e; player.aim=_maa.ang; _transport=true; } }   // null-dir tap
   }
+  player._meleeAAtarget=_pick; player._comboTransport=_transport;
   let mname;
   if(_airMelee){
     // AIR: flick AWAY from travel -> dive slam. Otherwise the FIRST air attack is a flying KICK, and continued flicks string into the melee_1..3 sequence (interrupt the kick mid-clip via the slide-cancel above).
