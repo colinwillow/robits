@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB161</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB162</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3700,6 +3700,7 @@ class BlueDragon extends Enemy{
     if(this._hitRecoil>0) this._hitRecoil=Math.max(0, this._hitRecoil - dt*(window._DRAGON_RECOIL_DECAY||7));   // procedural flinch decays fast
     if(this._meleeCD>0)this._meleeCD-=dt; if(this._airCD>0)this._airCD-=dt; if(this._dizzyCD>0)this._dizzyCD-=dt; if(this._flyCD>0)this._flyCD-=dt;
     if(this._energy<1 && this._state!=='dizzy') this._energy=Math.min(1, this._energy+dt*(window._DRAGON_REGEN||0.25));
+    if(this._faction!=='ally' && window._CREATURE_VS_ALLY!==false){ const ht=_pickHostileFoe(this); if(ht){ p=ht; this._huntTarget=ht; } }   // hostile creatures hunt the nearest of {player, your allies} so bot-summoned creatures fight your summons
     const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1;
     const aggroR=this._aggroR||window._DRAGON_AGGRO||540, meleeR=window._DRAGON_MELEE_R||54, airR=window._DRAGON_AIR_R||270;
     this._aggro=(d<aggroR);
@@ -3762,7 +3763,10 @@ class BlueDragon extends Enemy{
         if(!this._didMeleeHit && this._stateT>=hitAt){ this._didMeleeHit=true;
           if(this._faction==='ally'){ const f=this._curFoe; if(f&&f.alive!==false&&Math.hypot(f.wx-this.wx,f.wz-this.wz)<meleeR+24){ if(f.hit)try{f.hit(window._ALLY_BOSS_MELEE!=null?window._ALLY_BOSS_MELEE:1, f.wx, f.wz);}catch(_){} if(f.knock)try{f.knock(f.wx-this.wx,f.wz-this.wz,(window._BOSS_MELEE_KB||15),(window._BOSS_MELEE_LIFT||470),28);}catch(_){} if(typeof addTrauma==='function')addTrauma(0.06); } }   // ~3 hits to kill (dmg 1 x shared-HP scale), but a BIG smash-bros launch
 
-          else if(d<meleeR+18 && player&&player.alive&&player.inv<=0){ try{ spawnDmgNum(player.wx,(player.py||0)+20,player.wz,2,'#66bbff'); }catch(_){} if(typeof playerDie==='function') playerDie(); }
+          else if(d<meleeR+18){
+            if(p===player || p==null){ if(player&&player.alive&&player.inv<=0){ try{ spawnDmgNum(player.wx,(player.py||0)+20,player.wz,2,'#66bbff'); }catch(_){} if(typeof playerDie==='function') playerDie(); } }
+            else if(p&&p.alive!==false){ if(p.hit)try{p.hit(window._CREATURE_VS_ALLY_DMG||2, p.wx, p.wz);}catch(_){} if(p.knock)try{p.knock(p.wx-this.wx,p.wz-this.wz,(window._BOSS_MELEE_KB||15),(window._BOSS_MELEE_LIFT||470),28);}catch(_){} if(typeof addTrauma==='function')addTrauma(0.05); }   // hostile creature mauls your summon
+          }
           ps.burst(this.wx+dx/d*meleeR, this.wz+dz/d*meleeR, this.glow, 12, 90); addTrauma(0.05); }
         if(this._stateT>=dur+0.05){ this._enter(this._aggro?'chase':'idle'); } break; }
       case 'attack_air': { const dur=this._dur.attack_air||1.6, k=this._stateT/dur;
@@ -3916,6 +3920,14 @@ function _mpFoeProxy(rp,id){ let p=rp._foeProxy; if(!p){ p=rp._foeProxy={_mpFoe:
     knock:function(){} }; }
   p.wx=rp.mesh.position.x; p.wz=rp.mesh.position.z; p.py=rp.mesh.position.y; p.alive=!(rp.state&&rp.state.dead); return p;
 }
+// HOSTILE creatures target the nearest of {player, your allies} — so a bot's dog/dragon will fight YOUR dog/dragon, not just run at you.
+function _pickHostileFoe(self){
+  let best=(typeof player!=='undefined'&&player&&player.alive!==false)?player:null;
+  let bd=best?Math.hypot(player.wx-self.wx,player.wz-self.wz):(self._aggroR||window._DRAGON_AGGRO||540);
+  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(!a||a.alive===false||(a.hp!=null&&a.hp<=0)||a._captured)continue; const d=Math.hypot(a.wx-self.wx,a.wz-self.wz); if(d<bd){ bd=d; best=a; } }
+  return best;
+}
+window._pickHostileFoe=_pickHostileFoe;
 function _allyAcquireFoe(){
   let best=null, bd=(this._aggroR||720);
   if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._invulnerable)continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<bd){ bd=d; best=e; } }
@@ -23696,9 +23708,11 @@ function buildCubeArena(){
     for(const s of _RP){ try{
       if(typeof _spawnPU==='function' && !(window._itemPU||[]).some(p=>p&&p.type===s.type)){ const _it=_spawnPU(s.x,s.y,s.z,s.type,0,0,0); if(_it){ if(window._DISPENSER_EXPIRE!==true)_it._noExpire=true; _it.settled=true; _it.vx=_it.vy=_it.vz=0; _it._floatY=s.y; _it.y=s.y; } }
       if(window._POWERPADS!==false && typeof _makePowerPad==='function'){ const g=_makePowerPad(s.x,s.z,s.c); g.position.y=s.y-(window._POWERPAD_DECK_DROP||8); g.scale.setScalar(window._POWERPAD_BIG||30); if(_cubeGroup)_cubeGroup.add(g); else scene.add(g); _PP.push(g); }
-      const beam=new THREE.Mesh(new THREE.CylinderGeometry(1.5,6,s.y*2,12,1,true), new THREE.MeshBasicMaterial({color:s.c,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.set(s.x,s.y*0.5,s.z); if(_cubeGroup)_cubeGroup.add(beam); else scene.add(beam);   // a light column from floor to pad so you can see where to jump
+      const _brt=(window._PAD_BEAM_RT||16), _brb=(window._PAD_BEAM_RB||30);   // WIDER tractor-beam column (was a thin 1.5->6 sliver) — a real cone from pad down to the floor
+      const beam=new THREE.Mesh(new THREE.CylinderGeometry(_brt,_brb,s.y*2,24,1,true), new THREE.MeshBasicMaterial({color:s.c,transparent:true,opacity:(window._PAD_BEAM_OP||0.16),blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.set(s.x,s.y*0.5,s.z); if(_cubeGroup)_cubeGroup.add(beam); else scene.add(beam); s._beam=beam;
     }catch(_){} }
     window._cubePowerPads=_PP;
+    window._cubePadAnchors=_RP.map(s=>({x:s.x,z:s.z,y:s.y,r:(window._PAD_TRACTOR_R||34),t:0,beam:s._beam}));   // anchors for the spiral tractor-lift (built next)
     // a couple of powerups on the GROUND (no pad) — quick grabs without jumping
     for(const gpu of (window._CUBE_GROUND_PU||[{x:-90,z:_bz,type:'spiders'},{x:90,z:_bz,type:'drone'}])){ try{ if(!(window._itemPU||[]).some(p=>p&&p.type===gpu.type)){ const it=_spawnPU(gpu.x,16,gpu.z,gpu.type,0,0,0); if(it&&window._DISPENSER_EXPIRE!==true)it._noExpire=true; window._itemDispensers.push({x:gpu.x,z:gpu.z,type:gpu.type,cd:0}); } }catch(_){} }
   }catch(e){ console.warn('cube powerups',e); }
