@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB142</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB143</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9614,7 +9614,7 @@ function _updateSpiderPackPads(dt){
   for(const D of A){ D.cd=(D.cd||0)-dt; if(D.cd>0)continue;
     const carrying=player._carryPayload&&player._carryPayload.type===D.type;
     const onGround=(window._itemPU||[]).some(p=>p&&p.type===D.type);
-    if(!carrying && !onGround && typeof _spawnPU==='function'){ const _it=_spawnPU(D.x,16,D.z,D.type); if(_it && window._DISPENSER_EXPIRE!==true)_it._noExpire=true; D.cd=(window._ITEM_DISPENSE_CD||window._SPIDERPACK_PAD_CD||20); }   // dispenser stock is PERMANENT (won't age/cull); after you TAKE one the spot sits empty ~20s before the next appears
+    if(!carrying && !onGround && typeof _spawnPU==='function'){ const _y=(D.raised&&D.y!=null?D.y:16); const _it=_spawnPU(D.x,_y,D.z,D.type); if(_it){ if(window._DISPENSER_EXPIRE!==true)_it._noExpire=true; if(D.raised&&D.y!=null){ _it.settled=true; _it.vx=_it.vy=_it.vz=0; _it._floatY=D.y; _it.y=D.y; } } D.cd=(window._ITEM_DISPENSE_CD||window._SPIDERPACK_PAD_CD||20); }   // dispenser stock is PERMANENT; RAISED dispensers hover the powerup on a jump-up pad at D.y. After you take one the spot sits empty ~20s.
   }
 }
 function _removeSpiderPackPads(){ window._itemDispensers=null; window._spiderDispenser=null; }
@@ -14226,13 +14226,13 @@ function _updatePU(dt){
     }
     else if(p._lying){ p.grp.position.set(p.x,p.y,p.z); }   // a barrel that rolled to a stop -> stays lying on its side where it landed (no bob, no upright snap)
     else if(p.type==='barrel'){ p.grp.position.set(p.x,(window._BARREL_REST_Y!=null?window._BARREL_REST_Y:7),p.z); }   // resting upright barrel sits on the ground (no float-bob) — pushable
-    else { p.grp.position.y=7+Math.sin(p.t*2.4)*1.4; p.cube.rotation.y+=dt*1.4; }
+    else { const _fy=(p._floatY!=null?p._floatY:7); p.grp.position.y=_fy+Math.sin(p.t*2.4)*1.4; p.cube.rotation.y+=dt*1.4; }   // _floatY -> hovers on a RAISED power pad (jump/boost up to grab); else rests near the floor
     if(p.settled && p.cube && !p._easeUp && ((p.type==='barrel'&&!p._lying) || p.type==='nuke' || p.type==='drone' || p._model)){ p.cube.rotation.x=0; p.cube.rotation.z=0; }   // once RESTED: barrels / nuke / DRONE / weapon-loot sit FLAT (belly-down) and spin only on Y (skip while still easing up so the slerp isn't fought by a hard zero)
-    if(player&&!player._carryPayload&&(p.settled||p.type==='barrel')&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z), dy=Math.abs((player.py||0)-(p.y||0)); if(d<(window._GRAB_R_ITEM||60)&&dy<(window._GRAB_Y_ITEM||60)&&d<nd){nd=d;near=p;} }   // barrels are grabbable even while still rolling — Y gate so you can't grab floor loot while standing on the flipped ceiling
+    if(player&&!player._carryPayload&&(p.settled||p.type==='barrel')&&!p._loot){ const d=Math.hypot(player.wx-p.x,player.wz-p.z), dy=Math.abs((player.py||0)-(p.y||0)); const _gyT=(p._floatY!=null?(window._POWERPAD_GRAB_DY||32):(window._GRAB_Y_ITEM||60)); if(d<(window._GRAB_R_ITEM||60)&&dy<_gyT&&d<nd){nd=d;near=p;} }   // Y gate; RAISED pad powerups need a tighter dy so you must actually JUMP/boost up to their height to grab (not from the floor)
     // CUBE ARENA: the object floor sat ~a foot below the grid (where the no-boots robot stands) so barrels/powerups looked sunk.
     // Lift their VISUAL up onto the grid plane. Render-only (gameplay Y-gates keep using p.y and already tolerate ±32-40, so
     // shooting/breaking still connects). Tune live with window._CUBE_OBJ_LIFT; set it to 0 to disable.
-    if(GS.zone===-19 && p.grp){ p.grp.position.y += (window._CUBE_OBJ_LIFT!=null?window._CUBE_OBJ_LIFT:9); }
+    if(GS.zone===-19 && p.grp && p._floatY==null){ p.grp.position.y += (window._CUBE_OBJ_LIFT!=null?window._CUBE_OBJ_LIFT:9); }   // raised on-pad powerups use their exact float height (no floor lift)
   }
   window._nearOrb=near;
   for(const p of A){ const grbl=(player&&!player._carryPayload&&!p._loot&&(p.settled||p.type==='barrel')); const _pd=grbl?Math.hypot(player.wx-p.x,player.wz-p.z):1e9; const on=grbl && _pd<(window._GRAB_R_ITEM||60);   // PERSISTENT: any grabbable within reach shows its ring (not just the single nearest)
@@ -23387,24 +23387,32 @@ function buildCubeArena(){
   try{ if(typeof _spawnBootStation==='function') _spawnBootStation(0, -hz+ch+90); }catch(e){ console.warn('boot station',e); }
   try{ if(typeof _spawnHammerStation==='function'){ const ms=['sword','hammer','axe','spear','scythe','mace']; ms.forEach((m,i)=>_spawnHammerStation(-200+i*100, hz-ch-90, m)); } }catch(e){ console.warn('hammer stations',e); }
   try{ if(typeof _spawnWeaponPad==='function'){ const gs=['rockets','plasma','grenade','boomerang','minigun']; gs.forEach((w,i)=>_spawnWeaponPad(-hx+ch+90, -200+i*100, w)); } }catch(e){ console.warn('weapon pads',e); }   // minigun now on the cube wall pad too
-  // ── POWER-UP balls: spider pack + drone — grabbable + throwable; dispensers restock after you use them (the pad updater runs in the cube) ──
-  try{ const _puTypes=window._CUBE_PU_TYPES||['spiders','drone','droid','dog','dragon']; const _offTypes=window._CUBE_OFFENSIVE_TYPES||['nuke','singularity','quake'];
-    const _puD=_puTypes.map((t,i)=>({x:-260+i*130,z:-hz+ch+150,type:t,cd:0}));   // SUMMON balls on the back wall
-    const _offD=_offTypes.map((t,i)=>({x:hx-ch-150,z:-130+i*130,type:t,cd:0}));   // OFFENSIVE items (incl. NUKES) on the RIGHT wall — its own side, so each category owns a wall: melee=front(+z), guns=left(-x), summon=back(-z), offensive=right(+x)
-    window._itemDispensers=_puD.concat(_offD);
-    for(const D of window._itemDispensers){ try{ if(typeof _spawnPU==='function' && !(window._itemPU||[]).some(p=>p&&p.type===D.type)){ const _it=_spawnPU(D.x,16,D.z,D.type,0,0,0); if(_it && window._DISPENSER_EXPIRE!==true)_it._noExpire=true; }   // permanent summon/offensive stock
-      const _bc=(_ITEMDEF[D.type]?_ITEMDEF[D.type].glow:0x66ff77); const beam=new THREE.Mesh(new THREE.CylinderGeometry(1.5,5,90,12,1,true), new THREE.MeshBasicMaterial({color:_bc,transparent:true,opacity:0.13,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.set(D.x,45,D.z); if(_cubeGroup)_cubeGroup.add(beam); else scene.add(beam); }catch(_){} }
-    // ── POWER PADS: a lit pedestal under every perimeter spot, colour-keyed by category so each wall reads as its own zone ──
-    if(window._POWERPADS!==false && typeof _makePowerPad==='function'){ const _PP=[];
-      const _CMEL=window._PAD_COL_MELEE||0xff3d7f, _CGUN=window._PAD_COL_GUN||0x33ddff, _CSUM=window._PAD_COL_SUMMON||0x66ff77, _COFF=window._PAD_COL_OFF||0xff7a3a, _CBOOT=window._PAD_COL_BOOT||0x00ffaa;
-      const _pad=(x,z,c)=>{ const g=_makePowerPad(x,z,c); if(_cubeGroup)_cubeGroup.add(g); else scene.add(g); _PP.push(g); };
-      for(let i=0;i<6;i++) _pad(-200+i*100, hz-ch-90, _CMEL);            // melee wall (front)
-      for(let i=0;i<5;i++) _pad(-hx+ch+90, -200+i*100, _CGUN);           // guns wall (left)
-      for(const D of _puD) _pad(D.x, D.z, _CSUM);                        // summon wall (back)
-      for(const D of _offD) _pad(D.x, D.z, _COFF);                       // offensive wall (right)
-      _pad(0, -hz+ch+90, _CBOOT);                                        // boots
-      window._cubePowerPads=_PP;
-    } }catch(e){ console.warn('cube powerups',e); }
+  // ── POWER-UPS: a FEW big RAISED jump-up pads (not one per item). Each hosts one powerup hovering above it — jump/boost up to
+  //    grab it. Summon balls line the back wall, offensive items the right wall, at alternating heights so some need a boost.
+  //    A couple of powerups also sit on the GROUND (no pad). Weapons (left wall) + melee (front wall) stay as ground stations. ──
+  try{
+    const _CSUM=window._PAD_COL_SUMMON||0x66ff77, _COFF=window._PAD_COL_OFF||0xff7a3a;
+    const _LO=(window._POWERPAD_LO||38), _HI=(window._POWERPAD_HI||90);   // low pad = a normal jump; high pad = a jetpack boost
+    const _bz=-hz+ch+130, _rx=hx-ch-130;
+    const _RP=(window._CUBE_POWER_PADS)||[
+      {x:-230, z:_bz, y:_LO, type:'dog',    c:_CSUM},   // back wall (summon)
+      {x:  0,  z:_bz, y:_HI, type:'dragon', c:_CSUM},
+      {x: 230, z:_bz, y:_LO, type:'droid',  c:_CSUM},
+      {x:_rx,  z:-200, y:_HI, type:'nuke',        c:_COFF},   // right wall (offensive)
+      {x:_rx,  z:  60, y:_LO, type:'singularity', c:_COFF},
+      {x:_rx,  z: 300, y:_HI, type:'quake',       c:_COFF},
+    ];
+    window._itemDispensers=_RP.map(s=>({x:s.x,z:s.z,y:s.y,type:s.type,cd:0,raised:true}));
+    const _PP=[];
+    for(const s of _RP){ try{
+      if(typeof _spawnPU==='function' && !(window._itemPU||[]).some(p=>p&&p.type===s.type)){ const _it=_spawnPU(s.x,s.y,s.z,s.type,0,0,0); if(_it){ if(window._DISPENSER_EXPIRE!==true)_it._noExpire=true; _it.settled=true; _it.vx=_it.vy=_it.vz=0; _it._floatY=s.y; _it.y=s.y; } }
+      if(window._POWERPADS!==false && typeof _makePowerPad==='function'){ const g=_makePowerPad(s.x,s.z,s.c); g.position.y=s.y-(window._POWERPAD_DECK_DROP||8); g.scale.setScalar(window._POWERPAD_BIG||30); if(_cubeGroup)_cubeGroup.add(g); else scene.add(g); _PP.push(g); }
+      const beam=new THREE.Mesh(new THREE.CylinderGeometry(1.5,6,s.y*2,12,1,true), new THREE.MeshBasicMaterial({color:s.c,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.set(s.x,s.y*0.5,s.z); if(_cubeGroup)_cubeGroup.add(beam); else scene.add(beam);   // a light column from floor to pad so you can see where to jump
+    }catch(_){} }
+    window._cubePowerPads=_PP;
+    // a couple of powerups on the GROUND (no pad) — quick grabs without jumping
+    for(const gpu of (window._CUBE_GROUND_PU||[{x:-90,z:_bz,type:'spiders'},{x:90,z:_bz,type:'drone'}])){ try{ if(!(window._itemPU||[]).some(p=>p&&p.type===gpu.type)){ const it=_spawnPU(gpu.x,16,gpu.z,gpu.type,0,0,0); if(it&&window._DISPENSER_EXPIRE!==true)it._noExpire=true; window._itemDispensers.push({x:gpu.x,z:gpu.z,type:gpu.type,cd:0}); } }catch(_){} }
+  }catch(e){ console.warn('cube powerups',e); }
   // ── BARREL DISPENSERS: PEZ machines on two opposing walls (left/right) that periodically drop a barrel that rolls inward ──
   try{ if(window._BARREL_DISP!==false && typeof _makeBarrelDispenser==='function'){
     const _by=(window._BARREL_DISP_Y||195), _inset=(hx-ch);
