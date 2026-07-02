@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB146</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB147</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -937,6 +937,10 @@ function initPostProcessing(renderer, scene, camera){
     const mainRT=new THREE.WebGLRenderTarget(W*px,H*px,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,format:THREE.RGBAFormat});
     const bloomRT1=new THREE.WebGLRenderTarget(W*px*0.5,H*px*0.5,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter});
     const bloomRT2=new THREE.WebGLRenderTarget(W*px*0.5,H*px*0.5,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter});
+    // motion-mask ping-pong (B&W mode): .r = accumulated motion (with decay -> trails), .g = last frame luminance. 8-bit is plenty
+    // for a mask and works on every device (float+linear filtering isn't universally supported).
+    const _mkopt={minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,format:THREE.RGBAFormat};
+    let maskA=new THREE.WebGLRenderTarget(W*px*0.5,H*px*0.5,_mkopt), maskB=new THREE.WebGLRenderTarget(W*px*0.5,H*px*0.5,_mkopt);
 
     // Full-screen quad geometry
     const quadGeo=new THREE.PlaneGeometry(2,2);
@@ -958,15 +962,35 @@ function initPostProcessing(renderer, scene, camera){
           c+=texture2D(tDiffuse,v)*w[0];for(int i=1;i<5;i++){c+=texture2D(tDiffuse,v+off*float(i))*w[i];c+=texture2D(tDiffuse,v-off*float(i))*w[i];}gl_FragColor=c;}`
     });
 
-    // Composite pass — main + bloom + chroma aberration + (optional) FLAT INK black&white with paint-splash colour
-    const compositeMat=new THREE.ShaderMaterial({uniforms:{tMain:{value:null},tBloom:{value:null},bloomStr:{value:1.2},chromaStr:{value:0.0},time:{value:0.0},
-        uBW:{value:0.0}, uTexel:{value:new THREE.Vector2(1/1280,1/720)}, uAspect:{value:1.6},
-        uInk:{value:0.26}, uSoft:{value:0.16}, uThick:{value:5.0}, uSat:{value:1.45},
-        uSpl:{value:Array.from({length:8},()=>new THREE.Vector4(0,0,0,0))} },
+    // MOTION MASK (B&W mode) — frame-to-frame luminance change = motion. Accumulate with decay so moving/spinning/exploding
+    // things leave fading COLOUR trails; static areas settle back to ink. .r = mask, .g = current luminance (kept for next frame).
+    const maskMat=new THREE.ShaderMaterial({uniforms:{tMain:{value:null},tPrev:{value:null},uGain:{value:7.0},uDecay:{value:0.90},uThr:{value:0.05},uSmear:{value:new THREE.Vector2(1/(W*px*0.5),1/(H*px*0.5))}},
       vertexShader:`varying vec2 v;void main(){v=uv;gl_Position=vec4(position,1.);}`,
-      fragmentShader:`uniform sampler2D tMain;uniform sampler2D tBloom;uniform float bloomStr;uniform float chromaStr;uniform float time;
-        uniform float uBW;uniform vec2 uTexel;uniform float uAspect;uniform float uInk;uniform float uSoft;uniform float uThick;uniform float uSat;
-        uniform vec4 uSpl[8];varying vec2 v;
+      fragmentShader:`uniform sampler2D tMain;uniform sampler2D tPrev;uniform float uGain;uniform float uDecay;uniform float uThr;uniform vec2 uSmear;varying vec2 v;
+        const vec3 W2=vec3(.299,.587,.114);
+        void main(){
+          float cur=dot(texture2D(tMain,v).rgb,W2);
+          // sample the previous mask over a small neighbourhood so trails SPREAD a touch (bleed) as they persist
+          vec4 p=texture2D(tPrev,v);
+          float pm=p.r;
+          pm=max(pm, texture2D(tPrev,v+vec2(uSmear.x,0.)).r*0.85);
+          pm=max(pm, texture2D(tPrev,v-vec2(uSmear.x,0.)).r*0.85);
+          pm=max(pm, texture2D(tPrev,v+vec2(0.,uSmear.y)).r*0.85);
+          pm=max(pm, texture2D(tPrev,v-vec2(0.,uSmear.y)).r*0.85);
+          float delta=abs(cur-p.g);
+          float motion=clamp((delta-uThr)*uGain,0.,1.);
+          float mask=max(motion, pm*uDecay);
+          gl_FragColor=vec4(mask,cur,0.,1.);
+        }`
+    });
+
+    // Composite pass — main + bloom + chroma aberration + (optional) FLAT INK black&white with paint-splash colour
+    const compositeMat=new THREE.ShaderMaterial({uniforms:{tMain:{value:null},tBloom:{value:null},tMask:{value:null},bloomStr:{value:1.2},chromaStr:{value:0.0},time:{value:0.0},
+        uBW:{value:0.0}, uTexel:{value:new THREE.Vector2(1/1280,1/720)},
+        uInk:{value:0.26}, uSoft:{value:0.16}, uThick:{value:5.0}, uSat:{value:1.45} },
+      vertexShader:`varying vec2 v;void main(){v=uv;gl_Position=vec4(position,1.);}`,
+      fragmentShader:`uniform sampler2D tMain;uniform sampler2D tBloom;uniform sampler2D tMask;uniform float bloomStr;uniform float chromaStr;uniform float time;
+        uniform float uBW;uniform vec2 uTexel;uniform float uInk;uniform float uSoft;uniform float uThick;uniform float uSat;varying vec2 v;
         const vec3 W=vec3(.299,.587,.114);
         void main(){
           vec2 off=normalize(v-0.5)*chromaStr;
@@ -986,13 +1010,11 @@ function initPostProcessing(renderer, scene, camera){
             lb+=dot(texture2D(tMain,v+vec2(t.x,-t.y)).rgb,W)*0.0725; lb+=dot(texture2D(tMain,v+vec2(-t.x,t.y)).rgb,W)*0.0725;
             float ink=smoothstep(uInk-uSoft, uInk+uSoft, lb);   // soft thick white strokes on black
             vec3 mono=vec3(ink);
-            // ── SPHERES OF INFLUENCE: the player, enemies, and fading impact/shot trails REVEAL the real (saturated) colour+glow
-            //    inside their radius — the world breaks from flat B&W into full-colour detail where the action is. ──
-            float reveal=0.0;
-            for(int i=0;i<8;i++){ if(uSpl[i].w>0.001){ vec2 d=v-uSpl[i].xy; d.x*=uAspect; float dd=length(d);
-              reveal=max(reveal, (1.0-smoothstep(uSpl[i].z*0.35, uSpl[i].z, dd))*uSpl[i].w); } }
-            vec3 cc=base+bloom; float cl=dot(cc,W); cc=mix(vec3(cl),cc,uSat);   // punchier colour inside the spheres
-            vec3 outc=mix(mono, cc, clamp(reveal,0.,1.));
+            // ── MOTION REVEAL: where things MOVED (spin, run, bullets, grid deform, explosions) the mask lit up + is fading, so
+            //    the real saturated colour+glow bleeds back through as a trail; still areas stay flat ink. ──
+            float reveal=clamp(texture2D(tMask,v).r,0.,1.);
+            vec3 cc=base+bloom; float cl=dot(cc,W); cc=mix(vec3(cl),cc,uSat);   // punchier colour where it breaks through
+            vec3 outc=mix(mono, cc, reveal);
             lit=mix(lit, outc, uBW);
           }
           gl_FragColor=vec4(lit,1.0);
@@ -1032,22 +1054,36 @@ function initPostProcessing(renderer, scene, camera){
         renderer.setRenderTarget(bloomRT1);
         renderer.render(orthoScene,orthoCamera);
 
+        // 4.5 MOTION MASK (B&W only) — accumulate frame-to-frame change into maskA, reading maskB (last frame's result)
+        let _maskTex=null;
+        if((this.bw||0)>0.001 && maskA && maskB){
+          quad.material=maskMat;
+          maskMat.uniforms.tMain.value=mainRT.texture;
+          maskMat.uniforms.tPrev.value=maskB.texture;
+          maskMat.uniforms.uGain.value=(window._INK_MGAIN!=null?window._INK_MGAIN:7.0);
+          maskMat.uniforms.uDecay.value=(window._INK_MDECAY!=null?window._INK_MDECAY:0.90);
+          maskMat.uniforms.uThr.value=(window._INK_MTHR!=null?window._INK_MTHR:0.045);
+          renderer.setRenderTarget(maskA);
+          renderer.render(orthoScene,orthoCamera);
+          _maskTex=maskA.texture;
+          const _tmp=maskA; maskA=maskB; maskB=_tmp;   // swap -> next frame reads this result as "previous"
+        }
+
         // 5. Composite to screen
         quad.material=compositeMat;
         compositeMat.uniforms.tMain.value=mainRT.texture;
         compositeMat.uniforms.tBloom.value=bloomRT1.texture;
+        compositeMat.uniforms.tMask.value=_maskTex;
         compositeMat.uniforms.bloomStr.value=this.bloomStrength;
         compositeMat.uniforms.chromaStr.value=this.chromaStrength;
         compositeMat.uniforms.time.value=performance.now()*0.001;
         compositeMat.uniforms.uBW.value=this.bw||0;
         if((this.bw||0)>0.001){
           compositeMat.uniforms.uTexel.value.set(1/(mainRT.width||1280), 1/(mainRT.height||720));
-          compositeMat.uniforms.uAspect.value=(mainRT.width||16)/(mainRT.height||9);
           compositeMat.uniforms.uInk.value=(window._INK_FILL!=null?window._INK_FILL:0.26);
           compositeMat.uniforms.uSoft.value=(window._INK_SOFT!=null?window._INK_SOFT:0.16);
           compositeMat.uniforms.uThick.value=(window._INK_THICK!=null?window._INK_THICK:5.0);
           compositeMat.uniforms.uSat.value=(window._INK_SAT!=null?window._INK_SAT:1.45);
-          const S=this._spl; if(S){ const uS=compositeMat.uniforms.uSpl.value; for(let i=0;i<8;i++) uS[i].copy(S[i]); }
         }
         renderer.setRenderTarget(null);
         renderer.render(orthoScene,orthoCamera);
@@ -1057,6 +1093,8 @@ function initPostProcessing(renderer, scene, camera){
         bloomRT1.setSize(w*px*0.5,h*px*0.5);
         bloomRT2.setSize(w*px*0.5,h*px*0.5);
         blurMat.uniforms.res.value.set(w*px*0.5,h*px*0.5);
+        if(maskA)maskA.setSize(w*px*0.5,h*px*0.5); if(maskB)maskB.setSize(w*px*0.5,h*px*0.5);
+        if(maskMat)maskMat.uniforms.uSmear.value.set(1/(w*px*0.5),1/(h*px*0.5));
       }
     };
     bloomPass={strength:1.2};
@@ -21784,7 +21822,7 @@ function loop(ts){ requestAnimationFrame(loop);
       composer.chromaStrength=lerp(composer.chromaStrength,CAM.trauma*0.006+(GS.odActive>0?0.003:0),0.12);
       // ── BLACK & WHITE MODE — a flat ink render (solid white on black); the ONLY colour is saturated paint that blooms at
       //    impacts (ps.burst -> _inkSplash) and bleeds outward. Toggle window._BW_MODE (or ?bw / K). ──
-      if(window._BW_MODE){ composer.bw=lerp(composer.bw||0, 1, 0.12); if(typeof _bwUpdateSplashes==='function')_bwUpdateSplashes(Math.min(rawDt||dt||0.016,0.05)); }
+      if(window._BW_MODE){ composer.bw=lerp(composer.bw||0, 1, 0.12); }   // colour reveal is now the in-composer motion mask (frame-diff + decay trails)
       else if((composer.bw||0)>0.001){ composer.bw=lerp(composer.bw||0, 0, 0.15); } else { composer.bw=0; }
       composer.render();
     } else {
