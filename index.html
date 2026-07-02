@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB170</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB171</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -28292,10 +28292,13 @@ function _ballAimArrow(show, aim, charge){
   const hd=start+N*gap+2;
   const hg=A.userData.headG; hg.position.set(player.wx+dx*hd, gy, player.wz+dz*hd); hg.rotation.set(0, Math.PI/2-aim, 0);
 }
+if(window._BALL_VIS_R==null) window._BALL_VIS_R=(window._BALL_VIS_R!=null?window._BALL_VIS_R:11);   // SMALLER ball — closer to the folded-robot size (was 16, ~RL-ball big). All ball radii read _BALL_VIS_R||16, so this shrinks the whole thing.
 window._ballFrame=function(dt){
-  // ── BALL CHARGE — its own fuel (like the jetpack): drains while spun up, recharges when out, auto-exits when empty ──
+  // ── BALL CHARGE — INDEFINITE by default now (Sonic-style: stay balled + flick to build momentum, no fuel drain). Set window._BALL_INFINITE=false to bring back the drain/deplete fuel model. ──
+  const _ballInf=(window._BALL_INFINITE!==false);
   if(typeof player!=='undefined'&&player){ const MX=(window._BALL_CHARGE_MAX||100);
-    if(window._BALL&&window._BALL.state){ player._ballCharge=(player._ballCharge==null?MX:player._ballCharge)-(window._BALL_DRAIN||16)*dt;
+    if(_ballInf){ player._ballCharge=MX; }   // always topped up -> never depletes, never auto-exits
+    else if(window._BALL&&window._BALL.state){ player._ballCharge=(player._ballCharge==null?MX:player._ballCharge)-(window._BALL_DRAIN||16)*dt;
       if(player._ballCharge<=0){ player._ballCharge=0; if(window._ballExit)window._ballExit(); if(typeof announce==='function')announce('BALL DEPLETED','#66e0ff'); }
     } else if(player._ballCharge!=null && player._ballCharge<MX){ player._ballCharge=Math.min(MX, player._ballCharge+(window._BALL_RECHARGE||14)*dt); }
     // HUD meter (its own bar, like the boost fuel)
@@ -28306,7 +28309,7 @@ window._ballFrame=function(dt){
         document.body.appendChild(wrap); }
       const c=(player._ballCharge==null?MX:player._ballCharge), pct=Math.max(0,Math.min(1,c/MX));
       const balled=!!(window._BALL&&window._BALL.state);
-      wrap.style.display=(balled||pct<0.999)?'block':'none';
+      wrap.style.display=(!_ballInf && (balled||pct<0.999))?'block':'none';   // no fuel bar in indefinite mode
       wrap.style.borderColor=balled?'#33e0ff':'#2aa88a';
       if(bar){ bar.style.width=(pct*100)+'%'; bar.style.background=pct<0.25?'#ff5a5a':(pct<0.5?'#ffc24a':'linear-gradient(90deg,#33e0ff,#66ffd0)'); }
     }catch(_){}
@@ -28395,10 +28398,19 @@ window._ballUpdate=function(dt){
         if(Math.abs(vn)>140){ if(typeof ps!=='undefined')ps.ring(B.px,B.pz,[0.3,0.9,1],10,60); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(240,0.08,'square',0.08,500); } } }
     if(B.py<0)B.py=0;
   } else if(B.py<=0){ B.py=0; if(B.vy<-40){ B.vy*=-0.42; } else B.vy=0; }
-  const fr=Math.pow((window._BALL_FRICTION||0.55), dt); B.vx*=fr; B.vz*=fr;
-  { const sm=Math.hypot(moveIn.x||0,moveIn.y||0);   // left-stick steering while spun up
-    if(sm>(window._BALL_STEER_DEAD||0.18)){ const cy=Math.cos(CAM.yaw),sy=Math.sin(CAM.yaw); let wx=(moveIn.x)*cy+(moveIn.y)*sy, wz=-(moveIn.x)*sy+(moveIn.y)*cy; const wl=Math.hypot(wx,wz)||1; wx/=wl; wz/=wl;
-      const sp=Math.hypot(B.vx,B.vz)||1; let vdx=B.vx/sp,vdz=B.vz/sp; const turn=(window._BALL_STEER||3.2)*dt*Math.min(1,sm); vdx+=wx*turn; vdz+=wz*turn; const nl=Math.hypot(vdx,vdz)||1; B.vx=vdx/nl*sp; B.vz=vdz/nl*sp; player.aim=Math.atan2(B.vz,B.vx); } }
+  const fr=Math.pow((window._BALL_FRICTION||0.72), dt); B.vx*=fr; B.vz*=fr;   // gentler drag so momentum carries (Sonic wind-up)
+  { const sm=Math.hypot(moveIn.x||0,moveIn.y||0);
+    const cy=Math.cos(CAM.yaw),sy=Math.sin(CAM.yaw); let wx=(moveIn.x)*cy+(moveIn.y)*sy, wz=-(moveIn.x)*sy+(moveIn.y)*cy; const wl=Math.hypot(wx,wz);
+    // SONIC WIND-UP: a fresh flick (rising edge of the left stick) PUMPS momentum in the flick dir — keep flicking and you spin up faster + faster, rocketing around (and up walls).
+    if(window._BALL_WINDUP!==false){
+      if(sm>(window._BALL_FLICK_HI||0.7) && B._stkLo!==false && wl>0.001){ B._stkLo=false;
+        const fx=wx/wl, fz=wz/wl, cur=Math.hypot(B.vx,B.vz);
+        const boosted=Math.min((window._BALL_ROLL_CAP||1600), Math.max(cur,(window._BALL_MIN_SPD||210))*(window._BALL_FLICK_BOOST||1.35)+(window._BALL_FLICK_ADD||45));
+        const bl=(window._BALL_FLICK_STEER||0.55); let vdx=(B.vx||fx)*(1-bl)+fx*boosted*bl, vdz=(B.vz||fz)*(1-bl)+fz*boosted*bl; const nl=Math.hypot(vdx,vdz)||1; B.vx=vdx/nl*boosted; B.vz=vdz/nl*boosted; player.aim=Math.atan2(B.vz,B.vx);
+        if(typeof ps!=='undefined')ps.ring(B.px,B.pz,[0.35,0.95,1],12,80); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(480+Math.min(700,cur*0.4),0.07,'square',0.09,1300);}catch(_){}
+      } else if(sm<(window._BALL_FLICK_LO||0.34)){ B._stkLo=true; }
+    }
+    if(sm>(window._BALL_STEER_DEAD||0.18) && wl>0.001){ const sp=Math.hypot(B.vx,B.vz)||1; let vdx=B.vx/sp,vdz=B.vz/sp; const turn=(window._BALL_STEER||3.2)*dt*Math.min(1,sm); vdx+=(wx/wl)*turn; vdz+=(wz/wl)*turn; const nl=Math.hypot(vdx,vdz)||1; B.vx=vdx/nl*sp; B.vz=vdz/nl*sp; player.aim=Math.atan2(B.vz,B.vx); } }   // held-stick steering (curve the roll)
   if(GS.zone!==-19){ const AR=(typeof ARENA_R!=='undefined'?ARENA_R:240)-R, dd=Math.hypot(B.px,B.pz);   // cylindrical arena edge — only outside the cube (the cube uses its SDF walls above)
     if(dd>AR && dd>0){ const nx=B.px/dd, nz=B.pz/dd; B.px=nx*AR; B.pz=nz*AR; const vd=B.vx*nx+B.vz*nz; if(vd>0){ B.vx-=1.7*vd*nx; B.vz-=1.7*vd*nz; } if(typeof ps!=='undefined')ps.ring(B.px,B.pz,[0.3,0.9,1],10,60); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(260,0.08,'square',0.08,520); } }
   player.wx=B.px; player.wz=B.pz; player.py=B.py; player.pvy=0; player.vx=B.vx; player.vz=B.vz; player._onPlatform=(B.py<=0);
@@ -28417,7 +28429,7 @@ window._ballUpdate=function(dt){
   if(!B._lastPuff || Math.hypot(B.px-B._lastPuff[0], B.pz-B._lastPuff[1]) > (window._BALL_TRAIL_GAP||16)){ B._lastPuff=[B.px,B.pz]; _ballTrailPuff(B.px, B.py+(window._BALL_VIS_R||16), B.pz, (window._BALL_VIS_R||16)*0.72, window._BALL_GLOW2||0x4cf0ff); }
   if(typeof grid!=='undefined'&&grid.push&&Math.random()<0.9)grid.push(B.px,B.pz,-2,42);
   if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(B.px+rand(-6,6),B.pz+rand(-6,6),[0.3,0.9,1]);
-  if((sp<(window._BALL_EXIT_SPD||80) && B.py<=0) || B.t>(window._BALL_MAX_T||7)) window._ballExit();
+  if(window._BALL_INFINITE===false && ((sp<(window._BALL_EXIT_SPD||80) && B.py<=0) || B.t>(window._BALL_MAX_T||7))) window._ballExit();   // INDEFINITE mode: no auto-exit — you stay balled until you jump out / shoot / click out (flick to keep moving)
 };
 // procedural ship melee — fires when there is no animation rig (sandbox / model-less). Reusable.
 function _proceduralMelee(dirAngle){
