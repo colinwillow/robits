@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB150</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB151</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -24130,11 +24130,15 @@ function _ballCam(P, dt){
   if(typeof camera==='undefined') return;
   const b=_cubeBall; if(!b){ _cubeWorldCam(P,dt); return; }
   let dir=b.pos.clone().sub(P); dir.y=0; if(dir.lengthSq()<1)dir.set(0,0,1); dir.normalize();   // horizontal: player -> ball
-  const D=(window._BALLCAM_DIST||window._CUBE_CAM_DIST||340), H=(window._BALLCAM_H||window._CUBE_CAM_H||250);
-  const eye=P.clone().addScaledVector(dir,-D); eye.y+=H;                                          // sit behind the player, looking toward the ball
+  if(CAM){ CAM.yaw=Math.atan2(-dir.x,-dir.z); CAM.tyaw=CAM.yaw; }   // SYNC the movement frame to the ball-cam facing (the stale yaw was inverting locomotion)
+  const sep=P.distanceTo(b.pos);
+  // DYNAMIC framing: tight when the ball is near, only zooming out as hero & ball separate — both stay on screen
+  const D=(window._BALLCAM_DIST||220)+sep*(window._BALLCAM_ZOOM_K||0.5), H=(window._BALLCAM_H||175)+sep*(window._BALLCAM_H_K||0.14);
+  const mid=P.clone().add(b.pos).multiplyScalar(0.5);                                             // frame the MIDPOINT so the hero can't slide off
+  const eye=mid.clone().addScaledVector(dir,-D); eye.y+=H;
   camera.up.set(0,1,0);
-  camera.position.lerp(eye, 0.12);
-  const look=P.clone().lerp(b.pos, 0.4);
+  camera.position.lerp(eye, (window._BALLCAM_LERP||0.12));
+  const look=mid.clone(); look.y += (P.y!=null?(P.y-mid.y):0)*0.3;                                 // bias the look toward the hero's height so he's comfortably framed
   camera.lookAt(look.x, look.y, look.z);
   if(CAM){ CAM.focus.copy(look); CAM.tfocus.copy(look); }
 }
@@ -24179,8 +24183,8 @@ function _enemyCam(P, tgt, dt){
   if(typeof camera==='undefined') return;
   let dir=tgt.clone().sub(P); dir.y=0; if(dir.lengthSq()<1)dir.set(0,0,1); dir.normalize();   // horizontal: player -> target
   const sep=P.distanceTo(tgt);
-  const D=(window._ENEMYCAM_DIST||window._CUBE_CAM_DIST||430) + sep*(window._ENEMYCAM_ZOOM_K||0.72);   // zoom OUT as hero & enemy separate so BOTH stay framed (pulled back so the hero clears the bottom HUD)
-  const H=(window._ENEMYCAM_H||300) + sep*(window._ENEMYCAM_H_K||0.16);
+  const D=(window._ENEMYCAM_DIST||260) + sep*(window._ENEMYCAM_ZOOM_K||0.5);   // tight when the enemy is near; only zooms OUT as hero & enemy separate (was 430 + 0.72 -> parked way outside the walls)
+  const H=(window._ENEMYCAM_H||210) + sep*(window._ENEMYCAM_H_K||0.14);
   const mid=P.clone().add(tgt).multiplyScalar(0.5);                                            // frame the MIDPOINT so the hero never slides off when you run away
   const eye=mid.clone().addScaledVector(dir,-D); eye.y+=H;
   camera.up.set(0,1,0);
