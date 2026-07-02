@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB184</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB185</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14663,6 +14663,44 @@ function _meleeAimAssist(P, aimAng){
   return best;
 }
 window._meleeAimAssist=_meleeAimAssist;
+// ── OFF-SCREEN CHARACTER INDICATORS — color-coded screen-edge arrows pointing toward any AI character (enemies / rival bots / your summons / dummy) that's currently off-screen, so you always know roughly where everyone is. Each arrow wears that character's colour (red guy = red, blue = blue, ...). The BALL keeps its own 3D locator; this is characters only. ──
+function _updateOffscreenIndicators(){
+  const off=(window._OFFSCREEN_IND===false || typeof camera==='undefined' || typeof GS==='undefined' || GS.state!=='playing' || window._ballCam);
+  let cv=window._offIndCv;
+  if(off){ if(cv)cv.style.display='none'; return; }
+  if(!cv){ cv=document.createElement('canvas'); cv.id='offind-canvas'; cv.style.cssText='position:fixed;left:0;top:0;pointer-events:none;z-index:58'; document.body.appendChild(cv); window._offIndCv=cv; }
+  const W=window.innerWidth, H=window.innerHeight, DPR=Math.min(2, window.devicePixelRatio||1);
+  if(cv.width!==Math.round(W*DPR)||cv.height!==Math.round(H*DPR)){ cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR); cv.style.width=W+'px'; cv.style.height=H+'px'; }
+  cv.style.display='block';
+  const ctx=cv.getContext('2d'); ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,W,H);
+  try{ camera.updateMatrixWorld(); }catch(_){}
+  const list=[]; const push=(e,col)=>{ if(!e||e.alive===false||e._captured)return; const wx=(e.wx!=null?e.wx:e.x), wz=(e.wz!=null?e.wz:e.z); if(wx==null)return; const wy=((e.mesh&&e.mesh.position)?e.mesh.position.y:(e.py!=null?e.py:12))+16; list.push({wx,wy,wz,col:(col>>>0)&0xffffff}); };
+  const ENEMY=(window._OFFIND_ENEMY_COL!=null?window._OFFIND_ENEMY_COL:0xff3344);
+  if(GS.enemies)for(const e of GS.enemies)push(e, (e._color!=null?e._color:(e._teamCol!=null?e._teamCol:ENEMY)));
+  if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)push(b, (b._color!=null?b._color:0xff5555));
+  if(GS.allies)for(const a of GS.allies)push(a, (a._teamCol!=null?a._teamCol:(a._color!=null?a._color:0x33e0ff)));
+  if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy)push(GS_trainingDummy, (window._OFFIND_DUMMY_COL!=null?window._OFFIND_DUMMY_COL:0xff8800));
+  if(!list.length)return;
+  const cx=W/2, cy=H/2, MX=(window._OFFIND_MARGIN||36), halfW=W/2-MX, halfH=H/2-MX, S=(window._OFFIND_SIZE||13);
+  const _v=window._offIndV||(window._offIndV=new THREE.Vector3());
+  for(const t of list){
+    _v.set(t.wx,t.wy,t.wz).project(camera);
+    const behind=_v.z>1;
+    let sx=(_v.x*0.5+0.5)*W, sy=(-_v.y*0.5+0.5)*H;
+    if(!behind && sx>=MX && sx<=W-MX && sy>=MX && sy<=H-MX)continue;   // on-screen -> no arrow
+    let dx=sx-cx, dy=sy-cy; if(behind){ dx=-dx; dy=-dy; }
+    if(Math.abs(dx)<1e-3 && Math.abs(dy)<1e-3)dy=1;
+    const scale=Math.min(halfW/Math.max(Math.abs(dx),1e-3), halfH/Math.max(Math.abs(dy),1e-3));
+    const ex=cx+dx*scale, ey=cy+dy*scale, ang=Math.atan2(dy,dx);
+    const hex='#'+t.col.toString(16).padStart(6,'0');
+    ctx.save(); ctx.translate(ex,ey); ctx.rotate(ang);
+    ctx.beginPath(); ctx.moveTo(S,0); ctx.lineTo(-S*0.7,S*0.72); ctx.lineTo(-S*0.32,0); ctx.lineTo(-S*0.7,-S*0.72); ctx.closePath();
+    ctx.globalAlpha=0.92; ctx.shadowColor=hex; ctx.shadowBlur=10; ctx.fillStyle=hex; ctx.fill();
+    ctx.globalAlpha=0.9; ctx.lineWidth=1.4; ctx.strokeStyle='rgba(0,0,0,0.55)'; ctx.shadowBlur=0; ctx.stroke();
+    ctx.restore();
+  }
+}
+window._updateOffscreenIndicators=_updateOffscreenIndicators;
 function _updateItemShots(dt){
   const A=window._itemShots; if(!A||!A.length)return;
   for(let i=A.length-1;i>=0;i--){ const s=A[i];
@@ -20547,6 +20585,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(typeof GS!=='undefined'){ const _gfTgt=(GS.zone===-19 && GS._gravFlip && player && !player._ballActive)?1:0; GS._gfCamF=lerp(GS._gfCamF||0, _gfTgt, 0.06); }
     updateCamera(rawDt);
     if(typeof GS!=='undefined' && (GS._gfCamF||0)>0.001 && typeof camera!=='undefined'){ camera.rotateZ((GS._gfCamF)*Math.PI); }   // roll the whole view 180° (always, incl. boots) so a flipped ceiling reads as the floor
+    if(typeof _updateOffscreenIndicators==='function') _updateOffscreenIndicators();   // color-coded edge arrows for off-screen AI characters
     grid.update(dt); ps.update(dt); if(ps2)ps2.update(dt); if(typeof _updateRobitShards==='function')_updateRobitShards(dt); if(GS.zone===-18 && typeof _updateCustomGrid==='function') _updateCustomGrid(dt); if(GS.zone===-2 && typeof _updateDojoPlatform==='function') _updateDojoPlatform(dt); if(typeof _updateMushrooms==='function')_updateMushrooms(dt); if(GS.zone===-2 && typeof _updateDojoSpeakers==='function')_updateDojoSpeakers(dt); if(GS.zone===-2 && typeof _updateGunConveyor==='function')_updateGunConveyor(dt); if(GS.zone===-2 && typeof _edUpdate==='function')_edUpdate(dt);
     for(const p of GS_portals){ if(GS.zone===-19){ if(p.group&&p.group.parent)scene.remove(p.group); } else { if(p.group&&!p.group.parent)scene.add(p.group); p.update(dt,player); } }   // no teleporters in the RL cube arena (removed from scene, restored elsewhere)
     // Tick robot animation mixer
