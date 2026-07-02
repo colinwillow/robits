@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB204</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB205</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11687,7 +11687,7 @@ class Player{
     if(this._wallRun) this._jetting=false;   // wall-run owns the body — never jet (no thrust, no particles on the wall)
     const _gflip=(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped));   // CUBE gravity-flip: boots-off = fall toward the CEILING (computed here so the jet thrust below can flip with gravity)
     // Jetpack force — continuous push AWAY from the current floor (flips with gravity in the cube)
-    if(this._jetting&&this.py>4&&!this._onPlatform){
+    if(this._jetting&&this.py>4&&!this._onPlatform&&!this._ballActive){   // ball mode runs its OWN jetpack in _ballUpdate (thrust on the spinning ball) — don't also apply the upright jet here
       if(this._airSlam){ this._airSlam=false; if(this.model&&this.model.userData)this.model.userData._slamHold=false; }   // jetting cancels a slam -> release the held pose
       if(this.boostFuel>0){
         this.pvy+=JET_FORCE*dt*(_gflip?-1:1);   // gravity-flipped: thrust toward the ceiling-floor's "up" (i.e. toward the old floor), not into the ceiling
@@ -28659,6 +28659,25 @@ window._ballUpdate=function(dt){
   if(window._BALL_SHOOT_EXIT!==false && player._lastFiring && B.t>(window._BALL_FIRE_GRACE||0.18)){ window._ballExit(); return; }   // shooting cancels the ball
   if(player.pvy>100 && B.py<=4){ B.vy=Math.max(B.vy,(window._BALL_JUMP_V||480)); player.pvy=0; }                                     // jump while rolling = ball-pop (stays in ball)
   if(B._lerpT>0){ const _lk=Math.min(1, dt/Math.max(0.001,B._lerpT)); B.vx+=((B._tgtVx!=null?B._tgtVx:B.vx)-B.vx)*_lk; B.vz+=((B._tgtVz!=null?B._tgtVz:B.vz)-B.vz)*_lk; B._lerpT-=dt; }   // smooth the redirect
+  // ── JETPACK IN BALL MODE ── hold the right stick (jetpack) while balled + airborne. Two modes:
+  //   'thrust' (default, the crazy one): fire the jet ON the spinning ball — the thrust vector REVOLVES with the ball's
+  //           rotation (B.q), so you corkscrew/spiral through the air. Tune _BALL_JET_SPIN (0=straight up, 1=full tumble).
+  //   'eject': the 2nd-jump/hold pops you OUT of the ball into a normal jetpack instead.
+  const _jetHeld=((typeof jR!=='undefined' && jR._holdingForJet) || player._padJetHold);
+  if(window._BALL_JET!==false && _jetHeld && !player.bombArmed && !player._wallClimb && !player._wallRun && (player.boostFuel||0)>0 && B.py>(window._BALL_JET_MINY||6)){
+    if(window._BALL_JET_MODE==='eject'){
+      window._ballExit();                                                                                   // pop out; normal jetpack (line ~20636) takes over since the stick is still held + we're airborne
+      player.pvy=Math.max(player.pvy||0, (B.vy*0.5)+(window._BALL_EJECT_JET_LIFT||140)); player._jetting=true;
+      return;
+    }
+    const F=(window._BALL_JET_FORCE||1650), burn=(window._BALL_JET_BURN||40), rev=(window._BALL_JET_SPIN!=null?window._BALL_JET_SPIN:0.6);
+    const _v=player._ballJetV||(player._ballJetV=new THREE.Vector3()); _v.set(0,1,0);
+    if(rev>0){ const _n=player._ballJetN||(player._ballJetN=new THREE.Vector3()); _n.set(0,1,0).applyQuaternion(B.q); _v.lerp(_n, rev); const _l=_v.length()||1; _v.multiplyScalar(1/_l); }   // tilt "up" toward wherever the ball's spin points -> thrust whirls with the roll
+    B.vx+=_v.x*F*dt; B.vy+=_v.y*F*dt; B.vz+=_v.z*F*dt;
+    player.boostFuel=Math.max(0, (player.boostFuel||0)-burn*dt); player._jetting=true;
+    if(typeof ps!=='undefined'&&Math.random()<0.75) ps.spark(B.px-_v.x*14+rand(-6,6), B.pz-_v.z*14+rand(-6,6), [0.3,0.9,1], B.py+(window._BALL_VIS_R||16)-_v.y*14+rand(0,10));   // exhaust trails opposite the thrust
+    if((!player._ballJetSndT||player._ballJetSndT<=0)&&typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(90,0.06,'sawtooth',0.12,140); player._ballJetSndT=6; } if(player._ballJetSndT>0)player._ballJetSndT--;
+  } else { player._jetting=false; }
   B.px+=B.vx*dt; B.pz+=B.vz*dt; B.vy-=(window._BALL_GRAV||1100)*dt; B.py+=B.vy*dt;
   if(GS.zone===-19 && typeof _cubeSDF==='function'){   // ROCKET LEAGUE: bounce off the cube walls/floor/ceiling/chamfers via the SAME SDF the arena ball uses (hero ball used to only know a flat floor + cylinder)
     const _R=(window._BALL_HERO_R!=null?window._BALL_HERO_R:(window._BALL_VIS_R||16)), _rest=(window._BALL_HERO_REST!=null?window._BALL_HERO_REST:0.62), _grip=(window._BALL_WALL_GRIP||0.97);
