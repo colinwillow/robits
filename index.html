@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB136</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB137</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14517,11 +14517,18 @@ function _barrelSpawnTick(dt){
   const cur=(window._itemPU||[]).filter(p=>p&&p.type==='barrel').length;
   if(cur>=cap){ if(_barrelSpawnT<1)_barrelSpawnT=1; return; }
   if(_barrelSpawnT<=0){ _barrelSpawnT=_cube?((window._CUBE_BARREL_CD||18)+rand(0,6)):(cur===0?(window._BARREL_MIN_CD||1.6):((window._BARREL_SPAWN_CD||6)+rand(0,4)));   // cube: a slow trickle so a busted barrel is replaced ~20s later, not instantly
-    const cen=(typeof zoneCenter==='function')?zoneCenter(GS.zone):{x:0,z:0};
-    for(let tries=0;tries<8;tries++){ let bx,bz;
-      if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{hx:560,hz:560,cham:130}); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9); const mx=Math.max(40,C.hx-ch-50), mz=Math.max(40,C.hz-ch-50); bx=rand(-mx,mx); bz=rand(-mz,mz); }   // inside the FLAT floor, clear of the rounded corners
-      else { const RR=(typeof ARENA_R!=='undefined'?ARENA_R-60:480), a=rand(TAU), r=rand(RR*0.3,RR); bx=cen.x+Math.cos(a)*r; bz=cen.z+Math.sin(a)*r; }
-      if(!player || Math.hypot(player.wx-bx,player.wz-bz)>90){ _spawnPU(bx,60,bz,'barrel',rand(-8,8),0,rand(-8,8)); break; } }
+    if(_cube && window._barrelDispensers && window._barrelDispensers.length){   // CUBE: drop from a wall DISPENSER (alternating) — it rolls into the arena, PEZ-style — instead of popping in at a random spot
+      const D=window._barrelDispensers[(window._barrelDispIdx=((window._barrelDispIdx||0)+1))%window._barrelDispensers.length];
+      const sp=(window._BARREL_DISP_SPD||150);
+      _spawnPU(D.x, D.y, D.z, 'barrel', D.dx*sp, 0, D.dz*sp);
+      if(D.g&&D.g.userData._flash)D.g.userData._flash();
+    } else {
+      const cen=(typeof zoneCenter==='function')?zoneCenter(GS.zone):{x:0,z:0};
+      for(let tries=0;tries<8;tries++){ let bx,bz;
+        if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{hx:560,hz:560,cham:130}); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9); const mx=Math.max(40,C.hx-ch-50), mz=Math.max(40,C.hz-ch-50); bx=rand(-mx,mx); bz=rand(-mz,mz); }   // inside the FLAT floor, clear of the rounded corners
+        else { const RR=(typeof ARENA_R!=='undefined'?ARENA_R-60:480), a=rand(TAU), r=rand(RR*0.3,RR); bx=cen.x+Math.cos(a)*r; bz=cen.z+Math.sin(a)*r; }
+        if(!player || Math.hypot(player.wx-bx,player.wz-bz)>90){ _spawnPU(bx,60,bz,'barrel',rand(-8,8),0,rand(-8,8)); break; } }
+    }
   }
   // ── also keep a few square LOOT BOXES (crates) around — same idea as barrels, but boxes that hold weapons/power-ups ──
   if(window._BOXES_ENABLED!==false && typeof _spawnCrate==='function'){
@@ -23394,6 +23401,12 @@ function buildCubeArena(){
       _pad(0, -hz+ch+90, _CBOOT);                                        // boots
       window._cubePowerPads=_PP;
     } }catch(e){ console.warn('cube powerups',e); }
+  // ── BARREL DISPENSERS: PEZ machines on two opposing walls (left/right) that periodically drop a barrel that rolls inward ──
+  try{ if(window._BARREL_DISP!==false && typeof _makeBarrelDispenser==='function'){
+    const _by=(window._BARREL_DISP_Y||195), _inset=(hx-ch);
+    const _mk=(x,z,dxi,dzi)=>{ const g=_makeBarrelDispenser(x,_by,z,dxi,dzi); if(_cubeGroup)_cubeGroup.add(g); else scene.add(g); return {x:x+dxi*18,y:_by-30,z:z+dzi*18,dx:dxi,dz:dzi,g}; };
+    window._barrelDispensers=[ _mk(-_inset,0,1,0), _mk(_inset,0,-1,0) ]; window._barrelDispIdx=0;   // left wall drops rightward, right wall drops leftward -> both roll to center
+  } }catch(e){ console.warn('barrel dispensers',e); }
   // ── spawn robot at center floor, normal controls ──
   player.wx=0; player.wz=0; player.py=0; player.pvy=0; player.vx=0; player.vz=0; player._inPlanetGravity=false; if(player.model)player.model.visible=true;
   try{ if(CAM){ CAM.tyaw=0; CAM.yaw=0; if(CAM.tfocus)CAM.tfocus.set(0,40,0); if(CAM.focus)CAM.focus.set(0,40,0); } }catch(_){}
@@ -23413,6 +23426,24 @@ function _makePowerPad(x, z, col){
   const ring2=new THREE.Mesh(new THREE.TorusGeometry(R*0.62,0.45,8,44), new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false})); ring2.rotation.x=Math.PI/2; ring2.position.y=3.8; g.add(ring2);
   const beam=new THREE.Mesh(new THREE.CylinderGeometry(2,R*0.8,58,20,1,true), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.055,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.y=30; g.add(beam);
   g.userData._spin=ring2; g.userData._pulse=rim;
+  return g;
+}
+// ── BARREL DISPENSER — a wall-mounted mechanical machine that periodically drops a barrel down a chute; the barrel lands near
+//    the wall and rolls into the arena (PEZ-style). Local +Z points INTO the room (the chute faces inward+down). ──
+function _makeBarrelDispenser(x,y,z,dx,dz){
+  const g=new THREE.Group(); g.position.set(x,y,z); g.rotation.y=Math.atan2(dx,dz);   // face inward (+z local -> inward dir)
+  const col=(window._BARREL_DISP_COL||0xffaa22);
+  const body=new THREE.MeshStandardMaterial({color:0x2a1d0c,metalness:0.72,roughness:0.4,emissive:0x160d02,emissiveIntensity:0.9,toneMapped:false});
+  const steel=new THREE.MeshStandardMaterial({color:0x39414d,metalness:0.82,roughness:0.34,emissive:0x0a0f16,emissiveIntensity:0.6,toneMapped:false});
+  const glow=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+  const housing=new THREE.Mesh(new THREE.BoxGeometry(66,74,40),body); housing.position.set(0,0,-6); g.add(housing);   // main box against the wall
+  const band=new THREE.Mesh(new THREE.BoxGeometry(68,15,42),new THREE.MeshStandardMaterial({color:0x120d05,metalness:0.5,roughness:0.5,emissive:col,emissiveIntensity:0.3,toneMapped:false})); band.position.set(0,20,-6); g.add(band);   // hazard band
+  const chute=new THREE.Mesh(new THREE.CylinderGeometry(15,18,30,18,1,true),steel); chute.position.set(0,-36,13); chute.rotation.x=0.55; g.add(chute);   // drop chute (angled down+inward)
+  const lip=new THREE.Mesh(new THREE.TorusGeometry(16,1.7,8,26),glow); lip.rotation.x=Math.PI/2-0.55; lip.position.set(0,-47,22); g.add(lip);            // glowing mouth ring
+  for(const sx of [-1,1]){ const rail=new THREE.Mesh(new THREE.BoxGeometry(5,70,8),steel); rail.position.set(sx*31,0,13); g.add(rail); }               // side rails
+  const ind=new THREE.Mesh(new THREE.SphereGeometry(5.5,14,10),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})); ind.position.set(0,29,16); g.add(ind);   // status light
+  g.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(66,74,40)), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.5})));
+  g.userData._ind=ind; g.userData._lip=lip; g.userData._flashT=0; g.userData._flash=()=>{ g.userData._flashT=1; };
   return g;
 }
 // ── DEBUG COLLIDER MENU — a button that pops a panel to toggle each collision visualizer ──
@@ -23445,8 +23476,9 @@ function updateCubeArena(dt){
   if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets) s.update(dt); _cubeWallFade(dt); }   // deforming grid faces ripple/settle + fade any face between the camera and you
   if(typeof _updateCubeBall==='function') _updateCubeBall(dt);   // ball runs in BOTH normal & wall-walk modes
   if(typeof _updateWeaponCollider==='function') _updateWeaponCollider(dt);   // melee weapon collider -> ball hits
-  if(window._cubePowerPads){ const _pt=(typeof performance!=='undefined'?performance.now():0)*0.001;   // power pads: slow inner-ring spin + gentle rim breathe (runs in both normal & wall-walk modes, before the return below)
-    for(const g of window._cubePowerPads){ if(!g)continue; if(g.userData._spin)g.userData._spin.rotation.z+=dt*0.7; const _pm=g.userData._pulse&&g.userData._pulse.material; if(_pm)_pm.opacity=0.72+0.24*Math.sin(_pt*2+(g.position.x+g.position.z)*0.015); } }
+  if(window._cubePowerPads||window._barrelDispensers){ const _pt=(typeof performance!=='undefined'?performance.now():0)*0.001;   // power pads + barrel dispensers: idle glow + the dispenser's drop-flash (runs in both normal & wall-walk modes, before the return below)
+    if(window._cubePowerPads)for(const g of window._cubePowerPads){ if(!g)continue; if(g.userData._spin)g.userData._spin.rotation.z+=dt*0.7; const _pm=g.userData._pulse&&g.userData._pulse.material; if(_pm)_pm.opacity=0.72+0.24*Math.sin(_pt*2+(g.position.x+g.position.z)*0.015); }
+    if(window._barrelDispensers)for(const D of window._barrelDispensers){ const g=D&&D.g; if(!g)continue; const ud=g.userData; if(ud._flashT>0)ud._flashT=Math.max(0,ud._flashT-dt*2); if(ud._ind&&ud._ind.material)ud._ind.material.opacity=Math.min(1,0.4+0.3*Math.sin(_pt*3)+ud._flashT); if(ud._lip&&ud._lip.material)ud._lip.material.opacity=Math.min(1,0.55+ud._flashT*0.6); } }
   if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
   if(player._cwSetGrav){ player._inPlanetGravity=false; player._glGrounded=false; player._cwAir=0; player._cwSetGrav=false; }   // left wall-walk -> restore normal gravity/anim
   const C=window._CUBE||_CUBE; const pad=(window._CUBE_PAD!=null?window._CUBE_PAD:22); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9);
