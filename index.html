@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB214</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB215</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11690,13 +11690,26 @@ class Player{
         const ey=(e.mesh&&e.mesh.position)?e.mesh.position.y:((e.py!=null)?(e.py+(e.size||14)*0.5):10);
         const dyH=ey-_my; if(dyH<(window._VAIM_MIN_UP||22))continue;                                        // only assist for foes meaningfully ABOVE you (airborne)
         const s=dot-(dh/_R)*0.2;
-        if(s>bestS){ bestS=s; best={dh, dyH, e}; }
+        if(s>bestS){ bestS=s; best={dh, dyH, ey, e}; }
       }
       if(best){
-        const _pitch=Math.min((window._VAIM_MAX_PITCH||1.35), Math.atan2(best.dyH, best.dh));
+        // ── PREDICTIVE LEAD (catch-the-frisbee): aim where he'll BE when the bullets arrive, not where he is. Observe his
+        // vertical velocity + accel from the height delta, project it over the bullet's flight time, and pitch onto THAT point
+        // so you can shoot a juggled foe out of the air as he falls instead of always trailing behind him.
+        const _e=best.e, _ey=best.ey, _bspd=(window._VAIM_BULLET_SPD||520);
+        let _dyLead=best.dyH;
+        if(window._VAIM_PREDICT!==false && dt>0){
+          const _pY=(_e._vaimPY!=null?_e._vaimPY:_ey), _pVY=(_e._vaimVY||0);
+          const _vy=(_ey-_pY)/dt; let _a=(_vy-_pVY)/dt; if(_a>0)_a=0; if(_a<-8000)_a=-8000;                 // downward accel only (gravity)
+          _e._vaimPY=_ey; _e._vaimVY=_vy;
+          const _t=Math.min((window._VAIM_MAX_LEAD_T||0.7), best.dh/_bspd);
+          const _fy=_ey + _vy*_t + 0.5*_a*_t*_t;                                                             // predicted height at impact
+          _dyLead=_fy-_my;
+        }
+        const _pitch=Math.max(-(window._VAIM_MAX_PITCH||1.35), Math.min((window._VAIM_MAX_PITCH||1.35), Math.atan2(_dyLead, best.dh)));
         const cp=Math.cos(_pitch), sp=Math.sin(_pitch);
         if(!this._aim3D)this._aim3D=new THREE.Vector3();
-        this._aim3D.set(_fx*cp, sp, _fz*cp); this._aim3DActive=true;                                       // horizontal = your facing (unchanged); vertical = angled up onto the airborne target
+        this._aim3D.set(_fx*cp, sp, _fz*cp); this._aim3DActive=true;                                       // horizontal = your facing (unchanged); vertical = angled onto the predicted intercept
         this._vaimLock=best.e;
       } else if(this._vaimLock){ this._vaimLock=null; }
     } else if(this._vaimLock){ this._vaimLock=null; }
