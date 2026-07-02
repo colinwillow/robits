@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB159</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB160</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1259,8 +1259,9 @@ function updateCamera(dt){
   // BALL CAM works in the cube whether or not boots are equipped (without boots the wall-walk render path that normally dispatches it never runs)
   if(window._ballCam && GS.zone===-19 && player && typeof _ballCam==='function' && !(typeof _cubeWalkOn==='function' && _cubeWalkOn(player))){ _ballCam(new THREE.Vector3(player.wx,player.py,player.wz), dt); player._cubeCamAuth=false; return; }
   if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player) && (window._ballCam || player._cubeCamAuth)){ return; }   // BALL cam or the AUTHORITATIVE wall cam owns it; the FLOOR uses this normal path
+  if(player && player._driveActive && GS.zone===-19 && !window._ballCam){ return; }   // MOMENTUM DRIVE: _cubeWalkRender->_cubeCam owns the wall camera; don't let the normal cam fight it
   // ENEMY CAM — frames the player + a focused enemy / nearby-enemy centroid. Yields to cube wall-walk (the wall/ball cams own the cube when you have boots on a wall).
-  if(window._enemyCam && player && GS.state==='playing' && !(typeof _cubeWalkOn==='function' && _cubeWalkOn(player))){
+  if(window._enemyCam && player && GS.state==='playing' && !(typeof _cubeWalkOn==='function' && _cubeWalkOn(player)) && !player._driveActive){
     const _ep=new THREE.Vector3(player.wx,(player.py||0),player.wz), _et=_enemyCamTargetPos(_ep);
     if(_et){ _enemyCam(_ep,_et,dt); return; }
     else { if(typeof _camFxBegin==='function')_camFxBegin(); window._enemyCam=false; }   // target gone (boss died / last enemy cleared) -> capture the pose and EASE into the normal cam instead of a hard pop
@@ -11304,6 +11305,9 @@ class Player{
     if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)){ _cubeWalkMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1);
       if(!window._ballCam){ const _am=Math.hypot(avx||0,avz||0); if(_am>(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.06)){ const desired=-this.aim-Math.PI/2; let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI; if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4); } }   // camera eases BEHIND the right-stick aim (follows on ANY aim input now) -> full 360, correct handedness
     }   // cube arena: boots = walk walls/ceiling (movement), then fall through to the _inPlanetGravity aim/shoot branch below so the shoot stick works
+    else if(typeof _cubeMomentumOn==='function' && _cubeMomentumOn(this)){ _cubeMomentumMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1);   // NO-BOOTS Rocket-League drive: carry speed up the chamfer + wall
+      if(!window._ballCam){ const _am=Math.hypot(avx||0,avz||0); if(_am>(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.06)){ const desired=-this.aim-Math.PI/2; let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI; if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4); } }
+    }
     if(this.inv>0)this.inv--; if(this.shieldT>0)this.shieldT--;
     if(this.dashCD>0){this.dashCD--;if(this.dashCD<=0)this.dash=1;}
 
@@ -11415,7 +11419,11 @@ class Player{
 
       let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
       if(GS.zone===-19){ const yh=(this.py||0)+(window._CUBE_RIDE||14), c=_cubeClampXZ(nx,nz,yh,(window._CUBE_SKIN||14));   // CUBE: height-aware shell containment (floor stops at the arc base, airborne opens out to the walls)
-        if(c){ const gx=nx-c.x, gz=nz-c.z, gl=Math.hypot(gx,gz)||1, nX=gx/gl, nZ=gz/gl; nx=c.x; nz=c.z; const vn=this.vx*nX+this.vz*nZ; if(vn>0){ this.vx-=nX*vn*1.2; this.vz-=nZ*vn*1.2; } }
+        if(c){ const gx=nx-c.x, gz=nz-c.z, gl=Math.hypot(gx,gz)||1, nX=gx/gl, nZ=gz/gl; const spd=Math.hypot(this.vx,this.vz), into=this.vx*nX+this.vz*nZ;   // into>0 = driving toward the wall
+          const canDrive=!(this._hasBoots&&this._bootsEquipped) && !this._ballActive && window._DRIVE_ON!==false && spd>(window._DRIVE_ENGAGE||190) && into>60 && (this.py||0)<(window._DRIVE_ENGAGE_Y||40);
+          if(canDrive){ this._driveActive=true; }   // ROCKET-LEAGUE: hit the chamfer with speed -> start driving up it (drive re-snaps to the surface next frame); don't clamp
+          else { nx=c.x; nz=c.z; if(into>0){ this.vx-=nX*into*1.2; this.vz-=nZ*into*1.2; } }
+        }
       } else {
         const _zc=zoneCenter(GS.zone);
         const edge=ARENA_R-12, dist=Math.hypot(nx-_zc.x,nz-_zc.z);
@@ -24030,6 +24038,42 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   if(N.y < (window._CUBE_WALK_NY||0.7)) P._cwLeftByAir=false;   // grounded & walking on a wall/upper-chamfer -> this is a WALK exit (flip enabled); only a dislodge-fall keeps the air flag set onto the floor
   P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); window._cwSpeed=Math.round(v.length());
   _cubeWalkRender(P,N,tanDir,dt,grounded);
+}
+// ── ROCKET-LEAGUE MOMENTUM DRIVE (no boots) — carry speed into the chamfer and you round the arc + drive up the wall; run out of speed on a wall and gravity peels you off into a fall. Reuses the boots surface-follow (re-snap to ride height = the climb) + _cubeWalkRender (wall cam/orientation), but with WORLD gravity (tangential) instead of magnetic. ──
+const _cwNm=new THREE.Vector3();
+function _cubeMomentumOn(P){ return GS.zone===-19 && P && P._driveActive && !(P._hasBoots&&P._bootsEquipped) && !P._ballActive && P.alive!==false; }
+function _driveDetach(P){ P._driveActive=false; P._inPlanetGravity=false; P._cwSetGrav=false; P._cwDislodge=false;   // hand back to normal physics: world velocity is preserved; containment + gravity carry the fall to the floor
+  if((P._cubeUp&&P._cubeUp.y<0.7) && (P.pvy||0)>-20) P.pvy=(P.pvy||0)-60; }
+function _cubeMomentumMove(P,rawX,rawZ,dt){
+  dt=Math.min(dt,0.033);
+  P._inPlanetGravity=true; P._onPlatform=false; P._cwSetGrav=false;
+  const RIDE=(window._CUBE_RIDE!=null?window._CUBE_RIDE:14);
+  _cubeGrad(P.wx,P.py,P.wz,_cwNm); let N=_cwNm.clone().multiplyScalar(-1);   // UP = into the room
+  // surface tangent basis from the camera (same handedness as the boots walk)
+  const _cy=Math.cos(CAM.yaw), _sy=Math.sin(CAM.yaw);
+  const sx=_cy*rawX - _sy*rawZ, sz=_sy*rawX + _cy*rawZ; const inMag=Math.hypot(sx,sz);
+  const cr=(window._ballCam||P._cubeCamAuth)? new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0):new THREE.Vector3(_cy,0,-_sy);
+  let prr=cr.addScaledVector(N,-cr.dot(N)); if(prr.lengthSq()<1e-5)prr.crossVectors(N,P._cwLastTN||new THREE.Vector3(0,0,1)); prr.normalize();
+  let pf; { const _cu=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1); _cu.addScaledVector(N,-_cu.dot(N));
+    if((P._cubeCamAuth||window._ballCam)&&_cu.lengthSq()>0.04) pf=_cu.normalize();
+    else { pf=new THREE.Vector3().crossVectors(N,prr); if(pf.lengthSq()<1e-5)pf.set(0,0,1); pf.normalize(); } }
+  let tanDir=null; if(inMag>0.05){ tanDir=pf.clone().multiplyScalar(-sz).addScaledVector(prr,sx); if(tanDir.lengthSq()>1e-4){tanDir.normalize(); P._cwLastTN=pf.clone();} else tanDir=null; }
+  let v=new THREE.Vector3(P.vx||0,P.pvy||0,P.vz||0);
+  v.addScaledVector(N,-v.dot(N));                                             // constrain to the tangent plane (surface absorbs the normal component)
+  if(P._jumpTapped){ P._jumpTapped=false; v.addScaledVector(N,(window._DRIVE_JUMP||300)); P.vx=v.x;P.pvy=v.y;P.vz=v.z; _driveDetach(P); return; }   // jump -> pop off into free flight
+  const G=(window._DRIVE_GRAV!=null?window._DRIVE_GRAV:900); let gt=new THREE.Vector3(0,-G,0); gt.addScaledVector(N,-gt.dot(N)); v.addScaledVector(gt,dt);   // world gravity, TANGENTIAL part (pulls you down a wall; ~0 on the floor)
+  if(tanDir) v.addScaledVector(tanDir,(window._DRIVE_ACC!=null?window._DRIVE_ACC:1500)*Math.min(1,inMag)*dt);   // free-360 steer
+  v.multiplyScalar(Math.pow((window._DRIVE_FRIC!=null?window._DRIVE_FRIC:0.55),dt));   // per-second friction
+  const MAX=(window._DRIVE_MAX||540); if(v.length()>MAX)v.setLength(MAX);
+  P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
+  _cubeGrad(P.wx,P.py,P.wz,_cwNm); const d2=_cubeSDF(P.wx,P.py,P.wz), corr=d2+RIDE;   // RE-SNAP to ride height along the surface -> this is what carries you smoothly up the arc + wall
+  P.wx-=_cwNm.x*corr; P.py-=_cwNm.y*corr; P.wz-=_cwNm.z*corr;
+  N=_cwNm.clone().multiplyScalar(-1);
+  P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); window._driveSpeed=Math.round(v.length());
+  const spd=v.length(), steep=(N.y < (window._DRIVE_STICK_NY!=null?window._DRIVE_STICK_NY:0.86));
+  if(steep && spd < (window._DRIVE_MIN||150)){ _driveDetach(P); _cubeWalkRender(P,N,tanDir,dt,true); return; }   // ran out of momentum on a wall/ceiling -> peel off + fall
+  if(!steep && (P.py||0) <= RIDE+3){ P._driveActive=false; P._inPlanetGravity=false; }   // rolled back onto the flat floor -> hand back to normal walking
+  _cubeWalkRender(P,N,tanDir,dt,true);
 }
 // Orientation + reoriented chase camera — owned here (like updateLabGravity), so draw() bails and nothing fights it.
 function _cubeWalkRender(P,N,tanDir,dt,grounded){
