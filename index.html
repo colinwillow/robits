@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB193</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB194</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -20849,24 +20849,20 @@ function loop(ts){ requestAnimationFrame(loop);
               let dx=kvx,dz=kvz; if(dx*dx+dz*dz<1){ dx=e.wx-player.wx; dz=e.wz-player.wz; }
               { const _m=Math.hypot(dx,dz)||1, _s=(Math.random()-0.5)*0.4, _px=-dz/_m, _pz=dx/_m; dx+=_px*_m*_s; dz+=_pz*_m*_s; }   // a little scatter so a group doesn't all fly the same way
               if(e.knock){
-                if(kind==='bot'){                                                              // SMASH-BROS LAUNCH — hit QUALITY (flick velocity) × PROXIMITY (nested collider) × the bot's own damage% (bot.knock scales weak targets farther)
-                  const _SM=window._MELEE_SMASH||{};
-                  const qFlick=(player._flickPower!=null?player._flickPower:0.5);                // how clean/fast the flick was (0..1)
-                  const qProx=Math.max(0,Math.min(1, 1-(_dseg/_reach)));                         // how centred the hit was: blade-core = 1, edge of reach = 0 (inner vs outer collider)
-                  const q=Math.max(0,Math.min(1, (_SM.flickW!=null?_SM.flickW:0.45)*qFlick + (_SM.proxW!=null?_SM.proxW:0.55)*qProx));   // overall hit power
-                  const _isSmash=(q>=(_SM.q!=null?_SM.q:0.62)) || (tier>=(_SM.tier!=null?_SM.tier:3));   // a clean, close hit (or the combo finisher) = SMASH / home-run
-                  let _lift=lift*(window._MELEE_BOT_LIFT_K||0.8)*(0.8+q*0.9);                    // q scales the launch: glancing far hit = small pop, perfect close hit = a clean arc (toned WAY down — physical, not a moon-shot)
-                  let _mag =mag *(window._MELEE_BOT_MAG_K||0.22)*(0.85+q*0.45);   // ~half the old horizontal launch — they still fly, just not across the whole arena
-                  if(_isSmash){ _lift*=(_SM.liftMul||1.2); _mag*=(_SM.magMul||1.2); }
-                  _lift=Math.min(_lift,(_SM.liftCap||360));                                      // hard cap (raised so HEAVY weapons like the hammer really send them flying; horizontal distance is toned by _MELEE_BOT_MAG_K instead)
-                  if(player._sliding){ _lift=Math.max(_lift,(window._SLIDE_TRIP_LIFT||185)); _mag=Math.min(Math.max(_mag,(window._SLIDE_TRIP_MAG||6.5)),(window._SLIDE_TRIP_MAG_CAP||8)); }   // a SLIDE TACKLE trips them off their feet (guaranteed pop + shove) — horizontal launch toned down + capped so they don't sail across the arena
+                if(kind==='bot'){                                                              // JUGGLE COMBO: early hits POP them a little (stay close to chase) — the Nth chained hit is the HOME RUN that sends them flying
+                  const _SM=window._MELEE_SMASH||{}; const _fin=(window._COMBO_FINISHER||4); const _cn=(player._comboHits||0)+1;   // this hit's index in the string
+                  const _isSmash=(_cn>=_fin);   // finisher = home run; hits 1..N-1 just chip + juggle
+                  let _lift, _mag;
+                  if(_isSmash){ _lift=Math.min(lift*(window._MELEE_BOT_LIFT_K||0.8)*(window._COMBO_FIN_LIFT_MUL||2.4), (_SM.liftCap||420)); _mag=mag*(window._MELEE_BOT_MAG_K||0.22)*(window._COMBO_FIN_MAG_MUL||3.4); }
+                  else { _lift=(window._COMBO_JUGGLE_LIFT||150); _mag=(window._COMBO_JUGGLE_MAG||2.4); }   // gentle up-pop, barely any horizontal -> they hang in juggle range
+                  if(player._sliding && !_isSmash){ _lift=Math.max(_lift,(window._SLIDE_TRIP_LIFT||185)); _mag=Math.min(Math.max(_mag,(window._SLIDE_TRIP_MAG||6.5)),(window._SLIDE_TRIP_MAG_CAP||8)); }
                   e.knock(dx,dz,_mag,_lift,stn);
-                  if(_isSmash){
-                    if(typeof announce==='function')announce(q>=0.9?'HOME RUN!':'SMASH!','#ffe23c');
+                  if(_isSmash){ player._comboFinished=true;
+                    if(typeof announce==='function')announce('HOME RUN!','#ffe23c');
                     if(typeof ps!=='undefined'){ ps.ring(e.wx,e.wz,[1,0.9,0.2],28,150); ps.burst(e.wx,e.wz,[1,0.8,0.3],24,180,(e.py||0)+14); }
-                    if(typeof addTrauma==='function')addTrauma(0.18+q*0.12);
-                    if(typeof hitStop==='function')hitStop(6+(q>=0.9?4:0));
-                    if(typeof slowmo==='function'&&q>=0.82)slowmo(0.5,12);
+                    if(typeof addTrauma==='function')addTrauma(0.26);
+                    if(typeof hitStop==='function')hitStop(9);
+                    if(typeof slowmo==='function')slowmo(0.5,12);
                     if(typeof Audio!=='undefined'&&Audio.blip){ try{ Audio.blip(66,0.24,'sine',0.32,58); Audio.blip(880,0.05,'square',0.12,1500); }catch(_){} }
                   }
                 }
@@ -20883,6 +20879,7 @@ function loop(ts){ requestAnimationFrame(loop);
                 else if(kind==='dummy' && e.knock){ const _sl=player._sliding; e.knock(dx,dz, _sl?_MS.bMag*1.5:_MS.bMag, _sl?_MS.bLift*1.7:_MS.bLift, _MS.bStn); }   // rooted dummy: weapon-scaled shove on its sway — a slide tackle rocks it harder
                 else if(kind==='ally'){ if(e._launch)try{e._launch(dx,dz,(window._FF_MELEE_VX||320),(window._FF_MELEE_VY||280));}catch(_){} else try{e.knock(dx,dz,(window._FF_MELEE_MAG||14),(window._FF_MELEE_LIFT||260),18,true);}catch(_){} }   // LAUNCH your own summon into the fray (no damage)
               }
+              if(kind==='bot'||kind==='enemy'||kind==='dummy'){ if(player._comboFinished){ player._comboHits=0; player._comboFinished=false; } else { player._comboHits=(player._comboHits||0)+1; } player._comboTarget=e; }   // remember the foe + advance the juggle count so the NEXT flick transports at them and the Nth hit home-runs (then reset so the chain chips again)
               if(typeof addTrauma==='function')addTrauma(_MS.trauma||0.06);                       // shake scales with weapon (stacks per enemy hit -> crowd swing = big shake)
               if(typeof hitStop==='function'&&_MS.hitStop)hitStop(_MS.hitStop);                    // freeze a few frames on impact = punch
               if(!ud._meleeFXdone){ ud._meleeFXdone=true;                                          // heavy-weapon flourish, once per swing
@@ -28697,15 +28694,22 @@ function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
     if(!(ud.clips['slide'] && _grnd && _hsp>(window._SLIDE_MIN_SPD||90) && (_nw-(player._lastSlideT||0))>_slideCD)) return false;   // not running / on cooldown -> let B grab instead
   }
   if(player._meleeType && player._meleeDur!=null){ player._meleeDur--; if(typeof updateAmmoHUD==='function')updateAmmoHUD(); if(player._meleeDur<=0) player._meleeBreakPending=true; }   // each swing wears the weapon
+  if((player._meleeComboT||0)<=0){ player._comboHits=0; player._comboTarget=null; }   // the combo window lapsed -> fresh string: reset the juggle counter + tracked foe
   // airborne? -> single air_to_ground_melee, leave the ground combo to restart fresh on landing
   let _airMelee=false;
   { const _og=(player.py<=4)||player._onPlatform||(player._inPlanetGravity&&player._glGrounded); _airMelee = player._inPlanetGravity ? !player._glGrounded : (!_og && player.py>8); }
-  // AIR SLAM is now RELATIVE TO TRAVEL: flick roughly AWAY from the way you're moving (backward) -> dive slam; forward/left/right -> a kick (then the melee combo). Falls back to the literal down-flick flag when you have little air speed (jumped straight up).
-  if(_airMelee && typeof dirAngle==='number' && window._AIR_SLAM_REL!==false){ const _tvx=player.vx||0,_tvz=player.vz||0,_tsp=Math.hypot(_tvx,_tvz);
-    if(_tsp>(window._AIR_TRAVEL_DEAD||70)){ const dot=(Math.cos(dirAngle)*_tvx+Math.sin(dirAngle)*_tvz)/_tsp; player._meleeDownFlick=(dot < (window._AIR_SLAM_DOT!=null?window._AIR_SLAM_DOT:-0.3)); } }   // opposing travel -> slam
-  const _airSlamNow=_airMelee && !!player._meleeDownFlick && ud.clips['air_to_ground_melee'];   // dive slam (flicked away from travel / hard down)
-  if(typeof dirAngle==='number' && !_airSlamNow){ let _maa=(typeof _meleeAimAssist==='function')?_meleeAimAssist(player,dirAngle):null; player.aim=_maa?_maa.ang:dirAngle; player._meleeAAtarget=_maa?_maa.e:null; }       // MELEE AIM-ASSIST: a flick generally toward a nearby foe SNAPS the swing's facing onto it (spam melee -> reliably connect, Smash-style). No foe near -> face exactly where you flicked. Air DOWN-SLAM keeps its left-stick facing.
-  else if(!_airSlamNow && window._MELEE_AA_TAP!==false){ const _maa=(typeof _meleeAimAssist==='function')?_meleeAimAssist(player, player.aim||0):null; if(_maa){ player.aim=_maa.ang; player._meleeAAtarget=_maa.e; } else player._meleeAAtarget=null; }   // NULL-dir melee (gamepad-X tap spam): snap onto a foe roughly in front (covers bots + the dummy that the tap search missed)
+  // SLAM = DOUBLE-TAP the right stick (any direction), airborne only. This RESERVES every single directional flick as a MELEE (kick/combo) — no accidental slam from a down/backward flick.
+  const _nowF=(typeof performance!=='undefined'?performance.now():Date.now()); let _slamDtap=false;
+  if(typeof dirAngle==='number'){ if((_nowF-(player._lastFlickT||0))<(window._SLAM_DTAP_WIN||240)) _slamDtap=true; player._lastFlickT=_nowF; }
+  const _airSlamNow=_airMelee && _slamDtap && window._SLAM_DTAP!==false && ud.clips['air_to_ground_melee'];   // airborne + fast double-tap = dive slam
+  // COMBO TRACKING (Smash-style juggle): while a combo is live and the last foe you hit is still in reach, the NEXT flick TRANSPORTS you straight at THEM (ignoring the exact flick direction) so you can chase the pop-up and keep hitting.
+  let _ct=(player._comboTarget && player._comboTarget.alive!==false && (player._meleeComboT||0)>0 && !_airSlamNow && window._COMBO_TRACK!==false)?player._comboTarget:null;
+  if(_ct){ const _cx=(_ct.wx!=null?_ct.wx:_ct.x), _cz=(_ct.wz!=null?_ct.wz:_ct.z); if(_cx==null || Math.hypot(_cx-player.wx,_cz-player.wz)>(window._COMBO_TRACK_R||440)) _ct=null; }   // sent them too far (home-run) -> combo drops
+  if(_ct){ const _cx=(_ct.wx!=null?_ct.wx:_ct.x), _cz=(_ct.wz!=null?_ct.wz:_ct.z); player.aim=Math.atan2(_cz-player.wz,_cx-player.wx); player._meleeAAtarget=_ct; player._comboTransport=true; }
+  else { player._comboTransport=false;
+    if(typeof dirAngle==='number' && !_airSlamNow){ let _maa=(typeof _meleeAimAssist==='function')?_meleeAimAssist(player,dirAngle):null; player.aim=_maa?_maa.ang:dirAngle; player._meleeAAtarget=_maa?_maa.e:null; }       // MELEE AIM-ASSIST: a flick generally toward a nearby foe SNAPS the swing's facing onto it
+    else if(!_airSlamNow && window._MELEE_AA_TAP!==false){ const _maa=(typeof _meleeAimAssist==='function')?_meleeAimAssist(player, player.aim||0):null; if(_maa){ player.aim=_maa.ang; player._meleeAAtarget=_maa.e; } else player._meleeAAtarget=null; }   // NULL-dir tap spam
+  }
   let mname;
   if(_airMelee){
     // AIR: flick AWAY from travel -> dive slam. Otherwise the FIRST air attack is a flying KICK, and continued flicks string into the melee_1..3 sequence (interrupt the kick mid-clip via the slide-cancel above).
@@ -28767,7 +28771,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
     if(mname!=='slide' && window._MELEE_LUNGE!==false){
       const _sp=Math.hypot(player.vx||0,player.vz||0), _run=_sp>(window._MELEE_RUN_THRESH||110);
       const _fa=player.aim||0, _full=(window._MELEE_LUNGE_RUN||440); let _peak=_run?_full:_full*(window._MELEE_LUNGE_STAND!=null?window._MELEE_LUNGE_STAND:0.5);
-      if(player._meleeAAtarget){ const _t=player._meleeAAtarget, _tx=(_t.wx!=null?_t.wx:_t.x), _tz=(_t.wz!=null?_t.wz:_t.z); if(_tx!=null){ const _d=Math.hypot(_tx-player.wx,_tz-player.wz); if(_d>24) _peak=Math.max(_peak, Math.min(_d*(window._MELEE_AA_LUNGE_K||7), _full*(window._MELEE_AA_LUNGE_CAP||1.7))); } }   // aim-assist locked a foe beyond arm's reach -> lunge far enough to actually reach it (Smash-style close-in)
+      if(player._meleeAAtarget){ const _t=player._meleeAAtarget, _tx=(_t.wx!=null?_t.wx:_t.x), _tz=(_t.wz!=null?_t.wz:_t.z); if(_tx!=null){ const _d=Math.hypot(_tx-player.wx,_tz-player.wz); if(_d>24){ const _K=player._comboTransport?(window._COMBO_TRANSPORT_K||9):(window._MELEE_AA_LUNGE_K||7), _CAP=player._comboTransport?(window._COMBO_TRANSPORT_CAP||3.2):(window._MELEE_AA_LUNGE_CAP||1.7); _peak=Math.max(_peak, Math.min(_d*_K, _full*_CAP)); if(player._comboTransport)player._meleeLungeT=Math.max(player._meleeLungeT||0,(window._COMBO_TRANSPORT_T||0.2)); } } }   // aim-assist / combo-tracking locked a foe -> lunge far enough to reach it. Combo TRANSPORT lunges harder+farther so you rocket at the juggled enemy.
       player._dashDir=[Math.cos(_fa),Math.sin(_fa)]; player._dashRamp=(window._MELEE_LUNGE_FRAMES||13); player._dashRampMax=player._dashRamp; player._dashPeak=_peak; player._meleeLungeT=(window._MELEE_LUNGE_T||0.16);
     }
   }
