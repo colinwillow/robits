@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB163</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB164</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -23745,6 +23745,39 @@ function _makePowerPad(x, z, col){
   g.position.set(x,(window._POWERPAD_Y!=null?window._POWERPAD_Y:13),z);
   return g;
 }
+// ── SPIRAL TRACTOR-LIFT + STANDABLE PADS ── stand in a pad's beam for ~0.8s and it spins you up onto the deck (where you grab the hovering powerup); the pad also acts as a platform you can land on / stand on. Owns the player transform (runs after player.update).
+function _powerPadTick(dt){
+  const A=window._cubePadAnchors; if(!A||!A.length||!player||player.alive===false||GS.state!=='playing') return;
+  if(window._PAD_TRACTOR===false) return;
+  const boots=(player._hasBoots&&player._bootsEquipped);
+  const DELAY=(window._PAD_TRACTOR_DELAY||0.8), DUR=(window._PAD_LIFT_DUR||0.7);
+  // ── ACTIVE LIFT — spiral up onto the pad ──
+  if(player._padLift){ const L=player._padLift; L.t+=dt; const k=Math.min(1,L.t/DUR), e=k*k*(3-2*k);
+    player.wx += (L.ax-player.wx)*Math.min(1,dt*7); player.wz += (L.az-player.wz)*Math.min(1,dt*7);
+    player.py = L.fromY + (L.toY-L.fromY)*e; player.pvy=0; player.vx=0; player.vz=0; player._launched=false; player._inPlanetGravity=false;
+    if(player.model){ player.model.position.set(player.wx,player.py,player.wz); player.model.rotation.y=(L.spin0||0)+e*(window._PAD_LIFT_SPINS||2)*TAU; }   // spin-up
+    if(typeof ps!=='undefined'&&Math.random()<0.6) ps.spark(player.wx+rand(-9,9),player.wz+rand(-9,9),[0.5,0.92,1],player.py+rand(0,22));
+    if(k>=1){ player.py=L.toY; player.pvy=0; player._onPad=L.anchor; player._padLift=null; if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.5,0.95,1],18,110,player.py); }
+    return;
+  }
+  // ── HOLD ON PAD — virtual platform ──
+  if(player._onPad){ const a=player._onPad, d=Math.hypot(player.wx-a.x,player.wz-a.z);
+    if(boots || player._ballActive || (player.pvy||0)>(window._PAD_JUMP_OFF||15) || player._jumpTapped || d>a.r+(window._PAD_STAND_SLOP||20)){ player._onPad=null; }   // jumped (upward pvy), walked off the edge, or boots/ball -> release
+    else { player.py=a.y; if((player.pvy||0)<0)player.pvy=0; player._onPlatform=true; if(player.model)player.model.position.y=player.py; }
+  }
+  // ── LAND ON PAD from above (jumped/fell onto it) -> stand ──
+  if(!player._onPad && !player._padLift && !boots){ for(const a of A){ const d=Math.hypot(player.wx-a.x,player.wz-a.z); if(d<a.r+8 && (player.pvy||0)<=0 && Math.abs((player.py||0)-a.y)<(window._PAD_LAND_DY||16)){ player._onPad=a; player.py=a.y; player.pvy=0; break; } } }
+  // ── CHARGE from the ground under the beam -> engage lift ──
+  for(const a of A){
+    const d=Math.hypot(player.wx-a.x,player.wz-a.z);
+    const under = !player._padLift && player._onPad!==a && !boots && !player._ballActive && d<a.r && (player.py||0)<(window._PAD_TRACTOR_GND_Y||12);
+    if(under){ a.t=(a.t||0)+dt;
+      if(a.beam&&a.beam.material) a.beam.material.opacity=(window._PAD_BEAM_OP||0.16)+Math.min(0.55,(a.t/DELAY)*0.45);
+      if(typeof ps!=='undefined'&&Math.random()<0.35) ps.spark(player.wx+rand(-6,6),player.wz+rand(-6,6),[0.5,0.9,1],player.py+rand(0,12));
+      if(a.t>=DELAY){ player._padLift={ax:a.x,az:a.z,fromY:(player.py||0),toY:a.y,spin0:(player.model?player.model.rotation.y:0),t:0,anchor:a}; a.t=0; if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(320,0.22,'sine',0.14,760);}catch(_){} if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.5,0.95,1],16,100); }
+    } else if((a.t||0)>0){ a.t=0; if(a.beam&&a.beam.material)a.beam.material.opacity=(window._PAD_BEAM_OP||0.16); }
+  }
+}
 function _stepPowerPad(pad, dt, t){
   if(!pad||!pad.userData)return; const sdt=Math.min(dt,0.05);
   if(pad.userData.spinner) pad.userData.spinner.rotation.y += dt*(window._POWERPAD_SPIN!=null?window._POWERPAD_SPIN:0.6);
@@ -23865,6 +23898,7 @@ function updateCubeArena(dt){
   if(window._cubePowerPads||window._barrelDispensers){ const _pt=(typeof performance!=='undefined'?performance.now():0)*0.001;   // power pads (spinner + jet flames) + barrel dispensers (idle glow + drop-flash) — runs in both normal & wall-walk modes, before the return below
     if(window._cubePowerPads&&typeof _stepPowerPad==='function')for(const g of window._cubePowerPads) _stepPowerPad(g, dt, _pt);
     if(window._barrelDispensers)for(const D of window._barrelDispensers){ const g=D&&D.g; if(!g)continue; const ud=g.userData; if(ud._flashT>0)ud._flashT=Math.max(0,ud._flashT-dt*2); if(ud._ind&&ud._ind.material)ud._ind.material.opacity=Math.min(1,0.4+0.3*Math.sin(_pt*3)+ud._flashT); if(ud._lip&&ud._lip.material)ud._lip.material.opacity=Math.min(1,0.55+ud._flashT*0.6); } }
+  if(typeof _powerPadTick==='function') _powerPadTick(dt);   // spiral tractor-lift + standable pads (runs after player.update, so it owns the transform)
   if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
   if(player._cwSetGrav){ player._inPlanetGravity=false; player._glGrounded=false; player._cwAir=0; player._cwSetGrav=false; }   // left wall-walk -> restore normal gravity/anim
   const C=window._CUBE||_CUBE; const pad=(window._CUBE_PAD!=null?window._CUBE_PAD:22); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9);
