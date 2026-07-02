@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB145</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB146</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -899,19 +899,31 @@ let composer=null, bloomPass=null, chromaPass=null;
 //    8 strongest to the composite shader (uSpl = uv.xy + radius + strength, uSplCol = colour). They bloom saturated then bleed
 //    outward + ripple, "painting the canvas" only where the action is. ──
 window._inkSplashes=window._inkSplashes||[];
-window._inkSplash=function(wx,wy,wz,col){ if(!window._BW_MODE)return; const L=window._inkSplashes; L.push({wx:wx||0,wy:(wy!=null?wy:6),wz:wz||0,col:[col&&col[0]!=null?col[0]:1,col&&col[1]!=null?col[1]:1,col&&col[2]!=null?col[2]:1],t:0,life:(window._INK_LIFE||1.2)}); if(L.length>(window._INK_MAX||16))L.shift(); };
+window._inkSplash=function(wx,wy,wz,col){ if(!window._BW_MODE)return; const L=window._inkSplashes; L.push({wx:wx||0,wy:(wy!=null?wy:6),wz:wz||0,t:0,life:(window._INK_LIFE||1.3)}); if(L.length>(window._INK_MAX||16))L.shift(); };
+const _bwC=new THREE.Vector3(), _bwE=new THREE.Vector3(), _bwR=new THREE.Vector3();
 function _bwUpdateSplashes(dt){
   if(!composer||typeof camera==='undefined'||!camera)return;
-  if(!composer._spl){ composer._spl=Array.from({length:8},()=>new THREE.Vector4(0,0,0,0)); composer._splCol=Array.from({length:8},()=>new THREE.Vector3(1,1,1)); }
+  if(!composer._spl) composer._spl=Array.from({length:8},()=>new THREE.Vector4(0,0,0,0));
   for(const s of composer._spl)s.set(0,0,0,0);
-  const L=window._inkSplashes; if(!L||!L.length)return;
-  const _v=new THREE.Vector3(); let slot=0;
-  for(let i=L.length-1;i>=0;i--){ const s=L[i]; s.t+=dt; if(s.t>=s.life){ L.splice(i,1); continue; }
-    if(slot>=8) continue;
-    _v.set(s.wx,s.wy,s.wz).project(camera); if(_v.z>1) continue;   // behind the camera -> skip
-    const age=s.t/s.life, radius=(window._INK_R0||0.05)+age*(window._INK_RGROW||0.26), strength=Math.pow(1-age,(window._INK_FADE||1.5));
-    composer._spl[slot].set(_v.x*0.5+0.5, _v.y*0.5+0.5, radius, strength);
-    composer._splCol[slot].set(s.col[0],s.col[1],s.col[2]); slot++;
+  const asp=camera.aspect||1.6; _bwR.setFromMatrixColumn(camera.matrixWorld,0);   // camera right (for a screen-accurate radius)
+  let slot=0;
+  const _push=(wx,wy,wz,worldR,strength)=>{ if(slot>=8||strength<=0.001)return;
+    _bwC.set(wx,wy,wz).project(camera); if(_bwC.z>1)return;
+    _bwE.set(wx+_bwR.x*worldR, wy+_bwR.y*worldR, wz+_bwR.z*worldR).project(camera);
+    const uvx=_bwC.x*0.5+0.5, uvy=_bwC.y*0.5+0.5;
+    let rad=Math.hypot((_bwE.x-_bwC.x)*0.5*asp,(_bwE.y-_bwC.y)*0.5); rad=Math.max(0.03,Math.min(0.95,rad));
+    composer._spl[slot].set(uvx,uvy,rad,strength); slot++;
+  };
+  // 1. PLAYER — a persistent colour sphere that follows him (brighter the faster he moves / when firing)
+  if(typeof player!=='undefined'&&player&&player.alive!==false){ const sp=Math.hypot(player.vx||0,player.vz||0); const st=Math.min(1,(window._INK_PLAYER_S||0.9)+sp/1400); _push(player.wx,(player.py||0)+12,player.wz,(window._INK_PLAYER_R||130),st); }
+  // 2. IMPACT / shot trails — bloom then bleed out + fade
+  const L=window._inkSplashes; if(L)for(let i=L.length-1;i>=0;i--){ const s=L[i]; s.t+=dt; if(s.t>=s.life){L.splice(i,1);continue;} if(slot>=8)continue; const age=s.t/s.life; _push(s.wx,s.wy,s.wz,(window._INK_TRAIL_R||70)*(0.55+age*1.3), Math.pow(1-age,(window._INK_FADE||1.4))); }
+  // 3. ENEMIES / bots / dummy / MP foes — each in colour, nearest first
+  if(slot<8){ const en=[]; if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){if(e&&e.alive!==false&&!e._captured)en.push(e);} if(typeof GS_bots!=='undefined')for(const b of GS_bots){if(b&&b.alive!==false)en.push(b);} if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy)en.push(GS_trainingDummy);
+    if(typeof player!=='undefined'&&player)en.sort((a,b)=>(Math.hypot((a.wx||0)-player.wx,(a.wz||0)-player.wz))-(Math.hypot((b.wx||0)-player.wx,(b.wz||0)-player.wz)));
+    const _er=(window._INK_ENEMY_R||100), _es=(window._INK_ENEMY_S||0.95);
+    for(const e of en){ if(slot>=8)break; const ey=(e.mesh?e.mesh.position.y:(e.py||0)+10); _push(e.wx||0,ey,e.wz||0,_er,_es); }
+    if(typeof MP!=='undefined'&&MP.active&&MP.players)for(const id in MP.players){ if(slot>=8)break; const rp=MP.players[id]; if(rp&&rp.mesh&&!(rp.state&&rp.state.dead))_push(rp.mesh.position.x,rp.mesh.position.y+10,rp.mesh.position.z,_er,_es); }
   }
 }
 window._bwUpdateSplashes=_bwUpdateSplashes;
@@ -949,12 +961,12 @@ function initPostProcessing(renderer, scene, camera){
     // Composite pass — main + bloom + chroma aberration + (optional) FLAT INK black&white with paint-splash colour
     const compositeMat=new THREE.ShaderMaterial({uniforms:{tMain:{value:null},tBloom:{value:null},bloomStr:{value:1.2},chromaStr:{value:0.0},time:{value:0.0},
         uBW:{value:0.0}, uTexel:{value:new THREE.Vector2(1/1280,1/720)}, uAspect:{value:1.6},
-        uInk:{value:0.30}, uEdgeT:{value:0.16}, uThick:{value:2.2}, uRip:{value:60.0},
-        uSpl:{value:Array.from({length:8},()=>new THREE.Vector4(0,0,0,0))}, uSplCol:{value:Array.from({length:8},()=>new THREE.Vector3(1,1,1))} },
+        uInk:{value:0.26}, uSoft:{value:0.16}, uThick:{value:5.0}, uSat:{value:1.45},
+        uSpl:{value:Array.from({length:8},()=>new THREE.Vector4(0,0,0,0))} },
       vertexShader:`varying vec2 v;void main(){v=uv;gl_Position=vec4(position,1.);}`,
       fragmentShader:`uniform sampler2D tMain;uniform sampler2D tBloom;uniform float bloomStr;uniform float chromaStr;uniform float time;
-        uniform float uBW;uniform vec2 uTexel;uniform float uAspect;uniform float uInk;uniform float uEdgeT;uniform float uThick;uniform float uRip;
-        uniform vec4 uSpl[8];uniform vec3 uSplCol[8];varying vec2 v;
+        uniform float uBW;uniform vec2 uTexel;uniform float uAspect;uniform float uInk;uniform float uSoft;uniform float uThick;uniform float uSat;
+        uniform vec4 uSpl[8];varying vec2 v;
         const vec3 W=vec3(.299,.587,.114);
         void main(){
           vec2 off=normalize(v-0.5)*chromaStr;
@@ -966,20 +978,22 @@ function initPostProcessing(renderer, scene, camera){
           float scan=sin(v.y*600.+time*15.)*.012*chromaStr*6.;
           vec3 lit=base+bloom+vec3(scan,0,0);
           if(uBW>0.001){
-            // ── FLAT INK: solid WHITE on BLACK from the crisp (bloom-free) render — posterized fill + Sobel-ish edge lines. No glow. ──
-            float lc=dot(base,W);
-            vec2 tx=uTexel*uThick;
-            float e = abs(dot(texture2D(tMain,v+vec2(tx.x,0.)).rgb,W)-dot(texture2D(tMain,v-vec2(tx.x,0.)).rgb,W))
-                    + abs(dot(texture2D(tMain,v+vec2(0.,tx.y)).rgb,W)-dot(texture2D(tMain,v-vec2(0.,tx.y)).rgb,W));
-            float fill=smoothstep(uInk-0.05,uInk+0.05,lc);
-            float ink=clamp(max(fill, smoothstep(uEdgeT,uEdgeT+0.05,e)),0.,1.);
+            // ── SMOOTH THICK INK: BLUR the luminance into soft bold gestural strokes (no fine edge noise), then posterize soft. ──
+            vec2 t=uTexel*uThick; float lb=dot(texture2D(tMain,v).rgb,W)*0.25;
+            lb+=dot(texture2D(tMain,v+vec2(t.x,0.)).rgb,W)*0.115; lb+=dot(texture2D(tMain,v-vec2(t.x,0.)).rgb,W)*0.115;
+            lb+=dot(texture2D(tMain,v+vec2(0.,t.y)).rgb,W)*0.115; lb+=dot(texture2D(tMain,v-vec2(0.,t.y)).rgb,W)*0.115;
+            lb+=dot(texture2D(tMain,v+t).rgb,W)*0.0725; lb+=dot(texture2D(tMain,v-t).rgb,W)*0.0725;
+            lb+=dot(texture2D(tMain,v+vec2(t.x,-t.y)).rgb,W)*0.0725; lb+=dot(texture2D(tMain,v+vec2(-t.x,t.y)).rgb,W)*0.0725;
+            float ink=smoothstep(uInk-uSoft, uInk+uSoft, lb);   // soft thick white strokes on black
             vec3 mono=vec3(ink);
-            // ── PAINT SPLASHES: saturated colour blooms at recent impacts and bleeds outward, rippling — 'painting the canvas' ──
+            // ── SPHERES OF INFLUENCE: the player, enemies, and fading impact/shot trails REVEAL the real (saturated) colour+glow
+            //    inside their radius — the world breaks from flat B&W into full-colour detail where the action is. ──
+            float reveal=0.0;
             for(int i=0;i<8;i++){ if(uSpl[i].w>0.001){ vec2 d=v-uSpl[i].xy; d.x*=uAspect; float dd=length(d);
-              float m=(1.0-smoothstep(uSpl[i].z*0.5, uSpl[i].z, dd))*uSpl[i].w;
-              float rip=0.62+0.38*sin(dd*uRip - (1.0-uSpl[i].w)*9.4);
-              mono=mix(mono, uSplCol[i], clamp(m*rip,0.,1.)); } }
-            lit=mix(lit, mono, uBW);
+              reveal=max(reveal, (1.0-smoothstep(uSpl[i].z*0.35, uSpl[i].z, dd))*uSpl[i].w); } }
+            vec3 cc=base+bloom; float cl=dot(cc,W); cc=mix(vec3(cl),cc,uSat);   // punchier colour inside the spheres
+            vec3 outc=mix(mono, cc, clamp(reveal,0.,1.));
+            lit=mix(lit, outc, uBW);
           }
           gl_FragColor=vec4(lit,1.0);
         }`
@@ -1029,11 +1043,11 @@ function initPostProcessing(renderer, scene, camera){
         if((this.bw||0)>0.001){
           compositeMat.uniforms.uTexel.value.set(1/(mainRT.width||1280), 1/(mainRT.height||720));
           compositeMat.uniforms.uAspect.value=(mainRT.width||16)/(mainRT.height||9);
-          compositeMat.uniforms.uInk.value=(window._INK_FILL!=null?window._INK_FILL:0.30);
-          compositeMat.uniforms.uEdgeT.value=(window._INK_EDGE!=null?window._INK_EDGE:0.16);
-          compositeMat.uniforms.uThick.value=(window._INK_THICK!=null?window._INK_THICK:2.4);
-          compositeMat.uniforms.uRip.value=(window._INK_RIP!=null?window._INK_RIP:60.0);
-          const S=this._spl, SC=this._splCol; if(S&&SC){ const uS=compositeMat.uniforms.uSpl.value, uC=compositeMat.uniforms.uSplCol.value; for(let i=0;i<8;i++){ uS[i].copy(S[i]); uC[i].copy(SC[i]); } }
+          compositeMat.uniforms.uInk.value=(window._INK_FILL!=null?window._INK_FILL:0.26);
+          compositeMat.uniforms.uSoft.value=(window._INK_SOFT!=null?window._INK_SOFT:0.16);
+          compositeMat.uniforms.uThick.value=(window._INK_THICK!=null?window._INK_THICK:5.0);
+          compositeMat.uniforms.uSat.value=(window._INK_SAT!=null?window._INK_SAT:1.45);
+          const S=this._spl; if(S){ const uS=compositeMat.uniforms.uSpl.value; for(let i=0;i<8;i++) uS[i].copy(S[i]); }
         }
         renderer.setRenderTarget(null);
         renderer.render(orthoScene,orthoCamera);
