@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB137</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB138</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -23412,21 +23412,35 @@ function buildCubeArena(){
   try{ if(CAM){ CAM.tyaw=0; CAM.yaw=0; if(CAM.tfocus)CAM.tfocus.set(0,40,0); if(CAM.focus)CAM.focus.set(0,40,0); } }catch(_){}
   setTimeout(()=>{ try{ announce('CUBE ARENA — RL SANDBOX · grab the boots','#33e0ff'); }catch(e){} },400);
 }
-// ── POWER PAD — a stylized lit pedestal (dark metal base + glowing top disc, double ring, hover beam) that a perimeter
-//    pickup sits on. Reuses the showcase-pad look from the dojo. Returns a group; the caller parents it (to _cubeGroup) for
-//    cleanup. Colour keys the pad to its category so each wall reads as a themed zone. ──
+// ── POWER PAD — the STYLIZED hover deck from the title screen (_buildTitlePad: spinning UFO ring, electronic bays, struts +
+//    downward hover-jets with flame), scaled up to game size and colour-keyed by category. Returns a group; the caller parents
+//    it (to _cubeGroup) for cleanup. _stepPowerPad animates the spinner + jet flames from updateCubeArena. ──
 function _makePowerPad(x, z, col){
-  const g=new THREE.Group(); g.position.set(x,(window._POWERPAD_Y!=null?window._POWERPAD_Y:8),z);
-  const c=new THREE.Color(col);
-  const R=(window._POWERPAD_R||22);
-  const base=new THREE.Mesh(new THREE.CylinderGeometry(R*0.86,R*1.02,3.2,40), new THREE.MeshStandardMaterial({color:0x0a0e18,metalness:0.6,roughness:0.4,emissive:c.clone().multiplyScalar(0.22),emissiveIntensity:1,toneMapped:false}));
-  base.position.y=1.6; g.add(base);
-  const rim=new THREE.Mesh(new THREE.TorusGeometry(R*1.02,0.9,8,52), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false})); rim.rotation.x=Math.PI/2; rim.position.y=3.3; g.add(rim);
-  const disc=new THREE.Mesh(new THREE.CylinderGeometry(R*0.82,R*0.82,0.8,40), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false})); disc.position.y=3.5; g.add(disc);
-  const ring2=new THREE.Mesh(new THREE.TorusGeometry(R*0.62,0.45,8,44), new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false})); ring2.rotation.x=Math.PI/2; ring2.position.y=3.8; g.add(ring2);
-  const beam=new THREE.Mesh(new THREE.CylinderGeometry(2,R*0.8,58,20,1,true), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.055,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.y=30; g.add(beam);
-  g.userData._spin=ring2; g.userData._pulse=rim;
+  const _pc=window._PAD_COL, _fp=window._PAD_FLAME_PARTS, _fs=window._PAD_FLAME_SIZE;
+  window._PAD_COL=col; window._PAD_FLAME_PARTS=(window._POWERPAD_FLAME_PARTS||(IS_TOUCH?4:8));   // fewer jet particles than the single title pad — there are ~20 of these
+  window._PAD_FLAME_SIZE=(window._POWERPAD_FLAME_SIZE||3.0);   // Points size is world-space (NOT scaled by the group), so bump it to read on the 20x-scaled pad
+  let g; try{ g=_buildTitlePad(); } finally { window._PAD_COL=_pc; window._PAD_FLAME_PARTS=_fp; window._PAD_FLAME_SIZE=_fs; }
+  g.scale.setScalar(window._POWERPAD_SCALE||20);
+  g.position.set(x,(window._POWERPAD_Y!=null?window._POWERPAD_Y:13),z);
   return g;
+}
+function _stepPowerPad(pad, dt, t){
+  if(!pad||!pad.userData)return; const sdt=Math.min(dt,0.05);
+  if(pad.userData.spinner) pad.userData.spinner.rotation.y += dt*(window._POWERPAD_SPIN!=null?window._POWERPAD_SPIN:0.6);
+  const fl=pad.userData.flames; if(!fl)return;
+  const _stepParts=(window._POWERPAD_FLAME_STEP!==false) && !IS_TOUCH;   // the downward particle stream is desktop-only (perf: many pads); the sprite bloom flickers everywhere
+  for(const f of fl){
+    const fk=0.75+Math.sin(t*22+f.phase)*0.18+Math.sin(t*13.3+f.phase*2)*0.1;
+    if(f.sprite){ f.sprite.scale.set(0.34*(0.9+fk*0.2),0.5*(0.85+fk*0.3),1); f.sprite.material.opacity=0.55+fk*0.3; }
+    if(!_stepParts)continue;
+    const N=f.life.length;
+    for(let p=0;p<N;p++){ let l=f.life[p]-sdt;
+      if(l<=0){ l=f.MAXL*(0.55+Math.random()*0.45); f.pos[p*3]=f.ox; f.pos[p*3+1]=f.oy; f.pos[p*3+2]=f.oz; f.vel[p*3]=(Math.random()-0.5)*0.1; f.vel[p*3+1]=-(0.45+Math.random()*0.45); f.vel[p*3+2]=(Math.random()-0.5)*0.1; }
+      else { f.pos[p*3]+=f.vel[p*3]*sdt; f.pos[p*3+1]+=f.vel[p*3+1]*sdt; f.pos[p*3+2]+=f.vel[p*3+2]*sdt; f.vel[p*3+1]-=0.8*sdt; }
+      f.life[p]=l; const fr=Math.max(0,Math.min(1,l/f.MAXL)); f.col[p*3]=fr*(0.2+0.8*fr); f.col[p*3+1]=fr; f.col[p*3+2]=fr*(0.8+0.2*fr);
+    }
+    f.pts.geometry.attributes.position.needsUpdate=true; f.pts.geometry.attributes.color.needsUpdate=true;
+  }
 }
 // ── BARREL DISPENSER — a wall-mounted mechanical machine that periodically drops a barrel down a chute; the barrel lands near
 //    the wall and rolls into the arena (PEZ-style). Local +Z points INTO the room (the chute faces inward+down). ──
@@ -23476,8 +23490,8 @@ function updateCubeArena(dt){
   if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets) s.update(dt); _cubeWallFade(dt); }   // deforming grid faces ripple/settle + fade any face between the camera and you
   if(typeof _updateCubeBall==='function') _updateCubeBall(dt);   // ball runs in BOTH normal & wall-walk modes
   if(typeof _updateWeaponCollider==='function') _updateWeaponCollider(dt);   // melee weapon collider -> ball hits
-  if(window._cubePowerPads||window._barrelDispensers){ const _pt=(typeof performance!=='undefined'?performance.now():0)*0.001;   // power pads + barrel dispensers: idle glow + the dispenser's drop-flash (runs in both normal & wall-walk modes, before the return below)
-    if(window._cubePowerPads)for(const g of window._cubePowerPads){ if(!g)continue; if(g.userData._spin)g.userData._spin.rotation.z+=dt*0.7; const _pm=g.userData._pulse&&g.userData._pulse.material; if(_pm)_pm.opacity=0.72+0.24*Math.sin(_pt*2+(g.position.x+g.position.z)*0.015); }
+  if(window._cubePowerPads||window._barrelDispensers){ const _pt=(typeof performance!=='undefined'?performance.now():0)*0.001;   // power pads (spinner + jet flames) + barrel dispensers (idle glow + drop-flash) — runs in both normal & wall-walk modes, before the return below
+    if(window._cubePowerPads&&typeof _stepPowerPad==='function')for(const g of window._cubePowerPads) _stepPowerPad(g, dt, _pt);
     if(window._barrelDispensers)for(const D of window._barrelDispensers){ const g=D&&D.g; if(!g)continue; const ud=g.userData; if(ud._flashT>0)ud._flashT=Math.max(0,ud._flashT-dt*2); if(ud._ind&&ud._ind.material)ud._ind.material.opacity=Math.min(1,0.4+0.3*Math.sin(_pt*3)+ud._flashT); if(ud._lip&&ud._lip.material)ud._lip.material.opacity=Math.min(1,0.55+ud._flashT*0.6); } }
   if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
   if(player._cwSetGrav){ player._inPlanetGravity=false; player._glGrounded=false; player._cwAir=0; player._cwSetGrav=false; }   // left wall-walk -> restore normal gravity/anim
