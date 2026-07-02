@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB160</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB161</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9762,7 +9762,7 @@ function _tintAllyApply(root, c){ if(!root||!root.traverse)return 0; let n=0;
   const tint=(o)=>{ if(!o.material)return; const ms=Array.isArray(o.material)?o.material:[o.material];
     for(const m of ms){ if(!m)continue; let did=false;
       if(m.emissive&&m.emissive.isColor){ m.emissive.copy(c); if('emissiveIntensity' in m && m.emissiveIntensity<0.5)m.emissiveIntensity=1.4; did=true; }   // recolour the GLOW to the owner's colour
-      if(m.color&&m.color.isColor && (m.isMeshBasicMaterial||m.isLineBasicMaterial||m.isLineDashedMaterial)){ m.color.copy(c); did=true; }   // wire twins + edge lines + basic glow bits -> owner colour (the "whose is whose" tell)
+      if(m.color&&m.color.isColor && (m.isLineBasicMaterial||m.isLineDashedMaterial || (m.isMeshBasicMaterial && (m.blending===THREE.AdditiveBlending || m.transparent)))){ m.color.copy(c); if((m.isLineBasicMaterial||m.isLineDashedMaterial) && m.transparent && (m.opacity||0)<(window._ALLY_WIRE_OP||0.95)) m.opacity=(window._ALLY_WIRE_OP||0.95); did=true; }   // recolour only GLOW/accent surfaces: edge/wire lines + additive/transparent basic mats (wire twins, halos). SKIP opaque solid fills (e.g. the spider's dark body). Bump wire opacity so it blooms closer to the player's wireframe.
       if(did){ m.needsUpdate=true; n++; } } };
   try{ root.traverse(tint); }catch(_){}
   return n; }
@@ -10787,6 +10787,7 @@ class Player{
     const throwAng=Math.atan2(vz,vx);
     // use the SOFT-MAGNET lock the ground ring settled on (hold-aim) — a flick passes allowLock=false so it flies straight
     let lock=(allowLock!==false && this._throwLock && this._throwLock.alive!==false)?this._throwLock:null;
+    if(!lock && window._MTHROW_AIMASSIST!==false && typeof _throwAimAssist==='function'){ lock=_throwAimAssist(sx,sz,throwAng); }   // FLICK: subtle aim-assist -> snap onto the nearest opponent in the flick direction so it connects
     let dx=vx, dz=vz;
     if(lock){ const lx=(lock.wx!=null?lock.wx:lock.x), lz=(lock.wz!=null?lock.wz:lock.z); if(lx!=null){ const ddx=lx-sx, ddz=lz-sz; if(Math.hypot(ddx,ddz)>4){ dx=ddx; dz=ddz; } } }
     let dm=Math.hypot(dx,dz)||1; dx/=dm; dz/=dm;
@@ -11294,7 +11295,9 @@ class Player{
     if(total>0)Audio.bigDie(); updateUI(); return true; }
   update(rawX,rawZ,avx,avz,dt,firing,od,aiming){
     if(!this.alive)return;
-    if(this._launched || (this._kbStun||0)>0){ this._updateLaunch(dt); return; }   // SMASH KNOCKBACK owns the body: parabolic arc + cage bounce + getup, input locked
+    if(this._launched || (this._kbStun||0)>0){
+      if(window._AIRLOOK!==false && !window._ballCam && typeof shootIn!=='undefined' && shootIn){ const rx=shootIn.x||0, ry=shootIn.y||0; if(Math.hypot(rx,ry)>(window._AIRLOOK_DEAD||0.2)) CAM.tyaw -= rx*(window._AIRLOOK_SPD||2.8)*dt; }   // FREE-LOOK while flying: right stick swivels the camera so you can see who hit you / where they are now (control's still locked)
+      this._updateLaunch(dt); return; }   // SMASH KNOCKBACK owns the body: parabolic arc + cage bounce + getup, input locked
     // hand cannons / default bullets ALWAYS fire — only physically-held special weapons (melee, minigun) drop when you're smashed. (Old melee-only gate removed: getting hit no longer locks out shooting.)
     if(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped) && !this._ballActive){ rawX=-rawX; }   // gravity flipped + camera rolled 180°: only left/right needs inverting (the camera's vertical mirror already handles forward/back)
     if(this._meleeType==='mace'){ this._maceRX=avx||0; this._maceRZ=avz||0; }   // mace is a normal one-handed melee now — shooting stays enabled (gun routes to the shoulder like other melee)
@@ -14758,13 +14761,26 @@ function _thrownMeleeHit(s,e,kind,idx){
   if(typeof spawnDmgNum==='function')spawnDmgNum(e.wx,(e.py||0)+24,e.wz,dmg,'#ffe0a0');
   if(typeof ps!=='undefined')ps.burst(e.wx,(e.py||0)+14,[1,0.9,0.5],14,120);
   if(typeof Audio!=='undefined')try{Audio.blip(ms.thud||130,0.1,'square',0.2,200);}catch(_){}
-  if(kind==='dummy'){ if(e.hit)try{e.hit(dmg,s.x,s.z);}catch(_){} if(e.knock)try{e.knock(dx/dl,dz/dl,ms.bMag||10,ms.bLift||140,ms.bStn||28);}catch(_){} }
-  else if(kind==='bot'){ if(e.hit)try{e.hit(dmg);}catch(_){} if(e.knock)try{e.knock(dx/dl,dz/dl,(ms.bMag||10)*(window._MELEE_BOT_MAG_K||0.22),(ms.bLift||140)*(window._MELEE_BOT_LIFT_K||0.8),ms.bStn||28);}catch(_){} }
-  else { if(e.knock)try{e.knock(dx/dl,dz/dl,ms.eForce||5,ms.eLift||1,ms.eAir||8,true);}catch(_){}
+  const HR=(window._MTHROW_KB_K||2.2), HL=(window._MTHROW_LIFT_K||1.8);   // HOME-RUN: a thrown weapon launches HARDER than a normal swing (that's the whole point — nail someone and send them flying)
+  if(kind==='dummy'){ if(e.hit)try{e.hit(dmg,s.x,s.z);}catch(_){} if(e.knock)try{e.knock(dx/dl,dz/dl,(ms.bMag||10)*HR,(ms.bLift||140)*HL,ms.bStn||28);}catch(_){} }
+  else if(kind==='bot'){ if(e.hit)try{e.hit(dmg);}catch(_){} if(e.knock)try{e.knock(dx/dl,dz/dl,(ms.bMag||10)*(window._MELEE_BOT_MAG_K||0.22)*HR,(ms.bLift||140)*(window._MELEE_BOT_LIFT_K||0.8)*HL,ms.bStn||28,true);}catch(_){} }
+  else { if(e.knock)try{e.knock(dx/dl,dz/dl,(ms.eForce||5)*HR,(ms.eLift||1)*HR,(ms.eAir||8)*HL,true);}catch(_){}
     let pts=0; try{ pts=(e.hit?e.hit(dmg):0); }catch(_){}
     if((pts>0||e.alive===false) && typeof GS!=='undefined' && GS.enemies && idx!=null && GS.enemies[idx]===e){ GS.score=(GS.score||0)+((e.score||0)*(GS.mult||1)); if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(idx,1); if(typeof registerKill==='function')registerKill(e); } }
   s.vx*=0.72; s.vz*=0.72;   // lose some momentum on a hit (can still bounce / hit another)
 }
+// FLICK aim-assist for thrown weapons: pick the nearest opponent roughly in the flick direction so a loose flick still connects (press-hold ring targeting is separate, via _throwLock).
+function _throwAimAssist(sx,sz,ang){
+  const dirx=Math.cos(ang), dirz=Math.sin(ang);
+  const R=(window._MTHROW_ASSIST_R||760), cosCone=Math.cos((window._MTHROW_ASSIST_CONE||42)*Math.PI/180);
+  let best=null, bestScore=-1;
+  const consider=(e)=>{ if(!e||e.alive===false||e._captured||e._dying)return; const ex=(e.wx!=null?e.wx:e.x), ez=(e.wz!=null?e.wz:e.z); if(ex==null)return; const ddx=ex-sx, ddz=ez-sz, d=Math.hypot(ddx,ddz); if(d<8||d>R)return; const dot=(ddx*dirx+ddz*dirz)/d; if(dot<cosCone)return; const score=dot - d/(R*4); if(score>bestScore){ bestScore=score; best=e; } };   // favor on-axis + near
+  if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies)consider(e);
+  if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)consider(b);
+  if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy)consider(GS_trainingDummy);
+  return best;
+}
+window._throwAimAssist=_throwAimAssist;
 function _updateThrownMelee(dt){
   const A=window._thrownMelee; if(!A||!A.length)return;
   const FLOOR=(window._MTHROW_FLOOR||7), _up=new THREE.Vector3(0,1,0);
@@ -14790,7 +14806,10 @@ function _updateThrownMelee(dt){
     }
     if(typeof ps!=='undefined'&&Math.random()<0.4)ps._spawn(s.x,s.y,s.z,rand(-5,5),rand(-5,5),rand(-5,5),1,0.85,0.5,0.22);
     if(s.y<=FLOOR){ s.y=FLOOR; if(s.vy<-26){ s.vy=-s.vy*0.42; s.vx*=0.62; s.vz*=0.62; s.bounces++; if(typeof Audio!=='undefined')try{Audio.blip(110,0.06,'square',0.12,70);}catch(_){} if(typeof ps!=='undefined'&&ps.spark)ps.spark(s.x,s.z,[1,0.8,0.4],FLOOR); } else { s.vy=0; } s.vx*=0.9; s.vz*=0.9; }
-    if(typeof ARENA_R!=='undefined'){ const d=Math.hypot(s.x,s.z), RR=ARENA_R-14; if(d>RR){ const nx=s.x/d,nz=s.z/d; s.x=nx*RR; s.z=nz*RR; const vn=s.vx*nx+s.vz*nz; if(vn>0){ s.vx-=nx*vn*1.5; s.vz-=nz*vn*1.5; } s.bounces++; } }
+    if(GS.zone===-19 && typeof _cubeSDF==='function' && typeof _cubeGrad==='function'){   // CUBE: bounce off the actual rounded shell (all 6 walls), not the old circular ARENA_R that was flinging thrown weapons back to center
+      const _r=(window._MTHROW_R||10), N=(s._n||(s._n=new THREE.Vector3())); _cubeGrad(s.x,s.y,s.z,N); const d=_cubeSDF(s.x,s.y,s.z);
+      if(d>-_r){ const push=-(d+_r); s.x+=N.x*push; s.y+=N.y*push; s.z+=N.z*push; const vn=s.vx*N.x+s.vy*N.y+s.vz*N.z; if(vn>0){ const rest=(window._MTHROW_REST||0.5); s.vx-=(1+rest)*vn*N.x; s.vy-=(1+rest)*vn*N.y; s.vz-=(1+rest)*vn*N.z; s.bounces++; } }
+    } else if(typeof ARENA_R!=='undefined'){ const d=Math.hypot(s.x,s.z), RR=ARENA_R-14; if(d>RR){ const nx=s.x/d,nz=s.z/d; s.x=nx*RR; s.z=nz*RR; const vn=s.vx*nx+s.vz*nz; if(vn>0){ s.vx-=nx*vn*1.5; s.vz-=nz*vn*1.5; } s.bounces++; } }
     if((s.y<=FLOOR+1 && Math.abs(s.vy)<22 && hsp<26) || s.life<=0){   // rolled to a stop / timed out -> drop as a grabbable pickup where it landed
       if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); }
       try{ if(typeof _spawnHammerStation==='function') _spawnHammerStation(s.x, s.z, s.type); else if(typeof _spawnLootBall==='function') _spawnLootBall(s.x, s.z, 'melee', s.type, 0,0,0); }catch(_){}   // drop the thrown weapon straight into a grabbable station (1.7, same size as the throw) — no loot-ball size pop
