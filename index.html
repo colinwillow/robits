@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB187</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB188</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11218,21 +11218,42 @@ class Player{
   _buildShieldMesh(){
     if(this._shieldMesh3D) return;
     const group=new THREE.Group();
-    // Inner solid bubble
-    const innerMat=new THREE.MeshBasicMaterial({color:0x44aaff,transparent:true,opacity:(window._SHIELD_BASE_OP!=null?window._SHIELD_BASE_OP:0.04),blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.FrontSide});   // nearly INVISIBLE force field — it reveals itself via impact-ripple hit marks (like the RL ball), not a solid bubble
-    this._shieldMat3D=innerMat;
-    const inner=new THREE.Mesh(new THREE.SphereGeometry(32,32,24),innerMat);
-    this._shieldBubble=inner;
-    group.add(inner);
-    // Outer rim glow (faint)
-    const rimMat=new THREE.MeshBasicMaterial({color:0x88ddff,transparent:true,opacity:(window._SHIELD_RIM_OP!=null?window._SHIELD_RIM_OP:0.09),blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.BackSide});
-    this._shieldRimMat=rimMat;
-    group.add(new THREE.Mesh(new THREE.SphereGeometry(35,24,18),rimMat));
+    const R=(window._SHIELD_R||34);
+    // ── HEX/GEODESIC FORCE FIELD: an invisible lattice sphere that only LIGHTS UP near an impact (like the RL-ball hit marks).
+    //    A subdivided icosphere gives the sci-fi geodesic panels; additive vertex-colours mean colour 0 = invisible, so the
+    //    field is unseen until a shot reveals the cells + lattice closest to the hit. No solid bubble. ──
+    const geo=new THREE.IcosahedronGeometry(R, (window._SHIELD_HEX_DETAIL||2)).toNonIndexed();
+    const nv=geo.attributes.position.count;
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(nv*3),3));   // all 0 -> fully invisible under additive blending
+    const pmat=new THREE.MeshBasicMaterial({vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+    const panels=new THREE.Mesh(geo,pmat); this._shieldPanels=panels; this._shieldHexGeo=geo; group.add(panels);
+    // per-vertex unit direction (local) — precomputed so the reveal pass is cheap
+    { const p=geo.attributes.position.array; const dirs=new Float32Array(nv*3); for(let i=0;i<nv;i++){ const x=p[i*3],y=p[i*3+1],z=p[i*3+2],l=Math.hypot(x,y,z)||1; dirs[i*3]=x/l; dirs[i*3+1]=y/l; dirs[i*3+2]=z/l; } this._shieldHexDirs=dirs; }
+    // glowing lattice (the geodesic edges) — same reveal-by-hit vertex colours
+    const egeo=new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(R*1.004,(window._SHIELD_HEX_DETAIL||2)), 1);
+    const env=egeo.attributes.position.count; egeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(env*3),3));
+    const emat=new THREE.LineBasicMaterial({vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false});
+    const edges=new THREE.LineSegments(egeo,emat); this._shieldEdges=edges; this._shieldEdgeGeo=egeo; group.add(edges);
+    { const p=egeo.attributes.position.array; const dirs=new Float32Array(env*3); for(let i=0;i<env;i++){ const x=p[i*3],y=p[i*3+1],z=p[i*3+2],l=Math.hypot(x,y,z)||1; dirs[i*3]=x/l; dirs[i*3+1]=y/l; dirs[i*3+2]=z/l; } this._shieldEdgeDirs=dirs; }
+    const c=new THREE.Color(window._SHIELD_HEX_COL!=null?window._SHIELD_HEX_COL:0x66ccff); this._shieldHexC=[c.r,c.g,c.b];
+    this._shieldHits=[];   // {dx,dy,dz,s} local unit impact dirs, strength decays
     scene.add(group);
     this._shieldMesh3D=group;
     this._shieldHitFlash=0;
     this._shieldDeformT=0;
     this._shieldDeformDir=new THREE.Vector3();
+  }
+  _shieldHexPaint(){   // rebuild both vertex-colour buffers from the active hits (called each frame while the shield exists)
+    const hits=this._shieldHits; if(!this._shieldPanels)return;
+    const cosSpread=Math.cos((window._SHIELD_HEX_SPREAD||42)*Math.PI/180);   // angular radius of a hit's reveal patch
+    const cr=this._shieldHexC||[0.4,0.8,1], INT=(window._SHIELD_HEX_INT||1.5), EDGE=(window._SHIELD_HEX_EDGE_INT||2.2);
+    const paint=(dirs,attr,gain)=>{ const arr=attr.array, n=attr.count;
+      for(let i=0;i<n;i++){ const dx=dirs[i*3],dy=dirs[i*3+1],dz=dirs[i*3+2]; let rev=0;
+        for(let h=0;h<hits.length;h++){ const H=hits[h]; if(H.s<=0.001)continue; const d=dx*H.dx+dy*H.dy+dz*H.dz; if(d<=cosSpread)continue; const f=(d-cosSpread)/(1-cosSpread); rev=Math.max(rev, H.s*f*f); }   // smooth angular falloff
+        const g=rev*gain; arr[i*3]=cr[0]*g; arr[i*3+1]=cr[1]*g; arr[i*3+2]=cr[2]*g; }
+      attr.needsUpdate=true; };
+    paint(this._shieldHexDirs, this._shieldHexGeo.attributes.color, INT);
+    if(this._shieldEdges) paint(this._shieldEdgeDirs, this._shieldEdgeGeo.attributes.color, EDGE);
   }
   activateShield(){
     if(this.shieldHp<=0){ announce('SHIELD DEPLETED','#ff4400'); return; }
@@ -11259,7 +11280,8 @@ class Player{
     const hl=Math.hypot(hx,hz)||1;
     if(this._shieldDeformDir) this._shieldDeformDir.set(hx/hl,0,hz/hl);
     this._shieldDeformT=16;
-    { const _hd=(hl>0.01)?{x:hx/hl,z:hz/hl}:{x:Math.cos(this.aim),z:Math.sin(this.aim)}; const _sr=(window._SHIELD_R||34); if(typeof _hitMark==='function')_hitMark(this.wx+_hd.x*_sr, (this.py||0)+18, this.wz+_hd.z*_sr, (window._SHIELD_HIT_COL||0x66ccff), false); }
+    { const _hd=(hl>0.01)?{x:hx/hl,z:hz/hl}:{x:Math.cos(this.aim),z:Math.sin(this.aim)}; const _sr=(window._SHIELD_R||34); if(typeof _hitMark==='function')_hitMark(this.wx+_hd.x*_sr, (this.py||0)+18, this.wz+_hd.z*_sr, (window._SHIELD_HIT_COL||0x66ccff), false);
+      if(this._shieldHits){ this._shieldHits.push({dx:_hd.x,dy:0,dz:_hd.z,s:1}); if(this._shieldHits.length>(window._SHIELD_HEX_MAX||10))this._shieldHits.shift(); } }   // light up the hex lattice cells nearest this impact
     if(this.shieldHp<=0){
       this._shieldRegenDelay=360; // 6s double delay when shield dies
       this.shieldActive=false;
@@ -11284,28 +11306,13 @@ class Player{
     if(this.shieldHp>0&&!this.shieldActive) this.shieldActive=true;
     if(!this._shieldMesh3D&&this.shieldHp>0) this._buildShieldMesh();
     if(this._shieldMesh3D){
-      this._shieldMesh3D.visible=(this.shieldHp>0 && this._shieldHitFlash>0); // invisible until a hit ripples it
+      const anyHit=this._shieldHits && this._shieldHits.some(h=>h.s>0.01);
+      this._shieldMesh3D.visible=(this.shieldHp>0 && !!anyHit);   // an INVISIBLE force field: only the lattice cells near a recent impact glow (like the RL-ball hit marks)
       if(this.shieldHp>0){
-        const p=this.shieldHp/this.shieldMax;
         this._shieldMesh3D.position.set(this.wx,20+this.py,this.wz);
-        this._shieldMesh3D.scale.setScalar(1);
-        const col=p>0.6?0x44aaff:p>0.3?0xaa44ff:0xff3344;
-        if(this._shieldHitFlash>0){
-          this._shieldHitFlash--;
-          const f=this._shieldHitFlash/14;
-          this._shieldMat3D.color.setHex(0x88ccff); this._shieldMat3D.opacity=f*0.45+0.02;
-          if(this._shieldRimMat){ this._shieldRimMat.color.setHex(0xaaddff); this._shieldRimMat.opacity=f*0.55+0.03; }
-        } else {
-          // Ghost opacity — more visible when low HP
-          const g=0.02+(1-p)*0.07;
-          this._shieldMat3D.color.setHex(col); this._shieldMat3D.opacity=g;
-          if(this._shieldRimMat){ this._shieldRimMat.color.setHex(col); this._shieldRimMat.opacity=g*1.6; }
-        }
-        if(this._shieldDeformT>0&&this._shieldBubble&&this._shieldDeformDir){
-          this._shieldDeformT--;
-          const df=this._shieldDeformT/16;
-          this._shieldBubble.scale.set(1+this._shieldDeformDir.x*df*0.28,1+df*0.07,1+this._shieldDeformDir.z*df*0.28);
-        } else if(this._shieldBubble){ this._shieldBubble.scale.setScalar(1); }
+        if(this._shieldHits){ const dec=dt/(window._SHIELD_HEX_LIFE||0.5); for(let i=this._shieldHits.length-1;i>=0;i--){ this._shieldHits[i].s-=dec; if(this._shieldHits[i].s<=0)this._shieldHits.splice(i,1); } }   // impacts fade out
+        if(this._shieldHitFlash>0)this._shieldHitFlash--;
+        if(this._shieldMesh3D.visible && typeof this._shieldHexPaint==='function')this._shieldHexPaint();
       }
     }
     const fill=document.getElementById('shield-bar-fill');
