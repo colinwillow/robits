@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB166</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB167</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3139,6 +3139,7 @@ class Diamond extends Enemy{
   }
   hit(dmg=1){ this.hitFlash=6; this._evadeT=0.45; this._evadeSide=(Math.random()<0.5?-1:1); return super.hit(dmg); }
   update(p,dt){ if(this._ball){ this._ballUpdate(dt); if(this.hitFlash>0)this.hitFlash--; return; } this.baseUpdate(); if(this._stunT>0){ if(this.mesh){this.mesh.position.x=this.wx+rand(-1.5,1.5); this.mesh.position.z=this.wz+rand(-1.5,1.5);} if(this.hitFlash>0)this.hitFlash--; return; } this.t+=dt*3; if(this.hitFlash>0)this.hitFlash--;
+    if(window._CREATURE_VS_ALLY!==false && typeof _pickHostileFoe==='function'){ const ht=_pickHostileFoe(this); if(ht)p=ht; }   // enemy spiders hunt the nearest of {player, your allies} -> spider-vs-spider; contact damage via _enemiesDamageAllies/_alliesDamageEnemies
     const dx=p.wx-this.wx,dz=p.wz-this.wz,d=Math.hypot(dx,dz)||1;
     if(this._evadeT>0){ this._evadeT-=dt; const px=-dz/d*this._evadeSide, pz=dx/d*this._evadeSide; this.vx+=px*460*dt-(dx/d)*100*dt; this.vz+=pz*460*dt-(dz/d)*100*dt; }
     else { this.vx+=(dx/d)*140*dt; this.vz+=(dz/d)*140*dt; }
@@ -3700,7 +3701,11 @@ class BlueDragon extends Enemy{
     if(this._hitRecoil>0) this._hitRecoil=Math.max(0, this._hitRecoil - dt*(window._DRAGON_RECOIL_DECAY||7));   // procedural flinch decays fast
     if(this._meleeCD>0)this._meleeCD-=dt; if(this._airCD>0)this._airCD-=dt; if(this._dizzyCD>0)this._dizzyCD-=dt; if(this._flyCD>0)this._flyCD-=dt;
     if(this._energy<1 && this._state!=='dizzy') this._energy=Math.min(1, this._energy+dt*(window._DRAGON_REGEN||0.25));
-    if(this._faction!=='ally' && window._CREATURE_VS_ALLY!==false){ const ht=_pickHostileFoe(this); if(ht){ p=ht; this._huntTarget=ht; } }   // hostile creatures hunt the nearest of {player, your allies} so bot-summoned creatures fight your summons
+    if(this._faction!=='ally'){ let ht=(window._CREATURE_VS_ALLY!==false)?_pickHostileFoe(this):(typeof player!=='undefined'?player:null);   // hunt the nearest of {player, your allies}
+      const htD=ht?Math.hypot(ht.wx-this.wx,ht.wz-this.wz):1e9;
+      if(window._CREATURE_PLAY!==false && htD>(this._aggroR||window._DRAGON_AGGRO||540)*(window._CREATURE_PLAY_GATE||0.92)){ const toy=_creaturePlayTarget(this); if(toy)ht=toy; }   // nobody to fight nearby -> big dumb puppy: go smash the nearest crate/barrel or chase the ball
+      if(ht){ p=ht; this._huntTarget=ht; }
+    }
     const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1;
     const aggroR=this._aggroR||window._DRAGON_AGGRO||540, meleeR=window._DRAGON_MELEE_R||54, airR=window._DRAGON_AIR_R||270;
     this._aggro=(d<aggroR);
@@ -4002,6 +4007,15 @@ function _allyNearestObstacle(R){
   let best=null, bd=R||380;
   try{ if(window._crates)for(const c of window._crates){ if(!c)continue; const d=Math.hypot(c.x-this.wx,c.z-this.wz); if(d<bd){ bd=d; best={x:c.x,z:c.z}; } } }catch(_){}
   try{ if(window._itemPU)for(const p of window._itemPU){ if(!p||p.type!=='barrel'||!(p.settled||p._lying))continue; const d=Math.hypot(p.x-this.wx,p.z-this.wz); if(d<bd){ bd=d; best={x:p.x,z:p.z}; } } }catch(_){}
+  return best;
+}
+// "Big dumb puppy" play target: the nearest crate / barrel / ball. Hostile creatures head here to smash/bat it when no fight target is close (they break crates+barrels on contact; the ball gets knocked around).
+function _creaturePlayTarget(self){
+  let best=null, bd=(window._CREATURE_PLAY_R||620);
+  const consider=(x,z)=>{ if(x==null)return; const d=Math.hypot(x-self.wx,z-self.wz); if(d<bd){ bd=d; best={wx:x,wz:z,py:9,_toy:true}; } };
+  try{ if(window._crates)for(const c of window._crates){ if(c)consider(c.x,c.z); } }catch(_){}
+  try{ if(window._itemPU)for(const p of window._itemPU){ if(p&&(p.type==='barrel'||p._loot)&&(p.settled||p._lying))consider(p.x,p.z); } }catch(_){}
+  try{ if(typeof _cubeBall!=='undefined'&&_cubeBall&&window._CREATURE_PLAY_BALL!==false)consider(_cubeBall.pos.x,_cubeBall.pos.z); }catch(_){}
   return best;
 }
 function _allyObstacleStillThere(x,z){
@@ -17731,6 +17745,17 @@ function _enemiesDamageAllies(dt){
       if(Math.hypot(a.wx-e.wx,a.wz-e.wz) < er+(a.size||14)*0.4){ if(a.hit)try{a.hit(window._ENEMY_BITE_DMG||1);}catch(_){} if(a.knock)try{a.knock(a.wx-e.wx,a.wz-e.wz,2);}catch(_){} e._allyBiteCD=(window._ENEMY_BITE_CD||0.7); break; } }
   }
 }
+function _alliesDamageEnemies(dt){   // symmetric to _enemiesDamageAllies: YOUR summons bite/maul any enemy creature they're touching (so spider-vs-spider, droid-vs-anything etc. all trade blows on contact, no per-class wiring)
+  if(window._ALLIES_HIT_ENEMIES===false) return;
+  if(typeof GS==='undefined'||!GS.allies||!GS.allies.length||!GS.enemies||!GS.enemies.length) return;
+  for(const a of GS.allies){ if(!a||a.alive===false)continue; if(a._open!=null && a._open<0.5)continue;
+    a._enemyBiteCD=(a._enemyBiteCD||0)-dt; if(a._enemyBiteCD>0)continue;
+    const ar=(a.size||14)*0.5+(window._ALLY_BITE_REACH||16);
+    for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._invulnerable)continue;
+      if(Math.hypot(a.wx-e.wx,a.wz-e.wz) < ar+(e.size||14)*0.4){ if(e.hit)try{e.hit(window._ALLY_BITE_DMG||1, e.wx, e.wz);}catch(_){} if(e.knock)try{e.knock(e.wx-a.wx,e.wz-a.wz,(window._ALLY_BITE_KB||2),1,6);}catch(_){} if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(e.wx,e.wz,[0.5,0.9,1],(e.py||9)+10); a._enemyBiteCD=(window._ALLY_BITE_CD||0.7); break; } }
+  }
+}
+window._alliesDamageEnemies=_alliesDamageEnemies;
 function _separateEntities(){
   if(window._ENTITY_SEP===false) return;
   const B=[];
@@ -21940,6 +21965,7 @@ function loop(ts){ requestAnimationFrame(loop);
           if(Math.hypot(bw-a.wx,bz-a.wz)<((a.size||14)*0.7+10) && Math.abs(((b.y!=null?b.y:9))-(ay+10))<48){ if(a.hit)try{a.hit(b.dmg||1);}catch(_){} if(typeof _hitMark==='function')_hitMark(bw, (b.y!=null?b.y:ay+10), bz, (window._HITMARK_FF_COL||0xff3344), ((a.size||14)>=24));   // FRIENDLY FIRE -> RED mark so you know you're hitting your own
             if(b.remove)b.remove(); GS.bullets.splice(j,1); break; } } } }
       if(typeof _enemiesDamageAllies==='function') _enemiesDamageAllies(dt);   // enemies trade blows with your summons
+      if(typeof _alliesDamageEnemies==='function') _alliesDamageEnemies(dt);   // ...and your summons trade blows back (spider/droid/all)
       if(typeof _separateEntities==='function') _separateEntities();   // no fighters overlapping (player / bots / summoned allies / dummy)
       if(GS_victoryFX) GS_victoryFX.update(dt);
 
