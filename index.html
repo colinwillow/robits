@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB172</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB173</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -23364,6 +23364,15 @@ function _updateHitMarks(dt){ const A=window._hitMarks; if(!A||!A.length)return;
 window._updateHitMarks=_updateHitMarks;
 // EXPLOSIONS launch the RL ball too (bombs already did; nuke/quake/rocket/grenade were missing it). Call from any blast with its epicentre + radius + power.
 window._blastBall=function(x,y,z,R,power){ if(typeof _cubeBall==='undefined'||!_cubeBall)return; const bx=_cubeBall.pos.x-x, by=_cubeBall.pos.y-(y!=null?y:9), bz=_cubeBall.pos.z-z, bd=Math.hypot(bx,by,bz)||1; if(bd>R)return; const n=Math.max(0,1-bd/R), pw=(power||600)*(0.35+n*0.65); _cubeBall.vel.x+=(bx/bd)*pw; _cubeBall.vel.y+=(by/bd)*pw+n*280; _cubeBall.vel.z+=(bz/bd)*pw; if(_cubeBall.vel.length()>2800)_cubeBall.vel.setLength(2800); _cubeBall.hitCd=0.1; try{ if(typeof _ballImpact==='function')_ballImpact(_cubeBall,new THREE.Vector3(-bx/bd,-by/bd,-bz/bd),0xffaa44,true); }catch(_){} };
+// BARREL DISPENSER BUTTON — shoot / melee / throw something at the red button to dispense a barrel
+function _dispBtnHit(btn){ if(!btn)return false;
+  if(typeof GS!=='undefined'&&GS.bullets){ for(const b of GS.bullets){ if(!b||b.life<=0)continue; if(Math.hypot((b.wx||0)-btn.x,(b.y||9)-btn.y,(b.wz||0)-btn.z)<btn.r){ b.life=0; return true; } } }   // gunfire
+  if(window._thrownMelee){ for(const s of window._thrownMelee){ if(s&&Math.hypot(s.x-btn.x,s.y-btn.y,s.z-btn.z)<btn.r+8)return true; } }   // thrown weapon
+  if(window._itemShots){ for(const s of window._itemShots){ if(s&&Math.hypot(s.x-btn.x,(s.y||9)-btn.y,s.z-btn.z)<btn.r+8)return true; } }   // thrown item/bomb
+  if(typeof player!=='undefined'&&player&&player.alive){ const ud=player.model&&player.model.userData; if(ud&&ud._meleeTimer>0 && Math.hypot(player.wx-btn.x,(player.py||0)+10-btn.y,player.wz-btn.z)<btn.r+26)return true; }   // melee swing
+  return false; }
+function _dropBarrelFrom(D){ if(!D)return; const cur=(window._itemPU||[]).filter(p=>p&&p.type==='barrel').length; if(cur>=(window._DISP_BTN_CAP||6))return; const sp=(window._BARREL_DISP_SPD||150); if(typeof _spawnPU==='function')_spawnPU(D.x,D.y,D.z,'barrel',D.dx*sp,0,D.dz*sp); if(D.g&&D.g.userData._flash)D.g.userData._flash(); if(typeof ps!=='undefined')ps.burst(D.x,D.y,D.z,[1,0.6,0.2],10,120); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(160,0.12,'square',0.18,120);}catch(_){} }
+window._dispBtnHit=_dispBtnHit; window._dropBarrelFrom=_dropBarrelFrom;
 function _updateBallFX(dt){
   for(let i=_ballFX.length-1;i>=0;i--){ const f=_ballFX[i]; f.age+=dt; const k=f.age/f.life;
     if(k>=1 || !f.ring.parent){ if(f.ring.parent)f.ring.parent.remove(f.ring); if(f.disc.parent)f.disc.parent.remove(f.disc); f.ring.geometry.dispose(); f.ring.material.dispose(); f.disc.geometry.dispose(); f.disc.material.dispose(); _ballFX.splice(i,1); continue; }
@@ -23821,7 +23830,7 @@ function buildCubeArena(){
   // ── BARREL DISPENSERS: PEZ machines on two opposing walls (left/right) that periodically drop a barrel that rolls inward ──
   try{ if(window._BARREL_DISP!==false && typeof _makeBarrelDispenser==='function'){
     const _by=(window._BARREL_DISP_Y||195), _inset=(hx-ch);
-    const _mk=(x,z,dxi,dzi)=>{ const g=_makeBarrelDispenser(x,_by,z,dxi,dzi); if(_cubeGroup)_cubeGroup.add(g); else scene.add(g); return {x:x+dxi*18,y:_by-30,z:z+dzi*18,dx:dxi,dz:dzi,g}; };
+    const _mk=(x,z,dxi,dzi)=>{ const g=_makeBarrelDispenser(x,_by,z,dxi,dzi); if(_cubeGroup)_cubeGroup.add(g); else scene.add(g); return {x:x+dxi*18,y:_by-30,z:z+dzi*18,dx:dxi,dz:dzi,g, btn:{x:x+dxi*15, y:_by+3, z:z+dzi*15, r:(window._DISP_BTN_R||30)}, _btnCD:0}; };   // btn = world pos of the red button (front face) for hit-to-dispense
     window._barrelDispensers=[ _mk(-_inset,0,1,0), _mk(_inset,0,-1,0) ]; window._barrelDispIdx=0;   // left wall drops rightward, right wall drops leftward -> both roll to center
   } }catch(e){ console.warn('barrel dispensers',e); }
   // ── LEVEL GEOMETRY: platforms / ramps / cover pillars / high perches (data-driven kit; edit _CUBE_LEVEL to redesign) ──
@@ -23926,7 +23935,12 @@ function _makeBarrelDispenser(x,y,z,dx,dz){
   for(const sx of [-1,1]){ const rail=new THREE.Mesh(new THREE.BoxGeometry(5,70,8),steel); rail.position.set(sx*31,0,13); g.add(rail); }               // side rails
   const ind=new THREE.Mesh(new THREE.SphereGeometry(5.5,14,10),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})); ind.position.set(0,29,16); g.add(ind);   // status light
   g.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(66,74,40)), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.5})));
-  g.userData._ind=ind; g.userData._lip=lip; g.userData._flashT=0; g.userData._flash=()=>{ g.userData._flashT=1; };
+  // BIG RED BUTTON on the front — shoot / melee / throw something at it to dispense a barrel
+  const btnMat=new THREE.MeshStandardMaterial({color:0xff2a2a,emissive:0xff2020,emissiveIntensity:1.5,roughness:0.4,metalness:0.4,toneMapped:false});
+  const btn=new THREE.Mesh(new THREE.CylinderGeometry(10,10,6,20),btnMat); btn.rotation.x=Math.PI/2; btn.position.set(0,3,14.5); g.add(btn);
+  const btnRing=new THREE.Mesh(new THREE.TorusGeometry(12.5,1.5,8,26), new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})); btnRing.rotation.x=0; btnRing.position.set(0,3,15.5); g.add(btnRing);
+  g.userData._btnMat=btnMat; g.userData._btnRing=btnRing;
+  g.userData._ind=ind; g.userData._lip=lip; g.userData._flashT=0; g.userData._flash=()=>{ g.userData._flashT=1; if(g.userData._btnMat)g.userData._btnMat.emissiveIntensity=4; };
   return g;
 }
 // ── CUBE LEVEL KIT — data-driven arena geometry: platforms (standable), ramps (run up, slope collision), pillars (cover, stand
@@ -24012,7 +24026,10 @@ function updateCubeArena(dt){
   if(typeof _updateWeaponCollider==='function') _updateWeaponCollider(dt);   // melee weapon collider -> ball hits
   if(window._cubePowerPads||window._barrelDispensers){ const _pt=(typeof performance!=='undefined'?performance.now():0)*0.001;   // power pads (spinner + jet flames) + barrel dispensers (idle glow + drop-flash) — runs in both normal & wall-walk modes, before the return below
     if(window._cubePowerPads&&typeof _stepPowerPad==='function')for(const g of window._cubePowerPads) _stepPowerPad(g, dt, _pt);
-    if(window._barrelDispensers)for(const D of window._barrelDispensers){ const g=D&&D.g; if(!g)continue; const ud=g.userData; if(ud._flashT>0)ud._flashT=Math.max(0,ud._flashT-dt*2); if(ud._ind&&ud._ind.material)ud._ind.material.opacity=Math.min(1,0.4+0.3*Math.sin(_pt*3)+ud._flashT); if(ud._lip&&ud._lip.material)ud._lip.material.opacity=Math.min(1,0.55+ud._flashT*0.6); } }
+    if(window._barrelDispensers)for(const D of window._barrelDispensers){ const g=D&&D.g; if(!g)continue; const ud=g.userData; if(ud._flashT>0)ud._flashT=Math.max(0,ud._flashT-dt*2); if(ud._ind&&ud._ind.material)ud._ind.material.opacity=Math.min(1,0.4+0.3*Math.sin(_pt*3)+ud._flashT); if(ud._lip&&ud._lip.material)ud._lip.material.opacity=Math.min(1,0.55+ud._flashT*0.6);
+      if(ud._btnMat){ ud._btnMat.emissiveIntensity=1.5+ud._flashT*3 + 0.3*Math.sin(_pt*4); if(ud._btnRing&&ud._btnRing.material)ud._btnRing.material.opacity=0.55+0.35*Math.sin(_pt*4)+ud._flashT*0.4; }
+      if(D.btn){ D._btnCD=Math.max(0,(D._btnCD||0)-dt); if(D._btnCD<=0 && typeof _dispBtnHit==='function' && _dispBtnHit(D.btn)){ D._btnCD=(window._DISP_BTN_CD||0.4); if(typeof _dropBarrelFrom==='function')_dropBarrelFrom(D); } } }
+  }
   if(typeof _powerPadTick==='function') _powerPadTick(dt);   // spiral tractor-lift + standable pads (runs after player.update, so it owns the transform)
   if(_cubeWalkOn(player)) return;   // wall-walk controller owns containment while boots are on
   if(player._cwSetGrav){ player._inPlanetGravity=false; player._glGrounded=false; player._cwAir=0; player._cwSetGrav=false; }   // left wall-walk -> restore normal gravity/anim
