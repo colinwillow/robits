@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB253</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB254</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10541,6 +10541,19 @@ class Player{
     return true;
   }
   _updateLaunch(dt){
+    // ── CONTROL WATCHDOG ── Never let the knockback lock persist past a hard cap. A launch that never cleanly finds the
+    //    floor (pinned against a wall) or a chain-knock (a bot repeatedly re-arming _launched/_kbStun while it keeps
+    //    hitting you) could otherwise strand you with movement AND camera dead forever while the sim keeps running.
+    if(this._launched || (this._kbStun||0)>0){
+      this._lockT=(this._lockT||0)+dt;
+      if(this._lockT > (window._PLKB_MAX_LOCK||4.5)){
+        this._launched=false; this._kbStun=0; this._kbVx=0; this._kbVz=0; this._tumble=0; this._landRot=null; this._zapT=0;
+        if(this.py<0)this.py=0; const ud=this.model&&this.model.userData; if(ud)ud._launchClip=false;
+        this._lockT=0; this.inv=Math.max(this.inv||0,(window._PLKB_WATCHDOG_IFRAMES||45));   // brief invuln so you can't be re-locked the instant control returns
+        if(typeof ps!=='undefined'&&ps.ring)ps.ring(this.wx,this.wz,[0.5,0.95,1],14,90,(this.py||0));
+        if(window._PLKB_WATCHDOG_WARN)console.warn('[watchdog] force-recovered player from a stuck knockback lock');
+      }
+    } else this._lockT=0;
     const _air=this._launched;
     if(this._launched){
       this._launchT=(this._launchT||0)+dt;
@@ -11462,6 +11475,7 @@ class Player{
       if(!this._launched && (this._kbStun||0)>0 && window._GETUP_INTERRUPT!==false){ const _mv=Math.hypot(rawX||0,rawZ||0), _av=Math.hypot(avx||0,avz||0);
         if((_mv>(window._GETUP_INT_DEAD||0.35) || _av>(window._GETUP_INT_DEAD||0.35)) && (this._kbStun||0)<=(window._GETUP_INT_WIN||16)){ this._kbStun=0; this._kbVx=0; this._kbVz=0; const ud=this.model&&this.model.userData; if(ud)ud._launchClip=false; } }
       this._updateLaunch(dt); return; }   // SMASH KNOCKBACK owns the body: parabolic arc + cage bounce + getup, input locked
+    this._lockT=0;   // reached here = you have normal control -> reset the knockback-lock watchdog timer (so it only measures ONE continuous lock, never sums across separate hits)
     if(this._mount){ rawX=0; rawZ=0; this.vx=0; this.vz=0; this.inX=0; this.inZ=0; }   // MOUNTED: the left stick can't drive locomotion (no lean/glide) — you're pinned to the creature; the right stick still aims/shoots
     // hand cannons / default bullets ALWAYS fire — only physically-held special weapons (melee, minigun) drop when you're smashed. (Old melee-only gate removed: getting hit no longer locks out shooting.)
     if(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped) && !this._ballActive){ rawX=-rawX; }   // gravity flipped + camera rolled 180°: only left/right needs inverting (the camera's vertical mirror already handles forward/back)
@@ -20712,12 +20726,15 @@ function _updateFpsBadge(){
 // ── ADAPTIVE GRAPHICS: if the framerate sits low for a few seconds, auto-drop the bloom composer (the heaviest GPU
 //    pass) to claw back fps. Only ever downgrades; the player can force HIGH back on in the pause menu (which pins it).
 //    Disable entirely with window._autoGfx=false. ──
-let _autoGfxLoT=0;
+let _autoGfxLoT=0, _autoGfxWarm=0;
 function _autoGfxTick(dt){
-  if(window._autoGfx===false || window._gfxUserSet || window._gfxPerf || window.LIGHT_MODE || window._BW_MODE) return;
-  if(typeof GS==='undefined' || GS.state!=='playing') { _autoGfxLoT=0; return; }
-  if(_perfFps < (window._AUTO_GFX_LO||46)) _autoGfxLoT+=dt; else _autoGfxLoT=Math.max(0,_autoGfxLoT-dt*0.5);
-  if(_autoGfxLoT > (window._AUTO_GFX_HOLD||3)){
+  // OPT-IN (default OFF): it was flipping to FAST during the cold-start warmup (shaders compiling, GPU ramping, the grid/
+  // sheet sleep settling — the game climbs 30->60 on its own over ~30s) and wrecking the look. Enable with window._autoGfx=true.
+  if(window._autoGfx!==true || window._gfxUserSet || window._gfxPerf || window.LIGHT_MODE || window._BW_MODE) return;
+  if(typeof GS==='undefined' || GS.state!=='playing') { _autoGfxLoT=0; _autoGfxWarm=0; return; }
+  _autoGfxWarm+=dt; if(_autoGfxWarm < (window._AUTO_GFX_WARMUP||22)){ _autoGfxLoT=0; return; }   // ignore the warmup dip entirely
+  if(_perfFps < (window._AUTO_GFX_LO||42)) _autoGfxLoT+=dt; else _autoGfxLoT=Math.max(0,_autoGfxLoT-dt*0.5);
+  if(_autoGfxLoT > (window._AUTO_GFX_HOLD||4)){
     _autoGfxLoT=0; window._gfxPerf=true; window._autoGfxEngaged=true;
     const b=document.getElementById('gfx-btn'); if(b) b.textContent='GFX: FAST';
     if(typeof announce==='function') announce('AUTO GRAPHICS: FAST — bloom off to hold fps (change in pause menu)','#00ffc8');
