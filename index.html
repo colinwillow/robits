@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB256</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB257</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14149,6 +14149,17 @@ function _detonateItem(type,x,z,od){
       if(typeof ps!=='undefined'){ ps.ring(x,z,[c.r,c.g,c.b],22,150); ps.burst(x,z,[c.r,c.g,c.b],20,170); }
       if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(type==='dragon'?180:type==='dog'?220:360,0.16,'sawtooth',0.2,type==='dragon'?900:700);
     }
+    else if(type==='bomb'){   // thrown BOMB (now a physical grab-&-throw object like the nuke) -> classic bomb blast
+      const R=(window._BOMB_R||160), dmg=(window._BOMB_DMG||1.0);
+      if(typeof _bombBlastEnemies==='function') _bombBlastEnemies(x,9,z,R,dmg);
+      if(typeof ps!=='undefined'){ ps.burst(x,z,[1,0.6,0.15],26,200,12); ps.ring(x,z,[1,0.8,0.3],16,R*0.85,12); for(let k=0;k<20;k++){ const a=rand(TAU),sp=rand(110,280); ps._spawn(x,rand(6,40),z,Math.cos(a)*sp,rand(40,170),Math.sin(a)*sp,1,0.55,0.12,0.4); } }
+      if(typeof grid!=='undefined'){ if(grid.push)grid.push(x,z,-9,R); if(grid.shock)grid.shock(x,z,6); }
+      if(typeof gridSheetsBlast==='function' && typeof GRID_SHEETS!=='undefined' && GRID_SHEETS.length){ try{ gridSheetsBlast(x,9,z,(window._BOMB_SHEET_POWER||7),R); }catch(_){} }
+      if(typeof hitStop==='function')hitStop(5); if(typeof addTrauma==='function')addTrauma(0.14);
+      if(window._blastBall)try{ window._blastBall(x,9,z,R,(window._BOMB_BALL_PW||900)); }catch(_){}   // punts the RL ball
+      if(player&&player.alive!==false&&(player.inv||0)<=0){ const pd=Math.hypot(player.wx-x,player.wz-z); if(pd<(window._BOMB_HURT_R||66)){ if(player.shieldActive&&player.shieldHit){ player.shieldHit(18,'blast'); } else if(window._BOMB_HURTS_PLAYER!==false && player.knock){ player.knock(player.wx-x,player.wz-z,(window._BOMB_KB_MAG||16),(window._BOMB_KB_LIFT||420),24); } } }   // your own bomb catches you (knockback, not instakill)
+      if(typeof Audio!=='undefined'&&Audio.blip){ try{ Audio.blip(70,0.2,'sine',0.3,60); Audio.blip(180,0.12,'square',0.18,120); }catch(_){} }
+    }
     else if(type==='barrel'){
       const R=(window._BARREL_R||150), dmg=(window._BARREL_DMG||1.0);
       if(typeof _bombBlastEnemies==='function') _bombBlastEnemies(x,9,z,R,dmg);
@@ -14818,7 +14829,8 @@ function _grabItem(fromSlide){
   if(g.kind==='spider'){ const e=g.ref; const ei=(GS.enemies?GS.enemies.indexOf(e):-1); if(ei>=0)GS.enemies.splice(ei,1); if(e.mesh){try{scene.remove(e.mesh); e.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});}catch(_){}} player._carryPayload={kind:'item',type:'spider'}; window._nearSpider=null; if(typeof player._armBomb==='function')player._armBomb('item'); if(typeof announce==='function')announce('SPIDER SCOOPED — AIM & THROW','#8fff8f'); if(typeof Audio!=='undefined'){try{Audio.blip(360,0.1,'square',0.16,260);}catch(_){}} return true; }   // scoop a balled spider -> carry + throw it like the droid; on landing it re-enters as a hostile spider you can bat / kill
   if(g.kind==='item'){ const p=g.ref;
     if(fromSlide && p.type==='barrel'){ if(p._sid)_mpBroadcastTaken(p._sid); const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} if(typeof _detonateItem==='function')_detonateItem('barrel',p.x,p.z,false); window._nearOrb=null; return true; }   // SLIDE through a barrel -> BUST it open (don't carry)
-    if(p.type==='bomb'){ if(p._sid)_mpBroadcastTaken(p._sid); const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} player.bombs=Math.min((window._BOMB_MAX||9),(player.bombs||0)+(window._BOMB_PICKUP_N||1)); window._nearOrb=null; if(typeof updateUI==='function')updateUI(); if(typeof announce==='function')announce('BOMB +'+(window._BOMB_PICKUP_N||1),'#ff8844'); if(typeof Audio!=='undefined'){try{Audio.blip(300,0.12,'square',0.18,120);}catch(_){}} return true; }   // BOMB is a STOCK pickup — adds to your bomb count (not carried); throw them with the throw button
+    // BOMB is now a PHYSICAL grab-&-throw object (like the nuke): it falls through to the generic carry path below
+    // (_carryPayload={type:'bomb'} -> held as the cartoon-bomb power-up model -> flick to throw one). No stock counter.
     if(p._sid)_mpBroadcastTaken(p._sid); const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} player._carryPayload={kind:'item',type:p.type,_sid:p._sid}; window._nearOrb=null; }
   else { const c=g.ref;
     if(fromSlide){ if(typeof _smashCrate==='function')_smashCrate(c); window._nearCrate=null; return true; }   // SLIDE through a crate -> BUST it open (spills loot), don't carry
@@ -15843,7 +15855,8 @@ function _arenaDeformFeed(dt){
       if(d < e.radius+(window._ADEF_TOUCH||46) && spd>26 && e._pcd<=0){ _arenaDeformShockOne(e,player.wx,(player.py||0)+9,player.wz,(window._ADEF_STEP_STR||2.4)); e._pcd=0.11; } }   // brush past it -> it ripples
     if(typeof _cubeBall!=='undefined'&&_cubeBall&&_cubeBall.pos){ const b=_cubeBall.pos, d=Math.hypot(b.x-e.center.x,b.y-e.center.y,b.z-e.center.z);
       if(d < e.radius+(_cubeBall.R||16)+8 && e._bcd<=0){ _arenaDeformShockOne(e,b.x,b.y,b.z,Math.min(5,1.4+(_cubeBall.vel?_cubeBall.vel.length():0)/180)); e._bcd=0.09; } }   // kick the ball into it -> splash
-    if(typeof GS!=='undefined'&&GS.bullets&&GS.bullets.length){ for(const bl of GS.bullets){ if(!bl)continue; const bx=(bl.wx!=null?bl.wx:bl.x), bz=(bl.wz!=null?bl.wz:bl.z), by=(bl.y!=null?bl.y:9); if(bx==null)continue; if(Math.hypot(bx-e.center.x,by-e.center.y,bz-e.center.z) < e.radius+7){ _arenaDeformShockOne(e,bx,by,bz,(window._ADEF_BULLET_STR||1.5)); } } }   // shoot it -> ripples where each round lands
+    e._blcd=Math.max(0,(e._blcd||0)-dt);
+    if(e._blcd<=0 && typeof GS!=='undefined'&&GS.bullets&&GS.bullets.length){ for(const bl of GS.bullets){ if(!bl)continue; const bx=(bl.wx!=null?bl.wx:bl.x), bz=(bl.wz!=null?bl.wz:bl.z), by=(bl.y!=null?bl.y:9); if(bx==null)continue; if(Math.hypot(bx-e.center.x,by-e.center.y,bz-e.center.z) < e.radius+7){ _arenaDeformShockOne(e,bx,by,bz,(window._ADEF_BULLET_STR||1.5)); e._blcd=(window._ADEF_BULLET_CD||0.06); break; } } }   // shoot it -> ripples where rounds land, but throttled so a rapid stream doesn't stack into jitter
   }
 }
 function _updateArenaDeformers(dt){
@@ -15854,18 +15867,27 @@ function _updateArenaDeformers(dt){
   //    scalar displacement d along its normal + a velocity vd. Traveling shock rings INJECT velocity in a band (a wave
   //    that spreads outward in 3D across the surface); every group independently springs back to flat with damping, so
   //    it overshoots and settles with that same bouncy, watery feel the sheets have. Same constants as GridSheet. ──
-  const RSPD=(window._ADEF_RING_SPD||300), BAND=(window._ADEF_RING_BAND||40), RLIFE=(window._ADEF_RING_LIFE||1.5), WAVEK=(window._ADEF_RING_WAVE||0.13);
-  const STIFF=(window._ADEF_STIFF||0.016), DAMP=(window._ADEF_DAMP||0.905), INJECT=(window._ADEF_INJECT||60), MAXD=(window._ADEF_MAXD||24);
+  // Softer, more fluid feel: gentler spring (lower STIFF = slower, less snappy), gentler injection, longer wavelength
+  // (adjacent points move more in-phase -> smooth, not twitchy). All still tunable.
+  const RLIFE=(window._ADEF_RING_LIFE||1.3), WAVEK=(window._ADEF_RING_WAVE||0.09);
+  const STIFF=(window._ADEF_STIFF||0.011), DAMP=(window._ADEF_DAMP||0.90), INJECT=(window._ADEF_INJECT||34), MAXD=(window._ADEF_MAXD||24);
   const IDLE=(window._ADEF_IDLE===true), iAmp=(window._ADEF_IDLE_AMP||0.35), iSpd=(window._ADEF_IDLE_SPD||1.1);
   const COLSCALE=(window._ADEF_COL_SCALE||8), WB=(window._ADEF_WIRE_BRIGHT||1.0);
   for(const e of D){
     const pos=e.posAttr.array, rL=e.restL, wR=e.wRest, dL=e.dirL, groups=e.groups, G=groups.length, sk=e.shocks, d=e.d, vd=e.vd, wc=e.wcol?e.wcol.array:null; e.t+=dt;
-    for(let s=sk.length-1;s>=0;s--){ const S=sk[s]; S.r+=RSPD*dt; S.life-=dt*(1/RLIFE); if(S.life<=0)sk.splice(s,1); }
+    // SIZE-RELATIVE + DISTANCE DISSIPATION: the wave fully fades by ~REACH from the impact, and REACH/speed/band scale with
+    // the object's radius. So on a SMALL object a hit ripples only locally (never wraps the whole thing on the rebound), and
+    // on a BIG object the wave has room to travel — the effect is proportional to size, like you asked.
+    const rad=e.radius||120;
+    const REACH=(window._ADEF_REACH!=null?window._ADEF_REACH:rad*(window._ADEF_REACH_K||1.15));
+    const RSPD=(window._ADEF_RING_SPD!=null?window._ADEF_RING_SPD:rad*(window._ADEF_SPD_K||2.4));
+    const BAND=(window._ADEF_RING_BAND!=null?window._ADEF_RING_BAND:Math.max(14,rad*(window._ADEF_BAND_K||0.34)));
+    for(let s=sk.length-1;s>=0;s--){ const S=sk[s]; S.r+=RSPD*dt; S.life-=dt*(1/RLIFE); if(S.life<=0 || S.r>REACH) sk.splice(s,1); }   // cull once the ring has travelled its reach -> no full-body rebound
     if(sk.length===0 && e._settled && !IDLE) continue;   // fully at rest and untouched -> skip (cheap)
-    // 1) traveling shock rings inject velocity. Wave phase keyed off RADIAL distance (dr), NOT vertex index — so the crests
-    //    are spatially coherent and the ripple spreads outward as a clean wave (index phase looked like static jitter that
-    //    just held the surface pushed out under sustained fire).
-    for(let s=0;s<sk.length;s++){ const S=sk[s], sx=S.x,sy=S.y,sz=S.z, R=S.r, imp=S.str*S.life;
+    // 1) traveling shock rings inject velocity. Phase keyed off RADIAL distance (spatially coherent wave), and strength
+    //    ATTENUATES as the ring expands (att) so the ripple dissipates with distance from where it was hit.
+    for(let s=0;s<sk.length;s++){ const S=sk[s], sx=S.x,sy=S.y,sz=S.z, R=S.r, att=(R<REACH?(1-R/REACH):0), imp=S.str*S.life*att*att;
+      if(imp<=0.0001) continue;
       for(let gi=0;gi<G;gi++){ const g3=gi*3, dx=wR[g3]-sx,dy=wR[g3+1]-sy,dz=wR[g3+2]-sz, dist=Math.sqrt(dx*dx+dy*dy+dz*dz), dr=dist-R;
         if(dr>-BAND && dr<BAND){ const f=((BAND-Math.abs(dr))/BAND)*imp; vd[gi]+=Math.sin(dr*WAVEK)*f*dt*INJECT; } } }
     // 2) spring every group back to flat (independent damped spring -> overshoot + settle, exactly like the sheet nodes)
