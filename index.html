@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB226</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB227</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -20787,9 +20787,9 @@ function loop(ts){ requestAnimationFrame(loop);
       const ud2=player.model.userData;
       // ── Animation blend system ──
       const ud=player.model.userData;
-      if(player._mount && ud.clips && (ud.clips['ride_idle']||ud.clips['ride_shoot'])){   // MOUNTED on a creature: play ride_idle / ride_shoot, skip locomotion + melee (the upper-body aims via the Spine1 override in draw)
+      if(player._mount && ud.clips && (ud._rideIdleName||ud._rideShootName)){   // MOUNTED on a creature: play ride_idle / ride_shoot, skip locomotion + melee (the upper-body aims via the Spine1 override in draw)
         const _firing=player._lastFiring||false;
-        const _rc=(_firing&&ud.clips['ride_shoot'])?'ride_shoot':(ud.clips['ride_idle']?'ride_idle':'ride_shoot');
+        const _rc=(_firing&&ud._rideShootName)?ud._rideShootName:(ud._rideIdleName||ud._rideShootName);
         if(ud.currentClip!==_rc && ud.clips[_rc]){ Object.values(ud.clips).forEach(a=>a.fadeOut(0.16)); const _n=ud.clips[_rc]; if(!_n.isRunning())_n.reset(); _n.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.16).play(); ud.currentClip=_rc; }
       } else if(ud.clips&&Object.keys(ud.clips).length>0 && !(player._launched||(player._kbStun||0)>0)){   // SMASH KNOCKBACK: skip locomotion/melee blend so the launch 'flying' clip plays cleanly
         const moveAngle=Math.atan2(player.vz,player.vx);
@@ -23829,13 +23829,20 @@ function _geyserTick(dt){
 // ── CREATURE MOUNT — jump + land on a friendly dragon / three-headed dog to ride it. Pins the player to a bone on the
 //    creature's back (Bip001_spine), plays ride_idle / ride_shoot, and aims the arms via the Spine1 override (see draw()). ──
 function _rideableCreature(a){ return a && a.alive!==false && (a.hp==null||a.hp>0) && (a._robitId==='blue_dragon'||a._robitId==='three_headed_dog'); }
-function _mount(a){ if(!player)return; player._mount=a; player.pvy=0; player.vx=0; player.vz=0; player._onPlatform=true; player._inPlanetGravity=false; player._sliding=false; player._rollAimLock=false; player._swingAction=null;
-  if(player.model&&player.model.userData){ player.model.userData._meleeTimer=0; player.model.userData.currentClip=null; }
+function _mount(a){ if(!player)return; player._mount=a; a._mounted=true; player.pvy=0; player.vx=0; player.vz=0; player._onPlatform=true; player._inPlanetGravity=false; player._sliding=false; player._rollAimLock=false; player._swingAction=null;
+  if(player.model&&player.model.userData){ const ud=player.model.userData; ud._meleeTimer=0; ud.currentClip=null;
+    if(ud.clips){ const ks=Object.keys(ud.clips).filter(k=>!k.startsWith('_'));   // resolve the ride clips by FUZZY name (GLB exports rename them) so ride_idle/ride_shoot actually play instead of falling back to locomotion
+      ud._rideIdleName = ud.clips['ride_idle']?'ride_idle':(ks.find(k=>/ride/i.test(k)&&/idle/i.test(k))||ks.find(k=>/ride/i.test(k)&&!/shoot|shot|fire|aim/i.test(k))||null);
+      ud._rideShootName= ud.clips['ride_shoot']?'ride_shoot':(ks.find(k=>/ride/i.test(k)&&/(shoot|shot|fire|aim)/i.test(k))||null);
+      if(window._MOUNT_DEBUG!==false && typeof announce==='function')announce('RIDE  idle='+(ud._rideIdleName||'MISSING')+'  shoot='+(ud._rideShootName||'MISSING'),'#9fe7ff');
+      try{console.warn('[mount] clip keys:',ks,'-> idle:',ud._rideIdleName,'shoot:',ud._rideShootName);}catch(_){}
+    }
+  }
   if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.4,0.95,1],18,110,player.py||0);
   if(typeof Audio!=='undefined'&&Audio.blip){try{Audio.blip(360,0.14,'square',0.14,700);}catch(_){}}
   if(typeof announce==='function')announce('MOUNTED '+((a._robitName||'CREATURE').toUpperCase())+' — SHOOT WITH THE RIGHT STICK','#7fe8ff');
 }
-function _dismount(hop){ if(!player||!player._mount)return; player._mount=null; if(hop){ player.pvy=Math.max(player.pvy||0,(window._MOUNT_DISMOUNT_V||240)); } if(player.model&&player.model.userData)player.model.userData.currentClip=null; if(typeof announce==='function')announce('DISMOUNT','#9fe8ff'); }
+function _dismount(hop){ if(!player||!player._mount)return; const a=player._mount; if(a)a._mounted=false; player._mount=null; if(hop){ player.pvy=Math.max(player.pvy||0,(window._MOUNT_DISMOUNT_V||240)); } if(player.model&&player.model.userData){ const ud=player.model.userData; ud.currentClip=null; ud._rideIdleName=null; ud._rideShootName=null; } if(typeof announce==='function')announce('DISMOUNT','#9fe8ff'); }
 function _mountTick(dt){
   if(window._MOUNT_ON===false || !player || player.alive===false) return;
   const _my=(a)=> (a._curY||0)+(window._MOUNT_Y!=null?window._MOUNT_Y:((a._tall||36)*0.55));
@@ -23844,9 +23851,9 @@ function _mountTick(dt){
     if(!_rideableCreature(a)){ _dismount(false); return; }
     if(player._jumpTapped){ _dismount(true); return; }                                             // jump = hop off
     let mx=a.wx, mz=a.wz, my=_my(a);
-    // BONE tracking is OPT-IN (window._MOUNT_USE_BONE=true): the animated spine bobs every frame AND its world matrix is stale
-    // during update -> that was the uncontrollable camera shake. Default = the creature's STABLE base transform + offset.
-    if(window._MOUNT_USE_BONE===true && a._model && a._model.getObjectByName){ const bn=a._model.getObjectByName(a._mountBoneName||window._MOUNT_BONE||'Bip001_spine'); if(bn){ bn.updateWorldMatrix(true,false); const wp=(window._mtWP||(window._mtWP=new THREE.Vector3())); bn.getWorldPosition(wp); mx=wp.x; my=wp.y+(window._MOUNT_BONE_Y||0); mz=wp.z; } }
+    // Anchor to the spine BONE by default (that's where he should sit). Force a fresh world-matrix so we read the CURRENT pose,
+    // not a stale one (the stale read was the old camera shake). _MOUNT_USE_BONE=false falls back to the creature's base origin.
+    if(window._MOUNT_USE_BONE!==false && a._model && a._model.getObjectByName){ const bn=a._model.getObjectByName(a._mountBoneName||window._MOUNT_BONE||'Bip001_spine'); if(bn){ bn.updateWorldMatrix(true,false); const wp=(window._mtWP||(window._mtWP=new THREE.Vector3())); bn.getWorldPosition(wp); mx=wp.x+(window._MOUNT_OFF_X||0); my=wp.y+(window._MOUNT_BONE_Y||0); mz=wp.z+(window._MOUNT_OFF_Z||0); } }
     // EASE onto the mount point so any residual creature motion reads smooth (no snap -> no camera whip)
     const _e=Math.min(1,(dt||0.016)*(window._MOUNT_PULL||14));
     player.wx+=(mx-player.wx)*_e; player.wz+=(mz-player.wz)*_e; player.py+=(my-player.py)*_e;
