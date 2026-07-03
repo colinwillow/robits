@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB249</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB250</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -8007,7 +8007,7 @@ class DropBomb{
     // Bounce / rest on grid-material sheets (cube, planes)
     if(!this._orbitLock && GRID_SHEETS.length){
       const BOMB_R=7;
-      for(let k=0;k<GRID_SHEETS.length;k++){ const sh=GRID_SHEETS[k];
+      for(let k=0;k<GRID_SHEETS.length;k++){ const sh=GRID_SHEETS[k]; if(sh._goalCurtain) continue;   // goal curtains are pass-through membranes, never colliders
         _gsV.set(this.wx,this.y,this.wz); sh.group.worldToLocal(_gsV);
         const sd=_gsV.y;   // signed distance to the face plane along its normal (local==world at scale 1)
         if(Math.abs(_gsV.x)<sh.hw && Math.abs(_gsV.z)<sh.hd && Math.abs(sd)<BOMB_R+3){
@@ -20547,6 +20547,21 @@ function _updatePerfHud(){
     '\nbeam '+(typeof _spawnBeams!=='undefined'?_spawnBeams.length:0)+
     '\nptcl '+(typeof ps!=='undefined'&&ps?ps.n:0);
 }
+// ── ALWAYS-ON FPS badge (stress-test readout) — tiny pill, colour-coded; toggle off with window._fpsBadge=false ──
+function _updateFpsBadge(){
+  let el=document.getElementById('fps-badge');
+  if(!el){ el=document.createElement('div'); el.id='fps-badge';
+    el.style.cssText='position:fixed;left:8px;top:8px;z-index:96;font:700 12px/1 monospace;color:#7dffb0;background:rgba(0,0,0,0.5);padding:4px 8px;border-radius:6px;pointer-events:none;letter-spacing:0.5px;box-shadow:0 0 0 1px rgba(125,255,176,0.18)';
+    document.body.appendChild(el); }
+  const playing=(typeof GS!=='undefined' && (GS.state==='playing'||GS.state==='zoneTransition'));
+  if(window._fpsBadge===false || !playing){ if(el.style.display!=='none')el.style.display='none'; return; }
+  if(el.style.display==='none')el.style.display='block';
+  const f=Math.round(_perfFps);
+  const col=(f>=55?'#7dffb0':(f>=30?'#ffd86a':'#ff6a6a'));
+  if(el._col!==col){ el._col=col; el.style.color=col; el.style.boxShadow='0 0 0 1px '+col+'2e'; }
+  const txt=f+' FPS';
+  if(el.textContent!==txt) el.textContent=txt;
+}
 let _starfield=null;
 function _initStarfield(){
   const N = IS_MOBILE ? 650 : 1200, R = 2600;   // inside the camera far-plane (4000)
@@ -20737,7 +20752,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(window._menuPaused){ try{ renderer.render(scene,camera); }catch(_){} return; }   // PAUSE: hold the frame under the menu overlay (lastT already advanced -> no dt spike on resume)
     _updateStarfield(dt);
     _updateSkyViz(dt);
-    _perfFps=_perfFps*0.9+(rawDt>0?1/rawDt:60)*0.1; if(frame%20===0) _updatePerfHud();
+    _perfFps=_perfFps*0.9+(rawDt>0?1/rawDt:60)*0.1; if(frame%20===0) _updatePerfHud(); if(frame%10===0) _updateFpsBadge();
     if(_fly&&_fly.active){ updateFlight(dt); renderer.render(scene,camera); return; }
     if(_drive&&_drive.active){ updateDrive(dt); renderer.render(scene,camera); return; }
     // ── JETPACK HOLD — airborne, no bomb ──
@@ -21830,12 +21845,20 @@ function loop(ts){ requestAnimationFrame(loop);
         if(typeof _arenaEnemyHazard==='function') _arenaEnemyHazard(e);
       }
       // ── enemy separation: push overlapping enemies apart so they never stack ──
-      { const E=GS.enemies, n=E.length;
-        for(let a=0;a<n;a++){ const A=E[a]; if(!A.alive||A.isBoss||A.isSerpent||A._ball||A._ro||A._burn) continue; const ra=(A.size||12)*0.5+6;
-          for(let b=a+1;b<n;b++){ const B=E[b]; if(!B.alive||B.isBoss||B.isSerpent||B._ball||B._ro||B._burn) continue; const rb=(B.size||12)*0.5+6, mn=ra+rb;
+      // Now MASS-WEIGHTED and covers big creatures (dragons/dogs) + ball-mode droids too — a heavy boss barely
+      // budges while a small spider gets shoved; vertically-separated (airborne) pairs are left alone. Only
+      // dying / ring-fall / burning / wall-climbing enemies opt out (they own their own position paths).
+      if(window._ENEMY_SEP!==false){ const E=GS.enemies, n=E.length;
+        const _sepOK=(o)=> o && o.alive && !o._dying && !o._ro && !o._burn && !o._climbing && !o._cubeCrawl && !o._captured;
+        const _mass=(o)=> o.isBoss ? (window._SEP_BOSS_MASS||6) : (1 + (o.size||12)/26);   // bosses ~fixed; bigger = heavier
+        for(let a=0;a<n;a++){ const A=E[a]; if(!_sepOK(A)) continue; const ra=(A.size||12)*0.5+6, ma=_mass(A), ay=(A.mesh?A.mesh.position.y:9);
+          for(let b=a+1;b<n;b++){ const B=E[b]; if(!_sepOK(B)) continue; const rb=(B.size||12)*0.5+6, mn=ra+rb;
             let ex=B.wx-A.wx, ez=B.wz-A.wz, d2=ex*ex+ez*ez;
-            if(d2<mn*mn && d2>0.0001){ const d=Math.sqrt(d2), ov=(mn-d)*0.5, nx=ex/d, nz=ez/d; A.wx-=nx*ov; A.wz-=nz*ov; B.wx+=nx*ov; B.wz+=nz*ov; }
-            else if(d2<=0.0001){ const ag=Math.random()*Math.PI*2; A.wx-=Math.cos(ag); A.wz-=Math.sin(ag); B.wx+=Math.cos(ag); B.wz+=Math.sin(ag); }
+            if(d2>=mn*mn) continue;
+            const by=(B.mesh?B.mesh.position.y:9); if(Math.abs(ay-by) > (ra+rb)) continue;   // one is flying well above the other -> no ground collision
+            const mb=_mass(B), wa=mb/(ma+mb), wb=ma/(ma+mb);                                   // heavier partner takes the smaller share of the push
+            if(d2>0.0001){ const d=Math.sqrt(d2), ov=(mn-d), nx=ex/d, nz=ez/d; A.wx-=nx*ov*wa; A.wz-=nz*ov*wa; B.wx+=nx*ov*wb; B.wz+=nz*ov*wb; }
+            else { const ag=(frame*0.61+a*1.7); A.wx-=Math.cos(ag)*wa; A.wz-=Math.sin(ag)*wa; B.wx+=Math.cos(ag)*wb; B.wz+=Math.sin(ag)*wb; }
           }
         }
       }
@@ -23222,12 +23245,13 @@ function updateDrive(dt){
 // Piece 1: shell geometry + "stay inside" containment. Wall-run / boots / ball come next.
 let _cubeGroup=null;
 let _cubeSheets=[];
+let _goalCurtains=[];   // pass-through grid membranes across the open goal mouths (ripple, never collide)
 const _CUBE={hx:(window._CUBE_HX||1300), hz:(window._CUBE_HZ||1000), h:(window._CUBE_H||650), cham:(window._CUBE_CHAM||160)};   // ROCKET-LEAGUE FIELD proportions: wide rectangular pitch (x=length ~2600, z=width ~2000), low ceiling. Tunable via window._CUBE_HX/_HZ/_H
 function _projOOB(x,z,y,m){ m=(m!=null?m:40);   // projectile out-of-bounds — cube-aware: rectangular RL pitch in zone -19 (the old radial ARENA_R was an invisible wall that ate bullets well short of the new walls), radial ARENA elsewhere. Pass y=null to skip the vertical check (flat 2D bolts).
   if(GS.zone===-19){ const C=window._CUBE||_CUBE; return Math.abs(x)>C.hx+m || Math.abs(z)>C.hz+m || (y!=null && (y<-(m+20) || y>C.h+m)); }
   return Math.hypot(x,z)>ARENA_R+m; }
 window._projOOB=_projOOB;
-function _disposeCubeSheets(){ if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets){ try{ const idx=GRID_SHEETS.indexOf(s); if(idx>=0)GRID_SHEETS.splice(idx,1); if(s.group){ scene.remove(s.group); s.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){} } } _cubeSheets=[]; }
+function _disposeCubeSheets(){ if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets){ try{ const idx=GRID_SHEETS.indexOf(s); if(idx>=0)GRID_SHEETS.splice(idx,1); if(s.group){ scene.remove(s.group); s.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){} } } _cubeSheets=[]; _goalCurtains=[]; }
 function _disposeCubeArena(){ if(typeof _hideGoalHUD==='function')_hideGoalHUD(); window._goalPhase=null; window._cubeGoals=null; window._cubeGeyser=null; if(player)player._geyserHold=false; if(typeof _disposeMaceChain==='function')_disposeMaceChain(); if(typeof _hideBallEdgeArrow==='function')_hideBallEdgeArrow(); if(typeof _showColliderMenu==='function')_showColliderMenu(false); if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation();
   if(typeof _removeSpiderPackPads==='function')_removeSpiderPackPads(); try{ if(window._itemPU){ for(let i=window._itemPU.length-1;i>=0;i--){ const p=window._itemPU[i]; if(p&&(p.type==='spiders'||p.type==='drone')){ if(p.grp)scene.remove(p.grp); window._itemPU.splice(i,1); } } } }catch(_){} }
 // ════════ ROCKET-LEAGUE BALL — floaty sphere you knock around with the character collider (and melee) ════════
@@ -24387,12 +24411,16 @@ function buildCubeArena(){
   // ── ROUNDED EDGES: each of the 12 cube edges = a quarter-circle fillet (radius ch) between its two faces ──
   // edge def: sharp point P, direction*length e, inward normals n1/n2 of the two faces. arc(a)=P + ch*n1 + ch*n2 - ch*n1*cos(a) - ch*n2*sin(a)
   const Y=V(0,1,0), nY=V(0,-1,0), Xp=V(1,0,0), Xn=V(-1,0,0), Zp=V(0,0,1), Zn=V(0,0,1);
+  // bottom floor↔wall fillets on ±X: SPLIT around the goal mouth (|z|<GHW) so the rounded lip doesn't arc across
+  // the open goal — the mouth is a clean cut, matching the inset RL goal (SDF/clamp already carve the collision).
+  const _giE=(window._GOAL_INSET!==false), _eGHW=(window._GOAL_HW||360);
+  const _botX=(sx,n2)=>{ if(_giE && _eGHW<hz-4){ return [ {P:V(sx,0,-hz), e:V(0,0,hz-_eGHW), n1:Y, n2}, {P:V(sx,0,_eGHW), e:V(0,0,hz-_eGHW), n1:Y, n2} ]; } return [ {P:V(sx,0,-hz), e:V(0,0,2*hz), n1:Y, n2} ]; };
   const EDGES=[
     // vertical (along +Y)
     {P:V(hx,0,hz),  e:V(0,h,0),  n1:Xn, n2:V(0,0,-1)}, {P:V(hx,0,-hz), e:V(0,h,0), n1:Xn, n2:Zp},
     {P:V(-hx,0,hz), e:V(0,h,0),  n1:Xp, n2:V(0,0,-1)}, {P:V(-hx,0,-hz),e:V(0,h,0), n1:Xp, n2:Zp},
-    // bottom (floor + wall)
-    {P:V(hx,0,-hz), e:V(0,0,2*hz), n1:Y, n2:Xn}, {P:V(-hx,0,-hz),e:V(0,0,2*hz), n1:Y, n2:Xp},
+    // bottom (floor + wall) — ±X split around the goal mouth
+    ..._botX(hx, Xn), ..._botX(-hx, Xp),
     {P:V(-hx,0,hz), e:V(2*hx,0,0), n1:Y, n2:V(0,0,-1)}, {P:V(-hx,0,-hz),e:V(2*hx,0,0), n1:Y, n2:Zp},
     // top (ceiling + wall)
     {P:V(hx,h,-hz), e:V(0,0,2*hz), n1:nY, n2:Xn}, {P:V(-hx,h,-hz),e:V(0,0,2*hz), n1:nY, n2:Xp},
@@ -24438,6 +24466,21 @@ function buildCubeArena(){
     const eg=new THREE.BufferGeometry(); eg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(ed),3));
     grp.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({color:EDGE,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})));
   }
+  // ── GOAL CURTAINS: a translucent grid membrane hung across each open goal mouth. NOT a collider (the SDF is
+  //    carved, so player/ball/enemies pass straight through) — it just ripples aside as things pass, like the floor
+  //    grid does underfoot. Pinned at the goal frame, springy in the middle. Disable with window._GOAL_CURTAIN=false. ──
+  try{ if(_giE && window._GOAL_CURTAIN!==false && typeof GridSheet!=='undefined'){
+    const _cGH=(window._GOAL_H||300), _cGHW=(window._GOAL_HW||360), _cCell=(window._GOAL_CURTAIN_CELL||36), _cSub=(IS_MOBILE?1:2);
+    const _mkCurtain=(sx,q)=>{
+      let s; try{ s=new GridSheet({cols:Math.max(4,Math.round(_cGH/_cCell)+1), rows:Math.max(4,Math.round(2*_cGHW/_cCell)+1), cell:_cCell, position:new THREE.Vector3(sx,_cGH*0.5,0), quaternion:q, palette:(window._CUBE_GRID_PAL||'cube'), fill:true, subdiv:_cSub, bright:0.95}); }catch(e){ console.warn('goal curtain',e); return; }
+      s._cubeWall=true; s._cityWall=true; s._goalCurtain=true;   // _cubeWall -> ripples under a passing body; _cityWall -> bullets deform & pass (never die on it); _goalCurtain -> excluded from every collider path
+      if(s.fill&&s.fill.material){ s.fill.material.opacity=(window._GOAL_CURTAIN_OP!=null?window._GOAL_CURTAIN_OP:0.12); s.fill.material.depthWrite=false; if(s.fill)s.fill.renderOrder=-1; }
+      if(s.lines&&s.lines.material) s.lines.material.opacity=(window._GOAL_CURTAIN_LINE_OP!=null?window._GOAL_CURTAIN_LINE_OP:0.55);
+      _cubeSheets.push(s); _goalCurtains.push(s);
+    };
+    _mkCurtain(hx,  Q(0,0,1, Math.PI/2));
+    _mkCurtain(-hx, Q(0,0,1,-Math.PI/2));
+  } }catch(_){ }
   // ── loadout: start with ONLY bullets + fists — every projectile gun & melee must be physically grabbed from the pads ──
   try{ if(window._CUBE_ARSENAL!==true && player){
     player._ownedWeps=new Set(['bullets']); player.primaryWeapon='bullets'; player.secWeapon='bullets'; player._ammo={};
@@ -24754,6 +24797,11 @@ function updateCubeArena(dt){
   if(GS.zone!==-19 || !player) return;
   _showColliderMenu(true);
   if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets) s.update(dt); _cubeWallFade(dt); }   // deforming grid faces ripple/settle + fade any face between the camera and you
+  // GOAL CURTAINS ripple as the BALL passes through (the player is already handled inside GridSheet.update; enemies dip it too).
+  if(_goalCurtains.length){ const _dipCurtain=(x,y,z,amt)=>{ for(const s of _goalCurtains){ _gsV.set(x,y,z); s.group.worldToLocal(_gsV); if(Math.abs(_gsV.y)<s.cell*1.7 && Math.abs(_gsV.x)<s.hw && Math.abs(_gsV.z)<s.hd) s.dimple(_gsV.x,_gsV.z,amt); } };
+    if(typeof _cubeBall!=='undefined'&&_cubeBall&&_cubeBall.pos){ const bs=Math.min(1.8,0.7+(_cubeBall.vel?_cubeBall.vel.length():0)/600); _dipCurtain(_cubeBall.pos.x,_cubeBall.pos.y,_cubeBall.pos.z,bs); }
+    if(GS.enemies) for(const e of GS.enemies){ if(e&&e.alive&&Math.abs(e.wx)>((window._CUBE||_CUBE).hx-260)) _dipCurtain(e.wx,(e.mesh?e.mesh.position.y:9),e.wz,0.8); }   // only bother checking enemies near the ±X ends
+  }
   if(typeof _updateCubeBall==='function') _updateCubeBall(dt);   // ball runs in BOTH normal & wall-walk modes
   if(typeof _updateWeaponCollider==='function') _updateWeaponCollider(dt);   // melee weapon collider -> ball hits
   if(window._cubePowerPads||window._barrelDispensers){ const _pt=(typeof performance!=='undefined'?performance.now():0)*0.001;   // power pads (spinner + jet flames) + barrel dispensers (idle glow + drop-flash) — runs in both normal & wall-walk modes, before the return below
@@ -24772,6 +24820,19 @@ function updateCubeArena(dt){
   const C=window._CUBE||_CUBE; const pad=(window._CUBE_PAD!=null?window._CUBE_PAD:22); const ch=Math.min(C.cham,C.hx*0.9,C.hz*0.9);
   // rounded-rectangle clamp in XZ (rounds the 4 vertical corners with radius ch)
   const ixr=C.hx-ch, izr=C.hz-ch;
+  // ── GOAL MOUTH: this second, goal-blind containment pass used to pull the player back out of the pocket every
+  //    frame (the movement clamp _cubeClampXZ opens the goal, but this one didn't — so the player could never enter
+  //    while enemies/dummies, which get no second pass, could). Mirror the SDF/clamp carve here: in the goal channel
+  //    near a ±X end, open X out to the recessed back wall and bind Z to the goal width, then skip the rect clamp. ──
+  { const _gi=(window._GOAL_INSET!==false), _GHW=(window._GOAL_HW||360), _GH=(window._GOAL_H||300), _GDP=(window._GOAL_DEPTH||200);
+    if(_gi && Math.abs(player.wz) < (_GHW-pad) && (player.py||0) < _GH && Math.abs(player.wx) > ixr){
+      const gmx=C.hx+_GDP-pad, gmz=Math.max(20,_GHW-pad);
+      if(player.wx> gmx){ player.wx= gmx; if(player.vx>0)player.vx=0; } else if(player.wx<-gmx){ player.wx=-gmx; if(player.vx<0)player.vx=0; }
+      if(player.wz> gmz){ player.wz= gmz; if(player.vz>0)player.vz=0; } else if(player.wz<-gmz){ player.wz=-gmz; if(player.vz<0)player.vz=0; }
+      if(player.py> C.h-pad){ player.py=C.h-pad; if(player.pvy>0)player.pvy=0; }
+      return;   // inside the goal channel — handled; don't run the goal-blind rounded-rect clamp
+    }
+  }
   const cx=clamp(player.wx,-ixr,ixr), cz=clamp(player.wz,-izr,izr);
   const dx=player.wx-cx, dz=player.wz-cz, dd=Math.hypot(dx,dz), maxd=Math.max(1,ch-pad);
   if(dd>maxd){ const s=maxd/dd; player.wx=cx+dx*s; player.wz=cz+dz*s; const nx=dx/dd, nz=dz/dd, vn=player.vx*nx+player.vz*nz; if(vn>0){ player.vx-=nx*vn; player.vz-=nz*vn; } }
