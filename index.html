@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB260</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB261</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -23636,7 +23636,7 @@ function _wallRunPose(on,left){
   }
 }
 function _wrDbg(s){ if(window._WALLRUN_DBG!==true)return; try{ const el=document.getElementById('build-badge'); if(el){ if(el._wrBase==null)el._wrBase=el.textContent; el.textContent=el._wrBase+' | WR:'+s; } }catch(_){} }
-function _wallRunExit(reason){ if(typeof player==='undefined'||!player)return; const _t=(player._wallRun&&player._wallRun.t)||0; player._wallRun=null; _wallRunPose(false); player._wallRunCD=(window._WALLRUN_CD||0.25); _wrDbg('EXIT '+(reason||'?')+' t'+(_t*1000|0)+'ms py'+((player.py||0)|0)); }
+function _wallRunExit(reason){ if(typeof player==='undefined'||!player)return; const _t=(player._wallRun&&player._wallRun.t)||0; player._wallRun=null; _wallRunPose(false); player._jumpTapped=false; player._wallRunCD=(window._WALLRUN_CD||0.35); _wrDbg('EXIT '+(reason||'?')+' t'+(_t*1000|0)+'ms py'+((player.py||0)|0)); }
 function _updateWallRun(dt){
   if(window._WALLRUN_ON===false) return;
   if(typeof player==='undefined'||!player) return;
@@ -23652,6 +23652,9 @@ function _updateWallRun(dt){
     // AUTO-ATTACH: you must be airborne (or just jumped) and carrying speed near a wall. Use the game's REAL grounded flags (robust across gravity-flip) so it NEVER grabs while just running/standing on the ground beside a wall.
     const grounded=player._gfGrounded||(player.py||0)<=(window._WALLRUN_GND_Y||6)||player._onPlatform||(player._inPlanetGravity&&player._glGrounded);
     if(grounded && !player._jumpTapped) return;
+    // CHAMFER GUARD: landing on the curved floor↔wall transition (low + descending) used to grab a wall-run you couldn't
+    // escape. Only attach when you're actually up a wall (some height) OR still travelling upward — never on a low downward scrape.
+    if((player.py||0) < (window._WALLRUN_MIN_Y||30) && (player.pvy||0) <= (window._WALLRUN_MIN_VY||10)) return;
     const spd=Math.hypot(player.vx||0,player.vz||0); if(spd<(window._WALLRUN_MIN_SPD||90)) return;
     const f=_nearestWallFace(player.wx,player.wz,player.py||0,(window._WALLRUN_REACH||40)); if(!f) return;
     let tx,tz; if(f.axis==='x'){ tx=0; tz=1; } else { tx=1; tz=0; }
@@ -23709,7 +23712,7 @@ function _updateWallRun(dt){
   const _carry=()=>{ player.vx=B.tx*B.spd; player.vz=B.tz*B.spd; };
   if(B.t>_minT && backToSurface){ player.py=rest; player.pvy=0; _carry(); _wallRunExit('surface'); }            // back to the standing surface
   else if(B.t>_minT && B.spd<(window._WALLRUN_DROP_SPD||46)){ _carry(); _wallRunExit('slow'); }                 // ran out of momentum -> peel off the wall into freefall (preserved vy = ballistic drop)
-  else if(B.t>(window._WALLRUN_MAXT||5.0)){ _carry(); _wallRunExit('maxt'); }                                   // safety cap
+  else if(B.t>(window._WALLRUN_MAXT||2.5)){ _carry(); if((player.pvy||0)<40)player.pvy=40; _wallRunExit('maxt'); }   // safety cap — bail well before the freeze-watchdog ever needs to (pop you off, don't strand)
   else if(B.t>_minT && overTop){ if((gdir>0&&player.pvy>0)||(gdir<0&&player.pvy<0))player.pvy=0; _carry(); _wallRunExit('top'); }   // crested near the top
   else if(B.t>_minT && lateral>halfLat+8){ _carry(); if(gdir>0&&player.pvy<40)player.pvy=40; _wallRunExit('end'); }   // ran off the end (corner)
 }
