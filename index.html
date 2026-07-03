@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB234</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB235</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12359,8 +12359,9 @@ class Player{
         // The ride clip is FROZEN (paused), so the mixer only wrote Spine1 once — it never resets it. The old
         // multiply-in-place therefore stacked every frame -> endless spin. Reset Spine1 to the clip's frame-0 pose
         // (read straight from the clip track, never polluted) BEFORE applying the aim rotation.
-        const _bq=(_ud.currentClip===_ud._rideShootName?_ud._spineBaseShoot:_ud._spineBaseIdle)||_ud._spineBaseIdle;
-        if(_bq)_sp.quaternion.set(_bq[0],_bq[1],_bq[2],_bq[3]);
+        const _bi=_ud._spineBaseIdle, _bs=_ud._spineBaseShoot, _mx=_ud._rideMix||0;
+        if(_bi&&_bs){ _sp.quaternion.set(_bi[0],_bi[1],_bi[2],_bi[3]); _sp.quaternion.slerp((this._mSpQ||(this._mSpQ=new THREE.Quaternion())).set(_bs[0],_bs[1],_bs[2],_bs[3]),_mx); }   // blend idle<->shoot base by the same crossfade mix so the torso base eases too
+        else { const _bq=_bi||_bs; if(_bq)_sp.quaternion.set(_bq[0],_bq[1],_bq[2],_bq[3]); }
         let _yaw=((this.aim-(this._mountAimRef||0)+Math.PI)%TAU+TAU)%TAU-Math.PI; const _cl=(window._MOUNT_SPINE_CLAMP||1.5); _yaw=Math.max(-_cl,Math.min(_cl,_yaw));
         const _ax=(window._MOUNT_SPINE_AXIS||'y'), _sg=(window._MOUNT_SPINE_SIGN!=null?window._MOUNT_SPINE_SIGN:-1);   // rotate Spine1 (default local Y, negative) so the torso swings toward the right-stick aim
         _sp.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(_ax==='x'?_sg*_yaw:0,_ax==='y'?_sg*_yaw:0,_ax==='z'?_sg*_yaw:0,'XYZ'))); }
@@ -20797,10 +20798,16 @@ function loop(ts){ requestAnimationFrame(loop);
       const ud=player.model.userData;
       if(player._mount && ud.clips && (ud._rideIdleName||ud._rideShootName)){   // MOUNTED on a creature: play ride_idle / ride_shoot, skip locomotion + melee (the upper-body aims via the Spine1 override in draw)
         const _firing=player._lastFiring||false;
-        const _rc=(_firing&&ud._rideShootName)?ud._rideShootName:(ud._rideIdleName||ud._rideShootName);
+        const _idleN=ud._rideIdleName, _shootN=ud._rideShootName;
         const _holdT=(window._RIDE_HOLD_T!=null?window._RIDE_HOLD_T:0.0);   // the export baked the real ride pose onto FRAME 0 only (rest of ride_idle/ride_shoot is plain idle) -> hold that frame
-        if(ud.currentClip!==_rc && ud.clips[_rc]){ Object.values(ud.clips).forEach(a=>{ if(a!==ud.clips[_rc]){ a.stop(); a.setEffectiveWeight(0); } }); const _n=ud.clips[_rc]; _n.reset(); _n.enabled=true; _n.setLoop(THREE.LoopRepeat,Infinity); _n.clampWhenFinished=false; _n.setEffectiveWeight(1).setEffectiveTimeScale(1).play(); ud.currentClip=_rc; }
-        if(ud.clips[_rc]){ const _n=ud.clips[_rc]; if(!_n.isRunning())_n.play(); _n.setEffectiveWeight(1); if(window._RIDE_HOLD!==false){ _n.paused=true; _n.time=_holdT; } else { _n.paused=false; } }   // FREEZE on the pose frame so the saddle pose actually shows (window._RIDE_HOLD=false to let the full clip play; _RIDE_HOLD_T to pick the frame time)
+        // EASE between ride_idle and ride_shoot: keep BOTH poses playing (paused on frame 0) and crossfade their weights so
+        // pulling/releasing the trigger blends smoothly instead of snapping. ud._rideMix: 0 = idle, 1 = shoot.
+        ud._rideMix=(ud._rideMix||0)+(( _firing?1:0)-(ud._rideMix||0))*Math.min(1,dt*(window._RIDE_MIX_EASE||14));
+        const _mix=ud._rideMix;
+        Object.values(ud.clips).forEach(a=>{ if(a!==ud.clips[_idleN]&&a!==ud.clips[_shootN]&&(a.isRunning()||a.getEffectiveWeight()>0)){ a.stop(); a.setEffectiveWeight(0); } });
+        const _setRide=(nm,w)=>{ const _n=nm&&ud.clips[nm]; if(!_n)return; if(!_n.isRunning()){ _n.reset(); _n.enabled=true; _n.setLoop(THREE.LoopRepeat,Infinity); _n.clampWhenFinished=false; _n.play(); } _n.enabled=true; _n.setEffectiveWeight(w).setEffectiveTimeScale(1); if(window._RIDE_HOLD!==false){ _n.paused=true; _n.time=_holdT; } else { _n.paused=false; } };
+        _setRide(_idleN, _shootN?(1-_mix):1); _setRide(_shootN, _mix);
+        ud.currentClip=(_mix>0.5&&_shootN)?_shootN:(_idleN||_shootN);
         if(window._MOUNT_DEBUG!==false){ let _d=document.getElementById('mount-dbg'); if(!_d){ _d=document.createElement('div'); _d.id='mount-dbg'; _d.style.cssText='position:fixed;left:50%;top:120px;transform:translateX(-50%);z-index:2147483647;font:bold 15px monospace;color:#aef;background:rgba(0,0,0,0.82);padding:7px 12px;border:1px solid #4cf;border-radius:6px;pointer-events:none;white-space:pre;text-align:center'; document.body.appendChild(_d); } _d.style.display='block'; const _cc=ud.clips[ud.currentClip]; _d.textContent='MOUNT clip='+ud.currentClip+'\nw='+(_cc&&_cc.getEffectiveWeight?_cc.getEffectiveWeight().toFixed(2):'?')+' run='+(_cc?_cc.isRunning():'?')+' t='+(_cc&&_cc.time!=null?_cc.time.toFixed(2):'?')+'\nidle='+ud._rideIdleName+' shoot='+ud._rideShootName+' fire='+(_firing?1:0);
           player._mdN=(player._mdN||0)+1; if(player._mdN%45===0){ try{console.warn('[anim] MOUNT clip='+ud.currentClip+' w='+(_cc&&_cc.getEffectiveWeight?_cc.getEffectiveWeight().toFixed(2):'?')+' run='+(_cc?_cc.isRunning():'?')+' t='+(_cc&&_cc.time!=null?_cc.time.toFixed(2):'?'));}catch(_){} } }
       } else if(ud.clips&&Object.keys(ud.clips).length>0 && !(player._launched||(player._kbStun||0)>0)){   // SMASH KNOCKBACK: skip locomotion/melee blend so the launch 'flying' clip plays cleanly
@@ -23859,7 +23866,11 @@ function _mount(a){ if(!player)return; player._mount=a; a._mounted=true; player.
   if(typeof Audio!=='undefined'&&Audio.blip){try{Audio.blip(360,0.14,'square',0.14,700);}catch(_){}}
   if(typeof announce==='function')announce('MOUNTED '+((a._robitName||'CREATURE').toUpperCase())+' — SHOOT WITH THE RIGHT STICK','#7fe8ff');
 }
-function _dismount(hop){ if(!player||!player._mount)return; const a=player._mount; if(a)a._mounted=false; player._mount=null; if(hop){ player.pvy=Math.max(player.pvy||0,(window._MOUNT_DISMOUNT_V||240)); } if(player.model&&player.model.userData){ const ud=player.model.userData; ud.currentClip=null; ud._rideIdleName=null; ud._rideShootName=null; } if(typeof announce==='function')announce('DISMOUNT','#9fe8ff'); }
+function _dismount(hop){ if(!player||!player._mount)return; const a=player._mount; if(a)a._mounted=false; player._mount=null;
+  player._remountCD=(window._MOUNT_REMOUNT_CD||1.2);   // block instant re-grab: the generous proximity mount was snapping you right back on, so jump/dash fought you. Cooldown lets you actually get OFF.
+  if(hop){ player.pvy=Math.max(player.pvy||0,(window._MOUNT_DISMOUNT_V||300));   // launch up off the creature
+    if(a){ const dx=player.wx-a.wx, dz=player.wz-a.wz, dl=Math.hypot(dx,dz)||1; const _ph=(window._MOUNT_DISMOUNT_H||150); player.vx=dx/dl*_ph; player.vz=dz/dl*_ph; } }   // + shove outward so you clear the mount radius
+  if(player.model&&player.model.userData){ const ud=player.model.userData; ud.currentClip=null; ud._rideIdleName=null; ud._rideShootName=null; ud._rideMix=0; ud._spineBaseIdle=null; ud._spineBaseShoot=null; } if(typeof announce==='function')announce('DISMOUNT','#9fe8ff'); }
 function _mountTick(dt){
   if(window._MOUNT_ON===false || !player || player.alive===false) return;
   const _my=(a)=> (a._curY||0)+(window._MOUNT_Y!=null?window._MOUNT_Y:((a._tall||36)*0.55));
@@ -23880,6 +23891,7 @@ function _mountTick(dt){
     player._mountAimRef=Math.PI/2 - player._mountModelYaw;                            // the aim value that == facing straight forward on the mount
     return;
   }
+  if((player._remountCD||0)>0){ player._remountCD-=dt; return; }                                    // just dismounted — don't snap back on for a moment
   if(player._ballActive||player._launched||(player._kbStun||0)>0||player._onHoverboard||player._wallClimb||player._hang) return;
   // GENEROUS PROXIMITY MOUNT (for now): get near a rideable creature and you mount — no need to nail the landing. Dial the
   // land-on-top-only trigger in later. _MOUNT_R is big (the dragon is huge); the vertical band is wide so any approach catches.
