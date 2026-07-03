@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB251</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB252</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1831,6 +1831,10 @@ class Grid3D{
   sampleFloor(){ return 0; }
 
   update(dt){
+    // The legacy ground grid is INVISIBLE in the RL cube arena (its floor is drawn by the cube GridSheets). Its full
+    // ~440k-read rebuild + dot/player loops were still running every frame — pure waste. Skip the heavy visible-only work
+    // there, but keep the cheap spring decay so external grid.push()/shock() calls can't accumulate. (window._GRID_SKIP_CUBE=false to disable)
+    const _hidden = (typeof GS!=='undefined' && GS.zone===-19 && window._GRID_SKIP_CUBE!==false);
     // GRID CITY (-6): grid recenters on the player so the deforming floor is endless.
     // Snap to G_CELL so the (periodic) line pattern shift is visually seamless.
     if(typeof player!=='undefined'&&player&&typeof GS!=='undefined'&&GS.zone===-6){
@@ -1873,6 +1877,7 @@ class Grid3D{
     }
 
     // Spring physics — XZ and Y all return to rest
+    let moved=0;
     for(let r=0;r<this.nz;r++) for(let c=0;c<this.nx;c++){
       const i=r*this.nx+c;
       const fixed=(r===0||r===this.nz-1||c===0||c===this.nx-1);
@@ -1883,12 +1888,18 @@ class Grid3D{
       this.x[i]+=this.vx[i];
       this.z[i]+=this.vz[i];
       this.y[i]+=this.vy[i];
+      moved+=Math.abs(this.vx[i])+Math.abs(this.vz[i])+Math.abs(this.vy[i]);
     }
 
     this.beat*=0.96;
-    this._rebuild();
+    // SLEEP: skip the heavy line rebuild once the grid has fully settled and nothing is deforming it (idle / airborne).
+    // Wakes on any shock or the player's ground influence. (Disable: window._GRID_SLEEP=false)
+    const _busy = window._GRID_SLEEP===false || this.shocks.length>0 || this._pInfl || this.beat>0.003 || moved > this.n*(window._GRID_SLEEP_EPS||0.0009);
+    if(_hidden){ /* invisible in the cube — spring decay above still ran; skip the visible rebuild */ }
+    else if(_busy){ this._sleep=0; this._rebuild(); }
+    else if((this._sleep=(this._sleep||0)+1) <= 2){ this._rebuild(); }
     // Animate dot grid — elegant noise wave pattern
-    if(this._dotColors&&this._dotXZ){
+    if(!_hidden && this._dotColors&&this._dotXZ){
       const t=performance.now()*0.0007;
       const dc=this._dotColors;
       // Player position for proximity glow
@@ -1919,7 +1930,9 @@ class Grid3D{
     }
 
     // Player influence on grid — XZ outward only, disabled when airborne
-    if(player&&player.alive&&GS.state==='playing'&&player.py<8){
+    this._pInfl=false;
+    if(!_hidden && player&&player.alive&&GS.state==='playing'&&player.py<8){
+      this._pInfl=true;   // grounded player is deforming the grid -> keep it awake (rebuilding)
       const spd=Math.hypot(player.vx||0,player.vz||0);
       const t=Math.min(spd/220,1);
       const radius=100;
@@ -20608,6 +20621,20 @@ function _updateFpsBadge(){
   const txt=f+' FPS';
   if(el.textContent!==txt) el.textContent=txt;
 }
+// ── ADAPTIVE GRAPHICS: if the framerate sits low for a few seconds, auto-drop the bloom composer (the heaviest GPU
+//    pass) to claw back fps. Only ever downgrades; the player can force HIGH back on in the pause menu (which pins it).
+//    Disable entirely with window._autoGfx=false. ──
+let _autoGfxLoT=0;
+function _autoGfxTick(dt){
+  if(window._autoGfx===false || window._gfxUserSet || window._gfxPerf || window.LIGHT_MODE || window._BW_MODE) return;
+  if(typeof GS==='undefined' || GS.state!=='playing') { _autoGfxLoT=0; return; }
+  if(_perfFps < (window._AUTO_GFX_LO||46)) _autoGfxLoT+=dt; else _autoGfxLoT=Math.max(0,_autoGfxLoT-dt*0.5);
+  if(_autoGfxLoT > (window._AUTO_GFX_HOLD||3)){
+    _autoGfxLoT=0; window._gfxPerf=true; window._autoGfxEngaged=true;
+    const b=document.getElementById('gfx-btn'); if(b) b.textContent='GFX: FAST';
+    if(typeof announce==='function') announce('AUTO GRAPHICS: FAST — bloom off to hold fps (change in pause menu)','#00ffc8');
+  }
+}
 let _starfield=null;
 function _initStarfield(){
   const N = IS_MOBILE ? 650 : 1200, R = 2600;   // inside the camera far-plane (4000)
@@ -20798,7 +20825,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(window._menuPaused){ try{ renderer.render(scene,camera); }catch(_){} return; }   // PAUSE: hold the frame under the menu overlay (lastT already advanced -> no dt spike on resume)
     _updateStarfield(dt);
     _updateSkyViz(dt);
-    _perfFps=_perfFps*0.9+(rawDt>0?1/rawDt:60)*0.1; if(frame%20===0) _updatePerfHud(); if(frame%10===0) _updateFpsBadge();
+    _perfFps=_perfFps*0.9+(rawDt>0?1/rawDt:60)*0.1; if(frame%20===0) _updatePerfHud(); if(frame%10===0) _updateFpsBadge(); _autoGfxTick(rawDt);
     if(_fly&&_fly.active){ updateFlight(dt); renderer.render(scene,camera); return; }
     if(_drive&&_drive.active){ updateDrive(dt); renderer.render(scene,camera); return; }
     // ── JETPACK HOLD — airborne, no bomb ──
@@ -27381,15 +27408,25 @@ class GridSheet{
       _glV.set(player.wx,player.py,player.wz); this.group.worldToLocal(_glV);
       const pu=_glV.x, pn=_glV.y, pv=_glV.z;
       if(Math.abs(pn)<this.cell*1.5 && Math.abs(pu)<this.hw+24 && Math.abs(pv)<this.hd+24){
+        this._pNear=true;   // player is deforming this sheet -> keep it awake (rebuilding)
         const spd=Math.hypot(player.vx||0,player.vz||0), tt=Math.min(spd/220,1), radius=100;
         const _cw=this._cubeWall;
         for(let i=0;i<this.n;i++){ const dx=this.ru[i]-pu, dz=this.rv[i]-pv, d2=dx*dx+dz*dz;
           if(d2<radius*radius&&d2>0.01){ const d=Math.sqrt(d2), fo=(1-d/radius)*(1-d/radius); this.vu[i]+=(dx/d)*fo*(0.15+tt*0.2); this.vv[i]+=(dz/d)*fo*(0.15+tt*0.2); if(_cw){ this.vy[i]-=fo*(0.18+tt*0.5); } else { this.vy[i]=0; } } } } }   // cube faces: leave a springy depression under you (like the ground grid); other sheets stay flat
+    let moved=0;
     for(let r=0;r<this.nz;r++) for(let c=0;c<this.nx;c++){ const i=r*this.nx+c, fixed=(r===0||r===this.nz-1||c===0||c===this.nx-1);
       if(fixed){ this.u[i]=this.ru[i]; this.v[i]=this.rv[i]; this.y[i]=this.ry[i]; this.vu[i]=0; this.vv[i]=0; this.vy[i]=0; continue; }
       this.vu[i]=(this.vu[i]+(this.ru[i]-this.u[i])*0.012)*0.92; this.vv[i]=(this.vv[i]+(this.rv[i]-this.v[i])*0.012)*0.92; this.vy[i]=(this.vy[i]+(this.ry[i]-this.y[i])*0.014)*0.91;
-      this.u[i]+=this.vu[i]; this.v[i]+=this.vv[i]; this.y[i]+=this.vy[i]; }
-    this.beat*=0.96; this._rebuild();
+      this.u[i]+=this.vu[i]; this.v[i]+=this.vv[i]; this.y[i]+=this.vy[i];
+      moved+=Math.abs(this.vu[i])+Math.abs(this.vv[i])+Math.abs(this.vy[i]); }
+    this.beat*=0.96;
+    // ── SLEEP: skip the (heavy) geometry rebuild once the sheet has fully settled and nothing is touching it.
+    //    Wakes automatically — a shock/impact/dimple/push or the player coming near re-injects motion. Big CPU win
+    //    in the cube (dozens of sheets, most at rest every frame). Disable with window._SHEET_SLEEP=false. ──
+    const _busy = window._SHEET_SLEEP===false || this.shocks.length>0 || this._pNear || this.beat>0.003 || moved > this.n*(window._SHEET_SLEEP_EPS||0.0007);
+    this._pNear=false;
+    if(_busy){ this._sleep=0; this._rebuild(); }
+    else if((this._sleep=(this._sleep||0)+1) <= 2){ this._rebuild(); }   // a couple more frames to fully flatten, then stop rebuilding
   }
   _au(r,c){ r=clamp(r,0,this.nz-1); c=clamp(c,0,this.nx-1); return this.u[r*this.nx+c]; }
   _av(r,c){ r=clamp(r,0,this.nz-1); c=clamp(c,0,this.nx-1); return this.v[r*this.nx+c]; }
@@ -32900,7 +32937,7 @@ function _lightModeRestore(){
 }
 window._gfxPerf=false;
 window._toggleGfx=function(){
-  window._gfxPerf=!window._gfxPerf;
+  window._gfxPerf=!window._gfxPerf; window._gfxUserSet=true;   // a manual choice pins it — auto-graphics stops overriding
   const b=document.getElementById('gfx-btn'); if(b) b.textContent=window._gfxPerf?'GFX: FAST':'GFX: HIGH';
   if(typeof announce==='function') announce(window._gfxPerf?'GRAPHICS: FAST (no bloom)':'GRAPHICS: HIGH','#00ffc8');
 };
