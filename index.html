@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB243</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB244</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -23757,7 +23757,7 @@ function _updateBallFX(dt){
 function _buildCubeGoals(parent){
   if(window._GOALS_ON===false || typeof THREE==='undefined') return;
   const C=window._CUBE||_CUBE, hx=C.hx;
-  const HW=(window._GOAL_HW||360), GH=(window._GOAL_H||300), DP=(window._GOAL_DEPTH||130);   // half-width (z), height (y), inset depth (x, into the wall)
+  const HW=(window._GOAL_HW||360), GH=(window._GOAL_H||300), DP=(window._GOAL_DEPTH||200);   // half-width (z), height (y), recess depth (x) — MATCHES the SDF/clamp carve so the visual pocket lines up with the collision one
   window._cubeGoals=[];
   const defs=[{sign:-1,team:'BLUE',col:0x33aaff},{sign:1,team:'ORANGE',col:0xff8a33}];
   const P=(x,y,z)=>new THREE.Vector3(x,y,z);
@@ -23778,6 +23778,18 @@ function _buildCubeGoals(parent){
     const back=new THREE.Mesh(new THREE.PlaneGeometry(HW*2,GH),backMat); back.rotation.y=Math.PI/2; back.position.set(sx+ox,GH/2,0); g.add(back);
     const net=[],NZ=8,NY=5; for(let i=0;i<=NZ;i++){ const z=-HW+i*(2*HW/NZ); net.push(P(sx+ox,0,z),P(sx+ox,GH,z)); } for(let j=0;j<=NY;j++){ const y=j*(GH/NY); net.push(P(sx+ox,y,-HW),P(sx+ox,y,HW)); }
     g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(net),netMat));
+    // ── RECESSED POCKET WALLS: the 4 inner faces of the goal box (top, floor, both sides) so it reads as a real 3D recess you shoot/walk INTO, matching the collision carve ──
+    const quad=(a,b,c,d,mat)=>{ const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.Float32BufferAttribute([a.x,a.y,a.z,b.x,b.y,b.z,c.x,c.y,c.z, a.x,a.y,a.z,c.x,c.y,c.z,d.x,d.y,d.z],3)); geo.computeVertexNormals(); return new THREE.Mesh(geo,mat); };
+    const wallMat=new THREE.MeshBasicMaterial({color:d.col,transparent:true,opacity:(window._GOAL_POCKET_OP||0.12),blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+    const bx=sx, fx=sx+ox;   // mouth x -> back x
+    g.add(quad(P(bx,GH,-HW),P(fx,GH,-HW),P(fx,GH,HW),P(bx,GH,HW),wallMat));   // top
+    g.add(quad(P(bx,0,-HW),P(fx,0,-HW),P(fx,0,HW),P(bx,0,HW),wallMat));       // floor
+    g.add(quad(P(bx,0,-HW),P(fx,0,-HW),P(fx,GH,-HW),P(bx,GH,-HW),wallMat));   // side -Z
+    g.add(quad(P(bx,0,HW),P(fx,0,HW),P(fx,GH,HW),P(bx,GH,HW),wallMat));       // side +Z
+    // pocket edge wires (define the recess crisply)
+    const pw=[P(fx,0,-HW),P(fx,GH,-HW), P(fx,GH,-HW),P(fx,GH,HW), P(fx,GH,HW),P(fx,0,HW),   // back frame
+              P(bx,0,-HW),P(fx,0,-HW), P(bx,GH,-HW),P(fx,GH,-HW), P(bx,0,HW),P(fx,0,HW), P(bx,GH,HW),P(fx,GH,HW)];   // depth edges
+    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pw), new THREE.LineBasicMaterial({color:d.col,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false})));
     // FLOOR CREASE — a bright coloured rectangle on the pitch in FRONT of the goal so it's unmistakable where each net is
     const floor=new THREE.Mesh(new THREE.PlaneGeometry(CR,HW*2),glowMat(0.14)); floor.rotation.x=-Math.PI/2; floor.position.set(sx - d.sign*CR/2, 2.5, 0); g.add(floor);
     const fEdge=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([P(sx - d.sign*CR,0.5,-HW),P(sx - d.sign*CR,0.5,HW)]), new THREE.LineBasicMaterial({color:d.col,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false})); g.add(fEdge);   // the goal LINE on the pitch
@@ -24357,8 +24369,18 @@ function buildCubeArena(){
     };
     face(new THREE.Vector3(0,0,0),        Q(1,0,0,0),         ix, iz);          // FLOOR  (normal +Y)
     face(new THREE.Vector3(0,h,0),        Q(1,0,0,Math.PI),   ix, iz);          // CEILING(normal -Y)
-    face(new THREE.Vector3(hx,cy,0),      Q(0,0,1, Math.PI/2),vyH, iz);         // WALL +X (normal -X)
-    face(new THREE.Vector3(-hx,cy,0),     Q(0,0,1,-Math.PI/2),vyH, iz);         // WALL -X (normal +X)
+    // WALLS ±X — SUBTRACT the goal rectangle: build each as panels AROUND the mouth (|z|<GHW, y<GH) instead of one solid face, so the perimeter grid actually has a hole where the goal is.
+    { const _gi=(window._GOAL_INSET!==false), _GHW=(window._GOAL_HW||360), _GH=(window._GOAL_H||300);
+      const wallX=(sx,q)=>{
+        if(!_gi){ face(new THREE.Vector3(sx,cy,0), q, vyH, iz); return; }
+        const zSideHalf=(iz-_GHW)/2, zSideCtr=(iz+_GHW)/2;
+        if(zSideHalf>2){ face(new THREE.Vector3(sx,cy,-zSideCtr), q, vyH, zSideHalf); face(new THREE.Vector3(sx,cy,zSideCtr), q, vyH, zSideHalf); }   // full-height strips left/right of the goal
+        const topHalf=(iy1-_GH)/2, topCtr=(_GH+iy1)/2;
+        if(topHalf>2) face(new THREE.Vector3(sx,topCtr,0), q, topHalf, Math.min(_GHW,iz));   // strip above the goal (goal width)
+      };
+      wallX(hx,  Q(0,0,1, Math.PI/2));   // +X (normal -X)
+      wallX(-hx, Q(0,0,1,-Math.PI/2));   // -X (normal +X)
+    }
     face(new THREE.Vector3(0,cy,hz),      Q(1,0,0,-Math.PI/2),ix, vyH);         // WALL +Z (normal -Z)
     face(new THREE.Vector3(0,cy,-hz),     Q(1,0,0, Math.PI/2),ix, vyH);         // WALL -Z (normal +Z)
   }
