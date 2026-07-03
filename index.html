@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB257</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB258</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11906,14 +11906,16 @@ class Player{
         if(this.py<=topY+2 && this.py>=topY-_capD && topY>=eFloor){ eFloor=topY; _onPlat=true; this._platformY=topY; } }
       if(_onPlat) this._onPlatform=true; else if(this.py>1) this._onPlatform=false;
     }
-    if(GS.zone===-19 && window._cubePlatforms && window._cubePlatforms.length && !this._inPlanetGravity && !this._hang){   // CUBE LEVEL KIT: land on platforms + run up ramps (same flat/slope math as the dojo)
+    if(GS.zone===-19 && !this._inPlanetGravity && !this._hang && ((window._cubePlatforms&&window._cubePlatforms.length)||(window._arenaAssetCols&&window._arenaAssetCols.length))){   // CUBE LEVEL KIT + custom deform-asset platforms: land on platforms + run up ramps (same flat/slope math as the dojo)
       const _capC=Math.max(14, Math.abs(this.pvy||0)*dt+10); let _onPlat=false;
       // PASS-THROUGH platforms (Smash-style): rising -> pass up through the bottom; dropping (_dropThru, left-stick down-tap) -> fall through the top. Only CATCH when descending / standing.
       const _passUp=(this.pvy||0)>(window._PLAT_LAND_VY||16), _dropping=(this._dropThru||0)>0;
-      for(const b of window._cubePlatforms){ const dx=this.wx-b.x, dz=this.wz-b.z; if(Math.abs(dx)>=b.hw||Math.abs(dz)>=b.hd) continue;
+      const _chkPlat=(b)=>{ const dx=this.wx-b.x, dz=this.wz-b.z; if(Math.abs(dx)>=b.hw||Math.abs(dz)>=b.hd) return;
         let topY=b.top;
         if(b.slope){ topY=b.slope.y0+((this.wx-b.slope.ox)*b.slope.nx+(this.wz-b.slope.oz)*b.slope.nz)*b.slope.perUnit; topY=Math.max(Math.min(b.slope.y0,b.slope.y1),Math.min(Math.max(b.slope.y0,b.slope.y1),topY)); }
-        if(!_passUp && !_dropping && this.py<=topY+2 && this.py>=topY-_capC && topY>=eFloor){ eFloor=topY; _onPlat=true; this._platformY=topY; } }
+        if(!_passUp && !_dropping && this.py<=topY+2 && this.py>=topY-_capC && topY>=eFloor){ eFloor=topY; _onPlat=true; this._platformY=topY; } };
+      if(window._cubePlatforms)for(const b of window._cubePlatforms)_chkPlat(b);
+      if(window._arenaAssetCols)for(const b of window._arenaAssetCols)_chkPlat(b);   // walkable custom GLB assets (e.g. platform.glb floating center-map)
       if(_onPlat) this._onPlatform=true; else if(this.py>1) this._onPlatform=false;
     }
     const _arSolid = !window._arenaVoid || (typeof _arenaSolidAt!=='function') || _arenaSolidAt(this.wx,this.wz);
@@ -15827,6 +15829,7 @@ const _ADEF_PAL=[[0.20,0.88,1.0],[0.47,0.94,1.0],[0.78,0.47,1.0],[1.0,0.31,0.70]
 function _disposeArenaDeformers(){
   try{ const seen=new Set(); for(const e of (window._arenaDeformers||[])){ const r=e.root; if(r&&!seen.has(r)){ seen.add(r); if(typeof scene!=='undefined')scene.remove(r); r.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(Array.isArray(o.material))o.material.forEach(m=>m.dispose()); else o.material.dispose(); } }); } } }catch(_){}
   window._arenaDeformers=[];
+  window._arenaAssetCols=[];   // asset colliders are rebuilt with _cubePlatforms each arena build
 }
 window._disposeArenaDeformers=_disposeArenaDeformers;
 function _buildDeformEntry(mesh){
@@ -15907,7 +15910,11 @@ function _updateArenaDeformers(dt){
   }
 }
 window._updateArenaDeformers=_updateArenaDeformers;
-function _placeArenaCube(gltf){
+// Generalized: load ANY custom GLB, render it as deforming quads (black fill + rainbow wire), place it, and optionally
+// register a walkable flat-top collider matching its footprint. opts={pos:{x,z}, y(bottom), size, collide, label, colPad}.
+window._arenaAssetCols = window._arenaAssetCols || [];
+function _placeDeformAsset(gltf, opts){
+  opts=opts||{};
   let root; try{ root=gltf.scene.clone(true); }catch(_){ root=gltf.scene; }
   // BLACK fill behind a glowing QUAD wireframe — matches the grid sheets (fill sits slightly behind the wire via polygonOffset).
   const FILL=new THREE.MeshBasicMaterial({color:(window._ADEF_FILL!=null?window._ADEF_FILL:0x000000),transparent:true,opacity:(window._ADEF_FILL_OP!=null?window._ADEF_FILL_OP:0.5),side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:1.5,polygonOffsetUnits:2});
@@ -15919,24 +15926,38 @@ function _placeArenaCube(gltf){
       lg.setAttribute('color',wcol); lg.setIndex(eidx);
       const wire=new THREE.LineSegments(lg,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:(window._ADEF_WIRE_OP||0.95),blending:THREE.AdditiveBlending,depthWrite:false})); wire.frustumCulled=false; wire.renderOrder=2; o.add(wire); o._wcol=wcol; }catch(_){}
     meshes.push(o); } });
-  if(!meshes.length){ console.warn('[arena cube] no meshes in cube.glb'); return; }
+  if(!meshes.length){ console.warn('[deform asset] no meshes in',opts.label); return; }
+  if(opts.rot){ root.rotation.set(opts.rot.x||0,opts.rot.y||0,opts.rot.z||0); root.updateMatrixWorld(true); }   // safety valve if an export imports sideways (e.g. Z-up)
   let box=new THREE.Box3().setFromObject(root); const size=new THREE.Vector3(); box.getSize(size);
-  const maxD=Math.max(size.x,size.y,size.z)||1, sc=(window._ADEF_SIZE||170)/maxD; root.scale.setScalar(sc);
+  const maxD=Math.max(size.x,size.y,size.z)||1, sc=(opts.size||170)/maxD; root.scale.setScalar(sc);
   root.updateMatrixWorld(true); box=new THREE.Box3().setFromObject(root); const c=box.getCenter(new THREE.Vector3());
-  const P=(window._ADEF_POS)||{x:450,z:0}; root.position.x += P.x - c.x; root.position.z += P.z - c.z; root.position.y += (window._ADEF_Y!=null?window._ADEF_Y:0) - box.min.y;
+  const P=opts.pos||{x:0,z:0}; root.position.x += P.x - c.x; root.position.z += P.z - c.z; root.position.y += (opts.y!=null?opts.y:0) - box.min.y;
   root.updateMatrixWorld(true); if(typeof scene!=='undefined') scene.add(root);
   box=new THREE.Box3().setFromObject(root); const ctr=box.getCenter(new THREE.Vector3()), rad=box.getSize(new THREE.Vector3()).length()*0.5;
-  let grpN=0; for(const o of meshes){ o.updateMatrixWorld(true); const en=_buildDeformEntry(o); en.root=root; en.center=ctr.clone(); en.radius=rad; grpN+=en.groups.length; window._arenaDeformers.push(en); }
-  window._arenaCubeInfo={verts:meshes.reduce((a,o)=>a+o.geometry.attributes.position.count,0), meshes:meshes.length, deformPts:grpN, pos:P, size:(window._ADEF_SIZE||170)};
-  if(typeof announce==='function') announce('cube.glb · QUADS · '+grpN+' deform pts — shoot it / kick the ball at it','#33e0ff');
-  console.log('[arena cube]', window._arenaCubeInfo);
+  let grpN=0; for(const o of meshes){ o.updateMatrixWorld(true); const en=_buildDeformEntry(o); en.root=root; en.center=ctr.clone(); en.radius=rad; en._label=opts.label; grpN+=en.groups.length; window._arenaDeformers.push(en); }
+  // WALKABLE COLLIDER: a standable flat-top platform matching the footprint (walk on top, jump up through, tap down to drop).
+  if(opts.collide){ const pad=(opts.colPad||0), col={x:P.x, z:P.z, hw:(box.max.x-box.min.x)*0.5+pad, hd:(box.max.z-box.min.z)*0.5+pad, top:box.max.y, _asset:opts.label};
+    window._arenaAssetCols.push(col);   // persistent list the player-landing check consults alongside _cubePlatforms (survives arena rebuilds of that array)
+    window._arenaPlatformInfo={x:P.x,z:P.z,top:Math.round(col.top),hw:Math.round(col.hw),hd:Math.round(col.hd)}; }
+  if(typeof announce==='function') announce((opts.label||'asset')+' · QUADS · '+grpN+' pts'+(opts.collide?' · WALKABLE':''),'#33e0ff');
+  console.log('[deform asset]',opts.label,{pts:grpN,meshes:meshes.length,pos:P,collide:!!opts.collide,top:box.max.y});
+  return root;
+}
+function _spawnDeformGLB(file, cacheKey, enabledFlag, opts){
+  if(window[enabledFlag]===false) return;
+  if(window[cacheKey]){ try{ _placeDeformAsset(window[cacheKey],opts); }catch(e){ console.warn('deform asset',opts.label,e); } return; }
+  try{ const loader=new GLTFLoader(); loader.load(file, g=>{ window[cacheKey]=g; try{ _placeDeformAsset(g,opts); }catch(e){ console.warn('deform asset',opts.label,e); } }, undefined, err=>{ console.warn(file+' load failed:',err); if(typeof announce==='function')announce(opts.label+' FAILED to load','#ff4466'); }); }catch(e){ console.warn(file+' loader:',e); }
 }
 function _spawnArenaCube(){
-  if(window._ARENA_CUBE===false) return;
-  if(window._cubeAssetGltf){ try{ _placeArenaCube(window._cubeAssetGltf); }catch(e){ console.warn('arena cube',e); } return; }
-  try{ const loader=new GLTFLoader(); loader.load('models/cube.glb', g=>{ window._cubeAssetGltf=g; try{ _placeArenaCube(g); }catch(e){ console.warn('arena cube',e); } }, undefined, err=>{ console.warn('cube.glb load failed:',err); if(typeof announce==='function')announce('cube.glb FAILED to load','#ff4466'); }); }catch(e){ console.warn('cube.glb loader:',e); }
+  _spawnDeformGLB('models/cube.glb','_cubeAssetGltf','_ARENA_CUBE',{ pos:(window._ADEF_POS||{x:450,z:0}), y:(window._ADEF_Y!=null?window._ADEF_Y:0), size:(window._ADEF_SIZE||170), collide:(window._ADEF_COLLIDE===true), colPad:(window._ADEF_COLPAD||0), label:'cube.glb' });
 }
 window._spawnArenaCube=_spawnArenaCube;
+window._platformAssetGltf=window._platformAssetGltf||null;
+function _spawnArenaPlatform(){
+  // Floats CENTER-map, well above the ball, and is WALKABLE by default.
+  _spawnDeformGLB('models/platform.glb','_platformAssetGltf','_ARENA_PLATFORM',{ pos:(window._APLAT_POS||{x:0,z:0}), y:(window._APLAT_Y!=null?window._APLAT_Y:270), size:(window._APLAT_SIZE||440), collide:(window._APLAT_COLLIDE!==false), colPad:(window._APLAT_COLPAD||0), rot:(window._APLAT_ROT||null), label:'platform.glb' });
+}
+window._spawnArenaPlatform=_spawnArenaPlatform;
 function _updateDojoPlatform(dt){
   if(typeof GS==='undefined'||GS.zone!==-2) return;
   if(window._customSheetSet && window._customSheetSet.length){ for(const sh of window._customSheetSet){ try{ sh.update(dt); }catch(_){} } } else if(window._dojoSheet){ try{ window._dojoSheet.update(dt); }catch(_){} } else { _updatePlatformDeform(dt); }
@@ -24710,6 +24731,7 @@ function buildCubeArena(){
     _mkCurtain(-hx, Q(0,0,1,-Math.PI/2));
   } }catch(_){ }
   try{ if(typeof _spawnArenaCube==='function') _spawnArenaCube(); }catch(e){ console.warn('arena cube spawn',e); }   // custom deformable GLB sandbox (cube.glb) — quad-rendered + ripples on contact
+  try{ if(typeof _spawnArenaPlatform==='function') _spawnArenaPlatform(); }catch(e){ console.warn('arena platform spawn',e); }   // platform.glb — deforming quads + a WALKABLE collider, floating center-map above the ball
   // ── loadout: start with ONLY bullets + fists — every projectile gun & melee must be physically grabbed from the pads ──
   try{ if(window._CUBE_ARSENAL!==true && player){
     player._ownedWeps=new Set(['bullets']); player.primaryWeapon='bullets'; player.secWeapon='bullets'; player._ammo={};
