@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB235</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB236</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10841,12 +10841,15 @@ class Player{
     // use the SOFT-MAGNET lock the ground ring settled on (hold-aim) — a flick passes allowLock=false so it flies straight
     let lock=(allowLock!==false && this._throwLock && this._throwLock.alive!==false)?this._throwLock:null;
     if(!lock && window._MTHROW_AIMASSIST!==false && typeof _throwAimAssist==='function'){ lock=_throwAimAssist(sx,sz,throwAng); }   // FLICK: subtle aim-assist -> snap onto the nearest opponent in the flick direction so it connects
-    let dx=vx, dz=vz;
-    if(lock){ const lx=(lock.wx!=null?lock.wx:lock.x), lz=(lock.wz!=null?lock.wz:lock.z); if(lx!=null){ const ddx=lx-sx, ddz=lz-sz; if(Math.hypot(ddx,ddz)>4){ dx=ddx; dz=ddz; } } }
+    let dx=vx, dz=vz, _tdist=0;
+    if(lock){ const lx=(lock.wx!=null?lock.wx:lock.x), lz=(lock.wz!=null?lock.wz:lock.z); if(lx!=null){ const ddx=lx-sx, ddz=lz-sz; if(Math.hypot(ddx,ddz)>4){ dx=ddx; dz=ddz; _tdist=Math.hypot(ddx,ddz); } } }
     let dm=Math.hypot(dx,dz)||1; dx/=dm; dz/=dm;
     const SPD=straight?(window._MTHROW_SPD_SPEAR||660):(window._MTHROW_SPD_DEF||480);
     const UP=straight?(window._MTHROW_UP_SPEAR||8):(window._MTHROW_UP||55);
     vx=dx*SPD; vz=dz*SPD; vy=UP;
+    // VERTICAL AIM: point the initial vy at the locked target's height so a throw dives onto a ground ball / rises to an airborne
+    // one instead of sailing over at a fixed upward angle (the 3D homing then refines it). Only when we actually locked a target.
+    if(lock && _tdist>4 && window._MTHROW_VAIM!==false){ const ty=(typeof _aaTargetY==='function'?_aaTargetY(lock):((lock.py!=null?lock.py+10:(lock.y!=null?lock.y:10)))); const _mx=(window._MTHROW_VAIM_MAX||520); vy=Math.max(-_mx,Math.min(_mx,(ty-sy)/_tdist*SPD+(window._MTHROW_VAIM_ARC||16))); }
     let mesh=null; try{ mesh=_makeMeleeWeapon(type); }catch(_){}
     if(mesh){ mesh.scale.setScalar(window._MTHROW_SCALE||(typeof _HAMMER_SCALE!=='undefined'?_HAMMER_SCALE:1.7));
       // TUMBLE ABOUT THE CENTER: the weapon model's origin is at the HILT, so spinning it about that origin swung the whole blade around the handle. Wrap it in a pivot and shift the model so the midpoint between hilt & tip sits at the pivot origin -> it tumbles about its middle like a real thrown weapon (spear still just points along flight).
@@ -10869,9 +10872,10 @@ class Player{
     const throwAng=Math.atan2(vz,vx);
     let lock=(allowLock!==false && this._throwLock && this._throwLock.alive!==false)?this._throwLock:null;
     if(!lock && window._MTHROW_AIMASSIST!==false && typeof _throwAimAssist==='function') lock=_throwAimAssist(sx,sz,throwAng);
-    let dx=vx,dz=vz; if(lock){ const lx=(lock.wx!=null?lock.wx:lock.x), lz=(lock.wz!=null?lock.wz:lock.z); if(lx!=null){ const ddx=lx-sx, ddz=lz-sz; if(Math.hypot(ddx,ddz)>4){ dx=ddx; dz=ddz; } } }
+    let dx=vx,dz=vz,_tdist=0; if(lock){ const lx=(lock.wx!=null?lock.wx:lock.x), lz=(lock.wz!=null?lock.wz:lock.z); if(lx!=null){ const ddx=lx-sx, ddz=lz-sz; if(Math.hypot(ddx,ddz)>4){ dx=ddx; dz=ddz; _tdist=Math.hypot(ddx,ddz); } } }
     let dm=Math.hypot(dx,dz)||1; dx/=dm; dz/=dm;
     const SPD=(window._GUNTHROW_SPD||520), UP=(window._GUNTHROW_UP||58); vx=dx*SPD; vz=dz*SPD; vy=UP;
+    if(lock && _tdist>4 && window._MTHROW_VAIM!==false){ const ty=(typeof _aaTargetY==='function'?_aaTargetY(lock):((lock.py!=null?lock.py+10:(lock.y!=null?lock.y:10)))); const _mx=(window._MTHROW_VAIM_MAX||520); vy=Math.max(-_mx,Math.min(_mx,(ty-sy)/_tdist*SPD+(window._MTHROW_VAIM_ARC||16))); }   // aim vy at the locked target's height (below/above), not a fixed lob
     let mesh=null; try{ mesh=(typeof _makeWeaponHandModel==='function')?_makeWeaponHandModel(type,1):null; if(!mesh && typeof _makeWeaponEmblem==='function')mesh=_makeWeaponEmblem(type); }catch(_){}
     if(mesh){ mesh.scale.setScalar(window._GUNTHROW_SCALE||1.7); const pivot=new THREE.Group();
       try{ mesh.updateMatrixWorld(true); const bb=new THREE.Box3().setFromObject(mesh); const c=new THREE.Vector3(); bb.getCenter(c); mesh.position.sub(c); }catch(_){}
@@ -15072,9 +15076,13 @@ function _throwAimAssist(sx,sz,ang){
   if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies)consider(e);
   if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)consider(b);
   if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy)consider(GS_trainingDummy);
+  if(window._MTHROW_ASSIST_BALL!==false && typeof _cubeBall!=='undefined' && _cubeBall && _cubeBall.pos)consider({wx:_cubeBall.pos.x, wz:_cubeBall.pos.z, y:_cubeBall.pos.y, _isBall:true, alive:true});   // the RL ball is a throw target too -> flick at it and the throw locks + curves onto it (incl. below/above via the vy aim)
   return best;
 }
 window._throwAimAssist=_throwAimAssist;
+// height of an aim target (enemy body-center / object / ball), reused by throw vy-aim + flying-kick vertical aim-assist
+function _aaTargetY(t){ if(!t)return 10; return t.mesh?t.mesh.position.y:(t.py!=null?t.py+10:(t.y!=null?t.y:(t.wy!=null?t.wy:10))); }
+window._aaTargetY=_aaTargetY;
 function _updateThrownMelee(dt){
   const A=window._thrownMelee; if(!A||!A.length)return;
   const FLOOR=(window._MTHROW_FLOOR||7), _up=new THREE.Vector3(0,1,0);
@@ -29268,10 +29276,20 @@ function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
       // FLYING KICK — up-flick in the air: shoot forward and play the SLIDE (kick) clip full-body, regardless of equipped weapon.
       // Uses the same _sliding hit window as the ground slide tackle so it connects + launches. Later this becomes weapon-specific.
       mname='slide'; player._meleeStep=-1; player._meleeCombo=1; player._sliding=true; player._airSlam=false; ud._slamHold=false; player._airComboStep=-1;   // -1 so the first slash after the kick is melee_1
-      const _hsp=Math.hypot(player.vx||0,player.vz||0), _sd=_hsp>1?[player.vx/_hsp,player.vz/_hsp]:[Math.cos(player.aim||0),Math.sin(player.aim||0)];
+      const _hsp=Math.hypot(player.vx||0,player.vz||0); let _sd=_hsp>1?[player.vx/_hsp,player.vz/_hsp]:[Math.cos(player.aim||0),Math.sin(player.aim||0)];
+      // VERTICAL AIM-ASSIST: if a ball/enemy sits ahead but BELOW or ABOVE you, angle the kick down/up (and snap onto it) so you
+      // meet it — a ground ball while you're airborne = dive kick; a chipped-up ball = rising kick. window._AIR_KICK_VAIM=false to disable.
+      let _kickVY=null;
+      if(window._AIR_KICK_VAIM!==false){ let bt=null,bsc=-1; const _R=(window._AIR_KICK_VAIM_R||360), _cc=Math.cos((window._AIR_KICK_VAIM_CONE||60)*Math.PI/180);
+        const _cons=(tx,tz,ty)=>{ if(tx==null)return; const ex=tx-player.wx, ez=tz-player.wz, d=Math.hypot(ex,ez)||1; if(d>_R)return; const dot=(ex/d)*_sd[0]+(ez/d)*_sd[1]; if(dot<_cc)return; const sc=dot-d/(_R*4); if(sc>bsc){ bsc=sc; bt={tx,tz,ty,d}; } };
+        if(typeof _aaTargetList==='function')for(const e of _aaTargetList()){ if(!e||e.alive===false||e._captured)continue; _cons((e.wx!=null?e.wx:e.x),(e.wz!=null?e.wz:e.z),(typeof _aaTargetY==='function'?_aaTargetY(e):10)); }
+        if(typeof _cubeBall!=='undefined'&&_cubeBall&&_cubeBall.pos)_cons(_cubeBall.pos.x,_cubeBall.pos.z,_cubeBall.pos.y);
+        if(bt){ const _dx=bt.tx-player.wx, _dz=bt.tz-player.wz, _dl=Math.hypot(_dx,_dz)||1; _sd=[_dx/_dl,_dz/_dl];   // snap horizontally onto it (it's already in the forward cone)
+          const _dy=bt.ty-(player.py||0), _mx=(window._AIR_KICK_VAIM_MAX||460); _kickVY=Math.max(-_mx,Math.min(_mx,_dy/Math.max(bt.d,1)*(window._AIR_KICK_SPEED||640))); player._airKickTgt=bt; } }
       player._dashDir=_sd; player._dashRamp=(window._AIR_KICK_FRAMES||22); player._dashRampMax=player._dashRamp; player._dashPeak=(window._AIR_KICK_SPEED||640); player.aim=Math.atan2(_sd[1],_sd[0]);
       player._meleeLungeT=(window._AIR_KICK_LUNGE_T||0.24);
-      if((player.pvy||0) < (window._AIR_KICK_LIFT||60)) player.pvy=(window._AIR_KICK_LIFT||60);   // slight lift so he SAILS forward like a flying kick instead of dropping
+      if(_kickVY!=null) player.pvy=_kickVY;                                                        // dive/rise to meet the target
+      else if((player.pvy||0) < (window._AIR_KICK_LIFT||60)) player.pvy=(window._AIR_KICK_LIFT||60);   // no target -> slight lift so he SAILS forward like a flying kick instead of dropping
     } else {
       // AIR COMBO: same melee sequence as the ground (minus the slide), default melee_1 -> melee_2 -> melee_3 (skip the melee_4 kick). Continues within the combo window, restarts at the first when fresh.
       const _aseq=(window._AIR_MELEE_SEQ&&window._AIR_MELEE_SEQ.length)?window._AIR_MELEE_SEQ:[1,2,3];
