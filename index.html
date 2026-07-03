@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB237</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB238</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -23870,6 +23870,8 @@ function _mount(a){ if(!player)return; player._mount=a; a._mounted=true; player.
       try{console.warn('[mount] clip keys:',ks,'-> idle:',ud._rideIdleName,'shoot:',ud._rideShootName);}catch(_){}
     }
   }
+  // CAMERA: ease to look straight down the creature's nose on mount (you can steer from there). Also face the player's aim forward.
+  try{ const _fy=(a.mesh?a.mesh.rotation.y:0)+(window._MOUNT_YAW_OFF||0); const _fwd=Math.PI/2-_fy; player.aim=_fwd; if(typeof CAM!=='undefined' && window._MOUNT_CAM_EASE!==false) CAM.tyaw=-_fwd-Math.PI/2; }catch(_){}
   if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.4,0.95,1],18,110,player.py||0);
   if(typeof Audio!=='undefined'&&Audio.blip){try{Audio.blip(360,0.14,'square',0.14,700);}catch(_){}}
   if(typeof announce==='function')announce('MOUNTED '+((a._robitName||'CREATURE').toUpperCase())+' — SHOOT WITH THE RIGHT STICK','#7fe8ff');
@@ -23901,10 +23903,17 @@ function _mountTick(dt){
   }
   if((player._remountCD||0)>0){ player._remountCD-=dt; return; }                                    // just dismounted — don't snap back on for a moment
   if(player._ballActive||player._launched||(player._kbStun||0)>0||player._onHoverboard||player._wallClimb||player._hang) return;
-  // GENEROUS PROXIMITY MOUNT (for now): get near a rideable creature and you mount — no need to nail the landing. Dial the
-  // land-on-top-only trigger in later. _MOUNT_R is big (the dragon is huge); the vertical band is wide so any approach catches.
-  const R=(window._MOUNT_R||110); let best=null,bd=R;
-  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(!_rideableCreature(a))continue; const hd=Math.hypot(player.wx-a.wx,player.wz-a.wz); if(hd<bd){ const by=_my(a), dy=(player.py||0)-by; if(dy>(window._MOUNT_CATCH_LO!=null?window._MOUNT_CATCH_LO:-60) && dy<(window._MOUNT_CATCH_HI||300)){ bd=hd; best=a; } } }
+  // INTENTIONAL MOUNT: you must DROP onto the small saddle zone from ABOVE. Walking into a creature (or it bumping into you)
+  // never mounts — the trigger is a tight puck (~robot size) centered on the saddle JOINT, and you have to be descending onto it.
+  if((player.pvy||0) > (window._MOUNT_CATCH_VY||8)) return;                                          // rising / level -> not a landing
+  const R=(window._MOUNT_SADDLE_R||44); let best=null,bd=R;
+  const _sp=(window._mtSP||(window._mtSP=new THREE.Vector3()));
+  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(!_rideableCreature(a))continue;
+    let sx=a.wx, sz=a.wz, sy=_my(a);
+    if(window._MOUNT_USE_BONE!==false && a._model && a._model.getObjectByName){ const bn=a._model.getObjectByName(a._mountBoneName||window._MOUNT_BONE||'Bip001_Spine'); if(bn){ bn.updateWorldMatrix(true,false); bn.getWorldPosition(_sp); sx=_sp.x+(window._MOUNT_OFF_X||0); sy=_sp.y+(window._MOUNT_BONE_Y||0); sz=_sp.z+(window._MOUNT_OFF_Z||0); } }
+    const hd=Math.hypot(player.wx-sx, player.wz-sz); if(hd>=bd)continue;
+    const dy=(player.py||0)-sy; if(dy < (window._MOUNT_LAND_LO!=null?window._MOUNT_LAND_LO:-14) || dy > (window._MOUNT_LAND_HI||120))continue;   // must be AT / ABOVE the saddle, dropping onto it — not beside/below it
+    bd=hd; best=a; }
   if(best) _mount(best);
 }
 // ── PAD BEACON — a floor marker under a spawn pad: a "stand here" ground ring, a thin illuminated up-arrow (pulsing), and
@@ -24415,23 +24424,24 @@ function buildCubeArena(){
     if(typeof updateWeaponHUD==='function')updateWeaponHUD();
   } }catch(_){}
   // ── pickups: boots + melee + guns to test with ──
-  try{ if(typeof _spawnBootStation==='function') _spawnBootStation(0, -hz+ch+90); }catch(e){ console.warn('boot station',e); }
-  try{ if(typeof _spawnHammerStation==='function'){ const ms=['sword','hammer','axe','spear','scythe','mace']; ms.forEach((m,i)=>_spawnHammerStation(-200+i*100, hz-ch-90, m)); } }catch(e){ console.warn('hammer stations',e); }
-  try{ if(typeof _spawnWeaponPad==='function'){ const gs=['rockets','plasma','grenade','boomerang','minigun']; gs.forEach((w,i)=>_spawnWeaponPad(-hx+ch+90, -200+i*100, w)); } }catch(e){ console.warn('weapon pads',e); }   // minigun now on the cube wall pad too
+  const _sideZ=(window._CUBE_SIDE_Z||(hz-ch-90));   // = 750; ALL stations live on the two long sidelines (±Z), clear of the ±X goal ends — nothing in front of the goals
+  try{ if(typeof _spawnHammerStation==='function'){ const ms=['sword','hammer','axe','spear','scythe','mace']; ms.forEach((m,i)=>_spawnHammerStation(-600+i*240, _sideZ, m)); } }catch(e){ console.warn('hammer stations',e); }   // +Z sideline: melee row, evenly spaced
+  try{ if(typeof _spawnWeaponPad==='function'){ const gs=['rockets','plasma','grenade','boomerang','minigun']; gs.forEach((w,i)=>_spawnWeaponPad(-600+i*240, -_sideZ, w)); } }catch(e){ console.warn('weapon pads',e); }   // -Z sideline: gun row
+  try{ if(typeof _spawnBootStation==='function') _spawnBootStation(600, -_sideZ); }catch(e){ console.warn('boot station',e); }   // -Z sideline, end slot next to the guns
   // ── POWER-UPS: a FEW big RAISED jump-up pads (not one per item). Each hosts one powerup hovering above it — jump/boost up to
   //    grab it. Summon balls line the back wall, offensive items the right wall, at alternating heights so some need a boost.
   //    A couple of powerups also sit on the GROUND (no pad). Weapons (left wall) + melee (front wall) stay as ground stations. ──
   try{
     const _CSUM=window._PAD_COL_SUMMON||0x66ff77, _COFF=window._PAD_COL_OFF||0xff7a3a;
     const _LO=(window._POWERPAD_LO||38), _HI=(window._POWERPAD_HI||90);   // low pad = a normal jump; high pad = a jetpack boost
-    const _bz=-hz+ch+130, _rx=hx-ch-130;
+    const _inZ=(window._CUBE_INNER_Z||560);   // two inner power-pad rows just inside the sidelines — clear of the spawn decks (x=±880) and the goal ends
     const _RP=(window._CUBE_POWER_PADS)||[
-      {x:-230, z:_bz, y:_LO, type:'dog',    c:_CSUM},   // back wall (summon)
-      {x:  0,  z:_bz, y:_HI, type:'dragon', c:_CSUM},
-      {x: 230, z:_bz, y:_LO, type:'droid',  c:_CSUM},
-      {x:_rx,  z:-200, y:_HI, type:'nuke',        c:_COFF},   // right wall (offensive)
-      {x:_rx,  z:  60, y:_LO, type:'singularity', c:_COFF},
-      {x:_rx,  z: 300, y:_HI, type:'quake',       c:_COFF},
+      {x:-260, z:-_inZ, y:_LO, type:'dog',    c:_CSUM},   // -Z inner row (summon)
+      {x:   0, z:-_inZ, y:_HI, type:'dragon', c:_CSUM},   // (0,-560): no longer stacked under a spawn deck -> grabbable
+      {x: 260, z:-_inZ, y:_LO, type:'droid',  c:_CSUM},
+      {x:-260, z: _inZ, y:_HI, type:'nuke',        c:_COFF},   // +Z inner row (offensive)
+      {x:   0, z: _inZ, y:_LO, type:'singularity', c:_COFF},
+      {x: 260, z: _inZ, y:_HI, type:'quake',       c:_COFF},
     ];
     window._itemDispensers=_RP.map(s=>({x:s.x,z:s.z,y:s.y,type:s.type,cd:0,raised:true}));
     const _PP=[];
@@ -24448,16 +24458,16 @@ function buildCubeArena(){
     // MYSTERY CUBE is NOT special anymore — it just shows up like any other power-up (spilled from barrels/crates, random loot). No dedicated floor spawns cluttering the arena. Opt back in by setting window._MYSTERY_SPOTS=[{x,z},...].
     if(window._MYSTERY_ON!==false && typeof _spawnPU==='function'){ const _mc=(window._MYSTERY_SPOTS)||[]; for(const s of _mc){ try{ const it=_spawnPU(s.x,7,s.z,'mystery',0,0,0); if(it){ it.settled=true; it.vx=it.vy=it.vz=0; it.y=7; if(window._MYSTERY_EXPIRE!==true)it._noExpire=true; } }catch(_){} } }
     // a couple of powerups on the GROUND (no pad) — quick grabs without jumping
-    for(const gpu of (window._CUBE_GROUND_PU||[{x:-90,z:_bz,type:'spiders'},{x:90,z:_bz,type:'drone'},{x:0,z:_bz-70,type:'bomb'}])){ try{ if(!(window._itemPU||[]).some(p=>p&&p.type===gpu.type)){ const it=_spawnPU(gpu.x,16,gpu.z,gpu.type,0,0,0); if(it&&window._DISPENSER_EXPIRE!==true)it._noExpire=true; window._itemDispensers.push({x:gpu.x,z:gpu.z,type:gpu.type,cd:0}); } }catch(_){} }
+    for(const gpu of (window._CUBE_GROUND_PU||[{x:-520,z:-_inZ,type:'spiders'},{x:520,z:-_inZ,type:'drone'},{x:520,z:_inZ,type:'bomb'}])){ try{   // pest/quick-grabs midcourt on the sidelines (with the power-pad rows), never in front of goals if(!(window._itemPU||[]).some(p=>p&&p.type===gpu.type)){ const it=_spawnPU(gpu.x,16,gpu.z,gpu.type,0,0,0); if(it&&window._DISPENSER_EXPIRE!==true)it._noExpire=true; window._itemDispensers.push({x:gpu.x,z:gpu.z,type:gpu.type,cd:0}); } }catch(_){} }
   }catch(e){ console.warn('cube powerups',e); }
   // ── CENTRE CIRCLE: a soccer-style neon ring on the floor, dead centre, where the ball kicks off. Nothing else lives in the middle now. ──
   // CENTRE MEDALLION: a big version of the power-pad deck (spinning UFO ring / bays / struts), flat in the middle where the ball kicks off. Purely decorative (NOT a tractor anchor -> no collider, ball + players pass through it). Tune _CUBE_CENTER_SCALE / _Y / _COL, or _CUBE_CENTER_ON=false.
   try{ if(window._CUBE_CENTER_ON!==false && typeof _makePowerPad==='function'){ const _cs=(window._CUBE_CENTER_SCALE||60); window._PAD_TUBE_K=(window._BIGPAD_TUBE_K!=null?window._BIGPAD_TUBE_K:(window._POWERPAD_BIG||30)/_cs); const cp=_makePowerPad(0,0,(window._CUBE_CENTER_COL!=null?window._CUBE_CENTER_COL:0x33e0ff)); window._PAD_TUBE_K=1; cp.scale.setScalar(_cs); cp.position.set(0,(window._CUBE_CENTER_Y!=null?window._CUBE_CENTER_Y:2),0); if(_cubeGroup)_cubeGroup.add(cp); else scene.add(cp); window._cubeCenterPad=cp; } }catch(e){ console.warn('centre pad',e); }
   // ── BARREL DISPENSERS: PEZ machines on two opposing walls (left/right); a barrel only pops when you HIT the red button (shoot/throw/melee) — no periodic drip ──
   try{ if(window._BARREL_DISP!==false && typeof _makeBarrelDispenser==='function'){
-    const _by=(window._BARREL_DISP_Y||195), _inset=(hx-ch);
+    const _by=(window._BARREL_DISP_Y||195), _insetZ=(hz-ch);
     const _mk=(x,z,dxi,dzi)=>{ const g=_makeBarrelDispenser(x,_by,z,dxi,dzi); if(_cubeGroup)_cubeGroup.add(g); else scene.add(g); return {x:x+dxi*18,y:_by-30,z:z+dzi*18,dx:dxi,dz:dzi,g, btn:{x:x+dxi*15, y:_by+3, z:z+dzi*15, r:(window._DISP_BTN_R||30)}, _btnCD:0}; };   // btn = world pos of the red button (front face) for hit-to-dispense
-    window._barrelDispensers=[ _mk(-_inset,0,1,0), _mk(_inset,0,-1,0) ]; window._barrelDispIdx=0;   // left wall drops rightward, right wall drops leftward -> both roll to center
+    window._barrelDispensers=[ _mk(0,-_insetZ,0,1), _mk(0,_insetZ,0,-1) ]; window._barrelDispIdx=0;   // midcourt on the two long walls (off the goal mouths); each drops toward center
   } }catch(e){ console.warn('barrel dispensers',e); }
   // ── LEVEL GEOMETRY: platforms / ramps / cover pillars / high perches (data-driven kit; edit _CUBE_LEVEL to redesign) ──
   window._cubePlatforms=null;
@@ -24465,9 +24475,9 @@ function buildCubeArena(){
   // ── FOUR ELEVATED SPAWN PLATFORMS — the SAME deck visual as the weapon-pad floats, ~2x the size, one high up on each wall, colour-keyed. You + the AI spawn on a random one. Standable (registered as cube platforms). ──
   try{ if(window._SPAWN_PLATS!==false && typeof _makePowerPad==='function'){
     const _spY=(window._SPAWN_PLAT_Y||180), _spSc=(window._SPAWN_PLAT_SCALE||(window._POWERPAD_BIG||30)*2), _hw=(window._SPAWN_PLAT_HW||72);   // 2x the weapon-pad float size; ~2x the highest weapon pad height
-    const _px=Math.max(220, hx-ch-140), _pz=Math.max(220, hz-ch-140);
-    const _cols=(window._SPAWN_PLAT_COLS)||[0xff4466,0x33aaff,0x33ff88,0xffcc33];
-    const _pos=[ {x:_px,z:0}, {x:-_px,z:0}, {x:0,z:_pz}, {x:0,z:-_pz} ];
+    const _ex=(window._SPAWN_END_X||880), _ez=(window._SPAWN_SIDE_Z||700);   // 2v2: near the goal ENDS of the two long side walls; each team's two decks flank one end, teams at opposite ends
+    const _cols=(window._SPAWN_PLAT_COLS)||[0x33aaff,0x2f8bff, 0xff8a33,0xffb040];   // BLUE team (defends -X goal) x2, ORANGE team (defends +X goal) x2
+    const _pos=[ {x:-_ex,z:_ez}, {x:-_ex,z:-_ez}, {x:_ex,z:_ez}, {x:_ex,z:-_ez} ];
     window._cubeSpawnPads=[]; window._cubePlatforms=window._cubePlatforms||[];
     window._PAD_TUBE_K=(window._BIGPAD_TUBE_K!=null?window._BIGPAD_TUBE_K:(window._POWERPAD_BIG||30)/_spSc);   // thin the rings so the big spawn pads read like the small ones (not fat)
     const _spawnAnchors=[];
@@ -30216,6 +30226,15 @@ function _equipWeapon(weapon,ammo){
     }
   }
   player.primaryWeapon=weapon; player.secWeapon=weapon; if(player._ownedWeps)player._ownedWeps.add(weapon); player._hasGun=true;   // you now have a projectile weapon (melee-only-start gate lifts)
+  // PHYSICAL GUN <-> MELEE are mutually exclusive: picking up a two-handed rifle (minigun/grenade) DROPS any held melee weapon.
+  // Hand-cannon projectiles (bullets/rockets/plasma/etc.) are exempt — they coexist with a stowed melee. window._GUN_MELEE_EXCLUSIVE=false to disable.
+  if(window._GUN_MELEE_EXCLUSIVE!==false && window._RIFLE_WEAPONS && window._RIFLE_WEAPONS.has(weapon) && player._meleeType){
+    const _mt=player._meleeType;
+    if(player._hammer&&player._hammer.parent)player._hammer.parent.remove(player._hammer); player._hammer=null;
+    if(_mt==='mace'&&typeof _disposeMaceChain==='function')try{_disposeMaceChain();}catch(_){}
+    player._meleeType=null; player._stowedType=null; player._meleeStowed=true; player._meleeDur=0;
+    try{ if(typeof _spawnLootBall==='function')_spawnLootBall(player.wx-Math.cos(player.aim||0)*36, player.wz-Math.sin(player.aim||0)*36,'melee',_mt,0,0,0); }catch(_){}   // leave it grabbable behind you
+  }
   if(weapon==='minigun' && window._MINIGUN_DEBUG===true){ try{ console.log('[mg] equipped minigun'); }catch(_){} }
   if(ammo!=null){ if(!player._ammo)player._ammo={}; player._ammo[weapon]=ammo; if(typeof updateAmmoHUD==='function')updateAmmoHUD(); }   // grabbed a half-used drop -> keep its ammo
   else if(player._grantAmmo)player._grantAmmo(weapon);                                                                                  // fresh pad -> full ammo
@@ -30422,6 +30441,15 @@ function _equipMeleeType(type){
   if(!bones) return false;
   const hand=bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']||(function(){ for(const k in bones){ if(/hand/i.test(k)&&!/finger|thumb|index|middle|ring|pinky/i.test(k)) return bones[k]; } return null; })();
   if(!hand) return false;
+  // PHYSICAL GUN <-> MELEE mutual exclusivity: equipping a melee while holding a two-handed rifle (minigun/grenade) DROPS the gun
+  // (spilled grabbable, keeps its ammo). Hand-cannon projectiles are exempt. window._GUN_MELEE_EXCLUSIVE=false to disable.
+  if(window._GUN_MELEE_EXCLUSIVE!==false && window._RIFLE_WEAPONS && player.primaryWeapon && window._RIFLE_WEAPONS.has(player.primaryWeapon)){
+    const _g=player.primaryWeapon, _left=(player._ammo&&player._ammo[_g]!=null)?player._ammo[_g]:null;
+    try{ if(typeof _dropWeaponPickup==='function')_dropWeaponPickup(_g,_left); }catch(_){}
+    if(player._ownedWeps)player._ownedWeps.delete(_g); if(player._ammo)delete player._ammo[_g];
+    player.primaryWeapon='bullets'; player.secWeapon='bullets';
+    if(typeof updateWeaponHUD==='function')try{updateWeaponHUD();}catch(_){}
+  }
   if(player._hammer&&player._hammer.parent) player._hammer.parent.remove(player._hammer);   // drop the old weapon before swapping
   if(player._stowedMesh){ if(player._stowedMesh.parent)player._stowedMesh.parent.remove(player._stowedMesh); player._stowedMesh=null; }   // pull any back-slung weapon off too
   if(player._meleeType==='mace' && type!=='mace' && typeof _disposeMaceChain==='function') _disposeMaceChain();   // swapping AWAY from the mace -> drop its chain
