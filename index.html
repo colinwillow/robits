@@ -23870,6 +23870,8 @@ function _mount(a){ if(!player)return; player._mount=a; a._mounted=true; player.
       try{console.warn('[mount] clip keys:',ks,'-> idle:',ud._rideIdleName,'shoot:',ud._rideShootName);}catch(_){}
     }
   }
+  // CAMERA: ease to look straight down the creature's nose on mount (you can steer from there). Also face the player's aim forward.
+  try{ const _fy=(a.mesh?a.mesh.rotation.y:0)+(window._MOUNT_YAW_OFF||0); const _fwd=Math.PI/2-_fy; player.aim=_fwd; if(typeof CAM!=='undefined' && window._MOUNT_CAM_EASE!==false) CAM.tyaw=-_fwd-Math.PI/2; }catch(_){}
   if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.4,0.95,1],18,110,player.py||0);
   if(typeof Audio!=='undefined'&&Audio.blip){try{Audio.blip(360,0.14,'square',0.14,700);}catch(_){}}
   if(typeof announce==='function')announce('MOUNTED '+((a._robitName||'CREATURE').toUpperCase())+' — SHOOT WITH THE RIGHT STICK','#7fe8ff');
@@ -23901,10 +23903,17 @@ function _mountTick(dt){
   }
   if((player._remountCD||0)>0){ player._remountCD-=dt; return; }                                    // just dismounted — don't snap back on for a moment
   if(player._ballActive||player._launched||(player._kbStun||0)>0||player._onHoverboard||player._wallClimb||player._hang) return;
-  // GENEROUS PROXIMITY MOUNT (for now): get near a rideable creature and you mount — no need to nail the landing. Dial the
-  // land-on-top-only trigger in later. _MOUNT_R is big (the dragon is huge); the vertical band is wide so any approach catches.
-  const R=(window._MOUNT_R||110); let best=null,bd=R;
-  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(!_rideableCreature(a))continue; const hd=Math.hypot(player.wx-a.wx,player.wz-a.wz); if(hd<bd){ const by=_my(a), dy=(player.py||0)-by; if(dy>(window._MOUNT_CATCH_LO!=null?window._MOUNT_CATCH_LO:-60) && dy<(window._MOUNT_CATCH_HI||300)){ bd=hd; best=a; } } }
+  // INTENTIONAL MOUNT: you must DROP onto the small saddle zone from ABOVE. Walking into a creature (or it bumping into you)
+  // never mounts — the trigger is a tight puck (~robot size) centered on the saddle JOINT, and you have to be descending onto it.
+  if((player.pvy||0) > (window._MOUNT_CATCH_VY||8)) return;                                          // rising / level -> not a landing
+  const R=(window._MOUNT_SADDLE_R||44); let best=null,bd=R;
+  const _sp=(window._mtSP||(window._mtSP=new THREE.Vector3()));
+  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(!_rideableCreature(a))continue;
+    let sx=a.wx, sz=a.wz, sy=_my(a);
+    if(window._MOUNT_USE_BONE!==false && a._model && a._model.getObjectByName){ const bn=a._model.getObjectByName(a._mountBoneName||window._MOUNT_BONE||'Bip001_Spine'); if(bn){ bn.updateWorldMatrix(true,false); bn.getWorldPosition(_sp); sx=_sp.x+(window._MOUNT_OFF_X||0); sy=_sp.y+(window._MOUNT_BONE_Y||0); sz=_sp.z+(window._MOUNT_OFF_Z||0); } }
+    const hd=Math.hypot(player.wx-sx, player.wz-sz); if(hd>=bd)continue;
+    const dy=(player.py||0)-sy; if(dy < (window._MOUNT_LAND_LO!=null?window._MOUNT_LAND_LO:-14) || dy > (window._MOUNT_LAND_HI||120))continue;   // must be AT / ABOVE the saddle, dropping onto it — not beside/below it
+    bd=hd; best=a; }
   if(best) _mount(best);
 }
 // ── PAD BEACON — a floor marker under a spawn pad: a "stand here" ground ring, a thin illuminated up-arrow (pulsing), and
@@ -30216,6 +30225,15 @@ function _equipWeapon(weapon,ammo){
     }
   }
   player.primaryWeapon=weapon; player.secWeapon=weapon; if(player._ownedWeps)player._ownedWeps.add(weapon); player._hasGun=true;   // you now have a projectile weapon (melee-only-start gate lifts)
+  // PHYSICAL GUN <-> MELEE are mutually exclusive: picking up a two-handed rifle (minigun/grenade) DROPS any held melee weapon.
+  // Hand-cannon projectiles (bullets/rockets/plasma/etc.) are exempt — they coexist with a stowed melee. window._GUN_MELEE_EXCLUSIVE=false to disable.
+  if(window._GUN_MELEE_EXCLUSIVE!==false && window._RIFLE_WEAPONS && window._RIFLE_WEAPONS.has(weapon) && player._meleeType){
+    const _mt=player._meleeType;
+    if(player._hammer&&player._hammer.parent)player._hammer.parent.remove(player._hammer); player._hammer=null;
+    if(_mt==='mace'&&typeof _disposeMaceChain==='function')try{_disposeMaceChain();}catch(_){}
+    player._meleeType=null; player._stowedType=null; player._meleeStowed=true; player._meleeDur=0;
+    try{ if(typeof _spawnLootBall==='function')_spawnLootBall(player.wx-Math.cos(player.aim||0)*36, player.wz-Math.sin(player.aim||0)*36,'melee',_mt,0,0,0); }catch(_){}   // leave it grabbable behind you
+  }
   if(weapon==='minigun' && window._MINIGUN_DEBUG===true){ try{ console.log('[mg] equipped minigun'); }catch(_){} }
   if(ammo!=null){ if(!player._ammo)player._ammo={}; player._ammo[weapon]=ammo; if(typeof updateAmmoHUD==='function')updateAmmoHUD(); }   // grabbed a half-used drop -> keep its ammo
   else if(player._grantAmmo)player._grantAmmo(weapon);                                                                                  // fresh pad -> full ammo
@@ -30422,6 +30440,15 @@ function _equipMeleeType(type){
   if(!bones) return false;
   const hand=bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']||(function(){ for(const k in bones){ if(/hand/i.test(k)&&!/finger|thumb|index|middle|ring|pinky/i.test(k)) return bones[k]; } return null; })();
   if(!hand) return false;
+  // PHYSICAL GUN <-> MELEE mutual exclusivity: equipping a melee while holding a two-handed rifle (minigun/grenade) DROPS the gun
+  // (spilled grabbable, keeps its ammo). Hand-cannon projectiles are exempt. window._GUN_MELEE_EXCLUSIVE=false to disable.
+  if(window._GUN_MELEE_EXCLUSIVE!==false && window._RIFLE_WEAPONS && player.primaryWeapon && window._RIFLE_WEAPONS.has(player.primaryWeapon)){
+    const _g=player.primaryWeapon, _left=(player._ammo&&player._ammo[_g]!=null)?player._ammo[_g]:null;
+    try{ if(typeof _dropWeaponPickup==='function')_dropWeaponPickup(_g,_left); }catch(_){}
+    if(player._ownedWeps)player._ownedWeps.delete(_g); if(player._ammo)delete player._ammo[_g];
+    player.primaryWeapon='bullets'; player.secWeapon='bullets';
+    if(typeof updateWeaponHUD==='function')try{updateWeaponHUD();}catch(_){}
+  }
   if(player._hammer&&player._hammer.parent) player._hammer.parent.remove(player._hammer);   // drop the old weapon before swapping
   if(player._stowedMesh){ if(player._stowedMesh.parent)player._stowedMesh.parent.remove(player._stowedMesh); player._stowedMesh=null; }   // pull any back-slung weapon off too
   if(player._meleeType==='mace' && type!=='mace' && typeof _disposeMaceChain==='function') _disposeMaceChain();   // swapping AWAY from the mace -> drop its chain
