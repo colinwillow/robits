@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB239</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB240</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -19797,6 +19797,7 @@ function rotInput(ix,iy){ const c=Math.cos(CAM.yaw),s=Math.sin(CAM.yaw);
 const _padPrev=[]; window._padActive=false; window._padFire=false; window._lastInput='mouse';
 function _padJump(){ if(!player||GS.state!=='playing')return;
   if(player._onHoverboard){ return; }
+  if(player._mount){ player._jumpTapped=true; setTimeout(()=>{ if(player)player._jumpTapped=false; },90); return; }   // mounted: gamepad jump = hop OFF the creature (the mount tick dismounts on _jumpTapped) — matches touch (jR.onTap)
   if(player._ballActive && window._BALL && window._BALL.state){   // BALL MODE: A tap = hop (repeatable); double-tap A = exit
     const B=window._BALL, _now=(typeof performance!=='undefined'?performance.now():Date.now());
     if(player._ballJumpTapT && (_now-player._ballJumpTapT)<(window._BALL_EXIT_DTAP||280)){ player._ballJumpTapT=0; if(window._ballExit)window._ballExit(); return; }
@@ -23893,7 +23894,7 @@ function _mountTick(dt){
     // not a stale one (the stale read was the old camera shake). _MOUNT_USE_BONE=false falls back to the creature's base origin.
     if(window._MOUNT_USE_BONE!==false && a._model && a._model.getObjectByName){ const bn=a._model.getObjectByName(a._mountBoneName||window._MOUNT_BONE||'Bip001_Spine'); if(bn){ bn.updateWorldMatrix(true,false); const wp=(window._mtWP||(window._mtWP=new THREE.Vector3())); bn.getWorldPosition(wp); mx=wp.x+(window._MOUNT_OFF_X||0); my=wp.y+(window._MOUNT_BONE_Y||0); mz=wp.z+(window._MOUNT_OFF_Z||0); } }
     // EASE onto the mount point so any residual creature motion reads smooth (no snap -> no camera whip)
-    const _e=Math.min(1,(dt||0.016)*(window._MOUNT_PULL||14));
+    const _e=Math.min(1,(dt||0.016)*(window._MOUNT_PULL||6));   // gentler pull so you EASE onto the saddle over ~0.25s instead of snapping/teleporting
     player.wx+=(mx-player.wx)*_e; player.wz+=(mz-player.wz)*_e; player.py+=(my-player.py)*_e;
     player.pvy=0; player.vx=0; player.vz=0;
     player._onPlatform=true; player._inPlanetGravity=false; player._launched=false; player._sliding=false;
@@ -24433,21 +24434,25 @@ function buildCubeArena(){
   //    A couple of powerups also sit on the GROUND (no pad). Weapons (left wall) + melee (front wall) stay as ground stations. ──
   try{
     const _CSUM=window._PAD_COL_SUMMON||0x66ff77, _COFF=window._PAD_COL_OFF||0xff7a3a;
-    const _LO=(window._POWERPAD_LO||38), _HI=(window._POWERPAD_HI||90);   // low pad = a normal jump; high pad = a jetpack boost
+    const _LO=(window._POWERPAD_LO||58), _HI=(window._POWERPAD_HI||96);   // ALL pads float off the ground now (low = a normal jump up, high = a jetpack boost); nothing sits on the court
     const _inZ=(window._CUBE_INNER_Z||560);   // two inner power-pad rows just inside the sidelines — clear of the spawn decks (x=±880) and the goal ends
     const _RP=(window._CUBE_POWER_PADS)||[
       {x:-260, z:-_inZ, y:_LO, type:'dog',    c:_CSUM},   // -Z inner row (summon)
       {x:   0, z:-_inZ, y:_HI, type:'dragon', c:_CSUM},   // (0,-560): no longer stacked under a spawn deck -> grabbable
       {x: 260, z:-_inZ, y:_LO, type:'droid',  c:_CSUM},
-      {x:-260, z: _inZ, y:_HI, type:'nuke',        c:_COFF},   // +Z inner row (offensive)
-      {x:   0, z: _inZ, y:_LO, type:'singularity', c:_COFF},
-      {x: 260, z: _inZ, y:_HI, type:'quake',       c:_COFF},
+      {x:-260, z: _inZ, y:_LO, type:'nuke',        c:_COFF},   // +Z inner row (offensive) — heights MIRROR the -Z row (LO,HI,LO), not inverse
+      {x:   0, z: _inZ, y:_HI, type:'singularity', c:_COFF},
+      {x: 260, z: _inZ, y:_LO, type:'quake',       c:_COFF},
+      {x:-520, z:-_inZ, y:_HI, type:'spiders', c:_CSUM},   // sideline-end pads — these used to sit loose on the court; now on pads like everything else
+      {x: 520, z:-_inZ, y:_LO, type:'drone',   c:_CSUM},
+      {x: 520, z: _inZ, y:_HI, type:'bomb',    c:_COFF},
     ];
     window._itemDispensers=_RP.map(s=>({x:s.x,z:s.z,y:s.y,type:s.type,cd:0,raised:true}));
     const _PP=[];
     for(const s of _RP){ try{
       if(typeof _spawnPU==='function' && !(window._itemPU||[]).some(p=>p&&p.type===s.type)){ const _it=_spawnPU(s.x,s.y,s.z,s.type,0,0,0); if(_it){ if(window._DISPENSER_EXPIRE!==true)_it._noExpire=true; _it.settled=true; _it.vx=_it.vy=_it.vz=0; _it._floatY=s.y; _it.y=s.y; } }
       if(window._POWERPADS!==false && typeof _makePowerPad==='function'){ const g=_makePowerPad(s.x,s.z,s.c); g.position.y=s.y-(window._POWERPAD_DECK_DROP||8); g.scale.setScalar(window._POWERPAD_BIG||30); if(_cubeGroup)_cubeGroup.add(g); else scene.add(g); _PP.push(g); }
+      if(window._PADBEACON_ON!==false && typeof _makePadBeacon==='function'){ const _bc=_makePadBeacon(s.c); _bc.position.set(s.x,0,s.z); if(_cubeGroup)_cubeGroup.add(_bc); else scene.add(_bc); }   // floor "go up here" arrow under EVERY pad, same marker the big spawn pads use
       if(window._PAD_BEAM===true){   // the solid tractor cone is OFF by default now (didn't like the look); a throbbing up-arrow shows when you're under it instead. Opt back in with window._PAD_BEAM=true.
         const _brt=(window._PAD_BEAM_RT||16), _brb=(window._PAD_BEAM_RB||30);
         const beam=new THREE.Mesh(new THREE.CylinderGeometry(_brt,_brb,s.y*2,24,1,true), new THREE.MeshBasicMaterial({color:s.c,transparent:true,opacity:(window._PAD_BEAM_OP||0.16),blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.set(s.x,s.y*0.5,s.z); if(_cubeGroup)_cubeGroup.add(beam); else scene.add(beam); s._beam=beam;
@@ -24458,7 +24463,7 @@ function buildCubeArena(){
     // MYSTERY CUBE is NOT special anymore — it just shows up like any other power-up (spilled from barrels/crates, random loot). No dedicated floor spawns cluttering the arena. Opt back in by setting window._MYSTERY_SPOTS=[{x,z},...].
     if(window._MYSTERY_ON!==false && typeof _spawnPU==='function'){ const _mc=(window._MYSTERY_SPOTS)||[]; for(const s of _mc){ try{ const it=_spawnPU(s.x,7,s.z,'mystery',0,0,0); if(it){ it.settled=true; it.vx=it.vy=it.vz=0; it.y=7; if(window._MYSTERY_EXPIRE!==true)it._noExpire=true; } }catch(_){} } }
     // a couple of powerups on the GROUND (no pad) — quick grabs without jumping
-    for(const gpu of (window._CUBE_GROUND_PU||[{x:-520,z:-_inZ,type:'spiders'},{x:520,z:-_inZ,type:'drone'},{x:520,z:_inZ,type:'bomb'}])){ try{ if(!(window._itemPU||[]).some(p=>p&&p.type===gpu.type)){ const it=_spawnPU(gpu.x,16,gpu.z,gpu.type,0,0,0); if(it&&window._DISPENSER_EXPIRE!==true)it._noExpire=true; window._itemDispensers.push({x:gpu.x,z:gpu.z,type:gpu.type,cd:0}); } }catch(_){} }   // pest/quick-grabs midcourt on the sidelines, never in front of goals
+    for(const gpu of (window._CUBE_GROUND_PU||[])){ try{ if(!(window._itemPU||[]).some(p=>p&&p.type===gpu.type)){ const it=_spawnPU(gpu.x,16,gpu.z,gpu.type,0,0,0); if(it&&window._DISPENSER_EXPIRE!==true)it._noExpire=true; window._itemDispensers.push({x:gpu.x,z:gpu.z,type:gpu.type,cd:0}); } }catch(_){} }   // (empty by default now — spiders/drone/bomb moved onto pads above so nothing sits loose on the court)
   }catch(e){ console.warn('cube powerups',e); }
   // ── CENTRE CIRCLE: a soccer-style neon ring on the floor, dead centre, where the ball kicks off. Nothing else lives in the middle now. ──
   // CENTRE MEDALLION: a big version of the power-pad deck (spinning UFO ring / bays / struts), flat in the middle where the ball kicks off. Purely decorative (NOT a tractor anchor -> no collider, ball + players pass through it). Tune _CUBE_CENTER_SCALE / _Y / _COL, or _CUBE_CENTER_ON=false.
