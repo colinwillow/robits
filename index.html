@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB227</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB228</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11399,6 +11399,7 @@ class Player{
       if(!this._launched && (this._kbStun||0)>0 && window._GETUP_INTERRUPT!==false){ const _mv=Math.hypot(rawX||0,rawZ||0), _av=Math.hypot(avx||0,avz||0);
         if((_mv>(window._GETUP_INT_DEAD||0.35) || _av>(window._GETUP_INT_DEAD||0.35)) && (this._kbStun||0)<=(window._GETUP_INT_WIN||16)){ this._kbStun=0; this._kbVx=0; this._kbVz=0; const ud=this.model&&this.model.userData; if(ud)ud._launchClip=false; } }
       this._updateLaunch(dt); return; }   // SMASH KNOCKBACK owns the body: parabolic arc + cage bounce + getup, input locked
+    if(this._mount){ rawX=0; rawZ=0; this.vx=0; this.vz=0; this.inX=0; this.inZ=0; }   // MOUNTED: the left stick can't drive locomotion (no lean/glide) — you're pinned to the creature; the right stick still aims/shoots
     // hand cannons / default bullets ALWAYS fire — only physically-held special weapons (melee, minigun) drop when you're smashed. (Old melee-only gate removed: getting hit no longer locks out shooting.)
     if(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped) && !this._ballActive){ rawX=-rawX; }   // gravity flipped + camera rolled 180°: only left/right needs inverting (the camera's vertical mirror already handles forward/back)
     if(this._meleeType==='mace'){ this._maceRX=avx||0; this._maceRZ=avz||0; }   // mace is a normal one-handed melee now — shooting stays enabled (gun routes to the shoulder like other melee)
@@ -23863,10 +23864,11 @@ function _mountTick(dt){
     player._mountAimRef=Math.PI/2 - player._mountModelYaw;                            // the aim value that == facing straight forward on the mount
     return;
   }
-  if((player.pvy||0)>(window._MOUNT_CATCH_VY||60)) return;                                          // only while settling/falling, not rising
   if(player._ballActive||player._launched||(player._kbStun||0)>0||player._onHoverboard||player._wallClimb||player._hang) return;
-  const R=(window._MOUNT_R||46); let best=null,bd=R;
-  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(!_rideableCreature(a))continue; const hd=Math.hypot(player.wx-a.wx,player.wz-a.wz); if(hd<bd){ const by=_my(a); if((player.py||0)>by-(window._MOUNT_CATCH_LO||24) && (player.py||0)<by+(window._MOUNT_CATCH_HI||140)){ bd=hd; best=a; } } }
+  // GENEROUS PROXIMITY MOUNT (for now): get near a rideable creature and you mount — no need to nail the landing. Dial the
+  // land-on-top-only trigger in later. _MOUNT_R is big (the dragon is huge); the vertical band is wide so any approach catches.
+  const R=(window._MOUNT_R||110); let best=null,bd=R;
+  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(!_rideableCreature(a))continue; const hd=Math.hypot(player.wx-a.wx,player.wz-a.wz); if(hd<bd){ const by=_my(a), dy=(player.py||0)-by; if(dy>(window._MOUNT_CATCH_LO!=null?window._MOUNT_CATCH_LO:-60) && dy<(window._MOUNT_CATCH_HI||300)){ bd=hd; best=a; } } }
   if(best) _mount(best);
 }
 // ── PAD BEACON — a floor marker under a spawn pad: a "stand here" ground ring, a thin illuminated up-arrow (pulsing), and
