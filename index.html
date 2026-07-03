@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB258</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB259</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11791,13 +11791,22 @@ class Player{
           const _fy=_ey + _vy*_t + 0.5*_a*_t*_t;                                                             // predicted height at impact
           _dyLead=_fy-_my;
         }
-        const _pitch=Math.max(-(window._VAIM_MAX_PITCH||1.35), Math.min((window._VAIM_MAX_PITCH||1.35), Math.atan2(_dyLead, best.dh)));
-        const cp=Math.cos(_pitch), sp=Math.sin(_pitch);
+        const _pitchRaw=Math.max(-(window._VAIM_MAX_PITCH||1.35), Math.min((window._VAIM_MAX_PITCH||1.35), Math.atan2(_dyLead, best.dh)));
+        // SMOOTH the vertical aim: ease the pitch toward the target angle instead of snapping. Removes the janky flicker
+        // between "up" and "straight" as a target crosses the assist cone / height threshold.
+        this._vaimPitch = (this._vaimPitch!=null?this._vaimPitch:_pitchRaw);
+        this._vaimPitch += (_pitchRaw-this._vaimPitch)*Math.min(1, dt*(window._VAIM_EASE||10));
+        this._vaimHold=(window._VAIM_HOLD||0.28);                                                          // keep aiming for a beat after he leaves the cone -> ease out, don't snap flat
+        const cp=Math.cos(this._vaimPitch), sp=Math.sin(this._vaimPitch);
         if(!this._aim3D)this._aim3D=new THREE.Vector3();
-        this._aim3D.set(_fx*cp, sp, _fz*cp); this._aim3DActive=true;                                       // horizontal = your facing (unchanged); vertical = angled onto the predicted intercept
+        this._aim3D.set(_fx*cp, sp, _fz*cp); this._aim3DActive=true;                                       // horizontal = your facing (unchanged); vertical = smoothed onto the predicted intercept
         this._vaimLock=best.e;
-      } else if(this._vaimLock){ this._vaimLock=null; }
-    } else if(this._vaimLock){ this._vaimLock=null; }
+      } else if((this._vaimHold||0)>0 && this._vaimPitch!=null){
+        this._vaimHold-=dt; this._vaimPitch += (0-this._vaimPitch)*Math.min(1, dt*(window._VAIM_RELEASE||7));   // no target: ease the pitch back to level (smooth), don't cut it dead
+        if(Math.abs(this._vaimPitch)>0.02){ const cp=Math.cos(this._vaimPitch), sp=Math.sin(this._vaimPitch); if(!this._aim3D)this._aim3D=new THREE.Vector3(); this._aim3D.set(_fx*cp, sp, _fz*cp); this._aim3DActive=true; }
+        else { this._vaimPitch=0; this._vaimHold=0; if(this._vaimLock)this._vaimLock=null; }
+      } else if(this._vaimLock){ this._vaimLock=null; this._vaimPitch=0; }
+    } else if(this._vaimLock){ this._vaimLock=null; this._vaimPitch=0; }
     this.fireT++;
     const isRockets=this.primaryWeapon==='rockets', isPlasma=this.primaryWeapon==='plasma', isFlame=this.primaryWeapon==='flamethrower', isGrenade=this.primaryWeapon==='grenade', isSingularity=this.primaryWeapon==='singularity', isGridQuake=this.primaryWeapon==='gridquake', isBoomerang=this.primaryWeapon==='boomerang', isNuke=this.primaryWeapon==='nuke', isBow=this.primaryWeapon==='bow', isMinigun=this.primaryWeapon==='minigun';
     const fireRate=od?4:isPlasma?9:isGrenade?20:isSingularity?72:isGridQuake?34:isBoomerang?46:isRockets?14:isMinigun?(window._MINIGUN_FIRE_RATE||2):(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
@@ -13443,12 +13452,18 @@ class BotPilot{
         this._clips[want].reset().setEffectiveWeight(1).fadeIn(0.12).play();
         this._clips._cur=want;
       }
-      // ── ARMS-UP JOLT — layered on top of the current pose while shot-stunned, decays as the stun wears off. window._BOT_HIT_ARMS=false to disable; flip _BOT_ARM_RAISE sign if they punch DOWN instead of up.
-      if(this._stun>0 && !this._launched && (this._downT||0)<=0 && window._BOT_HIT_ARMS!==false){
-        try{ if(this._armBones===undefined){ this._armBones=null; const ab={}; this.model.traverse(o=>{ if(o.name==='mixamorig_LeftArm')ab.la=o; else if(o.name==='mixamorig_RightArm')ab.ra=o; else if(o.name==='mixamorig_LeftForeArm')ab.lf=o; else if(o.name==='mixamorig_RightForeArm')ab.rf=o; }); if(ab.la||ab.ra)this._armBones=ab; }
-          if(this._armBones){ const A=(window._BOT_ARM_RAISE!=null?window._BOT_ARM_RAISE:0.8)*Math.min(1,(this._stun||0)/(window._BOT_ARM_REF||14)), ab=this._armBones;
-            if(ab.la)ab.la.rotation.z+=A; if(ab.ra)ab.ra.rotation.z-=A; if(ab.lf)ab.lf.rotation.z+=A*0.4; if(ab.rf)ab.rf.rotation.z-=A*0.4; }
-        }catch(_){}
+      // ── HIT REACTION: EASE the arms up toward ~45° while shot-stunned (so their shots angle up/away instead of straight
+      //    at you), then smoothly ease them back down. NOT a spin, NOT a teleport — a damped raise. window._BOT_HIT_ARMS=false
+      //    to disable entirely; _BOT_ARM_RAISE is the peak angle (rad, ~0.8≈45°); _BOT_ARM_EASE is the ease speed.
+      { const _canRaise=(!this._launched && (this._downT||0)<=0 && window._BOT_HIT_ARMS!==false);
+        const _tgt=(_canRaise && this._stun>0)?1:0;
+        this._hitArm=(this._hitArm||0); this._hitArm += (_tgt-this._hitArm)*Math.min(1, dt*(window._BOT_ARM_EASE||9));   // eased raise/lower -> fluid, no snap
+        if(this._hitArm>0.006){
+          try{ if(this._armBones===undefined){ this._armBones=null; const ab={}; this.model.traverse(o=>{ if(o.name==='mixamorig_LeftArm')ab.la=o; else if(o.name==='mixamorig_RightArm')ab.ra=o; else if(o.name==='mixamorig_LeftForeArm')ab.lf=o; else if(o.name==='mixamorig_RightForeArm')ab.rf=o; }); if(ab.la||ab.ra)this._armBones=ab; }
+            if(this._armBones){ const A=(window._BOT_ARM_RAISE!=null?window._BOT_ARM_RAISE:0.8)*this._hitArm, ab=this._armBones;
+              if(ab.la)ab.la.rotation.z+=A; if(ab.ra)ab.ra.rotation.z-=A; if(ab.lf)ab.lf.rotation.z+=A*0.4; if(ab.rf)ab.rf.rotation.z-=A*0.4; }
+          }catch(_){}
+        }
       }
     }
     this._updateHpBar&&this._updateHpBar();
