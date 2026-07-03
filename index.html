@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB259</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB260</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11469,6 +11469,24 @@ class Player{
     if(total>0)Audio.bigDie(); updateUI(); return true; }
   update(rawX,rawZ,avx,avz,dt,firing,od,aiming){
     if(!this.alive)return;
+    // ── GENERAL CONTROL-FREEZE WATCHDOG (cube arena) ── Landing awkwardly on the floor↔wall chamfer can strand you in a
+    //    body-owning transition state (wall-climb / hang / crest / planet-gravity) that never resolves, so you're mashing a
+    //    direction and nothing moves. If a suspicious lock flag is set AND you're pushing the stick hard but your position is
+    //    frozen (and you're not mid-air), force-clear every transient state after a beat. Complements the knockback watchdog.
+    if(this.alive && typeof GS!=='undefined' && GS.state==='playing' && GS.zone===-19 && window._FREEZE_WATCHDOG!==false){
+      const _mv=Math.hypot(rawX||0,rawZ||0), _moved=Math.hypot(this.wx-(this._wdX!=null?this._wdX:this.wx), (this.py||0)-(this._wdY!=null?this._wdY:(this.py||0)), this.wz-(this._wdZ!=null?this._wdZ:this.wz)); this._wdX=this.wx; this._wdY=(this.py||0); this._wdZ=this.wz;   // 3D move incl. py -> a legit vertical wall-climb isn't mistaken for a freeze
+      const _bootsWalk=(this._hasBoots&&this._bootsEquipped);   // legit wall-walk moves you around -> not a freeze
+      const _anyLock = this._launched||(this._kbStun||0)>0||this._crestSeq||this._hang||this._wallClimb||this._wallRun||(this._zapT||0)>0||(this._ejectFlyT||0)>0||(this._inPlanetGravity&&!_bootsWalk);
+      if(_mv>0.6 && _moved<0.5 && _anyLock && !this._mount && !this._ballActive){ this._frozeT=(this._frozeT||0)+dt; } else { this._frozeT=0; }
+      if((this._frozeT||0) > (window._FREEZE_WATCHDOG_T||2.2)){
+        this._frozeT=0; this._launched=false; this._kbStun=0; this._kbVx=0; this._kbVz=0; this._zapT=0; this._ejectFlyT=0; this._lockT=0;
+        this._crestSeq=null; this._hang=null; this._wallClimb=null; this._wallRun=null; this._dropThru=0; this._wallClimbCooldown=0;
+        if(!_bootsWalk){ this._inPlanetGravity=false; this._glGrounded=true; this._cwSetGrav=false; }
+        const _ud=this.model&&this.model.userData; if(_ud)_ud._launchClip=false;
+        this.inv=Math.max(this.inv||0,30);
+        if(window._FREEZE_WATCHDOG_WARN!==false)try{ console.warn('[watchdog] control freeze on the chamfer/transition — force-recovered at', Math.round(this.wx), Math.round(this.wz), 'py', Math.round(this.py||0)); }catch(_){}
+      }
+    }
     if(this._launched || (this._kbStun||0)>0){
       if(window._AIRLOOK!==false && !window._ballCam && typeof shootIn!=='undefined' && shootIn){ const rx=shootIn.x||0, ry=shootIn.y||0; if(Math.hypot(rx,ry)>(window._AIRLOOK_DEAD||0.2)) CAM.tyaw -= rx*(window._AIRLOOK_SPD||2.8)*dt; }   // FREE-LOOK while flying: right stick swivels the camera so you can see who hit you / where they are now (control's still locked)
       // GET-UP EARLY INTERRUPT: once you're DOWN and getting up (not still flying), a move/aim input cancels the tail of the get-up so you can scramble back into it sooner instead of standing frozen on the last frame.
