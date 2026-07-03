@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB233</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB234</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12354,9 +12354,15 @@ class Player{
       // MOUNTED: the body faces the CREATURE's forward (ride pose); only the upper body/arms swing to the aim via Spine1.
       this.model.rotation.x=0; this.model.rotation.z=0;
       this.model.rotation.y=(this._mountModelYaw!=null?this._mountModelYaw:(-this.aim+Math.PI/2));
-      const _sp=this.model.userData.bones&&this.model.userData.bones[window._MOUNT_SPINE_BONE||'mixamorig_Spine1'];
-      if(_sp){ let _yaw=((this.aim-(this._mountAimRef||0)+Math.PI)%TAU+TAU)%TAU-Math.PI; const _cl=(window._MOUNT_SPINE_CLAMP||1.5); _yaw=Math.max(-_cl,Math.min(_cl,_yaw));
-        const _ax=(window._MOUNT_SPINE_AXIS||'y'), _sg=(window._MOUNT_SPINE_SIGN!=null?window._MOUNT_SPINE_SIGN:-1);   // user's call: rotate Spine1 about local Z (negative) so the arms point where the right stick aims
+      const _ud=this.model.userData; const _sp=_ud.bones&&_ud.bones[window._MOUNT_SPINE_BONE||'mixamorig_Spine1'];
+      if(_sp && window._MOUNT_SPINE_AIM!==false){
+        // The ride clip is FROZEN (paused), so the mixer only wrote Spine1 once — it never resets it. The old
+        // multiply-in-place therefore stacked every frame -> endless spin. Reset Spine1 to the clip's frame-0 pose
+        // (read straight from the clip track, never polluted) BEFORE applying the aim rotation.
+        const _bq=(_ud.currentClip===_ud._rideShootName?_ud._spineBaseShoot:_ud._spineBaseIdle)||_ud._spineBaseIdle;
+        if(_bq)_sp.quaternion.set(_bq[0],_bq[1],_bq[2],_bq[3]);
+        let _yaw=((this.aim-(this._mountAimRef||0)+Math.PI)%TAU+TAU)%TAU-Math.PI; const _cl=(window._MOUNT_SPINE_CLAMP||1.5); _yaw=Math.max(-_cl,Math.min(_cl,_yaw));
+        const _ax=(window._MOUNT_SPINE_AXIS||'y'), _sg=(window._MOUNT_SPINE_SIGN!=null?window._MOUNT_SPINE_SIGN:-1);   // rotate Spine1 (default local Y, negative) so the torso swings toward the right-stick aim
         _sp.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(_ax==='x'?_sg*_yaw:0,_ax==='y'?_sg*_yaw:0,_ax==='z'?_sg*_yaw:0,'XYZ'))); }
     } else if(this.model.userData.isRobot){
       this.model.rotation.x=0;
@@ -23840,6 +23846,11 @@ function _mount(a){ if(!player)return; player._mount=a; a._mounted=true; player.
     if(ud.clips){ const ks=Object.keys(ud.clips).filter(k=>!k.startsWith('_'));   // resolve the ride clips by FUZZY name (GLB exports rename them) so ride_idle/ride_shoot actually play instead of falling back to locomotion
       ud._rideIdleName = ud.clips['ride_idle']?'ride_idle':(ks.find(k=>/ride/i.test(k)&&/idle/i.test(k))||ks.find(k=>/ride/i.test(k)&&!/shoot|shot|fire|aim/i.test(k))||null);
       ud._rideShootName= ud.clips['ride_shoot']?'ride_shoot':(ks.find(k=>/ride/i.test(k)&&/(shoot|shot|fire|aim)/i.test(k))||null);
+      // capture the FROZEN frame-0 Spine1 pose straight from each ride clip's quaternion track, so the aim override in draw()
+      // can reset the bone to it every frame (the paused clip stops re-writing bones -> without this the override spins forever).
+      try{ const _bn=window._MOUNT_SPINE_BONE||'mixamorig_Spine1';
+        const _grab=(cn)=>{ const act=cn&&ud.clips[cn], clip=act&&act._clip; if(!clip)return null; const tr=clip.tracks.find(t=>t.name.indexOf(_bn)>=0 && /\.quaternion$/.test(t.name)); return tr?[tr.values[0],tr.values[1],tr.values[2],tr.values[3]]:null; };
+        ud._spineBaseIdle=_grab(ud._rideIdleName); ud._spineBaseShoot=_grab(ud._rideShootName); }catch(_){}
       if(window._MOUNT_DEBUG!==false && typeof announce==='function')announce('RIDE  idle='+(ud._rideIdleName||'MISSING')+'  shoot='+(ud._rideShootName||'MISSING'),'#9fe7ff');
       try{console.warn('[mount] clip keys:',ks,'-> idle:',ud._rideIdleName,'shoot:',ud._rideShootName);}catch(_){}
     }
