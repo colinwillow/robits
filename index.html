@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB250</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB251</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -2935,6 +2935,7 @@ class Enemy{
       const vd=this.vx*nx+this.vz*nz; if(vd>0){ this.vx-=2*vd*nx; this.vz-=2*vd*nz; } } }
   hit(dmg=1){
     this.hp-=dmg; this._hpShowT=150;
+    _autoStir(this);   // arena autonomy: taking a hit provokes this one to hunt + marks a point-of-interest so its buddies swing over
     // Hit sparks — burst of colour in enemy's glow
     ps.burst(this.wx,this.wz,this.glow,8,80);
     ps.spark(this.wx,this.wz,this.glow);
@@ -3263,6 +3264,7 @@ class DroidekaBot extends Enemy{
   }
   hit(dmg=1){
     if(this._open<0.5){   // shielded ball — bullets ping off, but sustained fire forces it open
+      _autoStir(this);   // still provokes it + marks the spot even while shielded
       ps.spark(this.wx,this.wz,[1,0.8,0.3]); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(520+rand(180),0.04,'square',0.05,200);
       this._stagger+=dmg;
       if(this._stagger>8 && this._state==='roll'){ this._state='unfold'; this._stateT=0; this._stagger=0; }
@@ -3297,7 +3299,7 @@ class DroidekaBot extends Enemy{
       else { this.vx=dx/d*this.spd; this.vz=dz/d*this.spd; }
       this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._clamp();
       const _rs=Math.hypot(this.vx,this.vz); if(_rs>2){ const ax=new THREE.Vector3(-this.vz,0,this.vx).normalize(); this.mesh.rotateOnWorldAxis(ax,(_rs*dt)/12); }
-      if(this._stateT>0.3 && ((d<140 && hasFoe) || (_ally && _rs<(window._DK_DEPLOY_STILL||34)))){ this._state='unfold'; this._stateT=0; }   // deploy near a foe OR (ally) the instant it stops -> stand ready, legs out
+      if(this._stateT>0.3 && ((d<140 && hasFoe && !p._decoy) || (_ally && _rs<(window._DK_DEPLOY_STILL||34)))){ this._state='unfold'; this._stateT=0; }   // deploy near a real foe (not a wander waypoint) OR (ally) the instant it stops -> stand ready, legs out
     } else if(this._state==='unfold'){
       this.mesh.quaternion.slerp(new THREE.Quaternion(), Math.min(1,dt*9));
       this._applyOpen(Math.min(1,this._stateT/0.5));
@@ -3306,7 +3308,7 @@ class DroidekaBot extends Enemy{
       this._deployT+=dt;
       this._body.rotation.y=Math.atan2(dx,dz);
       this._shotT-=dt;
-      if(this._shotT<=0 && d<330 && (!_ally||this._curFoe)){ this._shotT=0.40;   // ally only fires when it actually has a foe (never at the owner)
+      if(this._shotT<=0 && d<330 && (!_ally||this._curFoe) && !p._decoy){ this._shotT=0.40;   // ally only fires when it actually has a foe (never at the owner); never fire at a wander waypoint
         const spread=(Math.random()-0.5)*0.12, cs=Math.cos(spread), sn=Math.sin(spread);
         const ndx=dx/d, ndz=dz/d, spd=380;
         const bvx=(ndx*cs-ndz*sn)*spd, bvz=(ndx*sn+ndz*cs)*spd;
@@ -4030,6 +4032,50 @@ function _allyObstacleStillThere(x,z){
   try{ if(window._crates)for(const c of window._crates){ if(c&&Math.hypot(c.x-x,c.z-z)<R)return true; } }catch(_){}
   try{ if(window._itemPU)for(const p of window._itemPU){ if(p&&p.type==='barrel'&&(p.settled||p._lying)&&Math.hypot(p.x-x,p.z-z)<R)return true; } }catch(_){}
   return false;
+}
+// ════════ SMALL-ENEMY AUTONOMY (arena) ════════
+// The small hostiles (spider = Crawler, ball-droid/"drone" = DroidekaBot) used to relentlessly dog-pile the player.
+// This gives them the big enemy's off-duty personality instead: they roam on a LONG leash around the player doing their
+// own thing (ambling, going after the ball / a crate to shoot & smash), they FIGHT the player's summons when one is near,
+// and their attention SPIKES to a point-of-interest — wherever the player is stirring up trouble (a shot enemy, an
+// attacked buddy). Only when the player gets close, or after being provoked, do they turn and actually hunt YOU.
+// The whole thing works by target-swap: we hand the enemy's existing update a synthetic target to chase (same trick the
+// ally boss uses). A target with alive:true is something to shoot; a `_decoy` waypoint is move-only (no firing).
+// Gated to the cube arena and to non-ally instances. Toggle with window._AUTO_ON=false.
+window._enemyPOI = window._enemyPOI || {x:0,z:0,y:9,str:0};
+window._setEnemyPOI = function(x,z,y,str){ const P=window._enemyPOI; if((str||1) < P.str) return; P.x=x; P.z=z; P.y=(y!=null?y:9); P.str=(str!=null?str:1); };
+function _autoStir(e){ if(!e || typeof GS==='undefined' || GS.zone!==-19 || window._AUTO_ON===false) return; try{ if(e._faction!=='ally') e._provoke=(window._AUTO_PROVOKE_T||4.5); window._setEnemyPOI(e.wx,e.wz,(e.mesh?e.mesh.position.y:9),1); }catch(_){} }
+function _isHostileSmall(e){ return !!(e && e.alive!==false && e._faction!=='ally' && !e._captured && !e._dying && (e._isCrawler || e._robitId==='droideka')); }
+function _smallEnemyBrain(self, dt){
+  const P=(typeof player!=='undefined'&&player&&player.alive!==false)?player:null;
+  const sx=self.wx, sz=self.wz;
+  const dPl = P?Math.hypot(P.wx-sx,P.wz-sz):1e9;
+  const AGGRO=(window._AUTO_AGGRO||230), LEASH=(window._AUTO_LEASH||880), FIGHT=(window._AUTO_FIGHT_R||330);
+  self._provoke=Math.max(0,(self._provoke||0)-dt);
+  // 1) FIGHT — a player summon (ally) has wandered/charged into range: engage it (this is the "an enemy attacking them" case)
+  let foe=null, fd=FIGHT;
+  if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(!a||a.alive===false||(a.hp!=null&&a.hp<=0)||a._captured)continue; const d=Math.hypot(a.wx-sx,a.wz-sz); if(d<fd){ fd=d; foe=a; } }
+  if(foe){ self._aiMode='fight'; return {wx:foe.wx, wz:foe.wz, py:(foe.py!=null?foe.py:9), alive:true, _foe:foe}; }
+  // 2) HUNT the player — only when genuinely close or freshly provoked (no long-range dog-piling)
+  if(P && (dPl<AGGRO || self._provoke>0)){ self._aiMode='hunt'; return P; }
+  // 3) POINT OF INTEREST — the player is stirring something up within our leash: swing over and check it out
+  const POI=window._enemyPOI;
+  if(POI && POI.str>0.02){ const dPOI=Math.hypot(POI.x-sx,POI.z-sz); if(dPOI<LEASH){ self._aiMode='poi'; return {wx:POI.x, wz:POI.z, py:(POI.y||9), _decoy:true}; } }
+  // 4) WANDER on a long leash — amble to a fresh spot, or go mess with the ball / a crate (shoot & smash it)
+  self._wanderT=(self._wanderT||0)-dt;
+  const g=self._wGoal, reached=g&&Math.hypot((g.wx||sx)-sx,(g.wz||sz)-sz)<(window._AUTO_REACH||70);
+  if(!g || reached || self._wanderT<=0){
+    self._wanderT=(window._AUTO_WANDER_MIN||1.6)+Math.random()*(window._AUTO_WANDER_VAR||3.0);
+    if(P && dPl>LEASH){ const a=Math.atan2(sz-P.wz,sx-P.wx), r=LEASH*(window._AUTO_RETURN_K||0.5); self._wGoal={wx:P.wx+Math.cos(a)*r, wz:P.wz+Math.sin(a)*r, py:9, _decoy:true}; }   // drifted off the leash -> head back inside
+    else { const roll=Math.random();
+      const toy=(roll<(window._AUTO_TOY_CHANCE||0.42))?_creaturePlayTarget(self):null;   // go bat the ball around / smash a crate
+      if(toy){ self._wGoal={wx:toy.wx, wz:toy.wz, py:9, alive:true, _toy:true}; }
+      else if(roll<(window._AUTO_ROAM_CHANCE||0.9)){ const a=Math.random()*6.283, r=(window._AUTO_ROAM_MIN||150)+Math.random()*(window._AUTO_ROAM_VAR||320); self._wGoal={wx:sx+Math.cos(a)*r, wz:sz+Math.sin(a)*r, py:9, _decoy:true}; }
+      else { self._wGoal={wx:sx, wz:sz, py:9, _decoy:true}; }   // stand a beat
+    }
+  }
+  self._aiMode='wander';
+  return self._wGoal || {wx:sx, wz:sz, py:9, _decoy:true};
 }
 class AllyDragon extends BlueDragon{
   constructor(wx,wz){ super(wx,wz,1); this._faction='ally'; this._curFoe=null; this._aggroR=(window._ALLY_DRAGON_AGGRO||760); this.hp=(window._ALLY_DRAGON_HP||45); this.maxHp=this.hp; this.score=0; }
@@ -21814,6 +21860,9 @@ function loop(ts){ requestAnimationFrame(loop);
       if(frame%4===0) for(const e of GS.enemies){ grid.push(e.wx,e.wz,-0.03,32); }
       if(frame%120===0) grid.push(rand(-HALF_W*0.5,HALF_W*0.5),rand(-HALF_D*0.5,HALF_D*0.5),rand(-0.4,0.4),55);
       const _mpPuppet=(typeof MP!=='undefined' && MP.active && !MP.isHost);
+      // ── ARENA AUTONOMY: small hostiles roam on a long leash instead of dog-piling. Decay the shared point-of-interest. ──
+      const _autoOn=(GS.zone===-19 && window._AUTO_ON!==false && !_mpPuppet);
+      if(_autoOn && window._enemyPOI && window._enemyPOI.str>0) window._enemyPOI.str=Math.max(0, window._enemyPOI.str - dt/(window._AUTO_POI_LIFE||3.5));
       for(const e of GS.enemies){
         if(e._ro){ _skyEnemyRingFall(e,dt); continue; }
         if(e._burn){ _colEnemyBurn(e,dt); continue; }
@@ -21833,7 +21882,9 @@ function loop(ts){ requestAnimationFrame(loop);
           continue;
         }
         if(e._teamCol!=null&&!e._tintDone&&typeof _tintAlly==='function') _tintAlly(e,e._teamCol);   // owner tint for bot-summoned creatures — re-applies until the async model lands
-        e.update(player,dt);
+        let _etgt=player;
+        if(_autoOn && _isHostileSmall(e)){ try{ _etgt=_smallEnemyBrain(e,dt)||player; }catch(_){ _etgt=player; } }   // hand the enemy a synthetic target: roam waypoint / toy / summon-foe / the player
+        e.update(_etgt,dt);
         // ── Ground enemies can't stand on the void — if they wander over a gap, they fall ──
         if(window._arenaVoid && !e._ro && !e._burn && !e._climbing && !e.isBoss
            && (e.spawn===undefined||e.spawn>=0.9) && e.mesh && e.mesh.position.y<16
