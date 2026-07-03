@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB240</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB241</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -24770,7 +24770,17 @@ function _cubeSDF(x,y,z){   // signed distance to the rounded interior shell (ne
   const C=window._CUBE||_CUBE, hx=C.hx, hz=C.hz, h=C.h, r=Math.min(C.cham,hx*0.9,hz*0.9,h*0.45);
   const px=x, py=y-h*0.5, pz=z;
   const qx=Math.abs(px)-(hx-r), qy=Math.abs(py)-(h*0.5-r), qz=Math.abs(pz)-(hz-r);
-  return Math.hypot(Math.max(qx,0),Math.max(qy,0),Math.max(qz,0)) + Math.min(Math.max(qx,Math.max(qy,qz)),0) - r;
+  let d = Math.hypot(Math.max(qx,0),Math.max(qy,0),Math.max(qz,0)) + Math.min(Math.max(qx,Math.max(qy,qz)),0) - r;
+  // GOAL POCKETS: carve a recessed box out of each ±X wall so the ball + players pass through the perimeter INTO the goal.
+  // Union of the interior with a pocket box (both use "negative = open space" -> union is min). Mirrored on |x| for both ends.
+  if(window._GOAL_INSET!==false){
+    const GHW=(window._GOAL_HW||360), GH=(window._GOAL_H||300), GDP=(window._GOAL_DEPTH||200), OV=(window._GOAL_OVERLAP||(r+60));
+    const gcx=hx - OV*0.5 + GDP*0.5, gex=(GDP+OV)*0.5;   // pocket spans |x| in [hx-OV, hx+GDP]
+    const bqx=Math.abs(Math.abs(x)-gcx)-gex, bqy=Math.abs(y-GH*0.5)-GH*0.5, bqz=Math.abs(z)-GHW;
+    const pocket = Math.hypot(Math.max(bqx,0),Math.max(bqy,0),Math.max(bqz,0)) + Math.min(Math.max(bqx,Math.max(bqy,bqz)),0);
+    d = Math.min(d, pocket);
+  }
+  return d;
 }
 function _cubeGrad(x,y,z,out){ if(!out)out=new THREE.Vector3(); const e=1.5, d=_cubeSDF(x,y,z); out.set(_cubeSDF(x+e,y,z)-d,_cubeSDF(x,y+e,z)-d,_cubeSDF(x,y,z+e)-d); if(out.lengthSq()<1e-9)out.set(0,-1,0); out.normalize(); return out; }   // outward normal (toward the nearest surface); self-allocates out if a caller forgot it
 function _cubeClampXZ(nx,nz,yh,skin){   // HEIGHT-AWARE containment, computed PER-AXIS from the rounded-box geometry (the old radial version coupled X and Z, so a wide rectangular pitch let you reach the ends but not the sides). On the FLOOR (yh~0) each axis stops at its own chamfer/arc base; as you rise the shell opens out to the walls so you can climb + wall-run.
@@ -24778,7 +24788,16 @@ function _cubeClampXZ(nx,nz,yh,skin){   // HEIGHT-AWARE containment, computed PE
   const C=window._CUBE||_CUBE, hx=C.hx, hz=C.hz, h=C.h, r=Math.min(C.cham,hx*0.9,hz*0.9,h*0.45);
   const qy=Math.abs(yh - h*0.5) - (h*0.5 - r);                                   // how far into the top/bottom rounding this height sits (>0 near floor/ceiling)
   const horiz = qy>0 ? Math.sqrt(Math.max(0, r*r - qy*qy)) : r;                  // horizontal reach of the rounded edge at this height (0 at the very floor -> full r through the mid-band)
-  const mx = Math.max(20,(hx - r) + horiz - skin), mz = Math.max(20,(hz - r) + horiz - skin);   // independent half-extents for X (ends) and Z (sides)
+  let mx = Math.max(20,(hx - r) + horiz - skin), mz = Math.max(20,(hz - r) + horiz - skin);   // independent half-extents for X (ends) and Z (sides)
+  // GOAL MOUTH: in the pocket region (|z|<goal width, y<goal height) let X reach the pocket back wall, and once past the
+  // perimeter bound Z to the goal width (the pocket's side walls) so you're inside a recessed goal, not clipping through the wall.
+  if(window._GOAL_INSET!==false){
+    const GHW=(window._GOAL_HW||360), GH=(window._GOAL_H||300), GDP=(window._GOAL_DEPTH||200);
+    if(Math.abs(nz) < GHW - skin && yh < GH){
+      mx = hx + GDP - skin;
+      if(Math.abs(nx) > (hx - r)) mz = Math.max(20, GHW - skin);
+    }
+  }
   let cx=nx, cz=nz, hit=false;
   if(cx> mx){cx= mx; hit=true;} else if(cx<-mx){cx=-mx; hit=true;}
   if(cz> mz){cz= mz; hit=true;} else if(cz<-mz){cz=-mz; hit=true;}
