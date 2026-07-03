@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB252</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB253</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -15790,6 +15790,94 @@ function _updatePlatformDeform(dt){
   }
 }
 window._updatePlatformDeform=_updatePlatformDeform;
+// ══════════ ARENA DEFORMABLE ASSET (cube.glb) — custom GLB rendered as clean QUADS + GridSheet-style ripple ══════════
+// Loads a custom GLB, hides its triangulation diagonals (quad wireframe via _quadEdgesFromGeo), gives it a translucent
+// fill, and runs a per-vertex ripple deform — vertices are WELDED by position (seams stay watertight) and displaced along
+// their own averaged NORMAL, so a cube ripples cleanly on every face (not just one axis). A sandbox for deformable custom
+// level geometry. Lives in the RL cube arena. Toggle window._ARENA_CUBE=false. Tunables: _ADEF_SIZE/_ADEF_POS/_ADEF_Y/etc.
+window._arenaDeformers = window._arenaDeformers || [];
+window._cubeAssetGltf = window._cubeAssetGltf || null;
+function _disposeArenaDeformers(){
+  try{ const seen=new Set(); for(const e of (window._arenaDeformers||[])){ const r=e.root; if(r&&!seen.has(r)){ seen.add(r); if(typeof scene!=='undefined')scene.remove(r); r.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(Array.isArray(o.material))o.material.forEach(m=>m.dispose()); else o.material.dispose(); } }); } } }catch(_){}
+  window._arenaDeformers=[];
+}
+window._disposeArenaDeformers=_disposeArenaDeformers;
+function _buildDeformEntry(mesh){
+  // Weld verts by local position so coincident seam verts share ONE displacement (surface stays watertight),
+  // and displace along the averaged local NORMAL so every face ripples along its own outward direction.
+  const pos=mesh.geometry.attributes.position, nA=mesh.geometry.attributes.normal, n=pos.count;
+  mesh.updateMatrixWorld(true);
+  const map=new Map(), groups=[]; const q=(v)=>Math.round(v*16);
+  for(let i=0;i<n;i++){ const lx=pos.getX(i),ly=pos.getY(i),lz=pos.getZ(i), k=q(lx)+'_'+q(ly)+'_'+q(lz);
+    let g=map.get(k); if(!g){ g={verts:[], lx,ly,lz, nx:0,ny:0,nz:0}; map.set(k,g); groups.push(g); }
+    g.verts.push(i); g.nx+=nA.getX(i); g.ny+=nA.getY(i); g.nz+=nA.getZ(i); }
+  const G=groups.length, wRest=new Float32Array(G*3), dirL=new Float32Array(G*3), tv=new THREE.Vector3();
+  for(let gi=0;gi<G;gi++){ const g=groups[gi];
+    tv.set(g.lx,g.ly,g.lz).applyMatrix4(mesh.matrixWorld); wRest[gi*3]=tv.x; wRest[gi*3+1]=tv.y; wRest[gi*3+2]=tv.z;
+    let nl=Math.hypot(g.nx,g.ny,g.nz)||1; dirL[gi*3]=g.nx/nl; dirL[gi*3+1]=g.ny/nl; dirL[gi*3+2]=g.nz/nl; }
+  return { mesh, posAttr:pos, restL:new Float32Array(pos.array), groups, wRest, dirL, shocks:[], t:Math.random()*6.283 };
+}
+function _arenaDeformShockOne(e,x,y,z,str){ if(e.shocks.length>=(window._ADEF_MAXSHOCK||10)) e.shocks.shift(); e.shocks.push({x,y,z,r:0,str:str||1,life:1}); }
+function _arenaDeformShock(x,y,z,str){ const D=window._arenaDeformers; if(!D)return; for(const e of D){ if(Math.hypot(x-e.center.x,y-e.center.y,z-e.center.z) < e.radius+80) _arenaDeformShockOne(e,x,y,z,str); } }
+window._arenaDeformShock=_arenaDeformShock;
+window._cubePing=function(str){ for(const e of (window._arenaDeformers||[])) _arenaDeformShockOne(e,e.center.x,e.center.y+e.radius*0.6,e.center.z,str||(window._ADEF_PING_STR||4)); };
+function _arenaDeformFeed(dt){
+  const D=window._arenaDeformers; if(!D||!D.length) return;
+  for(const e of D){ e._pcd=Math.max(0,(e._pcd||0)-dt); e._bcd=Math.max(0,(e._bcd||0)-dt);
+    if(typeof player!=='undefined'&&player&&player.alive){ const d=Math.hypot(player.wx-e.center.x,(player.py||0)+9-e.center.y,player.wz-e.center.z), spd=Math.hypot(player.vx||0,player.vz||0);
+      if(d < e.radius+(window._ADEF_TOUCH||46) && spd>26 && e._pcd<=0){ _arenaDeformShockOne(e,player.wx,(player.py||0)+9,player.wz,(window._ADEF_STEP_STR||2.4)); e._pcd=0.11; } }   // brush past it -> it ripples
+    if(typeof _cubeBall!=='undefined'&&_cubeBall&&_cubeBall.pos){ const b=_cubeBall.pos, d=Math.hypot(b.x-e.center.x,b.y-e.center.y,b.z-e.center.z);
+      if(d < e.radius+(_cubeBall.R||16)+8 && e._bcd<=0){ _arenaDeformShockOne(e,b.x,b.y,b.z,Math.min(5,1.4+(_cubeBall.vel?_cubeBall.vel.length():0)/180)); e._bcd=0.09; } }   // kick the ball into it -> splash
+    if(typeof GS!=='undefined'&&GS.bullets&&GS.bullets.length){ for(const bl of GS.bullets){ if(!bl)continue; const bx=(bl.wx!=null?bl.wx:bl.x), bz=(bl.wz!=null?bl.wz:bl.z), by=(bl.y!=null?bl.y:9); if(bx==null)continue; if(Math.hypot(bx-e.center.x,by-e.center.y,bz-e.center.z) < e.radius+7){ _arenaDeformShockOne(e,bx,by,bz,(window._ADEF_BULLET_STR||1.5)); } } }   // shoot it -> ripples where each round lands
+  }
+}
+function _updateArenaDeformers(dt){
+  const D=window._arenaDeformers; if(!D||!D.length) return;
+  _arenaDeformFeed(dt);
+  const RSPD=(window._ADEF_RING_SPD||230), BAND=(window._ADEF_RING_BAND||55), RLIFE=(window._ADEF_RING_LIFE||1.1), RWAVE=(window._ADEF_RING_WAVE||0.14), MAXD=(window._ADEF_MAXD||18);
+  const IDLE=(window._ADEF_IDLE!==false), iAmp=(window._ADEF_IDLE_AMP!=null?window._ADEF_IDLE_AMP:0.7), iSpd=(window._ADEF_IDLE_SPD||1.1), FREQ=(window._ADEF_FREQ||0.03);
+  for(const e of D){
+    const pos=e.posAttr.array, rL=e.restL, wR=e.wRest, dL=e.dirL, groups=e.groups, G=groups.length, sk=e.shocks; e.t+=dt;
+    for(let s=sk.length-1;s>=0;s--){ const S=sk[s]; S.r+=RSPD*dt; S.life-=dt/RLIFE; if(S.life<=0)sk.splice(s,1); }
+    if(!IDLE && sk.length===0 && e._settled){ continue; }   // fully at rest -> skip (cheap when nobody's touching it)
+    for(let gi=0;gi<G;gi++){ const g3=gi*3, wx=wR[g3],wy=wR[g3+1],wz=wR[g3+2]; let disp=0;
+      if(IDLE) disp += iAmp*Math.sin(wx*FREQ+e.t*iSpd)*Math.cos(wz*FREQ - e.t*iSpd*0.8);
+      for(let s=0;s<sk.length;s++){ const S=sk[s], dx=wx-S.x,dy=wy-S.y,dz=wz-S.z, d=Math.sqrt(dx*dx+dy*dy+dz*dz), dr=d-S.r;
+        if(Math.abs(dr)<BAND){ const env=0.5*(1+Math.cos(Math.PI*dr/BAND)); disp += env*S.str*S.life*Math.sin(dr*RWAVE); } }
+      if(!(disp===disp))disp=0; if(disp>MAXD)disp=MAXD; else if(disp<-MAXD)disp=-MAXD;
+      const ox=dL[g3]*disp, oy=dL[g3+1]*disp, oz=dL[g3+2]*disp, verts=groups[gi].verts;
+      for(let vi=0;vi<verts.length;vi++){ const i3=verts[vi]*3; pos[i3]=rL[i3]+ox; pos[i3+1]=rL[i3+1]+oy; pos[i3+2]=rL[i3+2]+oz; } }
+    e._settled=(!IDLE && sk.length===0);
+    e.posAttr.needsUpdate=true; if(e.mesh.geometry){ e.mesh.geometry.boundingSphere=null; }
+  }
+}
+window._updateArenaDeformers=_updateArenaDeformers;
+function _placeArenaCube(gltf){
+  let root; try{ root=gltf.scene.clone(true); }catch(_){ root=gltf.scene; }
+  const FILL=new THREE.MeshBasicMaterial({color:(window._ADEF_FILL!=null?window._ADEF_FILL:0x08202e),transparent:true,opacity:(window._ADEF_FILL_OP||0.34),side:THREE.DoubleSide,depthWrite:false});
+  const WIRECOL=(window._ADEF_WIRE!=null?window._ADEF_WIRE:0x33e0ff);
+  const meshes=[];
+  root.traverse(o=>{ if(o.isMesh&&o.geometry){ if(!o.geometry.attributes.normal)o.geometry.computeVertexNormals(); o.material=FILL; o.frustumCulled=false;
+    try{ const eidx=(window._ADEF_QUAD_WIRE!==false)?_quadEdgesFromGeo(o.geometry):_edgeIndexFromGeo(o.geometry); const lg=new THREE.BufferGeometry(); lg.setAttribute('position',o.geometry.attributes.position); lg.setIndex(eidx); const wire=new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:WIRECOL,transparent:true,opacity:(window._ADEF_WIRE_OP||0.92),blending:THREE.AdditiveBlending,depthWrite:false})); wire.frustumCulled=false; wire.renderOrder=2; o.add(wire); }catch(_){}
+    meshes.push(o); } });
+  if(!meshes.length){ console.warn('[arena cube] no meshes in cube.glb'); return; }
+  let box=new THREE.Box3().setFromObject(root); const size=new THREE.Vector3(); box.getSize(size);
+  const maxD=Math.max(size.x,size.y,size.z)||1, sc=(window._ADEF_SIZE||170)/maxD; root.scale.setScalar(sc);
+  root.updateMatrixWorld(true); box=new THREE.Box3().setFromObject(root); const c=box.getCenter(new THREE.Vector3());
+  const P=(window._ADEF_POS)||{x:450,z:0}; root.position.x += P.x - c.x; root.position.z += P.z - c.z; root.position.y += (window._ADEF_Y!=null?window._ADEF_Y:0) - box.min.y;
+  root.updateMatrixWorld(true); if(typeof scene!=='undefined') scene.add(root);
+  box=new THREE.Box3().setFromObject(root); const ctr=box.getCenter(new THREE.Vector3()), rad=box.getSize(new THREE.Vector3()).length()*0.5;
+  let grpN=0; for(const o of meshes){ o.updateMatrixWorld(true); const en=_buildDeformEntry(o); en.root=root; en.center=ctr.clone(); en.radius=rad; grpN+=en.groups.length; window._arenaDeformers.push(en); }
+  window._arenaCubeInfo={verts:meshes.reduce((a,o)=>a+o.geometry.attributes.position.count,0), meshes:meshes.length, deformPts:grpN, pos:P, size:(window._ADEF_SIZE||170)};
+  if(typeof announce==='function') announce('cube.glb · QUADS · '+grpN+' deform pts — shoot it / kick the ball at it','#33e0ff');
+  console.log('[arena cube]', window._arenaCubeInfo);
+}
+function _spawnArenaCube(){
+  if(window._ARENA_CUBE===false) return;
+  if(window._cubeAssetGltf){ try{ _placeArenaCube(window._cubeAssetGltf); }catch(e){ console.warn('arena cube',e); } return; }
+  try{ const loader=new GLTFLoader(); loader.load('models/cube.glb', g=>{ window._cubeAssetGltf=g; try{ _placeArenaCube(g); }catch(e){ console.warn('arena cube',e); } }, undefined, err=>{ console.warn('cube.glb load failed:',err); if(typeof announce==='function')announce('cube.glb FAILED to load','#ff4466'); }); }catch(e){ console.warn('cube.glb loader:',e); }
+}
+window._spawnArenaCube=_spawnArenaCube;
 function _updateDojoPlatform(dt){
   if(typeof GS==='undefined'||GS.zone!==-2) return;
   if(window._customSheetSet && window._customSheetSet.length){ for(const sh of window._customSheetSet){ try{ sh.update(dt); }catch(_){} } } else if(window._dojoSheet){ try{ window._dojoSheet.update(dt); }catch(_){} } else { _updatePlatformDeform(dt); }
@@ -24458,7 +24546,7 @@ function buildCubeArena(){
     grp.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({color:NEON,transparent:true,opacity:0.15,blending:THREE.AdditiveBlending,depthWrite:false})));
   } else {
     // ── DEFORMING GRID FACES: each face = a live GridSheet (reacts to the player, bullets, rockets, the ball) ──
-    _disposeCubeSheets();
+    _disposeCubeSheets(); if(typeof _disposeArenaDeformers==='function')_disposeArenaDeformers();
     const cell=(window._CUBE_GRID_CELL||28), pal=(window._CUBE_GRID_PAL||'cube'), sub=(IS_MOBILE?1:2);
     const cy=h/2, vyH=(iy1-iy0)/2;   // wall vertical center + half-height (between the fillets)
     const Q=(ax,ay,az,ang)=>new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(ax,ay,az),ang);
@@ -24559,6 +24647,7 @@ function buildCubeArena(){
     _mkCurtain(hx,  Q(0,0,1, Math.PI/2));
     _mkCurtain(-hx, Q(0,0,1,-Math.PI/2));
   } }catch(_){ }
+  try{ if(typeof _spawnArenaCube==='function') _spawnArenaCube(); }catch(e){ console.warn('arena cube spawn',e); }   // custom deformable GLB sandbox (cube.glb) — quad-rendered + ripples on contact
   // ── loadout: start with ONLY bullets + fists — every projectile gun & melee must be physically grabbed from the pads ──
   try{ if(window._CUBE_ARSENAL!==true && player){
     player._ownedWeps=new Set(['bullets']); player.primaryWeapon='bullets'; player.secWeapon='bullets'; player._ammo={};
@@ -24875,6 +24964,7 @@ function updateCubeArena(dt){
   if(GS.zone!==-19 || !player) return;
   _showColliderMenu(true);
   if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets) s.update(dt); _cubeWallFade(dt); }   // deforming grid faces ripple/settle + fade any face between the camera and you
+  if(typeof _updateArenaDeformers==='function') _updateArenaDeformers(dt);   // custom deformable GLB assets (cube.glb) ripple from player/ball/bullet contact
   // GOAL CURTAINS ripple as the BALL passes through (the player is already handled inside GridSheet.update; enemies dip it too).
   if(_goalCurtains.length){ const _dipCurtain=(x,y,z,amt)=>{ for(const s of _goalCurtains){ _gsV.set(x,y,z); s.group.worldToLocal(_gsV); if(Math.abs(_gsV.y)<s.cell*1.7 && Math.abs(_gsV.x)<s.hw && Math.abs(_gsV.z)<s.hd) s.dimple(_gsV.x,_gsV.z,amt); } };
     if(typeof _cubeBall!=='undefined'&&_cubeBall&&_cubeBall.pos){ const bs=Math.min(1.8,0.7+(_cubeBall.vel?_cubeBall.vel.length():0)/600); _dipCurtain(_cubeBall.pos.x,_cubeBall.pos.y,_cubeBall.pos.z,bs); }
