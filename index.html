@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB255</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB256</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -15811,6 +15811,7 @@ window._updatePlatformDeform=_updatePlatformDeform;
 // level geometry. Lives in the RL cube arena. Toggle window._ARENA_CUBE=false. Tunables: _ADEF_SIZE/_ADEF_POS/_ADEF_Y/etc.
 window._arenaDeformers = window._arenaDeformers || [];
 window._cubeAssetGltf = window._cubeAssetGltf || null;
+const _ADEF_PAL=[[0.20,0.88,1.0],[0.47,0.94,1.0],[0.78,0.47,1.0],[1.0,0.31,0.70]];   // cyan -> magenta, same ramp the cube grid sheets use: rest = cyan, stretches toward magenta as it displaces
 function _disposeArenaDeformers(){
   try{ const seen=new Set(); for(const e of (window._arenaDeformers||[])){ const r=e.root; if(r&&!seen.has(r)){ seen.add(r); if(typeof scene!=='undefined')scene.remove(r); r.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(Array.isArray(o.material))o.material.forEach(m=>m.dispose()); else o.material.dispose(); } }); } } }catch(_){}
   window._arenaDeformers=[];
@@ -15829,7 +15830,7 @@ function _buildDeformEntry(mesh){
   for(let gi=0;gi<G;gi++){ const g=groups[gi];
     tv.set(g.lx,g.ly,g.lz).applyMatrix4(mesh.matrixWorld); wRest[gi*3]=tv.x; wRest[gi*3+1]=tv.y; wRest[gi*3+2]=tv.z;
     let nl=Math.hypot(g.nx,g.ny,g.nz)||1; dirL[gi*3]=g.nx/nl; dirL[gi*3+1]=g.ny/nl; dirL[gi*3+2]=g.nz/nl; }
-  return { mesh, posAttr:pos, restL:new Float32Array(pos.array), groups, wRest, dirL, d:new Float32Array(G), vd:new Float32Array(G), shocks:[], t:Math.random()*6.283, _settled:true };
+  return { mesh, posAttr:pos, wcol:(mesh._wcol||null), restL:new Float32Array(pos.array), groups, wRest, dirL, d:new Float32Array(G), vd:new Float32Array(G), shocks:[], t:Math.random()*6.283, _settled:true };
 }
 function _arenaDeformShockOne(e,x,y,z,str){ if(e.shocks.length>=(window._ADEF_MAXSHOCK||10)) e.shocks.shift(); e.shocks.push({x,y,z,r:0,str:str||1,life:1}); }
 function _arenaDeformShock(x,y,z,str){ const D=window._arenaDeformers; if(!D)return; for(const e of D){ if(Math.hypot(x-e.center.x,y-e.center.y,z-e.center.z) < e.radius+80) _arenaDeformShockOne(e,x,y,z,str); } }
@@ -15853,18 +15854,22 @@ function _updateArenaDeformers(dt){
   //    scalar displacement d along its normal + a velocity vd. Traveling shock rings INJECT velocity in a band (a wave
   //    that spreads outward in 3D across the surface); every group independently springs back to flat with damping, so
   //    it overshoots and settles with that same bouncy, watery feel the sheets have. Same constants as GridSheet. ──
-  const RSPD=(window._ADEF_RING_SPD||300), BAND=(window._ADEF_RING_BAND||40), RLIFE=(window._ADEF_RING_LIFE||1.5);
-  const STIFF=(window._ADEF_STIFF||0.016), DAMP=(window._ADEF_DAMP||0.905), INJECT=(window._ADEF_INJECT||46), MAXD=(window._ADEF_MAXD||24);
+  const RSPD=(window._ADEF_RING_SPD||300), BAND=(window._ADEF_RING_BAND||40), RLIFE=(window._ADEF_RING_LIFE||1.5), WAVEK=(window._ADEF_RING_WAVE||0.13);
+  const STIFF=(window._ADEF_STIFF||0.016), DAMP=(window._ADEF_DAMP||0.905), INJECT=(window._ADEF_INJECT||60), MAXD=(window._ADEF_MAXD||24);
   const IDLE=(window._ADEF_IDLE===true), iAmp=(window._ADEF_IDLE_AMP||0.35), iSpd=(window._ADEF_IDLE_SPD||1.1);
+  const COLSCALE=(window._ADEF_COL_SCALE||8), WB=(window._ADEF_WIRE_BRIGHT||1.0);
   for(const e of D){
-    const pos=e.posAttr.array, rL=e.restL, wR=e.wRest, dL=e.dirL, groups=e.groups, G=groups.length, sk=e.shocks, d=e.d, vd=e.vd; e.t+=dt;
+    const pos=e.posAttr.array, rL=e.restL, wR=e.wRest, dL=e.dirL, groups=e.groups, G=groups.length, sk=e.shocks, d=e.d, vd=e.vd, wc=e.wcol?e.wcol.array:null; e.t+=dt;
     for(let s=sk.length-1;s>=0;s--){ const S=sk[s]; S.r+=RSPD*dt; S.life-=dt*(1/RLIFE); if(S.life<=0)sk.splice(s,1); }
     if(sk.length===0 && e._settled && !IDLE) continue;   // fully at rest and untouched -> skip (cheap)
-    // 1) traveling shock rings inject velocity (3D distance -> the wave rides over every face of the shape)
+    // 1) traveling shock rings inject velocity. Wave phase keyed off RADIAL distance (dr), NOT vertex index — so the crests
+    //    are spatially coherent and the ripple spreads outward as a clean wave (index phase looked like static jitter that
+    //    just held the surface pushed out under sustained fire).
     for(let s=0;s<sk.length;s++){ const S=sk[s], sx=S.x,sy=S.y,sz=S.z, R=S.r, imp=S.str*S.life;
       for(let gi=0;gi<G;gi++){ const g3=gi*3, dx=wR[g3]-sx,dy=wR[g3+1]-sy,dz=wR[g3+2]-sz, dist=Math.sqrt(dx*dx+dy*dy+dz*dz), dr=dist-R;
-        if(dr>-BAND && dr<BAND){ const f=((BAND-Math.abs(dr))/BAND)*imp; vd[gi]+=Math.sin(gi*1.9+R*0.12)*f*dt*INJECT; } } }
+        if(dr>-BAND && dr<BAND){ const f=((BAND-Math.abs(dr))/BAND)*imp; vd[gi]+=Math.sin(dr*WAVEK)*f*dt*INJECT; } } }
     // 2) spring every group back to flat (independent damped spring -> overshoot + settle, exactly like the sheet nodes)
+    //    and ramp the wire colour cyan->magenta by |displacement| (the grid's "stretch into the rainbow").
     let active=(sk.length>0);
     for(let gi=0;gi<G;gi++){
       if(IDLE) vd[gi]+=iAmp*Math.sin(wR[gi*3]*0.03 + e.t*iSpd + gi*0.6)*dt;
@@ -15873,19 +15878,24 @@ function _updateArenaDeformers(dt){
       vd[gi]=v; d[gi]=dd;
       if(!active && (v>0.0015||v<-0.0015||dd>0.01||dd<-0.01)) active=true;
       const g3=gi*3, ox=dL[g3]*dd, oy=dL[g3+1]*dd, oz=dL[g3+2]*dd, verts=groups[gi].verts;
-      for(let vi=0;vi<verts.length;vi++){ const i3=verts[vi]*3; pos[i3]=rL[i3]+ox; pos[i3+1]=rL[i3+1]+oy; pos[i3+2]=rL[i3+2]+oz; }
+      let cr,cg,cb; if(wc){ let t=(dd<0?-dd:dd)/COLSCALE; if(t>1)t=1; const seg=t*3, si=seg<2?(seg|0):2, f=seg-si, a=_ADEF_PAL[si], b=_ADEF_PAL[si+1]; cr=(a[0]+(b[0]-a[0])*f)*WB; cg=(a[1]+(b[1]-a[1])*f)*WB; cb=(a[2]+(b[2]-a[2])*f)*WB; }
+      for(let vi=0;vi<verts.length;vi++){ const iv=verts[vi], i3=iv*3; pos[i3]=rL[i3]+ox; pos[i3+1]=rL[i3+1]+oy; pos[i3+2]=rL[i3+2]+oz; if(wc){ wc[i3]=cr; wc[i3+1]=cg; wc[i3+2]=cb; } }
     }
-    e._settled=!active; e.posAttr.needsUpdate=true; if(e.mesh.geometry) e.mesh.geometry.boundingSphere=null;
+    e._settled=!active; e.posAttr.needsUpdate=true; if(e.wcol)e.wcol.needsUpdate=true; if(e.mesh.geometry) e.mesh.geometry.boundingSphere=null;
   }
 }
 window._updateArenaDeformers=_updateArenaDeformers;
 function _placeArenaCube(gltf){
   let root; try{ root=gltf.scene.clone(true); }catch(_){ root=gltf.scene; }
-  const FILL=new THREE.MeshBasicMaterial({color:(window._ADEF_FILL!=null?window._ADEF_FILL:0x08202e),transparent:true,opacity:(window._ADEF_FILL_OP||0.34),side:THREE.DoubleSide,depthWrite:false});
-  const WIRECOL=(window._ADEF_WIRE!=null?window._ADEF_WIRE:0x33e0ff);
+  // BLACK fill behind a glowing QUAD wireframe — matches the grid sheets (fill sits slightly behind the wire via polygonOffset).
+  const FILL=new THREE.MeshBasicMaterial({color:(window._ADEF_FILL!=null?window._ADEF_FILL:0x000000),transparent:true,opacity:(window._ADEF_FILL_OP!=null?window._ADEF_FILL_OP:0.5),side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:1.5,polygonOffsetUnits:2});
   const meshes=[];
   root.traverse(o=>{ if(o.isMesh&&o.geometry){ if(!o.geometry.attributes.normal)o.geometry.computeVertexNormals(); o.material=FILL; o.frustumCulled=false;
-    try{ const eidx=(window._ADEF_QUAD_WIRE!==false)?_quadEdgesFromGeo(o.geometry):_edgeIndexFromGeo(o.geometry); const lg=new THREE.BufferGeometry(); lg.setAttribute('position',o.geometry.attributes.position); lg.setIndex(eidx); const wire=new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:WIRECOL,transparent:true,opacity:(window._ADEF_WIRE_OP||0.92),blending:THREE.AdditiveBlending,depthWrite:false})); wire.frustumCulled=false; wire.renderOrder=2; o.add(wire); }catch(_){}
+    try{ const eidx=(window._ADEF_QUAD_WIRE!==false)?_quadEdgesFromGeo(o.geometry):_edgeIndexFromGeo(o.geometry); const lg=new THREE.BufferGeometry(); lg.setAttribute('position',o.geometry.attributes.position);
+      const np=o.geometry.attributes.position.count, wcol=new THREE.BufferAttribute(new Float32Array(np*3),3);   // per-vertex colour -> the wire ramps cyan->magenta by displacement, live
+      const c0=_ADEF_PAL[0], wb=(window._ADEF_WIRE_BRIGHT||1.0); for(let i=0;i<np;i++){ wcol.array[i*3]=c0[0]*wb; wcol.array[i*3+1]=c0[1]*wb; wcol.array[i*3+2]=c0[2]*wb; }
+      lg.setAttribute('color',wcol); lg.setIndex(eidx);
+      const wire=new THREE.LineSegments(lg,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:(window._ADEF_WIRE_OP||0.95),blending:THREE.AdditiveBlending,depthWrite:false})); wire.frustumCulled=false; wire.renderOrder=2; o.add(wire); o._wcol=wcol; }catch(_){}
     meshes.push(o); } });
   if(!meshes.length){ console.warn('[arena cube] no meshes in cube.glb'); return; }
   let box=new THREE.Box3().setFromObject(root); const size=new THREE.Vector3(); box.getSize(size);
