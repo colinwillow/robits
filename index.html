@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB274</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB275</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12286,10 +12286,17 @@ class Player{
     }
     const fire=(ang,kind)=>{
       if(this._mount && window._MOUNT_SHOOT_ARC!==false){
-        // MOUNTED: shoot straight OUT level (ignore the dragon's spine up-slant), then dip DOWN. If the vertical aim-assist
-        // found an enemy ahead, the round homes its descent onto THAT target (near enemies get hit, not just far skimmers);
-        // otherwise it clears the creature then arcs down and skims the deck. Clearance shrinks for a close target so it
-        // doesn't sail over a point-blank enemy's head.
+        // CLOSE ENEMY (the dragon reared up right over it): the level-then-dip arc sails over a point-blank foe's head. Instead
+        // fire a DIRECT steep line straight along the vertical-aim vector so the bolt actually angles sharply DOWN onto it
+        // (this is the "shoot at a sharp downward angle" case — the arms already point down in the ride-idle pose, now the bolt does too).
+        if(window._MOUNT_DIRECT!==false && _mtTargT!=null && _assistVY!=null && _mtTargT<(window._MOUNT_DIRECT_NEAR||190) && _mtTargY < y0-(window._MOUNT_DIRECT_DROP||10)){
+          const _vy=Math.max(_assistVY, -(window._MOUNT_DIRECT_MAXV||1600));   // clamp the plunge speed
+          const _bd=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0,_vy);
+          _bd._straightAim=true;   // fly the straight down-and-out line to the target's height (no level-out, no skim)
+          GS.bullets.push(_bd); return;
+        }
+        // MOUNTED (farther targets): shoot straight OUT level, then dip DOWN and home the descent onto the aim-assist target,
+        // else clear the creature and skim the deck. Clearance shrinks for a close target so it doesn't sail over a head.
         const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0);   // vy defaults 0 -> flat launch
         _b._mountArc=true;
         const _baseClear=(window._MOUNT_ARC_CLEAR||55);
@@ -30301,6 +30308,18 @@ function _updateMace(dt){
     p.prev.copy(p.pos);
     const w=(i/N);                                        // 0 at handle -> 1 at tip; snap loads the outer links most
     p.pos.x+=vx+sax*w; p.pos.y+=vy - G*h*h + say*w; p.pos.z+=vz+saz*w;
+  }
+  // MOUNTED MELEE: on the dragon the arm is locked in the ride pose (no swing anim), so the RIGHT STICK drives the flail/whip
+  // DIRECTLY — push the stick to sling the tip that way, with a downward rake so it scythes the low enemies the dragon reared
+  // over. This is how you melee from the saddle; the chain's own contact-damage (below) does the hurting.
+  if(player._mount && window._MOUNT_MELEE!==false){
+    const sMag=Math.hypot(player._maceRX||0, player._maceRZ||0);
+    if(sMag>(window._MOUNT_MELEE_DEAD||0.3)){
+      const yaw=(typeof CAM!=='undefined')?CAM.yaw:0, Fx=-Math.sin(yaw), Fz=-Math.cos(yaw), Rx=Fz, Rz=-Fx;   // camera forward + right on the ground plane
+      let dx=Rx*(player._maceRX||0)+Fx*(-(player._maceRZ||0)), dz=Rz*(player._maceRX||0)+Fz*(-(player._maceRZ||0)); const dl=Math.hypot(dx,dz)||1; dx/=dl; dz/=dl;
+      const drive=(window._MOUNT_MELEE_DRIVE||1000)*h, down=(window._MOUNT_MELEE_DOWN||520)*h, links=(window._MOUNT_MELEE_LINKS||4);
+      for(let i=Math.max(1,N-links);i<=N;i++){ const w=i/N; pts[i].pos.x+=dx*drive*w; pts[i].pos.z+=dz*drive*w; pts[i].pos.y-=down*w; }   // sling the outer links out (toward the aim) + down (rake the deck)
+    }
   }
   for(let it=0; it<P.iter; it++){
     pts[0].pos.copy(a);
