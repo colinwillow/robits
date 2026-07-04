@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB266</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB267</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10128,15 +10128,18 @@ class Bullet{
       if(best){const dx=best.wx-this.wx,dz=best.wz-this.wz,d=Math.hypot(dx,dz)||1;this.vx+=(dx/d)*1000*dt;this.vz+=(dz/d)*1000*dt;const s=Math.hypot(this.vx,this.vz),mx=480;if(s>mx){this.vx=this.vx/s*mx;this.vz=this.vz/s*mx;}} }
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this.life-=this.decay*dt*60;
     const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 12, 34, dt) : (GS.zone===-19 ? _cubeProjStick(this, window._CUBE_PROJ_R||12, window._CUBE_PROJ_SOI||90, dt) : false);   // building field / cube inner shell owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the corner
-    if(this._mountArc){                                                        // MOUNTED shot: level out, clear the creature, then dip DOWN (onto the assist target if any) and skim the ground
+    if(this._mountArc){                                                        // MOUNTED shot: level out, clear the creature, then dip DOWN and SKIM the ground (rakes the whole lane -> forgiving on moving enemies)
       const _hsp=Math.hypot(this.vx,this.vz)||1; this._mtTrav=(this._mtTrav||0)+_hsp*dt;
-      if(this._mtTrav > (this._mtClear||70)){
-        if(this._mtTargT!=null && this._mtTrav < this._mtTargT){                // VERTICAL AIM-ASSIST: steer the descent to meet the enemy's height right at its distance (hits near targets, not just far skimmers)
-          const _remT=Math.max((this._mtTargT-this._mtTrav)/_hsp, 1e-3); this.vy=(this._mtTargY-this.y)/_remT;
-        } else this.vy -= (window._MOUNT_ARC_G||760)*dt;                        // no target (or past it) -> gravity carries it on down to the deck
+      const _fy=(window._MOUNT_ARC_SKIM_Y||9);
+      if(this._mtTrav > (this._mtClear||55)){
+        // AIRBORNE target -> home the descent onto its height. GROUND target / none -> just dive to the deck fast and skim
+        // (a skimming round hits anything in its lane, so a moving ground bot connects even if it isn't where it was at fire time).
+        if(this._mtTargT!=null && this._mtTargY>_fy+(window._MOUNT_ARC_AIR||26) && this._mtTrav<this._mtTargT){
+          const _remT=Math.max((this._mtTargT-this._mtTrav)/_hsp,1e-3); this.vy=(this._mtTargY-this.y)/_remT;
+        } else this.vy -= (window._MOUNT_ARC_G||1200)*dt;                       // steeper dive so it reaches the ground promptly, then skims
       }
       this.y+=this.vy*dt;
-      const _fy=(window._MOUNT_ARC_SKIM_Y||9); if(this.y<=_fy){ this.y=_fy; if(this.vy<0)this.vy=0; }   // reached the floor -> skim along it (level)
+      if(this.y<=_fy){ this.y=_fy; if(this.vy<0)this.vy=0; }                    // reached the floor -> skim along it (level)
     }
     else if(this._g3){ this.y+=this.vy*dt; }                                   // straight-line 3D flight (galaxy)
     else if(this._straightAim){ this.y+=this.vy*dt; if(this.y<2)this.y=2; }     // ASSISTED shot: fly a straight line to the locked target's height (no gravity arc) so the trajectory physically goes down into it
@@ -12263,7 +12266,7 @@ class Player{
         // doesn't sail over a point-blank enemy's head.
         const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0);   // vy defaults 0 -> flat launch
         _b._mountArc=true;
-        const _baseClear=(window._MOUNT_ARC_CLEAR||70);
+        const _baseClear=(window._MOUNT_ARC_CLEAR||55);
         if(_mtTargT!=null){ _b._mtTargT=_mtTargT; _b._mtTargY=_mtTargY; _b._mtClear=Math.max((window._MOUNT_ARC_MIN_CLEAR||34), Math.min(_baseClear, _mtTargT*(window._MOUNT_ARC_CLEAR_FRAC||0.4))); }   // shrink clearance for a near target, but never below the amount needed to clear the dragon's head
         else _b._mtClear=_baseClear;
         GS.bullets.push(_b); return;
@@ -24262,6 +24265,7 @@ function _dismount(hop){ if(!player||!player._mount)return; const a=player._moun
   if(hop){ player.pvy=Math.max(player.pvy||0,(window._MOUNT_DISMOUNT_V||300));   // launch up off the creature
     if(a){ const dx=player.wx-a.wx, dz=player.wz-a.wz, dl=Math.hypot(dx,dz)||1; const _ph=(window._MOUNT_DISMOUNT_H||150); player.vx=dx/dl*_ph; player.vz=dz/dl*_ph; } }   // + shove outward so you clear the mount radius
   if(player.model&&player.model.userData){ const ud=player.model.userData; ud.currentClip=null; ud._rideIdleName=null; ud._rideShootName=null; ud._rideMix=0; ud._spineBaseIdle=null; ud._spineBaseShoot=null; } if(typeof announce==='function')announce('DISMOUNT','#9fe8ff'); }
+window._mountBones=function(){ const a=player&&player._mount; const m=a&&a._model; if(!m){ console.log('[mount] not mounted — hop on a creature first'); return []; } const names=[]; try{ m.traverse(o=>{ if(o.isBone) names.push(o.name); }); }catch(_){} console.log('[mount] creature bones ('+names.length+'):', names); return names; };   // hop on, run _mountBones() in the console, tell me a neck/head bone name -> set window._MOUNT_BONE to sit there
 function _mountTick(dt){
   if(window._MOUNT_ON===false || !player || player.alive===false) return;
   const _my=(a)=> (a._curY||0)+(window._MOUNT_Y!=null?window._MOUNT_Y:((a._tall||36)*0.55));
@@ -24273,6 +24277,7 @@ function _mountTick(dt){
     // Anchor to the spine BONE by default (that's where he should sit). Force a fresh world-matrix so we read the CURRENT pose,
     // not a stale one (the stale read was the old camera shake). _MOUNT_USE_BONE=false falls back to the creature's base origin.
     if(window._MOUNT_USE_BONE!==false && a._model && a._model.getObjectByName){ const bn=a._model.getObjectByName(a._mountBoneName||window._MOUNT_BONE||'Bip001_Spine'); if(bn){ bn.updateWorldMatrix(true,false); const wp=(window._mtWP||(window._mtWP=new THREE.Vector3())); bn.getWorldPosition(wp); mx=wp.x+(window._MOUNT_OFF_X||0); my=wp.y+(window._MOUNT_BONE_Y||0); mz=wp.z+(window._MOUNT_OFF_Z||0); } }
+    { const _fwd=(window._MOUNT_FWD!=null?window._MOUNT_FWD:40); if(_fwd){ const _r=Math.PI/2-(a.mesh?a.mesh.rotation.y:0)-(window._MOUNT_YAW_OFF||0); mx+=Math.cos(_r)*_fwd; mz+=Math.sin(_r)*_fwd; } }   // slide the seat forward along the creature's facing toward the head/neck (better shooting vantage). Tune window._MOUNT_FWD; flip its sign if it goes toward the tail.
     // EASE onto the mount point. LOOSE during the hop-on transition (so it flows onto the saddle, no teleport), then
     // TIGHTER once he's actually seated (so he tracks the moving dragon closely instead of lagging behind it).
     player._mountT=(player._mountT||0)+dt;
