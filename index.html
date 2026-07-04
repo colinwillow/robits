@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB264</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB265</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10128,9 +10128,13 @@ class Bullet{
       if(best){const dx=best.wx-this.wx,dz=best.wz-this.wz,d=Math.hypot(dx,dz)||1;this.vx+=(dx/d)*1000*dt;this.vz+=(dz/d)*1000*dt;const s=Math.hypot(this.vx,this.vz),mx=480;if(s>mx){this.vx=this.vx/s*mx;this.vz=this.vz/s*mx;}} }
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this.life-=this.decay*dt*60;
     const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 12, 34, dt) : (GS.zone===-19 ? _cubeProjStick(this, window._CUBE_PROJ_R||12, window._CUBE_PROJ_SOI||90, dt) : false);   // building field / cube inner shell owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the corner
-    if(this._mountArc){                                                        // MOUNTED shot: level out, clear the creature, then arc down and skim the ground
-      this._mtTrav=(this._mtTrav||0)+Math.hypot(this.vx,this.vz)*dt;
-      if(this._mtTrav > (this._mtClear||80)) this.vy -= (window._MOUNT_ARC_G||760)*dt;   // past the clearance distance -> gravity pulls it down toward the deck
+    if(this._mountArc){                                                        // MOUNTED shot: level out, clear the creature, then dip DOWN (onto the assist target if any) and skim the ground
+      const _hsp=Math.hypot(this.vx,this.vz)||1; this._mtTrav=(this._mtTrav||0)+_hsp*dt;
+      if(this._mtTrav > (this._mtClear||70)){
+        if(this._mtTargT!=null && this._mtTrav < this._mtTargT){                // VERTICAL AIM-ASSIST: steer the descent to meet the enemy's height right at its distance (hits near targets, not just far skimmers)
+          const _remT=Math.max((this._mtTargT-this._mtTrav)/_hsp, 1e-3); this.vy=(this._mtTargY-this.y)/_remT;
+        } else this.vy -= (window._MOUNT_ARC_G||760)*dt;                        // no target (or past it) -> gravity carries it on down to the deck
+      }
       this.y+=this.vy*dt;
       const _fy=(window._MOUNT_ARC_SKIM_Y||9); if(this.y<=_fy){ this.y=_fy; if(this.vy<0)this.vy=0; }   // reached the floor -> skim along it (level)
     }
@@ -12237,7 +12241,7 @@ class Player{
     }
     // ── VERTICAL AIM-ASSIST: find the nearest thing near this shot's line and bias vy to MEET its height, so point-blank
     //    shots stop sailing over short enemies — AND over barrels/crates (the muzzle sits high, so a flat shot skims the top). Horizontal aim is untouched. ──
-    let _assistVY=null;
+    let _assistVY=null, _mtTargT=null, _mtTargY=9;   // _mtTarg* = the assist target's along-aim distance + height (fed to the mounted arc so it dips onto near/far enemies)
     if(window._AIM_ASSIST_V!==false){
       const cax=Math.cos(a), caz=Math.sin(a); let bestT=null,bestPerp=1e9,bestEY=9;
       const _consider=(tx,tz,ty,sz)=>{ const ex=tx-spawnX, ez=tz-spawnZ; const t=ex*cax+ez*caz; if(t<8||t>(window._AIM_ASSIST_R||420))return; const perp=Math.abs(-ex*caz+ez*cax); if(perp<((sz||12)*0.7+(window._AIM_ASSIST_CONE||42)) && perp<bestPerp){ bestPerp=perp; bestT=t; bestEY=ty; } };
@@ -12249,14 +12253,20 @@ class Player{
       }
       // PREFER the soft-locked target (the one with the on-screen indicator): aim the shot's vy straight at ITS centre so the trajectory physically goes onto it
       if(this._softLock){ const L=this._softLock, lx=(L.wx!=null?L.wx:L.x), lz=(L.wz!=null?L.wz:L.z); if(lx!=null){ const ex=lx-spawnX, ez=lz-spawnZ, t=ex*cax+ez*caz; if(t>8){ bestT=t; bestEY=(L.mesh?L.mesh.position.y:(L.py!=null?L.py:(L.y!=null?L.y:9)))+(window._LOCK_AIM_YOFF||4); } } }
-      if(bestT!=null){ const ty=bestEY+(window._AIM_ASSIST_YOFF!=null?window._AIM_ASSIST_YOFF:0); _assistVY=(ty-y0)/Math.max(bestT/bspd,1e-4); }   // vy so the bullet descends/rises to the target height
+      if(bestT!=null){ const ty=bestEY+(window._AIM_ASSIST_YOFF!=null?window._AIM_ASSIST_YOFF:0); _assistVY=(ty-y0)/Math.max(bestT/bspd,1e-4); _mtTargT=bestT; _mtTargY=ty; }   // vy so the bullet descends/rises to the target height; also remember the target for the mounted arc
     }
     const fire=(ang,kind)=>{
       if(this._mount && window._MOUNT_SHOOT_ARC!==false){
-        // MOUNTED: shoot straight OUT level (ignore the dragon's spine up-slant + aim pitch), then after clearing the
-        // creature the round arcs DOWN to the ground and skims it — so you can actually hit ground enemies from up top.
+        // MOUNTED: shoot straight OUT level (ignore the dragon's spine up-slant), then dip DOWN. If the vertical aim-assist
+        // found an enemy ahead, the round homes its descent onto THAT target (near enemies get hit, not just far skimmers);
+        // otherwise it clears the creature then arcs down and skims the deck. Clearance shrinks for a close target so it
+        // doesn't sail over a point-blank enemy's head.
         const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0);   // vy defaults 0 -> flat launch
-        _b._mountArc=true; _b._mtClear=(window._MOUNT_ARC_CLEAR||80); GS.bullets.push(_b); return;
+        _b._mountArc=true;
+        const _baseClear=(window._MOUNT_ARC_CLEAR||70);
+        if(_mtTargT!=null){ _b._mtTargT=_mtTargT; _b._mtTargY=_mtTargY; _b._mtClear=Math.max((window._MOUNT_ARC_MIN_CLEAR||34), Math.min(_baseClear, _mtTargT*(window._MOUNT_ARC_CLEAR_FRAC||0.4))); }   // shrink clearance for a near target, but never below the amount needed to clear the dragon's head
+        else _b._mtClear=_baseClear;
+        GS.bullets.push(_b); return;
       }
       if(_droneAimDir){                                          // DRONE LOCK: straight at the selected target in 3D, regardless of the drone's position
         const off=ang-ab, ca=Math.cos(off), sa=Math.sin(off);
