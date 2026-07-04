@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB278</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB279</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -21434,6 +21434,16 @@ function loop(ts){ requestAnimationFrame(loop);
         { const _swAct=player._swingAction; ud._swActive=!!(_swAct&&_swAct.isRunning&&_swAct.isRunning()&&_swAct._clip&&_swAct.time<_swAct._clip.duration-0.02); }
         if(ud._meleeTimer>0 || ud._swActive){
           if(ud._meleeTimer>0){ ud._meleeTimer-=dt; if(ud._meleeTimer<0)ud._meleeTimer=0; }
+          // SLIDE END (targeted hitch fix): the moment a SLIDE's timer ends, END the slide — free steering AND hand locomotion
+          // back — even if the slide CLIP is still visually running (_swActive). The old cleanup gated on !_swActive, so when the
+          // slide clip outran its timer the steering lock lingered + the run resume was delayed until the ~1s watchdog: exactly
+          // the "slide -> run then pauses mid-stride then continues" hitch. Resume loco right on the timer instead.
+          if(player._sliding && ud._meleeTimer<=0 && window._SLIDE_END_FIX!==false){
+            player._sliding=false; player._rollAimLock=false; player._rollLockT=0; player._swingAction=null; ud._swActive=false;
+            ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null;
+            if(player._meleeAdditive){ try{player._meleeAdditive.fadeOut(0.1);}catch(_){} player._meleeAdditive=null; }
+            else { ud.currentClip=null; ud._locoResumeSnap=(window._LOCO_RESUME_SNAP!=null?window._LOCO_RESUME_SNAP:0.07); }   // seed the run at a mid-stride phase so it doesn't pop to frame 0
+          }
           if(player._meleeLungeT>0) player._meleeLungeT-=dt;
           if(window._meleeLandLock) player._jumpTapped=false;        // land-lock (opt-in): block jump during the swing
           const _committed=(ud._meleeMax||0)-ud._meleeTimer;          // time elapsed in this swing
@@ -29978,7 +29988,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
         mname='slide'; player._lastSlideT=_nw;
         const _sd=(player._meleeAAtarget && window._MELEE_AA!==false)?[Math.cos(player.aim||0),Math.sin(player.aim||0)]:((typeof dirAngle==='number')?[Math.cos(dirAngle),Math.sin(dirAngle)]:(_hsp>1?[player.vx/_hsp,player.vz/_hsp]:[Math.cos(player.aim||0),Math.sin(player.aim||0)]));   // aim-assist locked a foe/BALL -> the slide-kick drives straight AT it (so you don't kick past the ball); else a flicked slide goes where you flick; null-dir gamepad keeps the running direction
         player._dashDir=_sd; player._dashRamp=(window._SLIDE_FRAMES||24); player._dashRampMax=player._dashRamp; player._dashPeak=(window._SLIDE_SPEED||600);
-        if(_ballEject){ player._dashPeak=Math.max(player._dashPeak, (player._ballEjectSpeed||0)*(window._BALL_EJECT_SLIDE_K||1.5)); player.pvy=Math.max(player.pvy||0,(window._BALL_EJECT_LIFT||140)); player._ballEjectSpeed=0; if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.3,0.95,1],16,110); }   // ball momentum -> a big launching slide
+        if(_ballEject){ player._dashPeak=Math.max(player._dashPeak, (player._ballEjectSpeed||0)*(window._BALL_EJECT_SLIDE_K||1.5)); player.pvy=Math.max(player.pvy||0,(window._BALL_EJECT_LIFT!=null?window._BALL_EJECT_LIFT:0)); player._ballEjectSpeed=0; if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.3,0.95,1],16,110); }   // ball momentum -> a GROUNDED slide carrying the roll's speed (was launching UP 140 -> read as "jumping out"; set _BALL_EJECT_LIFT>0 to restore a pop)
         player._meleeStep=-1; player._meleeCombo=1; player._sliding=true; player.aim=Math.atan2(_sd[1],_sd[0]);
       }
     }
