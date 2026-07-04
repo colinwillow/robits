@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB265</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB266</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -24237,7 +24237,7 @@ function _geyserTick(dt){
 // ── CREATURE MOUNT — jump + land on a friendly dragon / three-headed dog to ride it. Pins the player to a bone on the
 //    creature's back (Bip001_spine), plays ride_idle / ride_shoot, and aims the arms via the Spine1 override (see draw()). ──
 function _rideableCreature(a){ return a && a.alive!==false && (a.hp==null||a.hp>0) && (a._robitId==='blue_dragon'||a._robitId==='three_headed_dog'); }
-function _mount(a){ if(!player)return; player._mount=a; a._mounted=true; player.pvy=0; player.vx=0; player.vz=0; player._onPlatform=true; player._inPlanetGravity=false; player._sliding=false; player._rollAimLock=false; player._swingAction=null;
+function _mount(a){ if(!player)return; player._mount=a; a._mounted=true; player._mountT=0; player.pvy=0; player.vx=0; player.vz=0; player._onPlatform=true; player._inPlanetGravity=false; player._sliding=false; player._rollAimLock=false; player._swingAction=null;
   if(player.model&&player.model.userData){ const ud=player.model.userData; ud._meleeTimer=0; ud.currentClip=null;
     if(ud.clips){ const ks=Object.keys(ud.clips).filter(k=>!k.startsWith('_'));   // resolve the ride clips by FUZZY name (GLB exports rename them) so ride_idle/ride_shoot actually play instead of falling back to locomotion
       ud._rideIdleName = ud.clips['ride_idle']?'ride_idle':(ks.find(k=>/ride/i.test(k)&&/idle/i.test(k))||ks.find(k=>/ride/i.test(k)&&!/shoot|shot|fire|aim/i.test(k))||null);
@@ -24273,8 +24273,12 @@ function _mountTick(dt){
     // Anchor to the spine BONE by default (that's where he should sit). Force a fresh world-matrix so we read the CURRENT pose,
     // not a stale one (the stale read was the old camera shake). _MOUNT_USE_BONE=false falls back to the creature's base origin.
     if(window._MOUNT_USE_BONE!==false && a._model && a._model.getObjectByName){ const bn=a._model.getObjectByName(a._mountBoneName||window._MOUNT_BONE||'Bip001_Spine'); if(bn){ bn.updateWorldMatrix(true,false); const wp=(window._mtWP||(window._mtWP=new THREE.Vector3())); bn.getWorldPosition(wp); mx=wp.x+(window._MOUNT_OFF_X||0); my=wp.y+(window._MOUNT_BONE_Y||0); mz=wp.z+(window._MOUNT_OFF_Z||0); } }
-    // EASE onto the mount point so any residual creature motion reads smooth (no snap -> no camera whip)
-    const _e=Math.min(1,(dt||0.016)*(window._MOUNT_PULL||6));   // gentler pull so you EASE onto the saddle over ~0.25s instead of snapping/teleporting
+    // EASE onto the mount point. LOOSE during the hop-on transition (so it flows onto the saddle, no teleport), then
+    // TIGHTER once he's actually seated (so he tracks the moving dragon closely instead of lagging behind it).
+    player._mountT=(player._mountT||0)+dt;
+    const _seated=(player._mountT > (window._MOUNT_SETTLE_T||0.32));
+    const _pull=_seated ? (window._MOUNT_PULL_TIGHT||16) : (window._MOUNT_PULL||6);
+    const _e=Math.min(1,(dt||0.016)*_pull);
     player.wx+=(mx-player.wx)*_e; player.wz+=(mz-player.wz)*_e; player.py+=(my-player.py)*_e;
     player.pvy=0; player.vx=0; player.vz=0;
     player._onPlatform=true; player._inPlanetGravity=false; player._launched=false; player._sliding=false;
