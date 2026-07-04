@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB289</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB290</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -20528,11 +20528,17 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
     const t=e.changedTouches[0];
     jL._swipeHist.push({x:t.clientX,y:t.clientY,time:performance.now()});
     jL._tStart=performance.now(); jL._tX=t.clientX; jL._tY=t.clientY; jL._meleeFlicked=false;   // TAP (cycle melee) vs FLICK (directional) detection
-    if(window._BALL_ON){ clearTimeout(jL._ballTimer); jL._ballHolding=true;
-      const _dtap=(window._BALL_DOUBLETAP!==false);   // NEW default: double-tap to charge. window._BALL_DOUBLETAP=false -> old press-and-hold.
-      if(_dtap){
-        if(!(window._BALL&&window._BALL.state) && !(player&&player._ballActive) && jL._lastTapT && (performance.now()-jL._lastTapT)<(window._BALL_DTAP_WIN||320)){ jL._lastTapT=0; jL._dtapCharge=true; if(window._ballChargeStart)window._ballChargeStart(); }   // DOUBLE-TAP -> enter charging (then lift off; release with a tap / flick)
-      } else {
+    if(window._BALL_ON){ clearTimeout(jL._ballTimer); jL._ballHolding=true; jL._dtapDone=false;
+      if(window._BALL_DTAP_TOGGLE!==false){
+        // NEW SCHEME: double-tap TOGGLES ball mode (in from idle -> rolling at rest / out when balled). While rolling, press-and-
+        // hold CENTERED to charge a launch (aim with the stick, release to fire). Flick still quick-balls / redirects the roll.
+        const _inBall=!!(window._BALL&&window._BALL.state);
+        if(jL._lastTapT && (performance.now()-jL._lastTapT)<(window._BALL_DTAP_WIN||320)){ jL._lastTapT=0; jL._dtapDone=true;
+          if(_inBall){ if(window._ballExit)window._ballExit(); } else if(window._ballEnterRolling){ window._ballEnterRolling(); } }   // double-tap: toggle in/out
+        else { jL._ballTimer=setTimeout(()=>{ if(jL.id!==null && window._BALL_ON && jL._ballHolding && !jL._meleeFlicked && window._BALL && window._BALL.state==='rolling'){ const m=Math.hypot(moveIn.x||0,moveIn.y||0); if(m<(window._BALL_HOLD_DEAD||0.32) && window._ballChargeFromRoll)window._ballChargeFromRoll(); } }, (window._BALL_HOLD_T||220)); }   // hold-centered-while-rolling -> charge
+      } else if(window._BALL_DOUBLETAP!==false){   // OLD: double-tap to charge directly from idle
+        if(!(window._BALL&&window._BALL.state) && !(player&&player._ballActive) && jL._lastTapT && (performance.now()-jL._lastTapT)<(window._BALL_DTAP_WIN||320)){ jL._lastTapT=0; jL._dtapCharge=true; if(window._ballChargeStart)window._ballChargeStart(); }
+      } else {   // OLDEST: press-and-hold from idle to charge
         jL._ballTimer=setTimeout(()=>{ if(jL.id!==null && window._BALL_ON && !(window._BALL&&window._BALL.state) && jL._ballHolding && !jL._meleeFlicked){ const m=Math.hypot(moveIn.x||0,moveIn.y||0); if(m<(window._BALL_HOLD_DEAD||0.32)) window._ballChargeStart(); } }, (window._BALL_HOLD_T||170)); }
     }
   };
@@ -20650,19 +20656,21 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
             }
           }
         }
-        // BALL: a quick tap on the left stick while rolling cancels back to robot form (so you can jump normally)
-        if(window._BALL_ON && window._BALL && window._BALL.state==='rolling' && !jL._meleeFlicked){
+        // BALL: a quick tap while ROLLING cancels back to robot form — ONLY in the old scheme. In the new toggle scheme, a single
+        // tap does nothing (it just seeds the double-tap); DOUBLE-tap is what exits.
+        if(window._BALL_DTAP_TOGGLE===false && window._BALL_ON && window._BALL && window._BALL.state==='rolling' && !jL._meleeFlicked){
           const _bd=performance.now()-(jL._tStart||0), _bdisp=Math.hypot(t.clientX-(jL._tX||t.clientX), t.clientY-(jL._tY||t.clientY));
           if(_bd<240 && _bdisp<18) window._ballExit();
         }
-        // BALL double-tap mode: the 2nd tap is HELD to charge (and the stick aims while held); RELEASING that finger LAUNCHES in the aimed direction. No third tap needed.
-        // NOTE: do NOT gate on _tapMoved here — aiming necessarily moves the stick (>15px sets _tapMoved), which would wrongly block the release-launch. _meleeFlicked alone prevents a double launch (a real flick already fired + flipped state to 'rolling').
-        if(window._BALL_ON && window._BALL_DOUBLETAP!==false && window._BALL && window._BALL.state==='charging' && !jL._meleeFlicked){
-          if(jL._dtapCharge){ jL._dtapCharge=false; if(window._ballChargeRelease)window._ballChargeRelease(); }   // release the hold -> charged launch along the aimed dir
-          else { const _cd=performance.now()-(jL._tStart||0), _cdisp=Math.hypot(t.clientX-(jL._tX||t.clientX), t.clientY-(jL._tY||t.clientY)); if(_cd<240 && _cdisp<18 && window._ballChargeRelease)window._ballChargeRelease(); }   // fallback: a later separate tap also launches
+        // CHARGING release: lifting the finger LAUNCHES the charged ball in the aimed direction (a flick already launched via the
+        // block above, which flips state to 'rolling', so this won't double-fire).
+        if(window._BALL_ON && window._BALL && window._BALL.state==='charging' && !jL._meleeFlicked && !jL._dtapDone){
+          if(window._BALL_DTAP_TOGGLE!==false){ if(window._ballChargeRelease)window._ballChargeRelease(); }   // new scheme: any release fires (you held to charge, aimed, let go)
+          else if(jL._dtapCharge){ jL._dtapCharge=false; if(window._ballChargeRelease)window._ballChargeRelease(); }
+          else { const _cd=performance.now()-(jL._tStart||0), _cdisp=Math.hypot(t.clientX-(jL._tX||t.clientX), t.clientY-(jL._tY||t.clientY)); if(_cd<240 && _cdisp<18 && window._ballChargeRelease)window._ballChargeRelease(); }
         }
-        // record a quick tap so the NEXT press can detect a double-tap
-        if(window._BALL_ON && window._BALL_DOUBLETAP!==false && !jL._meleeFlicked && !jL._tapMoved && !(window._BALL&&window._BALL.state)){
+        // record a quick tap so the NEXT press can detect a double-tap (toggle scheme: record IN ball too so double-tap-to-exit works)
+        if(window._BALL_ON && (window._BALL_DTAP_TOGGLE!==false||window._BALL_DOUBLETAP!==false) && !jL._meleeFlicked && !jL._tapMoved && !jL._dtapDone && (window._BALL_DTAP_TOGGLE!==false || !(window._BALL&&window._BALL.state))){
           const _td=performance.now()-(jL._tStart||0), _tdisp=Math.hypot(t.clientX-(jL._tX||t.clientX), t.clientY-(jL._tY||t.clientY));
           if(_td<(window._BALL_TAP_MAXT||220) && _tdisp<18) jL._lastTapT=performance.now();
         }
@@ -29784,6 +29792,22 @@ function _ballPose(on){
     if(ud.clips['ball']){ try{ ud.clips['ball'].fadeOut(0.14); }catch(_){}}
     if(ud.clips['idle']){ try{ ud.clips['idle'].reset().setEffectiveWeight(1).fadeIn(0.14).play(); ud.currentClip='idle'; }catch(_){}} }
 }
+window._ballEnterRolling=function(){   // DOUBLE-TAP entry: ball up + start ROLLING (at rest) — you then push the stick to roll around; press-hold to charge a launch
+  const B=window._BALL; if(typeof player==='undefined'||!player||!player.alive||B.state)return;
+  if(player._launched||(player._kbStun||0)>0)return;
+  B.vx=0; B.vz=0; B.vy=(player.pvy||0); B.px=player.wx; B.pz=player.wz; B.py=player.py||0; B.t=0; B._lerpT=0; B.charge=0; if(!B.q)B.q=new THREE.Quaternion();
+  B.state='rolling'; player._ballActive=true; B._lastPuff=null; if(!player.model.userData._ballPose)_ballPose(true); _ballShell(); _ballShellTick(1,0,false);
+  player.inv=Math.max(player.inv||0,8);
+  if(typeof ps!=='undefined'){ ps.ring(player.wx,player.wz,[0.25,0.9,1],20,130); ps.burst(player.wx,player.wz,[0.3,0.95,1],14,100); }
+  if(typeof grid!=='undefined'&&grid.push)grid.push(player.wx,player.wz,-4,60);
+  if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(300,0.14,'sawtooth',0.1,900);
+};
+window._ballChargeFromRoll=function(){   // press-hold centered WHILE rolling -> freeze + charge (aim with the stick, release to launch)
+  const B=window._BALL; if(!B||B.state!=='rolling'||typeof player==='undefined'||!player)return;
+  B.state='charging'; B.charge=0; B.vx=0; B.vz=0; B.t=0;
+  if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.4,0.9,1],12,80);
+  if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(150,0.12,'sawtooth',0.1,360);
+};
 window._ballChargeStart=function(){
   const B=window._BALL; if(typeof player==='undefined'||!player||!player.alive||B.state)return;
   if(player._launched||(player._kbStun||0)>0)return;   // can't ball up mid-knockback
