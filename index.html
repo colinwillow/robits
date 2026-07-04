@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB273</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB274</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3995,6 +3995,10 @@ function _allyWander(dt){
   const ox=owner?owner.wx:this.wx, oz=owner?owner.wz:this.wz;
   const dOwner=Math.hypot(ox-this.wx, oz-this.wz), PERIM=(window._ALLY_PERIMETER||640);
   this._wanderT=(this._wanderT||0)-dt;
+  // ATTENTION SPIKE: when the player stirs up trouble (a shot/provoked enemy sets _enemyPOI) your minions perk toward it — "oh, action over there!"
+  const POI=(window._ALLY_POI!==false)?window._enemyPOI:null;
+  if(POI && POI.str>(window._ALLY_POI_MIN||0.4)){ const dp=Math.hypot(POI.x-this.wx,POI.z-this.wz);
+    if(dp<(window._ALLY_POI_R||1000) && dp>(window._ALLY_GOAL_REACH||72) && (!this._wanderGoal || this._wanderGoal.kind!=='poi' || this._wanderT<=0)){ this._wanderGoal={x:POI.x,z:POI.z,kind:'poi'}; this._wanderT=(window._ALLY_POI_T||1.8); } }
   const _ball=(typeof _cubeBall!=='undefined'&&_cubeBall)?_cubeBall:null;
   const g=this._wanderGoal;
   const reached = g && g.kind!=='smash' && g.kind!=='ball' && Math.hypot(g.x-this.wx, g.z-this.wz) < (window._ALLY_GOAL_REACH||72);   // smash/ball goals are NOT "reached" by proximity -> it drives all the way in
@@ -8653,6 +8657,12 @@ class AllyBot{
     if(this._isDroideka && this._dkBall){ const l=Math.hypot(dx,dz)||1, K=(window._DK_KNOCK||300)*Math.max(1,mag); this._dkVx=(this._dkVx||0)+(dx/l)*K; this._dkVz=(this._dkVz||0)+(dz/l)*K; this._dkVy=(this._dkVy||0)+Math.min(260,K*0.55); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.5,0.9,1],10,60,(this._dkY||0)+10); return; }   // shielded ball ricochets like the RL ball
     const l=Math.hypot(dx,dz)||1; this.vx=(this.vx||0)+(dx/l)*mag*30; this.vz=(this.vz||0)+(dz/l)*mag*30;
   }
+  _blastFling(dx,dz,speed,lift){   // BIG blast (nuke/bomb) hurls your own minion airborne, same as it flings you — droidekas ride their RL ball air, others get a ballistic tumble (see the _flungT branch in update)
+    const l=Math.hypot(dx,dz)||1, ux=dx/l, uz=dz/l;
+    if(this._isDroideka){ this._dkBall=true; this._dkT=0; this._dkVx=(this._dkVx||0)+ux*speed; this._dkVz=(this._dkVz||0)+uz*speed; this._dkVy=(this._dkVy||0)+lift; if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.6,0.9,1],12,80,(this._dkY||0)+10); return; }
+    this._flungVx=ux*speed; this._flungVz=uz*speed; this._flungVy=lift; this._flungY=Math.max(0,(this.py||9)-9); this._flungT=(window._ALLY_FLING_T||2.4); this._flungSpin=(Math.random()<0.5?-1:1)*(5+Math.random()*5);
+    if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.6,0.9,1],12,80,(this.py||9));
+  }
   _dkClamp(){
     const y=9+(this._dkY||0);
     if(typeof GS!=='undefined'&&GS.zone===-19 && typeof _cubeSDF==='function' && typeof _cubeGrad==='function'){ const sd=_cubeSDF(this.wx,y,this.wz); if(sd>-14){ const n=new THREE.Vector3(); _cubeGrad(this.wx,y,this.wz,n); const vn=this._dkVx*n.x+this._dkVz*n.z; if(vn>0){ this._dkVx-=1.7*vn*n.x; this._dkVz-=1.7*vn*n.z; } const push=(-14-sd); this.wx+=n.x*push; this.wz+=n.z*push; } return; }
@@ -8673,7 +8683,9 @@ class AllyBot{
       // ── ROLL: drive toward the foe (or loosely follow the owner) with momentum; coast when knocked ──
       let tx=this.wx,tz=this.wz, drive=false;
       if(near){ tx=foe.wx; tz=foe.wz; const dd=Math.hypot(tx-this.wx,tz-this.wz); drive=dd>(window._DK_DEPLOY_STOP||86); }
-      else if(owner){ tx=owner.wx; tz=owner.wz; const dd=Math.hypot(tx-this.wx,tz-this.wz); drive=dd>(window._DK_FOLLOW_STOP||130); }
+      else if(owner){ let wtx=owner.wx, wtz=owner.wz;
+        if(window._ALLY_WANDER_ON!==false && typeof _allyWander==='function'){ try{ const w=_allyWander.call(this,dt); if(this._wanderGoal){ wtx=w.wx; wtz=w.wz; } }catch(_){} }   // ball droid roams its own goals too instead of glued to the owner
+        tx=wtx; tz=wtz; const dd=Math.hypot(tx-this.wx,tz-this.wz); drive=dd>(window._DK_FOLLOW_STOP||130); }
       const dx=tx-this.wx, dz=tz-this.wz, d=Math.hypot(dx,dz)||1;
       if(drive){ this._dkVx+=(dx/d)*(window._DK_ACCEL||760)*dt; this._dkVz+=(dz/d)*(window._DK_ACCEL||760)*dt; }
       const fr=Math.pow((window._DK_ROLL_FRIC||0.12),dt); this._dkVx*=fr; this._dkVz*=fr;
@@ -8710,6 +8722,18 @@ class AllyBot{
   update(dt){
     this.t+=dt; this.life-=dt; this.spawn=Math.min(1,this.spawn+dt*3);
     if(this.fireCD>0) this.fireCD-=dt; if(this._biteCD>0) this._biteCD-=dt; if(this._attachCD>0) this._attachCD-=dt;
+    // ── BLAST-FLUNG (non-droideka): a ballistic tumble through the air with a bounce, owning the body until it lands ──
+    if((this._flungT||0)>0 && !this._isDroideka){
+      this._flungT-=dt;
+      this._flungVy-=(window._ALLY_FLING_GRAV||1500)*dt;
+      this.wx+=this._flungVx*dt; this.wz+=this._flungVz*dt; this._flungY=Math.max(0,(this._flungY||0)+this._flungVy*dt);
+      const fr=Math.pow((window._ALLY_FLING_FRIC||0.55),dt); this._flungVx*=fr; this._flungVz*=fr;
+      if(this._flungY<=0 && this._flungVy<0){ if(this._flungVy<-(window._ALLY_FLING_BOUNCE_MIN||150)){ this._flungVy=-this._flungVy*0.4; this._flungVx*=0.68; this._flungVz*=0.68; if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.6,0.9,1],8,50,1); } else { this._flungVy=0; this._flungY=0; } }
+      if(typeof this._clamp==='function')try{this._clamp();}catch(_){}
+      const sp=Math.hypot(this._flungVx,this._flungVz);
+      if(this._flungY<=0.5 && sp<(window._ALLY_FLING_SETTLE||45) && this._flungVy<=0){ this._flungT=0; this._flungVx=this._flungVz=0; }
+      if((this._flungT||0)>0){ this.py=9+(this._flungY||0); if(this.mesh){ this.mesh.position.set(this.wx,this.py,this.wz); if(this._spider&&this._spider.group)this._spider.group.rotation.x+=(this._flungSpin||6)*dt; } if(this._haloRender)try{this._haloRender(dt);}catch(_){} return; }
+    }
     // target: nearest live enemy in range (incl. the rival bot + dummy), else the player
     let tgt=null, td=1e9;
     for(const e of GS.enemies){ if(!e.alive||e._captured) continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<td){ td=d; tgt=e; } }
@@ -8718,8 +8742,13 @@ class AllyBot{
     const AGGRO=300; this._enemyTarget=null; this._enemyDist=0;
     let TX,TY,TZ, chasing=false;
     if(tgt && td<AGGRO){ this._enemyTarget=tgt; this._enemyDist=td; chasing=true; TX=tgt.wx; TZ=tgt.wz; TY=(tgt.mesh?tgt.mesh.position.y:(tgt.py||9)); }
-    else if(player){ TX=player.wx; TZ=player.wz; TY=Math.max(9, player.py||9); }
-    else { TX=this.wx; TZ=this.wz; TY=9; }
+    else {
+      // OFF-DUTY: no foe in range -> roam on a LONG leash around the owner (own goals: amble, smash a crate, chase the ball,
+      // perk toward wherever the player's stirring up trouble) instead of hugging the player. Reuses the creature-ally wander.
+      let _handled=false;
+      if(window._ALLY_WANDER_ON!==false && typeof _allyWander==='function'){ try{ const w=_allyWander.call(this,dt); if(this._wanderGoal){ TX=w.wx; TZ=w.wz; TY=w.py||9; _handled=true; } else { TX=this.wx; TZ=this.wz; TY=9; _handled=true; } }catch(_){} }   // no goal (standing a beat) -> hold position rather than march to a far idle point
+      if(!_handled){ if(player){ TX=player.wx; TZ=player.wz; TY=Math.max(9, player.py||9); } else { TX=this.wx; TZ=this.wz; TY=9; } }
+    }
     if(chasing && this.fireCD<=0){ const dd=Math.hypot(TX-this.wx,TZ-this.wz); if(dd<this._atkRange){ this._allyAttack(TX,TY,TZ); this.fireCD=(this._atkType==='gun'?0.5:(this._atkType==='orb'?0.95:0.7))+Math.random()*0.3; } }
     const CITY=(typeof GS!=='undefined'&&GS.zone===-16);
 
@@ -14202,7 +14231,8 @@ function _detonateItem(type,x,z,od){
         if(e._launch)e._launch(e.wx-x,e.wz-z,(window._BOSS_NUKE_VX||450)*(0.5+_n*0.5),(window._BOSS_NUKE_VY||560));   // big bosses fly too — about half the little guys' distance
         else if(e.knock)e.knock(e.wx-x,e.wz-z,8,1.8,10);
         const pts=(e.hit?e.hit(e._launch?(window._BOSS_NUKE_DMG||45):60):0); if(pts>0||!e.alive){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-14,14),e.wz+rand(-14,14),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); } } }
-      if(GS.allies)for(const a of GS.allies){ if(!a||a.alive===false)continue; const d=Math.hypot(a.wx-x,a.wz-z); if(d<R){ const _n=Math.max(0,1-d/R); if(a._launch)a._launch(a.wx-x,a.wz-z,(window._BOSS_NUKE_VX||450)*(0.5+_n*0.5),(window._BOSS_NUKE_VY||560)); else if(a.knock)try{a.knock(a.wx-x,a.wz-z,8,1.8,10);}catch(_){} if(window._FRIENDLY_FIRE===true && a.hit)try{a.hit(window._BOSS_NUKE_DMG_ALLY||25);}catch(_){} } }   // your own summons get FLUNG by your nuke (chaos!) but no longer HURT by it — FF off
+      if(GS.allies){ if(typeof _flingAlliesInBlast==='function')_flingAlliesInBlast(x,z,R,(window._NUKE_ALLY_VX||520),(window._NUKE_ALLY_VY||560));   // your own summons get FLUNG across the map by your nuke (chaos!) — same treatment it gives you
+        if(window._FRIENDLY_FIRE===true)for(const a of GS.allies){ if(a&&a.alive!==false&&a.hit&&Math.hypot(a.wx-x,a.wz-z)<R)try{a.hit(window._BOSS_NUKE_DMG_ALLY||25);}catch(_){} } }   // ...but no longer HURT by it — FF off by default
       if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.hit){ if(Math.hypot(GS_trainingDummy.wx-x,GS_trainingDummy.wz-z)<R)GS_trainingDummy.hit(60,x,z); }
       // NUKE = the most deadly throw: it SMASHES bots and the player too (thrown weapons hurt everyone in the blast, not just enemies)
       if(typeof GS_bots!=='undefined') for(const b of GS_bots){ if(b&&b.alive){ const d=Math.hypot(b.wx-x,b.wz-z); if(d<R){ const n=Math.max(0,1-d/R); if(b.hit)b.hit(60); if(b.knock)b.knock(b.wx-x,b.wz-z,(window._NUKE_KB_MAG||24),(window._NUKE_KB_LIFT||640)*(0.45+n*0.55),46); } } }
@@ -14244,6 +14274,7 @@ function _detonateItem(type,x,z,od){
     else if(type==='bomb'){   // thrown BOMB (now a physical grab-&-throw object like the nuke) -> classic bomb blast
       const R=(window._BOMB_R||160), dmg=(window._BOMB_DMG||1.0);
       if(typeof _bombBlastEnemies==='function') _bombBlastEnemies(x,9,z,R,dmg);
+      if(typeof _flingAlliesInBlast==='function') _flingAlliesInBlast(x,z,R+(window._BOMB_ALLY_R_PAD||40),(window._BOMB_ALLY_VX||300),(window._BOMB_ALLY_VY||320));   // your own minions get flung too — ~half the nuke
       // CINEMATIC SHOCKWAVE ~half the nuke's: the big expanding ring + fireball + flash + racing dust (was missing on the physical bomb — it only had tiny ring puffs)
       const _SR=R*(window._BOMB_SHOCK_R||1.6);
       if(typeof _spawnBlastShock==='function') _spawnBlastShock(x,9,z,_SR,0xffb060);
@@ -14467,6 +14498,18 @@ function _bombBlastEnemies(x,y,z,R,dmgScale){
     if(hitCount>0){ if(typeof hitStop==='function')hitStop(4); if(GS.mult<25)GS.mult++; if(typeof updateUI==='function')updateUI(); }
   }catch(_){}
 }
+// BIG blasts fling YOUR OWN minions too (you love that your own nuke sends you flying — friendly droids/spiders/creatures get the same treatment). scale<1 for the bomb (~half the nuke).
+function _flingAlliesInBlast(x,z,R,speed,lift){
+  if(window._ALLY_BLAST_FLING===false || typeof GS==='undefined' || !GS.allies) return;
+  for(const a of GS.allies){ if(!a||a.alive===false) continue; const d=Math.hypot((a.wx||0)-x,(a.wz||0)-z); if(d>=R) continue; const n=Math.max(0,1-d/R);
+    let dx=(a.wx-x), dz=(a.wz-z); if(Math.abs(dx)<1&&Math.abs(dz)<1){ const a2=Math.random()*TAU; dx=Math.cos(a2); dz=Math.sin(a2); }
+    const sPow=speed*(0.5+n*0.7), lPow=lift*(0.45+n*0.75);
+    if(a._blastFling) a._blastFling(dx,dz,sPow,lPow);
+    else if(a._launch) try{ a._launch(dx,dz,sPow,lPow); }catch(_){}
+    else if(a.knock) try{ a.knock(dx,dz,(sPow*0.05)); }catch(_){}
+  }
+}
+window._flingAlliesInBlast=_flingAlliesInBlast;
 function _smashCrateAt(x,z){
   _spawnCrateDebris(x,12,z);
   if(typeof ps!=='undefined'){ ps.ring(x,z,[0.4,1,0.85],12,92); for(let k=0;k<20;k++){ const a=Math.random()*6.28,sp=rand(30,90); ps._spawn(x+rand(-8,8),rand(6,24),z+rand(-8,8),Math.cos(a)*sp,rand(20,70),Math.sin(a)*sp,0.7,0.5,0.25,0.6); } }
@@ -15109,7 +15152,9 @@ window._updateOffscreenIndicators=_updateOffscreenIndicators;
 function _updateItemShots(dt){
   const A=window._itemShots; if(!A||!A.length)return;
   for(let i=A.length-1;i>=0;i--){ const s=A[i];
-    if(!s.mesh){ s.mesh=_makePUModel(s.kind==='crate'?'crate':s.type); s.mesh.scale.setScalar(s.kind==='crate'?1.35:1.15); scene.add(s.mesh); s.spin={x:rand(-5,5),y:rand(-5,5),z:rand(-5,5)}; if(s.type==='barrel'){ const f=(window._BARREL_THROW_F||1.8); s.vx*=f; s.vz*=f; if(s.vy>50)s.vy*=0.65; } }   // barrels get extra FORWARD launch + a flatter arc so they land rolling, not plopping
+    if(!s.mesh){ s.mesh=_makePUModel(s.kind==='crate'?'crate':s.type); s.mesh.scale.setScalar(s.kind==='crate'?1.35:1.15); scene.add(s.mesh); s.spin={x:rand(-5,5),y:rand(-5,5),z:rand(-5,5)}; if(s.type==='barrel'){ const f=(window._BARREL_THROW_F||1.8); s.vx*=f; s.vz*=f; if(s.vy>50)s.vy*=0.65; }
+      // OWNER COLOUR IN FLIGHT: a thrown minion is yours and deploys as your ally -> tint the flying model to your team colour too, so it doesn't flash back to orange mid-air (held + deployed are already tinted)
+      if(window._HELD_MINION_TINT!==false && /^(droid|droideka|drone|dog|dragon|spider|spiders)$/.test(s.type||'')){ try{ const tc=new THREE.Color(window._PLAYER_TEAM_COL!=null?window._PLAYER_TEAM_COL:0x7fd4ff); s.mesh.traverse(o=>{ if(!o.material)return; const ms=Array.isArray(o.material)?o.material:[o.material]; for(const m of ms){ if(!m)continue; if(m.color&&m.color.isColor)m.color.copy(tc); if(m.emissive&&m.emissive.isColor)m.emissive.copy(tc); m.needsUpdate=true; } }); }catch(_){} } }   // barrels get extra FORWARD launch + a flatter arc so they land rolling, not plopping
     const _isf=(GS.zone===-19 && GS._gravFlip)?-1:1;   // flipped gravity pulls thrown stuff toward the ceiling too
     const BSZ=(window._BARREL_SIZE||11);
     const _barrelWall=(px,py,pz)=>{ if(GS.zone===-19){ return (typeof _cubeSDF==='function') && _cubeSDF(px,py,pz) > -BSZ; } const d=Math.hypot(px,pz), RR=(typeof ARENA_R!=='undefined'?ARENA_R-18:540); return d>RR; };
@@ -22349,7 +22394,7 @@ function loop(ts){ requestAnimationFrame(loop);
           if(_root && _root._ownRing){ const _rg=_root._ownRing; _rg.material.opacity=(window._ALLY_RING_OP||0.55)*(0.72+0.28*Math.sin(performance.now()*0.005));   // gentle breathe so it reads as a live marker
             // PIN IT FLAT ON THE GROUND under the creature. The model root sits at the body's MID-height (and a ball droid ROLLS), so a fixed local offset floated the ring at the midpoint + spun it. Re-derive the ring's local transform each frame: keep the body's XZ, drop Y to the floor, and cancel the parent's world rotation so it's always level.
             try{ const _pq=(window._ownRingPQ||(window._ownRingPQ=new THREE.Quaternion())); const _fq=(window._ownRingFQ||(window._ownRingFQ=new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI/2,0,0)))); _root.getWorldQuaternion(_pq); _pq.invert(); _rg.quaternion.copy(_pq).multiply(_fq);
-              const _wp=(window._ownRingWP||(window._ownRingWP=new THREE.Vector3())); _root.getWorldPosition(_wp); _wp.y=((typeof GS!=='undefined'&&GS.zone===-19)?(window._ALLY_RING_Y_CUBE!=null?window._ALLY_RING_Y_CUBE:10):(window._ALLY_RING_Y!=null?window._ALLY_RING_Y:1.5)); _root.worldToLocal(_wp); _rg.position.copy(_wp); }catch(_){}
+              const _wp=(window._ownRingWP||(window._ownRingWP=new THREE.Vector3())); _root.getWorldPosition(_wp); _wp.y=((typeof GS!=='undefined'&&GS.zone===-19)?(window._ALLY_RING_Y_CUBE!=null?window._ALLY_RING_Y_CUBE:2):(window._ALLY_RING_Y!=null?window._ALLY_RING_Y:1.5)); _root.worldToLocal(_wp); _rg.position.copy(_wp); }catch(_){}
           }
         }
         if(!GS.allies[i].update(dt)){ GS.allies[i].remove(); GS.allies.splice(i,1); }
