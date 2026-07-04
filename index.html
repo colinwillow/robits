@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB263</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB264</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10108,6 +10108,7 @@ window._openRobitMenu=_openRobitMenu; window._closeRobitMenu=_closeRobitMenu;
 const bulletGeo=(function(){ const g=new THREE.CylinderGeometry(0.16,0.95,13,8); g.rotateX(-Math.PI/2); return g; })();   // sleek long missile (was a stubby pellet)
 const bulletTailGeo=(function(){ const g=new THREE.ConeGeometry(0.7,20,8,1,true); g.rotateX(-Math.PI/2); g.translate(0,0,-10); return g; })();   // additive glow streak trailing behind (-Z)
 const _BULLET_AXIS=new THREE.Vector3(0,0,1), _bvDir=new THREE.Vector3();
+const _MT_UP=new THREE.Vector3(0,1,0), _MT_RIGHT=new THREE.Vector3(1,0,0);   // world axes for the mounted-torso world-space rotation
 const bulletMats={ normal:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xffdd00,emissiveIntensity:2.8,toneMapped:false}),
   laser:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x00ffea,emissiveIntensity:3.0,toneMapped:false}),
   homing:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xff66cc,emissiveIntensity:2.8,toneMapped:false}) };
@@ -10127,7 +10128,13 @@ class Bullet{
       if(best){const dx=best.wx-this.wx,dz=best.wz-this.wz,d=Math.hypot(dx,dz)||1;this.vx+=(dx/d)*1000*dt;this.vz+=(dz/d)*1000*dt;const s=Math.hypot(this.vx,this.vz),mx=480;if(s>mx){this.vx=this.vx/s*mx;this.vz=this.vz/s*mx;}} }
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this.life-=this.decay*dt*60;
     const _cf = (GS.zone===-16) ? _cityProjOrbit(this, 12, 34, dt) : (GS.zone===-19 ? _cubeProjStick(this, window._CUBE_PROJ_R||12, window._CUBE_PROJ_SOI||90, dt) : false);   // building field / cube inner shell owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the corner
-    if(this._g3){ this.y+=this.vy*dt; }                                        // straight-line 3D flight (galaxy)
+    if(this._mountArc){                                                        // MOUNTED shot: level out, clear the creature, then arc down and skim the ground
+      this._mtTrav=(this._mtTrav||0)+Math.hypot(this.vx,this.vz)*dt;
+      if(this._mtTrav > (this._mtClear||80)) this.vy -= (window._MOUNT_ARC_G||760)*dt;   // past the clearance distance -> gravity pulls it down toward the deck
+      this.y+=this.vy*dt;
+      const _fy=(window._MOUNT_ARC_SKIM_Y||9); if(this.y<=_fy){ this.y=_fy; if(this.vy<0)this.vy=0; }   // reached the floor -> skim along it (level)
+    }
+    else if(this._g3){ this.y+=this.vy*dt; }                                   // straight-line 3D flight (galaxy)
     else if(this._straightAim){ this.y+=this.vy*dt; if(this.y<2)this.y=2; }     // ASSISTED shot: fly a straight line to the locked target's height (no gravity arc) so the trajectory physically goes down into it
     else if(_cf){ this.y+=this.vy*dt; }                                        // riding/approaching a surface -> climb freely, no ground pull
     else if(GS.zone===-19){ this.y+=this.vy*dt; }                              // cube free-flight: keep its 3D motion (straight-out shots cross the room) — the stick handles surfaces
@@ -11636,7 +11643,7 @@ class Player{
         const _held = window._padActive ? !!window._padR3Held
                     : ((typeof IS_TOUCH!=='undefined'&&IS_TOUCH) ? ((typeof jR!=='undefined'&&jR&&jR.isHeld) && _rCtr<(window._RUN_DEAD||0.45))
                     : (typeof keys!=='undefined' && (keys['ShiftLeft']||keys['ShiftRight'])));
-        if(_held && _rin>(window._RUN_MIN_IN||0.35) && (this.py||0)<(window._RUN_MAX_Y||12)) _runMod=(window._RUN_MULT||1.6);
+        if(_held && _rin>(window._RUN_MIN_IN||0.35) && (this.py||0)<(window._RUN_MAX_Y||12)) _runMod=(window._RUN_MULT||2.0);
       }
       this._runActive=(_runMod>1);
       // ── RUN TRAILS — streak particles off the feet + hands while sprinting so it reads as speed. window._RUN_TRAILS=false to disable. ──
@@ -12245,6 +12252,12 @@ class Player{
       if(bestT!=null){ const ty=bestEY+(window._AIM_ASSIST_YOFF!=null?window._AIM_ASSIST_YOFF:0); _assistVY=(ty-y0)/Math.max(bestT/bspd,1e-4); }   // vy so the bullet descends/rises to the target height
     }
     const fire=(ang,kind)=>{
+      if(this._mount && window._MOUNT_SHOOT_ARC!==false){
+        // MOUNTED: shoot straight OUT level (ignore the dragon's spine up-slant + aim pitch), then after clearing the
+        // creature the round arcs DOWN to the ground and skims it — so you can actually hit ground enemies from up top.
+        const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0);   // vy defaults 0 -> flat launch
+        _b._mountArc=true; _b._mtClear=(window._MOUNT_ARC_CLEAR||80); GS.bullets.push(_b); return;
+      }
       if(_droneAimDir){                                          // DRONE LOCK: straight at the selected target in 3D, regardless of the drone's position
         const off=ang-ab, ca=Math.cos(off), sa=Math.sin(off);
         const dx=_droneAimDir.x*ca-_droneAimDir.z*sa, dz=_droneAimDir.x*sa+_droneAimDir.z*ca, dy=_droneAimDir.y;
@@ -12492,8 +12505,19 @@ class Player{
         if(_bi&&_bs){ _sp.quaternion.set(_bi[0],_bi[1],_bi[2],_bi[3]); _sp.quaternion.slerp((this._mSpQ||(this._mSpQ=new THREE.Quaternion())).set(_bs[0],_bs[1],_bs[2],_bs[3]),_mx); }   // blend idle<->shoot base by the same crossfade mix so the torso base eases too
         else { const _bq=_bi||_bs; if(_bq)_sp.quaternion.set(_bq[0],_bq[1],_bq[2],_bq[3]); }
         let _yaw=((this.aim-(this._mountAimRef||0)+Math.PI)%TAU+TAU)%TAU-Math.PI; const _cl=(window._MOUNT_SPINE_CLAMP||1.5); _yaw=Math.max(-_cl,Math.min(_cl,_yaw));
-        const _ax=(window._MOUNT_SPINE_AXIS||'y'), _sg=(window._MOUNT_SPINE_SIGN!=null?window._MOUNT_SPINE_SIGN:-1);   // rotate Spine1 (default local Y, negative) so the torso swings toward the right-stick aim
-        _sp.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(_ax==='x'?_sg*_yaw:0,_ax==='y'?_sg*_yaw:0,_ax==='z'?_sg*_yaw:0,'XYZ'))); }
+        const _sg=(window._MOUNT_SPINE_SIGN!=null?window._MOUNT_SPINE_SIGN:-1);
+        if(window._MOUNT_SPINE_WORLD!==false){
+          // Swing the torso around WORLD axes (not the spine's slanted local axis) so it aims level and stays perpendicular
+          // to the ground — like riding a bull. _MOUNT_SPINE_PITCH counters the ride-clip's up-slant (radians; negative = level it down).
+          const _pwq=(this._mPwq||(this._mPwq=new THREE.Quaternion())); if(_sp.parent)_sp.parent.getWorldQuaternion(_pwq); else _pwq.identity();
+          const _R=(this._mR||(this._mR=new THREE.Quaternion())).setFromAxisAngle(_MT_UP,_sg*_yaw);
+          const _px=(window._MOUNT_SPINE_PITCH||0); if(_px)_R.multiply((this._mRx||(this._mRx=new THREE.Quaternion())).setFromAxisAngle(_MT_RIGHT,_px));
+          const _lr=(this._mLR||(this._mLR=new THREE.Quaternion())).copy(_pwq).invert().multiply(_R).multiply(_pwq);   // world rotation expressed in the bone's local frame
+          _sp.quaternion.premultiply(_lr);
+        } else {
+          const _ax=(window._MOUNT_SPINE_AXIS||'y');   // legacy: rotate around the bone's LOCAL axis
+          _sp.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(_ax==='x'?_sg*_yaw:0,_ax==='y'?_sg*_yaw:0,_ax==='z'?_sg*_yaw:0,'XYZ')));
+        } }
     } else if(this.model.userData.isRobot){
       this.model.rotation.x=0;
       this.model.rotation.y=-this.aim+Math.PI/2;   // body faces the aim (shoulder/hand weapons derive from the same aim, so they stay aligned)
