@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB276</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB277</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9675,7 +9675,7 @@ class SpawnAura{
     this.skin=[]; this.skinMats=[];
     try{ if(model) model.traverse(o=>{
       if((o.isSkinnedMesh||o.isMesh)&&o.geometry&&o.geometry.attributes&&o.geometry.attributes.position&&o.geometry.attributes.normal){
-        const g=o.geometry.clone(); g.computeBoundingSphere(); const OFF=((g.boundingSphere&&g.boundingSphere.radius)||10)*0.09;
+        const g=o.geometry.clone(); g.computeBoundingSphere(); const OFF=((g.boundingSphere&&g.boundingSphere.radius)||10)*(window._SPAWN_SHELL_OFF!=null?window._SPAWN_SHELL_OFF:0.045);   // subtle inflate (was 0.09 — too far, split-normal edges scattered the polys apart)
         const p=g.attributes.position, n=g.attributes.normal;
         for(let i=0;i<p.count;i++){ p.setXYZ(i, p.getX(i)+n.getX(i)*OFF, p.getY(i)+n.getY(i)*OFF, p.getZ(i)+n.getZ(i)*OFF); } p.needsUpdate=true;
         const mat=new THREE.MeshBasicMaterial({color:0x4af0ff,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
@@ -23854,17 +23854,17 @@ function _updateWallRun(dt){
     // CHAMFER GUARD: landing on the curved floor↔wall transition (low + descending) used to grab a wall-run you couldn't
     // escape. Only attach when you're actually up a wall (some height) OR still travelling upward — never on a low downward scrape.
     if((player.py||0) < (window._WALLRUN_MIN_Y||30) && (player.pvy||0) <= (window._WALLRUN_MIN_VY||10)) return;
-    const spd=Math.hypot(player.vx||0,player.vz||0); if(spd<(window._WALLRUN_MIN_SPD||90)) return;
+    const spd=Math.hypot(player.vx||0,player.vz||0); if(spd<(window._WALLRUN_MIN_SPD||140)) return;   // NEED real momentum to grab a wall-run (slow approach just falls) — and it stops accidental grabs during air-melee combos
     const f=_nearestWallFace(player.wx,player.wz,player.py||0,(window._WALLRUN_REACH||40)); if(!f) return;
     let tx,tz; if(f.axis==='x'){ tx=0; tz=1; } else { tx=1; tz=0; }
     if(tx*player.vx+tz*player.vz<0){ tx=-tx; tz=-tz; }                       // align tangent with travel
     const tang=tx*player.vx+tz*player.vz;                                    // along-wall speed (carries you)
     const into=-(player.vx*f.nx+player.vz*f.nz);                             // >0 = heading toward the wall
-    if(tang<(window._WALLRUN_MIN_SPD||90)) return;                           // need real along-wall speed (not straight into the wall)
+    if(tang<(window._WALLRUN_MIN_SPD||140)) return;                          // need real along-wall speed (not straight into the wall)
     if(into<(window._WALLRUN_INTO_MIN!=null?window._WALLRUN_INTO_MIN:-30)) return;  // and not clearly peeling AWAY from it
     const dl=spd||1, left=((player.vx/dl)*f.nz-(player.vz/dl)*f.nx)>0;
     // PRESERVE trajectory: keep your current vertical velocity (up OR down) so you can wall-run on the way up AND on the downslope of your arc. (Position + facing EASE onto the wall in the active branch — no entry snap.)
-    player._wallRun={nx:f.nx,nz:f.nz,tx,tz,plane:f.plane,axis:f.axis,cx:f.cx,cz:f.cz,hw:f.hw,hd:f.hd,topY:f.topY,t:0,spd:Math.max(tang,(window._WALLRUN_SPD_MIN||90)),left,vy:(player.pvy||0),py:(player.py||0),gdir:_gr.gdir,rest:_gr.rest};
+    player._wallRun={nx:f.nx,nz:f.nz,tx,tz,plane:f.plane,axis:f.axis,cx:f.cx,cz:f.cz,hw:f.hw,hd:f.hd,topY:f.topY,t:0,spd:Math.max(tang*(window._WALLRUN_ENTRY_BOOST||1.15),(window._WALLRUN_SPD_MIN||120)),left,vy:(player.pvy||0),py:(player.py||0),gdir:_gr.gdir,rest:_gr.rest};   // run speed = the momentum you ENTERED with (boosted a touch) so a fast approach rockets along; a slow one bleeds out + drops
     player.vx=tx*tang; player.vz=tz*tang; player._jumpTapped=false; player._jetting=false;
     _wallRunPose(true,left);
     _wrDbg('ENTER '+(left?'L':'R')+' '+f.axis+(f.cube?'(cube)':'')+' vy'+((player.pvy||0)|0)+' sp'+(tang|0));
@@ -23878,7 +23878,7 @@ function _updateWallRun(dt){
   // gravity continues on the PRESERVED trajectory -> a natural arc up-and-over or a downward run, ending when you reach the ground
   B.vy-=gdir*(window._WALLRUN_GRAV||150)*dt; B.py+=B.vy*dt;
   // FRICTION: along-wall speed bleeds off — you only stay on the wall while you're carrying momentum (RL feel). Run out of speed -> peel off into freefall (handled in the EXIT block).
-  B.spd=Math.max(0, B.spd-(window._WALLRUN_FRICTION||40)*dt);
+  B.spd=Math.max(0, B.spd-(window._WALLRUN_FRICTION||22)*dt);   // gentler bleed -> a fast entry STAYS fast (less linear/one-speed feel); still drops you when it finally runs down
   // tap jump again -> kick OFF the wall, outward + up, with a short carrying dash (cross gaps) — also the way to bail early
   if(player._jumpTapped){
     const out=(window._WALLRUN_JUMP_OUT||240), up=(window._WALLRUN_JUMP_UP||235)*gdir;
@@ -29851,6 +29851,19 @@ function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
     else return;
   }
   if((player._kbStun||0)>0) return;   // grounded get-up still locks control (its own early-interrupt lives in player.update)
+  if(player._wallRun && window._WALLRUN_MELEE_OUT!==false){
+    // MELEE OUT OF A WALL-RUN: a flick kicks you OFF the wall into an air slide-tackle / flying-kick along your run direction —
+    // so a melee combo that accidentally skidded into a wall-run can attack its way OUT of it (not only jump off).
+    const B=player._wallRun, sp=(B.spd||0);
+    const outx=(B.nx||0)*(window._WALLRUN_MELEE_PUSH||70), outz=(B.nz||0)*(window._WALLRUN_MELEE_PUSH||70);
+    const vx=(B.tx||0)*sp+outx, vz=(B.tz||0)*sp+outz;
+    if(typeof _wallRunExit==='function')_wallRunExit('melee'); else player._wallRun=null;
+    player.vx=vx; player.vz=vz; player.pvy=Math.max(player.pvy||0,(window._WALLRUN_MELEE_UP||130)); player.py=Math.max(player.py||0,(B.py||0));
+    if(typeof dirAngle!=='number') dirAngle=Math.atan2(vz,vx);   // no explicit flick dir -> attack along the launch
+    player.aim=dirAngle; player._wallRunCD=(window._WALLRUN_CD||0.25);
+    if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.5,0.95,1],14,90,(player.py||0));
+    // fall through: airborne + a direction -> the combo below opens as the flying-kick / air slide off the wall
+  }
   if(player._ballActive){   // flick melee while balled -> BURST OUT of the ball STRAIGHT INTO a slide-kick, carrying the ball's momentum so you launch (then flick-flick into the melee combo)
     const B=window._BALL||{}; const bvx=B.vx||0, bvz=B.vz||0, bsp=Math.hypot(bvx,bvz);
     if(window._ballExit)window._ballExit();
