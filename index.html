@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB275</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB276</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -4051,6 +4051,11 @@ function _allyObstacleStillThere(x,z){
 // The whole thing works by target-swap: we hand the enemy's existing update a synthetic target to chase (same trick the
 // ally boss uses). A target with alive:true is something to shoot; a `_decoy` waypoint is move-only (no firing).
 // Gated to the cube arena and to non-ally instances. Toggle with window._AUTO_ON=false.
+// ── CLIMBABLE BOXES: spiders ride buildings in the city AND the deform-asset boxes (cube.glb etc.) in the cube arena. Same
+//    box-surface crawl works on both (each box exposes x/z/hw/hd/top[/bottom]). Toggle cube-asset climbing with _SPIDER_ASSET_CLIMB=false.
+function _climbBoxList(){ if(typeof GS==='undefined')return null; if(GS.zone===-16 && typeof _cityBoxes!=='undefined'&&_cityBoxes.length)return _cityBoxes; if(GS.zone===-19 && window._SPIDER_ASSET_CLIMB!==false && window._arenaAssetCols && window._arenaAssetCols.length)return window._arenaAssetCols; return null; }
+function _isClimbBox(b){ const L=_climbBoxList(); return !!(L && b && L.indexOf(b)>=0); }
+function _nearestClimbBox(x,z,R){ const L=_climbBoxList(); if(!L)return null; let bb=null,bD=R||32; for(const box of L){ if(box._solid===false)continue; const ex=Math.max(Math.abs(x-box.x)-box.hw,0), ez=Math.max(Math.abs(z-box.z)-box.hd,0); const hd=Math.hypot(ex,ez); if(hd<bD){bD=hd;bb=box;} } return bb; }
 window._enemyPOI = window._enemyPOI || {x:0,z:0,y:9,str:0};
 window._setEnemyPOI = function(x,z,y,str){ const P=window._enemyPOI; if((str||1) < P.str) return; P.x=x; P.z=z; P.y=(y!=null?y:9); P.str=(str!=null?str:1); };
 function _autoStir(e){ if(!e || typeof GS==='undefined' || GS.zone!==-19 || window._AUTO_ON===false) return; try{ if(e._faction!=='ally') e._provoke=(window._AUTO_PROVOKE_T||4.5); window._setEnemyPOI(e.wx,e.wz,(e.mesh?e.mesh.position.y:9),1); }catch(_){} }
@@ -4625,16 +4630,16 @@ class Crawler extends Enemy{
           this._render(dt); return;
         }
       }
-      if(GS.zone===-16 && this._cgBox){   // CONTINUOUS box-surface crawl: ride the whole building as one rounded shape -> no seam/corner/ground sticking
+      if(this._cgBox){   // CONTINUOUS box-surface crawl: ride the whole building/asset as one rounded shape -> no seam/corner/ground sticking
         const b=this._cgBox;
-        if(typeof _cityBoxes==='undefined' || _cityBoxes.indexOf(b)<0){ this._cstate='ground'; this._cgBox=null; }
+        if(!_isClimbBox(b)){ this._cstate='ground'; this._cgBox=null; }
         else {
           this._climbing=true; this._climbT+=dt;
           const aware=Math.hypot(p.wx-this.wx,p.wz-this.wz,p.py-this._cy)<460;   // lose interest once the player jets away -> hang out instead of chasing
           this._moodT=(this._moodT||0)-dt;
           if(this._moodT<=0){ if(aware){ this._mood=0; this._moodT=0.6; } else if(Math.random()<0.55){ this._mood=2; this._moodT=0.9+Math.random()*2.0; } else { this._mood=0; this._moodT=0.7+Math.random()*1.4; this._whead=Math.random()*TAU; } }
           const idleWalk = !aware && this._mood!==2;   // casual: walk a random heading, then wait, then turn, then walk again
-          const OFF2=11, Cx=b.x,Cy=b.top/2,Cz=b.z,Ex=b.hw,Ey=b.top/2,Ez=b.hd, step=(aware?this.spd:(idleWalk?this.spd*0.4:0))*dt;
+          const _bBot=(b.bottom||0), OFF2=11, Cx=b.x,Cy=(b.top+_bBot)/2,Cz=b.z,Ex=b.hw,Ey=(b.top-_bBot)/2,Ez=b.hd, step=(aware?this.spd:(idleWalk?this.spd*0.4:0))*dt;
           let px=this.wx, py=this._cy, pz=this.wz;
           let rx=px-Cx,ry=py-Cy,rz=pz-Cz;
           let qx=Math.max(-Ex,Math.min(Ex,rx)),qy=Math.max(-Ey,Math.min(Ey,ry)),qz=Math.max(-Ez,Math.min(Ez,rz));
@@ -4740,7 +4745,9 @@ class Crawler extends Enemy{
         let bb=null,bD=1e9; for(const box of _cityBoxes){ const ex=Math.max(Math.abs(this.wx-box.x)-box.hw,0), ez=Math.max(Math.abs(this.wz-box.z)-box.hd,0); const hd=Math.hypot(ex,ez); if(hd<bD){bD=hd;bb=box;} }
         if(bb && bD<32){ this._cgBox=bb; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // bind to the building -> continuous surface crawl
       } else if(GS.zone===-19){
-        if(p._cubeCamAuth || (p.py||0)>40){ this._cubeCrawl=true; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // CUBE: player is up a wall/ceiling -> ride the inner shell toward them (across floor, up the chamfer, onto the wall)
+        const _abox=_nearestClimbBox(this.wx,this.wz,(window._SPIDER_ASSET_ATTACH_R||30));
+        if(_abox){ this._cgBox=_abox; this._cubeCrawl=false; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // near a deform-asset box (cube.glb) -> crawl up it like a building
+        else if(p._cubeCamAuth || (p.py||0)>40){ this._cubeCrawl=true; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // else, player up a wall/ceiling -> ride the inner shell toward them
       } else {
         const near=_nearestSheetSurface(this.wx,9,this.wz,28,null);
         if(near && near.dist<24){ _sheetWorldNormal(near.sheet,_gsN); if(Math.abs(_gsN.y)<0.6){ this._gs=near.sheet; this._gcu=near.cu; this._gcv=near.cv; this._cstate='climb'; this._climbT=0; this._climbTotal=0; this._stuckT=0; } }
@@ -8755,10 +8762,10 @@ class AllyBot{
     // ════ CLIMB — ride the building as one rounded box, body flat to the wall (ported from Crawler) ════
     if(this._cstate==='climb'){
       const b=this._cgBox;
-      if(!CITY || !b || typeof _cityBoxes==='undefined' || _cityBoxes.indexOf(b)<0){ this._cstate='ground'; this._cgBox=null; this._climbY=9; }
+      if(!b || !_isClimbBox(b)){ this._cstate='ground'; this._cgBox=null; this._climbY=9; }
       else {
         this._climbT+=dt;
-        const OFF2=11, Cx=b.x,Cy=b.top/2,Cz=b.z,Ex=b.hw,Ey=b.top/2,Ez=b.hd, step=this.spd*dt;
+        const _bBot=(b.bottom||0), OFF2=11, Cx=b.x,Cy=(b.top+_bBot)/2,Cz=b.z,Ex=b.hw,Ey=(b.top-_bBot)/2,Ez=b.hd, step=this.spd*dt;
         let px=this.wx, py=this._cy, pz=this.wz;
         let rx=px-Cx,ry=py-Cy,rz=pz-Cz;
         let qx=Math.max(-Ex,Math.min(Ex,rx)),qy=Math.max(-Ey,Math.min(Ey,ry)),qz=Math.max(-Ez,Math.min(Ez,rz));
@@ -8814,11 +8821,11 @@ class AllyBot{
     this.wx+=this.vx*dt; this.wz+=this.vz*dt; this._vx2=this.vx; this._vz2=this.vz;
     if(this.species!=='ghost') for(const e of GS.enemies){ if(!e.alive||e._captured) continue; const ex=this.wx-e.wx, ez=this.wz-e.wz, d=Math.hypot(ex,ez)||1; const mn=(e.size||12)*0.5+10; if(d<mn){ const pu=(mn-d); this.wx+=ex/d*pu; this.wz+=ez/d*pu; } }   // ghost phases through
     for(const o of GS.allies){ if(o===this) continue; const ox=this.wx-o.wx, oz=this.wz-o.wz, d=Math.hypot(ox,oz)||1; const mn=20; if(d<mn){ const pu=(mn-d)*0.5; this.wx+=ox/d*pu; this.wz+=oz/d*pu; o.wx-=ox/d*pu; o.wz-=oz/d*pu; } }
-    if(CITY) for(const box of _cityBoxes){ if(Math.abs(this.wx-box.x)<box.hw && Math.abs(this.wz-box.z)<box.hd){ const dxr=this.wx-box.x, dzr=this.wz-box.z; if(box.hw-Math.abs(dxr) < box.hd-Math.abs(dzr)) this.wx=box.x+(dxr>=0?1:-1)*(box.hw+2); else this.wz=box.z+(dzr>=0?1:-1)*(box.hd+2); break; } }
-    // ATTACH: target is up high and we're against a building -> grab it & crawl (same trigger as the enemy)
-    if(CITY && this._attachCD<=0 && TY>22){
-      let bb=null,bD=1e9; for(const box of _cityBoxes){ const ex=Math.max(Math.abs(this.wx-box.x)-box.hw,0), ez=Math.max(Math.abs(this.wz-box.z)-box.hd,0); const hd=Math.hypot(ex,ez); if(hd<bD){bD=hd;bb=box;} }
-      if(bb && bD<32){ this._cgBox=bb; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }
+    { const _cbl=_climbBoxList(); if(_cbl) for(const box of _cbl){ if(box._solid===false)continue; if(Math.abs(this.wx-box.x)<box.hw && Math.abs(this.wz-box.z)<box.hd && (this._climbY||9)<box.top){ const dxr=this.wx-box.x, dzr=this.wz-box.z; if(box.hw-Math.abs(dxr) < box.hd-Math.abs(dzr)) this.wx=box.x+(dxr>=0?1:-1)*(box.hw+2); else this.wz=box.z+(dzr>=0?1:-1)*(box.hd+2); break; } } }
+    // ATTACH: grab a climbable box & crawl it — a city building when the target's up high, or a cube-arena asset box whenever we're near one
+    if(this._attachCD<=0 && ((CITY && TY>22) || (GS.zone===-19 && window._SPIDER_ASSET_CLIMB!==false))){
+      const bb=_nearestClimbBox(this.wx,this.wz,(window._SPIDER_ASSET_ATTACH_R||32));
+      if(bb){ this._cgBox=bb; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }
     }
     this._climbY += (9-this._climbY)*Math.min(1,dt*6);
     this._upV.set(0,1,0);
@@ -30221,9 +30228,12 @@ function _makeWhipTip(){   // the cracker at the end of the cord — a small poi
 // unified params for the physics chain (mace = short heavy flail, whip = long light cord w/ snap)
 function _chainParams(){
   if(player&&player._meleeType==='whip') return { kind:'whip',
-    N:Math.max(6,(window._WHIP_LINKS||16)), total:(window._WHIP_LEN||150), grav:(window._WHIP_GRAV||480), damp:(window._WHIP_DAMP||0.905),
-    iter:(window._WHIP_ITER||8), floor:(window._WHIP_FLOOR||3), tipR:(window._WHIP_TIP_R||3.2),
-    hitSpd:(window._WHIP_HIT_SPD||165), dmg:(window._WHIP_DMG||10), knock:(window._WHIP_KNOCK||12), snap:(window._WHIP_SNAP||2.2) };
+    // FLOPPY ROPE: many fine segments + real weight (grav) + light constraint solve so each link LAGS and sags instead of
+    // holding a stiff line. The snap (force-follow the hand into every link) is what made it rigid — dropped way down so the
+    // cord trails naturally; the crack comes from the swing speed, not from yanking the whole rope straight.
+    N:Math.max(6,(window._WHIP_LINKS||24)), total:(window._WHIP_LEN||150), grav:(window._WHIP_GRAV||1050), damp:(window._WHIP_DAMP||0.9),
+    iter:(window._WHIP_ITER||5), floor:(window._WHIP_FLOOR||3), tipR:(window._WHIP_TIP_R||3.2),
+    hitSpd:(window._WHIP_HIT_SPD||165), dmg:(window._WHIP_DMG||10), knock:(window._WHIP_KNOCK||12), snap:(window._WHIP_SNAP||0.45) };
   return { kind:'mace',
     N:Math.max(3,(window._MACE_LINKS||7)), total:(window._MACE_LEN||64), grav:(window._MACE_GRAV||900), damp:(window._MACE_DAMP||0.92),
     iter:(window._MACE_ITER||6), floor:(window._MACE_FLOOR||4), tipR:(window._MACE_BALL_R||8),
