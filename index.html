@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB282</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB283</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -24423,15 +24423,25 @@ function _geyserTick(dt){
     }
     if(G.ring) G.ring.opacity=0.3+0.18*(0.5+0.5*Math.sin(t*0.9));
   }
-  // ── the geyser can HOLD the character too (opt-in: window._GEYSER_HOLD_PLAYER=true) — walk in and float up; jump/walk out to leave ──
-  if(window._GEYSER_HOLD_PLAYER===true && window._GEYSER_ON!==false && player && player.alive!==false && !player._ballActive && !player._launched && (player._kbStun||0)<=0 && GS.state==='playing'){
+  // ── the geyser force-field HOLDS the character too — walk into the centre column and it lifts you SLOWLY up to a mid-air
+  //    vantage (~halfway to the ceiling), the lift weakening as you climb so you ease to a hover + bob. Jump / walk out to leave.
+  //    Toggle with window._GEYSER_HOLD_PLAYER=false. ──
+  if(window._GEYSER_HOLD_PLAYER!==false && window._GEYSER_ON!==false && player && player.alive!==false && !player._ballActive && !player._launched && (player._kbStun||0)<=0 && !player._mount && GS.state==='playing'){
     const hd=Math.hypot(player.wx-gcx, player.wz-gcz);
     if(player._geyserHold){
-      if(hd>GR*1.3 || player._jumpTapped || (player.pvy||0)>(window._GEYSER_JUMP_OUT||200) || (player._hasBoots&&player._bootsEquipped)){ player._geyserHold=false; }
-      else { const bob=GY+Math.sin(performance.now()*0.003)*(window._GEYSER_BOB||12); player.py+=(bob-player.py)*Math.min(1,dt*5); player.pvy=0; player._onPlatform=false; player._inPlanetGravity=false;
-        if(typeof ps!=='undefined'&&Math.random()<0.25)ps.spark(player.wx+rand(-8,8),player.wz+rand(-8,8),[0.4,0.9,1],(player.py||0)-rand(0,30)); }
-    } else if(hd<GR*0.7 && (player.py||0)<GY+(window._GEYSER_CATCH_H||90) && (player.pvy||0)<(window._GEYSER_CATCH_VY||60) && !(player._hasBoots&&player._bootsEquipped)){
+      if(hd>GR*1.3 || player._jumpTapped || (player._hasBoots&&player._bootsEquipped)){ player._geyserHold=false; }
+      else {
+        const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:null);
+        const peak=(C?C.h:900)*(window._GEYSER_PEAK_FRAC||0.5);                            // ride up to ~mid-height -> a tower-like vantage with nothing physically there
+        const bob=Math.sin(performance.now()*0.003)*(window._GEYSER_BOB||14);
+        player.py += ((peak+bob)-player.py)*Math.min(1,dt*(window._GEYSER_RISE_RATE||0.9)); // eased lift -> naturally weakens (decelerates) the higher you get, settling into a hover
+        player.pvy=0; player._onPlatform=false; player._inPlanetGravity=false;
+        player.wx += (gcx-player.wx)*Math.min(1,dt*(window._GEYSER_CENTER_PULL||1.4)); player.wz += (gcz-player.wz)*Math.min(1,dt*(window._GEYSER_CENTER_PULL||1.4));   // gently keep you in the column
+        if(typeof ps!=='undefined'&&Math.random()<0.3)ps.spark(player.wx+rand(-8,8),player.wz+rand(-8,8),[0.4,0.9,1],(player.py||0)-rand(0,40));
+      }
+    } else if(hd<GR*0.8 && (player.py||0)<(window._GEYSER_CATCH_H||120) && (player.pvy||0)<(window._GEYSER_CATCH_VY||80) && !(player._hasBoots&&player._bootsEquipped)){
       player._geyserHold=true; if(typeof ps!=='undefined')ps.ring(gcx,gcz,[0.4,0.95,1],16,100);
+      if(typeof announce==='function')announce('UPDRAFT','#9be4ff');
     }
   } else if(player&&player._geyserHold){ player._geyserHold=false; }
 }
