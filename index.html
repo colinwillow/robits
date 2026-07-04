@@ -265,7 +265,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB272</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB273</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3212,43 +3212,45 @@ class DroidekaBot extends Enemy{
     this._robitId='droideka'; this._robitName='Droideka';
     this.glow=[1,0.5,0.1]; this.spd=130+(wave||1)*4; this.score=180; this.size=16; this.hp=2;
     this.t=rand(TAU); this._state='roll'; this._open=0; this._stateT=0; this._deployT=0; this._shotT=0.6; this._gun=0; this._stagger=0; this.hitFlash=0;
-    const glowHex=0xff7722, dark=0x1a0c04;
-    const eMat=(c,o=0.9)=>new THREE.LineBasicMaterial({color:c,transparent:true,opacity:o,blending:THREE.AdditiveBlending,depthWrite:false});
+    this._eyeBaseHex=0xffaa33;   // eye/accent colour — swapped to the owner's colour when this is an ally (see _recolor)
     this.mesh=new THREE.Group();
-    // body: head + eye + twin guns (rises and aims when deployed)
+    // SOLID metallic droideka — matches the filled orange power-up ball (glowing eye + twin cannons), NOT the old see-through wireframe.
+    this._shellMats=[]; this._glowMats=[];   // shell = orange plates (recoloured for allies); glow = eye-ring / gun tips / petal rims
+    const _shell=()=>{ const m=new THREE.MeshStandardMaterial({color:0xcf5a12,emissive:0xff7a2a,emissiveIntensity:0.85,roughness:0.35,metalness:0.78,toneMapped:false}); this._shellMats.push(m); return m; };
+    const _dark =()=>new THREE.MeshStandardMaterial({color:0x3a1c08,emissive:0x160a02,emissiveIntensity:0.3,roughness:0.7,metalness:0.55,toneMapped:false});
+    const _accent=(c,o=0.9)=>{ const m=new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:o,blending:THREE.AdditiveBlending,depthWrite:false}); this._glowMats.push(m); return m; };
+    // body: solid head + glowing eye + twin cannons (rises and aims when deployed)
     this._body=new THREE.Group(); this.mesh.add(this._body);
     const headGeo=new THREE.OctahedronGeometry(5,0);
-    this._body.add(new THREE.Mesh(headGeo,new THREE.MeshBasicMaterial({color:dark})));
-    this._body.add(new THREE.LineSegments(new THREE.EdgesGeometry(headGeo),eMat(glowHex,0.95)));
-    this._coreMat=new THREE.MeshBasicMaterial({color:0xffaa33,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+    this._body.add(new THREE.Mesh(headGeo,_shell()));
+    this._coreMat=new THREE.MeshBasicMaterial({color:0xffe27a,transparent:true,opacity:0.98,blending:THREE.AdditiveBlending,depthWrite:false});
     const eye=new THREE.Mesh(new THREE.SphereGeometry(2.2,10,8),this._coreMat); eye.position.set(0,0,4); this._body.add(eye);
+    const eyeRing=new THREE.Mesh(new THREE.TorusGeometry(2.9,0.34,8,18),_accent(0xff9a3a,0.85)); eyeRing.position.set(0,0,3.7); this._body.add(eyeRing);
     this._guns=new THREE.Group(); this._body.add(this._guns);
-    const barGeo=new THREE.CylinderGeometry(0.9,1.2,11,6);
+    const barGeo=new THREE.CylinderGeometry(0.9,1.2,11,8);
     for(const gx of [-3.6,3.6]){
-      const bar=new THREE.Mesh(barGeo,new THREE.MeshBasicMaterial({color:0x221008})); bar.rotation.x=Math.PI/2; bar.position.set(gx,0,6); this._guns.add(bar);
-      const be=new THREE.LineSegments(new THREE.EdgesGeometry(barGeo),eMat(glowHex,0.8)); be.rotation.x=Math.PI/2; be.position.set(gx,0,6); this._guns.add(be);
+      const bar=new THREE.Mesh(barGeo,_dark()); bar.rotation.x=Math.PI/2; bar.position.set(gx,0,6); this._guns.add(bar);
+      const tip=new THREE.Mesh(new THREE.SphereGeometry(1.1,8,6),_accent(0xffb066,0.9)); tip.position.set(gx,0,11.5); this._guns.add(tip);
     }
-    // 4 retractable legs (2-segment)
+    // 4 retractable 2-segment legs (solid)
     this._legs=[]; const L1=8,L2=11;
     const femurGeo=new THREE.BoxGeometry(1.6,1.6,L1), tibiaGeo=new THREE.BoxGeometry(1.2,1.2,L2);
     for(let i=0;i<4;i++){ const A=Math.PI*0.25+i*Math.PI*0.5;
       const root=new THREE.Group(); root.position.set(Math.sin(A)*5,0,Math.cos(A)*5); root.rotation.y=A; this.mesh.add(root);
       const fem=new THREE.Group(); fem.rotation.x=-0.5; root.add(fem);
-      const fm=new THREE.Mesh(femurGeo,new THREE.MeshBasicMaterial({color:dark})); fm.position.z=L1/2; fem.add(fm);
-      const fe=new THREE.LineSegments(new THREE.EdgesGeometry(femurGeo),eMat(glowHex,0.7)); fe.position.z=L1/2; fem.add(fe);
+      const fm=new THREE.Mesh(femurGeo,_dark()); fm.position.z=L1/2; fem.add(fm);
       const knee=new THREE.Group(); knee.position.z=L1; knee.rotation.x=1.6; fem.add(knee);
-      const tb=new THREE.Mesh(tibiaGeo,new THREE.MeshBasicMaterial({color:dark})); tb.position.z=L2/2; knee.add(tb);
-      const te=new THREE.LineSegments(new THREE.EdgesGeometry(tibiaGeo),eMat(glowHex,0.65)); te.position.z=L2/2; knee.add(te);
+      const tb=new THREE.Mesh(tibiaGeo,_dark()); tb.position.z=L2/2; knee.add(tb);
       this._legs.push({root,fem,knee});
     }
-    // 4-petal shell that blooms open
+    // 4-petal shell that blooms open (solid plates; opacity eases as it opens so the deployed guts read through)
     this._petals=[];
-    const petalGeo=new THREE.SphereGeometry(12,6,4,0,Math.PI/2,0,Math.PI);
+    const petalGeo=new THREE.SphereGeometry(12,8,5,0,Math.PI/2,0,Math.PI);
     for(let i=0;i<4;i++){ const pivot=new THREE.Group(); pivot.rotation.y=i*Math.PI/2; this.mesh.add(pivot);
-      const pm=new THREE.MeshBasicMaterial({color:dark,transparent:true,opacity:1,side:THREE.DoubleSide,depthWrite:false});
+      const pm=_shell(); pm.side=THREE.DoubleSide; pm.transparent=true;
       pivot.add(new THREE.Mesh(petalGeo,pm));
-      const pe=new THREE.LineSegments(new THREE.EdgesGeometry(petalGeo),eMat(glowHex,0.95)); pivot.add(pe);
-      this._petals.push({pivot,pm,emat:pe.material});
+      const rim=_accent(0xffb066,0.55); const pe=new THREE.Mesh(new THREE.TorusGeometry(7.6,0.42,6,18,Math.PI),rim); pe.rotation.z=Math.PI/2; pivot.add(pe);
+      this._petals.push({pivot,pm,emat:rim});
     }
     this._applyOpen(0);
   }
@@ -3257,6 +3259,13 @@ class DroidekaBot extends Enemy{
     for(const P of this._petals){ P.pivot.rotation.x=-o*1.5; P.pivot.position.y=o*4; P.pivot.scale.setScalar(1+o*0.15); P.pm.opacity=1-o*0.85; P.emat.opacity=0.95*(1-o*0.55); }
     for(const L of this._legs){ L.fem.rotation.x=-0.5+o*1.0; L.knee.rotation.x=1.6-o*0.8; L.root.scale.setScalar(0.15+o*0.85); L.root.position.y=-o*2; }
     this._body.position.y=o*4; this._body.scale.setScalar(0.5+o*0.5); this._guns.visible=o>0.3;
+  }
+  _recolor(hex){   // repaint the solid shell + glow accents to a new colour — allies come out in the owner's colour, enemies stay orange
+    try{ const c=new THREE.Color(hex); this._eyeBaseHex=hex;
+      for(const m of (this._shellMats||[])){ m.color.copy(c); if(m.emissive)m.emissive.copy(c); if(m.emissiveIntensity<0.6)m.emissiveIntensity=0.85; m.needsUpdate=true; }
+      for(const m of (this._glowMats||[])){ m.color.copy(c); m.needsUpdate=true; }
+      if(this._coreMat){ this._coreMat.color.copy(c); this._coreMat.needsUpdate=true; }
+    }catch(_){}
   }
   hit(dmg=1){
     if(this._open<0.5){   // shielded ball — bullets ping off, but sustained fire forces it open
@@ -3285,7 +3294,7 @@ class DroidekaBot extends Enemy{
         const sp=Math.hypot(this._dkVx||0,this._dkVz||0);
         if(sp>2){ const ax=new THREE.Vector3(-(this._dkVz||0),0,(this._dkVx||0)).normalize(); this.mesh.rotateOnWorldAxis(ax,(sp*dt)/12); }
         if(this._airT<=0 && (this._dkY||0)<=0.4 && sp<(window._DK_SETTLE||70)){ this._dkVy=0; this._dkY=0; this._dkVx=this._dkVz=0; }   // settled -> fall through to normal AI
-        else { const scc=(this.spawn<1?(0.3+this.spawn*0.7):1); this.mesh.scale.setScalar(scc); if(this._coreMat)this._coreMat.color.setHex(this.hitFlash>0?0xffffff:0xffaa33); this.mesh.position.set(this.wx,11+(this._dkY||0),this.wz); return; }
+        else { const scc=(this.spawn<1?(0.3+this.spawn*0.7):1); this.mesh.scale.setScalar(scc); if(this._coreMat)this._coreMat.color.setHex(this.hitFlash>0?0xffffff:this._eyeBaseHex); this.mesh.position.set(this.wx,11+(this._dkY||0),this.wz); return; }
       }
     }
     const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1; this._stateT+=dt;
@@ -3319,7 +3328,7 @@ class DroidekaBot extends Enemy{
       this._applyOpen(Math.max(0,1-this._stateT/0.4));
       if(this._stateT>=0.4){ this._state='roll'; this._stateT=0; }
     }
-    if(this._coreMat) this._coreMat.color.setHex(this.hitFlash>0?0xffffff:0xffaa33);
+    if(this._coreMat) this._coreMat.color.setHex(this.hitFlash>0?0xffffff:this._eyeBaseHex);
     const sc=(this.spawn<1?(0.3+this.spawn*0.7):1); this.mesh.scale.setScalar(sc);
     this.mesh.position.set(this.wx,11+(this._dkY||0),this.wz);
   }
@@ -9850,6 +9859,7 @@ function _tintAllyApply(root, c){ if(!root||!root.traverse)return 0; let n=0;
   return n; }
 function _tintAlly(bot, hex){ if(!bot)return 0; bot._teamCol=hex; const c=new THREE.Color(hex); let n=0;   // creatures load their model async -> the ally update loop RE-APPLIES this each frame (via _teamCol) until it lands
   try{ if(bot.mesh)n+=_tintAllyApply(bot.mesh,c); if(bot.model&&bot.model!==bot.mesh)n+=_tintAllyApply(bot.model,c); if(bot._model&&bot._model!==bot.mesh)n+=_tintAllyApply(bot._model,c); if(bot._halo)n+=_tintAllyApply(bot._halo,c); }catch(_){}
+  try{ if(typeof bot._recolor==='function'){ bot._recolor(hex); n++; } }catch(_){}   // droideka: repaint its SOLID orange shell to the owner's colour too (the generic tint only touches glow/wire surfaces)
   if(n>0)bot._tintDone=true; return n; }
 window._tintAlly=_tintAlly; window._tintAllyApply=_tintAllyApply;
 if(window._PLAYER_TEAM_COL==null) window._PLAYER_TEAM_COL=(window._ROBOT_WIRE_COL!=null?window._ROBOT_WIRE_COL:0x7fd4ff);   // YOUR identity colour — thrown minions come out in this so you know they're yours (matches the robot wireframe)
@@ -10987,7 +10997,10 @@ class Player{
       _ce.renderOrder=21; this._bombMesh.add(_ce); this._bombMesh.rotation.set(0.4,0.6,0);
     }
     if(_ally){ this._bombBodyMat.color.setHex(0x3aa0ff); this._bombCoreMat.color.setHex(0x9ad0ff); }
-    if(_item){ const pl=this._carryPayload||{kind:'item',type:'nuke'}; this._bombBodyMat.opacity=0; this._bombBodyMat.transparent=true; if(this._bombCoreMat){ this._bombCoreMat.opacity=0; this._bombCoreMat.transparent=true; } if(typeof _makePUModel==='function'){ const mdl=_makePUModel(pl.kind==='crate'?'crate':pl.type); mdl.scale.setScalar(pl.kind==='crate'?1.05:1.0); if(pl.type==='nuke'){ const _nr=window._NUKE_HOLD_ROT||{x:0,y:0,z:Math.PI/2}; mdl.rotation.set(_nr.x||0,_nr.y||0,_nr.z||0); }   /* the nuke model bakes in a 0.32 z-tilt (good for the thrown bomb) -> stand it straight UP when held instead of a diagonal */ this._bombMesh.add(mdl); } }
+    if(_item){ const pl=this._carryPayload||{kind:'item',type:'nuke'}; this._bombBodyMat.opacity=0; this._bombBodyMat.transparent=true; if(this._bombCoreMat){ this._bombCoreMat.opacity=0; this._bombCoreMat.transparent=true; } if(typeof _makePUModel==='function'){ const mdl=_makePUModel(pl.kind==='crate'?'crate':pl.type); mdl.scale.setScalar(pl.kind==='crate'?1.05:1.0); if(pl.type==='nuke'){ const _nr=window._NUKE_HOLD_ROT||{x:0,y:0,z:Math.PI/2}; mdl.rotation.set(_nr.x||0,_nr.y||0,_nr.z||0); }   /* the nuke model bakes in a 0.32 z-tilt (good for the thrown bomb) -> stand it straight UP when held instead of a diagonal */
+      // OWNER COLOUR: a carried minion (droid/drone/dog/…) is YOURS and deploys as your ally -> tint the HELD model to your team colour so it matches (ground pickups + enemies stay orange)
+      if(window._HELD_MINION_TINT!==false && /^(droid|droideka|drone|dog|dragon|spider|spiders)$/.test(pl.type||'')){ try{ const tc=new THREE.Color(window._PLAYER_TEAM_COL!=null?window._PLAYER_TEAM_COL:0x7fd4ff); mdl.traverse(o=>{ if(!o.material)return; const ms=Array.isArray(o.material)?o.material:[o.material]; for(const m of ms){ if(!m)continue; if(m.color&&m.color.isColor)m.color.copy(tc); if(m.emissive&&m.emissive.isColor)m.emissive.copy(tc); m.needsUpdate=true; } }); }catch(_){} }
+      this._bombMesh.add(mdl); } }
     if(_melee||_gun){ this._bombBodyMat.opacity=0; this._bombBodyMat.transparent=true; if(this._bombCoreMat){ this._bombCoreMat.opacity=0; this._bombCoreMat.transparent=true; } }   // WEAPON throw (melee OR gun): the held weapon is the visual; the bomb mesh stays invisible (just tracks the hand spawn point)
     this._bombMesh.renderOrder=20; this._bombCoreMesh.renderOrder=20;   // equipped bomb always draws on top -> never occluded by a building behind it
     scene.add(this._bombMesh);
@@ -21153,7 +21166,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(_fly&&_fly.active){ updateFlight(dt); renderer.render(scene,camera); return; }
     if(_drive&&_drive.active){ updateDrive(dt); renderer.render(scene,camera); return; }
     // ── JETPACK HOLD — airborne, no bomb ──
-    if(IS_TOUCH&&jR._holdingForJet&&player&&!player.bombArmed&&!player._wallClimb&&!player._wallRun){   // no jetpack while wall-running (the held stick is aim/shoot, not jet) — otherwise jet particles spray on the wall
+    if(IS_TOUCH&&jR._holdingForJet&&player&&(!player.bombArmed||!!player._carryPayload)&&!player._wallClimb&&!player._wallRun){   // no jetpack while wall-running (the held stick is aim/shoot, not jet). CARRYING an object (droid/bomb/…) keeps the jet — a centered hold jets, a FLICK throws — so hopping around with a droid works normally
       const _air = (GS.zone===-19 && typeof _cubeWalkOn==='function' && _cubeWalkOn(player)) ? true : (player._inPlanetGravity ? !player._glGrounded : (player.py>8&&!player._onPlatform));   // cube wall-walk: jet is eligible from ANY surface (it dislodges you), so don't gate it on being airborne
       if(!_air){ jR._jetLatch=false; jR._jetEligible=false; }
       else if(player.boostFuel>0){ jR._jetEligible=true; jR._jetLatch=true; player._jetting=true; }            // airborne + holding stick = jetpack (no center-dwell gate; fire while jetting)
