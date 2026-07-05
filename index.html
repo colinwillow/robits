@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB322</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB323</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -16549,6 +16549,9 @@ function _superTick(dt){ if(typeof player==='undefined'||!player)return;
   player._superWasOn=true; player._super-=dt; player.inv=Math.max(player.inv||0,14); player._speedBoost=Math.max(player._speedBoost||0, Math.min(1000,(window._SUPER_SPEED||560)));
   if(typeof GS!=='undefined'&&GS.bullets&&GS.bullets.length){ const col=(window._SUPER_BULLET_COL!=null?window._SUPER_BULLET_COL:0xff8a1e), rate=(window._SUPER_BULLET_RATE||0.8), sz=(window._SUPER_BULLET_SIZE||2.4);
     for(const b of GS.bullets){ if(!b||b._fromBot||b._ally)continue; const bx=(b.wx!=null?b.wx:b.x),bz=(b.wz!=null?b.wz:b.z),by=(b.y!=null?b.y:9); if(bx==null)continue; if(Math.random()<rate)_voxEmit(bx,by,bz,1,col,sz,3,5); } }
+  // FLUNG ENEMIES trail voxels as they sail through the air, fading fast (replaces the sphere-shock look)
+  if(typeof GS!=='undefined'&&GS.enemies&&GS.enemies.length){ const tcol=(window._SUPER_TRAIL_COL!=null?window._SUPER_TRAIL_COL:0xff8a1e), tsz=(window._SUPER_TRAIL_SIZE||2.4), tn=(window._SUPER_TRAIL_N||3);
+    for(const e of GS.enemies){ if(!e||!(e._voxTrailT>0))continue; e._voxTrailT-=dt; const ey=(e.mesh?e.mesh.position.y:(e.py!=null?e.py:9))+(e._tall||12)*0.4; for(let q=0;q<tn;q++)_voxEmit(e.wx+rand(-4,4),ey+rand(-4,4),e.wz+rand(-4,4),1,tcol,tsz,3,3); if(e._voxTrailT<0)e._voxTrailT=0; } }
   if(player._super<=0)player._super=0;
 }
 window._superTick=_superTick;
@@ -20120,11 +20123,10 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
           const _bl=Math.hypot(b.vx||0,b.vz||0)||1, _by=(b.y!=null?b.y:enemyY);
           try{ if(e.knock)e.knock((b.vx||0)/_bl,(b.vz||0)/_bl,(window._SUPER_BULLET_KB||18),(window._SUPER_BULLET_LIFT||430),30,true); }catch(_){}
           try{ if(typeof _bombBlastEnemies==='function')_bombBlastEnemies(b.wx,_by,b.wz,(window._SUPER_BULLET_R||90),(window._SUPER_BULLET_BLAST_DMG||0.6)); }catch(_){}
-          try{ if(typeof _spawnBlastShock==='function')_spawnBlastShock(b.wx,_by,b.wz,(window._SUPER_BULLET_R||90)*1.1,0xffb020); }catch(_){}
           try{ if(typeof gridSheetsBlast==='function'&&typeof GRID_SHEETS!=='undefined'&&GRID_SHEETS.length)gridSheetsBlast(b.wx,_by,b.wz,(window._SUPER_BULLET_SHEET||6),(window._SUPER_BULLET_R||90)*1.5); }catch(_){}
           try{ if(typeof grid!=='undefined'&&grid.shock)grid.shock(b.wx,b.wz,(window._SUPER_BULLET_GRID||6)); }catch(_){}
-          try{ if(typeof _voxEmit==='function')_voxEmit(b.wx,_by,b.wz,(window._SUPER_BULLET_VOX||7),(window._SUPER_BULLET_COL!=null?window._SUPER_BULLET_COL:0xff8a1e),3,10,13); }catch(_){}
-          if(typeof ps!=='undefined')ps.burst(b.wx,b.wz,[1,0.7,0.2],12,150,_by); if(typeof addTrauma==='function')addTrauma(0.05);
+          try{ if(typeof _voxEmit==='function')_voxEmit(b.wx,_by,b.wz,(window._SUPER_BULLET_VOX||7),(window._SUPER_BULLET_COL!=null?window._SUPER_BULLET_COL:0xff8a1e),3,10,13); }catch(_){}   // small VOXEL pop at impact (no sphere shock — that basic circle is gone)
+          e._voxTrailT=(window._SUPER_FLING_TRAIL||0.7); if(typeof addTrauma==='function')addTrauma(0.05);   // mark the flung enemy so it trails voxels as it flies (emitted in _superTick)
         }
         if(typeof _hitMark==='function') _hitMark(b.wx, b.y!=null?b.y:enemyY+10, b.wz, (window._HITMARK_COL||0x9fd8ff), (e.isBoss||(e.size||14)>=24));   // ball-style ring+flash at the impact point (big on dragon/dog/bosses) so shooting them READS
         // VertexBoss: give hit vertex momentum
