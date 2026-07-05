@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB316</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB317</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12181,8 +12181,15 @@ class Player{
           if(!window._meshRay){ window._meshRay=new THREE.Raycaster(); window._meshRayO=new THREE.Vector3(); window._meshRayD=new THREE.Vector3(0,-1,0); }
           const rc=window._meshRay; rc.set(window._meshRayO.set(this.wx, this.py+RU, this.wz), window._meshRayD); rc.far=RU+RD;
           const hits=rc.intersectObjects(b._meshes,false); if(!hits.length) return;
-          const hy=hits[0].point.y; const _capM = Math.max(_capC,(window._MESH_CATCH||55));
-          if(!_passUp && !_dropping && this.py<=hy+2 && this.py>=hy-_capM && hy>=eFloor){ eFloor=hy; _onPlat=true; this._platformY=hy; }
+          let hy=hits[0].point.y; const _capM = Math.max(_capC,(window._MESH_CATCH||55));
+          if(!_passUp && !_dropping && this.py<=hy+2 && this.py>=hy-_capM && hy>=eFloor){
+            if(b._surf && window._SURF_EASE!==false){   // EASE the ride height so a passing wave lifts/drops you smoothly instead of snapping frame-to-frame
+              if(this._surfY==null || Math.abs(hy-this._surfY)>(window._SURF_EASE_SNAP||80)) this._surfY=hy;   // snap on first touch / big jump (landing), then glide
+              else this._surfY += (hy-this._surfY)*Math.min(1,(dt||0.016)*(window._SURF_EASE_K||8));
+              hy=this._surfY;
+            }
+            eFloor=hy; _onPlat=true; this._platformY=hy;
+          } else if(b._surf){ this._surfY=null; }   // left the surface -> reset the smoother so re-landing snaps cleanly
           return;
         }
         if(b.ring){ const rr=Math.hypot(dx,dz); if(rr<b.ring.rIn||rr>b.ring.rOut) return; }   // ANNULUS platform (ring): walkable band only, hole open -> fall through the middle
@@ -16319,7 +16326,8 @@ function _arenaDeformFeed(dt){
   const D=window._arenaDeformers; if(!D||!D.length) return;
   for(const e of D){ e._pcd=Math.max(0,(e._pcd||0)-dt); e._bcd=Math.max(0,(e._bcd||0)-dt);
     if(typeof player!=='undefined'&&player&&player.alive){ const d=Math.hypot(player.wx-e.center.x,(player.py||0)+9-e.center.y,player.wz-e.center.z), spd=Math.hypot(player.vx||0,player.vz||0);
-      if(d < e.radius+(window._ADEF_TOUCH||46) && spd>26 && e._pcd<=0){ _arenaDeformShockOne(e,player.wx,(player.py||0)+9,player.wz,(window._ADEF_STEP_STR||2.4)); e._pcd=0.11; } }   // brush past it -> it ripples
+      const _wStr=e._surf?(window._SURF_WAKE_STR||4.5):(window._ADEF_STEP_STR||2.4), _wCd=e._surf?(window._SURF_WAKE_CD||0.08):0.11, _wSpd=e._surf?(window._SURF_WAKE_MINSPD||14):26;   // surf: a stronger, more frequent wake off your movement (glide across a calm lake and it trails behind you)
+      if(d < e.radius+(window._ADEF_TOUCH||46) && spd>_wSpd && e._pcd<=0){ _arenaDeformShockOne(e,player.wx,(player.py||0)+9,player.wz,_wStr*Math.min(1.6,0.5+spd/260)); e._pcd=_wCd; } }   // brush past it -> it ripples (surf wake scales a bit with speed)
     if(typeof _cubeBall!=='undefined'&&_cubeBall&&_cubeBall.pos){ const b=_cubeBall.pos, d=Math.hypot(b.x-e.center.x,b.y-e.center.y,b.z-e.center.z);
       if(d < e.radius+(_cubeBall.R||16)+8 && e._bcd<=0){ _arenaDeformShockOne(e,b.x,b.y,b.z,Math.min(5,1.4+(_cubeBall.vel?_cubeBall.vel.length():0)/180)); e._bcd=0.09; } }   // kick the ball into it -> splash
     e._blcd=Math.max(0,(e._blcd||0)-dt);
@@ -16346,22 +16354,30 @@ function _updateArenaDeformers(dt){
     // the object's radius. So on a SMALL object a hit ripples only locally (never wraps the whole thing on the rebound), and
     // on a BIG object the wave has room to travel — the effect is proportional to size, like you asked.
     const rad=e.radius||120;
-    const REACH=(window._ADEF_REACH!=null?window._ADEF_REACH:rad*(window._ADEF_REACH_K||1.15));
-    const RSPD=(window._ADEF_RING_SPD!=null?window._ADEF_RING_SPD:rad*(window._ADEF_SPD_K||2.4));
-    const BAND=(window._ADEF_RING_BAND!=null?window._ADEF_RING_BAND:Math.max(14,rad*(window._ADEF_BAND_K||0.34)));
-    for(let s=sk.length-1;s>=0;s--){ const S=sk[s]; S.r+=RSPD*dt; S.life-=dt*(1/RLIFE); if(S.life<=0 || S.r>REACH) sk.splice(s,1); }   // cull once the ring has travelled its reach -> no full-body rebound
-    if(sk.length===0 && e._settled && !IDLE && !e._surf) continue;   // fully at rest and untouched -> skip (cheap). SURF planes keep rolling their ambient swells, so never skip.
+    let REACH=(window._ADEF_REACH!=null?window._ADEF_REACH:rad*(window._ADEF_REACH_K||1.15));
+    let RSPD=(window._ADEF_RING_SPD!=null?window._ADEF_RING_SPD:rad*(window._ADEF_SPD_K||2.4));
+    let BAND=(window._ADEF_RING_BAND!=null?window._ADEF_RING_BAND:Math.max(14,rad*(window._ADEF_BAND_K||0.34)));
+    let _rlife=RLIFE, _wavek=WAVEK, _inject=INJECT;
+    if(e._surf){   // CALM LAKE: your wake spreads as ONE smooth, wide, long-lived swell across the whole plane (not a tight jerky ring)
+      REACH=(window._SURF_REACH!=null?window._SURF_REACH:rad*(window._SURF_REACH_K||2.4));
+      RSPD =(window._SURF_WSPD !=null?window._SURF_WSPD :rad*(window._SURF_WSPD_K ||1.35));
+      BAND =(window._SURF_WBAND!=null?window._SURF_WBAND:Math.max(45,rad*(window._SURF_WBAND_K||0.18)));   // wide crest = gentle, smooth
+      _rlife=(window._SURF_WLIFE||3.2); _wavek=(window._SURF_WAVEK||0.016); _inject=(window._SURF_WINJECT||INJECT);   // longer wavelength + slow fade
+    }
+    for(let s=sk.length-1;s>=0;s--){ const S=sk[s]; S.r+=RSPD*dt; S.life-=dt*(1/_rlife); if(S.life<=0 || S.r>REACH) sk.splice(s,1); }   // cull once the ring has travelled its reach -> no full-body rebound
+    const _surfAmb=(e._surf&&window._SURF_WAVE===true);   // ambient ocean swell is OFF by default now (was the jerky per-vertex noise) — flat calm lake unless you opt in
+    if(sk.length===0 && e._settled && !IDLE && !_surfAmb) continue;   // fully at rest and untouched -> skip (cheap)
     // 1) traveling shock rings inject velocity. Phase keyed off RADIAL distance (spatially coherent wave), and strength
     //    ATTENUATES as the ring expands (att) so the ripple dissipates with distance from where it was hit.
     for(let s=0;s<sk.length;s++){ const S=sk[s], sx=S.x,sy=S.y,sz=S.z, R=S.r, att=(R<REACH?(1-R/REACH):0), imp=S.str*S.life*att*att;
       if(imp<=0.0001) continue;
       for(let gi=0;gi<G;gi++){ const g3=gi*3, dx=wR[g3]-sx,dy=wR[g3+1]-sy,dz=wR[g3+2]-sz, dist=Math.sqrt(dx*dx+dy*dy+dz*dz), dr=dist-R;
-        if(dr>-BAND && dr<BAND){ const f=((BAND-Math.abs(dr))/BAND)*imp; vd[gi]+=Math.sin(dr*WAVEK)*f*dt*INJECT; } } }
+        if(dr>-BAND && dr<BAND){ const f=((BAND-Math.abs(dr))/BAND)*imp; vd[gi]+=Math.sin(dr*_wavek)*f*dt*_inject; } } }
     // 2) spring every group back to flat (independent damped spring -> overshoot + settle, exactly like the sheet nodes)
     //    and ramp the wire colour cyan->magenta by |displacement| (the grid's "stretch into the rainbow").
     let active=(sk.length>0);
     // SURF: rolling ocean swells added on top of the dynamic (wake/blast) displacement — two crossed traveling sine waves.
-    const SURF=e._surf&&window._SURF_WAVE!==false, sAmp=(window._SURF_AMP!=null?window._SURF_AMP:20), sK=(window._SURF_K||0.006), sK2=(window._SURF_K2||0.0042), sSpd=(window._SURF_SPD||1.5);
+    const SURF=_surfAmb, sAmp=(window._SURF_AMP!=null?window._SURF_AMP:20), sK=(window._SURF_K||0.006), sK2=(window._SURF_K2||0.0042), sSpd=(window._SURF_SPD||1.5);
     if(SURF)active=true;
     for(let gi=0;gi<G;gi++){
       if(IDLE) vd[gi]+=iAmp*Math.sin(wR[gi*3]*0.03 + e.t*iSpd + gi*0.6)*dt;
@@ -16418,7 +16434,7 @@ function _placeDeformAsset(gltf, opts){
     if(opts.ring){ let rmin=1e9,rmax=0; const _rv=new THREE.Vector3();   // RING: derive the walkable annulus (inner/outer radius) from the mesh, so the hole stays open (you fall through the middle)
       for(const o of meshes){ const pa=o.geometry.attributes.position; o.updateMatrixWorld(true); for(let i=0;i<pa.count;i++){ _rv.set(pa.getX(i),pa.getY(i),pa.getZ(i)).applyMatrix4(o.matrixWorld); const rr=Math.hypot(_rv.x-P.x,_rv.z-P.z); if(rr<rmin)rmin=rr; if(rr>rmax)rmax=rr; } }
       col.ring={rIn:rmin+(window._RING_IN_PAD||8), rOut:rmax+(window._RING_OUT_PAD||10)}; console.log('[ring] annulus rIn='+Math.round(col.ring.rIn)+' rOut='+Math.round(col.ring.rOut)); }
-    if(opts.meshCollide) col._meshes=meshes;   // MESH collider: the landing check raycasts straight down onto these actual triangles -> walk real surfaces, fall through real gaps (no box/annulus guess)
+    if(opts.meshCollide){ col._meshes=meshes; col._surf=!!opts.surf; }   // MESH collider: raycast straight down onto the actual triangles. _surf -> ease the ride height so wave motion isn't jerky.
     window._arenaAssetCols.push(col);   // persistent list the player-landing check consults alongside _cubePlatforms (survives arena rebuilds of that array)
     window._arenaPlatformInfo={x:P.x,z:P.z,top:Math.round(col.top),hw:Math.round(col.hw),hd:Math.round(col.hd)}; }
   if(typeof announce==='function') announce((opts.label||'asset')+' · QUADS · '+grpN+' pts'+(opts.collide?' · WALKABLE':''),'#33e0ff');
