@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB314</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB315</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -16350,7 +16350,7 @@ function _updateArenaDeformers(dt){
     const RSPD=(window._ADEF_RING_SPD!=null?window._ADEF_RING_SPD:rad*(window._ADEF_SPD_K||2.4));
     const BAND=(window._ADEF_RING_BAND!=null?window._ADEF_RING_BAND:Math.max(14,rad*(window._ADEF_BAND_K||0.34)));
     for(let s=sk.length-1;s>=0;s--){ const S=sk[s]; S.r+=RSPD*dt; S.life-=dt*(1/RLIFE); if(S.life<=0 || S.r>REACH) sk.splice(s,1); }   // cull once the ring has travelled its reach -> no full-body rebound
-    if(sk.length===0 && e._settled && !IDLE) continue;   // fully at rest and untouched -> skip (cheap)
+    if(sk.length===0 && e._settled && !IDLE && !e._surf) continue;   // fully at rest and untouched -> skip (cheap). SURF planes keep rolling their ambient swells, so never skip.
     // 1) traveling shock rings inject velocity. Phase keyed off RADIAL distance (spatially coherent wave), and strength
     //    ATTENUATES as the ring expands (att) so the ripple dissipates with distance from where it was hit.
     for(let s=0;s<sk.length;s++){ const S=sk[s], sx=S.x,sy=S.y,sz=S.z, R=S.r, att=(R<REACH?(1-R/REACH):0), imp=S.str*S.life*att*att;
@@ -16360,14 +16360,19 @@ function _updateArenaDeformers(dt){
     // 2) spring every group back to flat (independent damped spring -> overshoot + settle, exactly like the sheet nodes)
     //    and ramp the wire colour cyan->magenta by |displacement| (the grid's "stretch into the rainbow").
     let active=(sk.length>0);
+    // SURF: rolling ocean swells added on top of the dynamic (wake/blast) displacement — two crossed traveling sine waves.
+    const SURF=e._surf&&window._SURF_WAVE!==false, sAmp=(window._SURF_AMP!=null?window._SURF_AMP:20), sK=(window._SURF_K||0.006), sK2=(window._SURF_K2||0.0042), sSpd=(window._SURF_SPD||1.5);
+    if(SURF)active=true;
     for(let gi=0;gi<G;gi++){
       if(IDLE) vd[gi]+=iAmp*Math.sin(wR[gi*3]*0.03 + e.t*iSpd + gi*0.6)*dt;
       let v=(vd[gi]+(0-d[gi])*STIFF)*DAMP, dd=d[gi]+v;
       if(dd>MAXD){dd=MAXD; v=0;} else if(dd<-MAXD){dd=-MAXD; v=0;}
       vd[gi]=v; d[gi]=dd;
       if(!active && (v>0.0015||v<-0.0015||dd>0.01||dd<-0.01)) active=true;
-      const g3=gi*3, ox=dL[g3]*dd, oy=dL[g3+1]*dd, oz=dL[g3+2]*dd, verts=groups[gi].verts;
-      let cr,cg,cb; if(wc){ let t=(dd<0?-dd:dd)/COLSCALE; if(t>1)t=1; const seg=t*3, si=seg<2?(seg|0):2, f=seg-si, a=_ADEF_PAL[si], b=_ADEF_PAL[si+1]; cr=(a[0]+(b[0]-a[0])*f)*WB; cg=(a[1]+(b[1]-a[1])*f)*WB; cb=(a[2]+(b[2]-a[2])*f)*WB; }
+      const g3=gi*3; let dtot=dd;
+      if(SURF) dtot += sAmp*Math.sin(wR[g3]*sK - e.t*sSpd) * Math.cos(wR[g3+2]*sK2 - e.t*sSpd*0.6);   // ambient swell -> the raycast reads this too, so you ride it
+      const ox=dL[g3]*dtot, oy=dL[g3+1]*dtot, oz=dL[g3+2]*dtot, verts=groups[gi].verts;
+      let cr,cg,cb; if(wc){ let t=(dtot<0?-dtot:dtot)/COLSCALE; if(t>1)t=1; const seg=t*3, si=seg<2?(seg|0):2, f=seg-si, a=_ADEF_PAL[si], b=_ADEF_PAL[si+1]; cr=(a[0]+(b[0]-a[0])*f)*WB; cg=(a[1]+(b[1]-a[1])*f)*WB; cb=(a[2]+(b[2]-a[2])*f)*WB; }
       for(let vi=0;vi<verts.length;vi++){ const iv=verts[vi], i3=iv*3; pos[i3]=rL[i3]+ox; pos[i3+1]=rL[i3+1]+oy; pos[i3+2]=rL[i3+2]+oz; if(wc){ wc[i3]=cr; wc[i3+1]=cg; wc[i3+2]=cb; } }
     }
     e._settled=!active; e.posAttr.needsUpdate=true; if(e.wcol)e.wcol.needsUpdate=true; if(e.mesh.geometry) e.mesh.geometry.boundingSphere=null;
@@ -16402,7 +16407,7 @@ function _placeDeformAsset(gltf, opts){
   else root.position.y += (opts.y!=null?opts.y:0) - box.min.y;
   root.updateMatrixWorld(true); if(typeof scene!=='undefined') scene.add(root);
   box=new THREE.Box3().setFromObject(root); const ctr=box.getCenter(new THREE.Vector3()), rad=box.getSize(new THREE.Vector3()).length()*0.5;
-  let grpN=0; for(const o of meshes){ o.updateMatrixWorld(true); const en=_buildDeformEntry(o); en.root=root; en.center=ctr.clone(); en.radius=rad; en._label=opts.label; grpN+=en.groups.length; window._arenaDeformers.push(en); }
+  let grpN=0; for(const o of meshes){ o.updateMatrixWorld(true); const en=_buildDeformEntry(o); en.root=root; en.center=ctr.clone(); en.radius=rad; en._label=opts.label; en._surf=!!opts.surf; grpN+=en.groups.length; window._arenaDeformers.push(en); }
   // WALKABLE COLLIDER: a standable flat-top platform matching the footprint (walk on top, jump up through, tap down to drop).
   if(opts.collide){ const pad=(opts.colPad||0), col={x:P.x, z:P.z, hw:(box.max.x-box.min.x)*0.5+pad, hd:(box.max.z-box.min.z)*0.5+pad, top:box.max.y, bottom:box.min.y, _asset:opts.label, _solid:(opts.solid!==false)};
     // BOX SDF (world space) — the ONE primitive every "smart asset" shares: player side-blocking, bullet/rocket ride-up, and reactivity all read it.
@@ -16438,6 +16443,22 @@ function _spawnRingPlatform(){
   _spawnDeformGLB('models/ring_platform.glb','_ringAssetGltf','_ARENA_RING',{ pos:{x:0,z:0}, centerY:cy, size:span, flattenY:(_flat>0?_flat:undefined), collide:true, solid:false, meshCollide:true, rot:{x:_rx,y:(window._RING_ROT_Y||0),z:(window._RING_ROT_Z||0)}, colPad:(window._RING_COLPAD||0), label:'ring_platform.glb' });
 }
 window._spawnRingPlatform=_spawnRingPlatform;   // console: force-spawn the ring without rebuilding the arena
+// SURF PLANE — a big subdivided ground mesh that ROLLS ambient ocean swells (+ your wake/blasts ripple it). It runs through the
+// SAME deform + real-mesh raycast collider as the ring, so you literally ride the waves up and down. Toggle: window._spawnSurfPlane().
+function _spawnSurfPlane(){
+  if(typeof scene==='undefined'||typeof THREE==='undefined')return;
+  if(window._surfPlaneRoot){ try{ scene.remove(window._surfPlaneRoot); }catch(_){} for(let i=(window._arenaDeformers||[]).length-1;i>=0;i--){ if(window._arenaDeformers[i]&&window._arenaDeformers[i]._surf)window._arenaDeformers.splice(i,1); } for(let i=(window._arenaAssetCols||[]).length-1;i>=0;i--){ if(window._arenaAssetCols[i]&&window._arenaAssetCols[i]._asset==='surf')window._arenaAssetCols.splice(i,1); } window._surfPlaneRoot=null; }
+  const C=window._CUBE||_CUBE; const fit=(window._SURF_FIT||0.98), W=2*C.hx*fit, Dp=2*C.hz*fit;
+  const segX=(window._SURF_SEGX||60), segZ=(window._SURF_SEGZ||46);
+  const geo=new THREE.PlaneGeometry(W, Dp, segX, segZ); geo.rotateX(-Math.PI/2); geo.computeVertexNormals();   // lie flat in XZ, normals +Y so the swell displaces vertically
+  const mesh=new THREE.Mesh(geo, new THREE.MeshBasicMaterial()); const grp=new THREE.Group(); grp.add(mesh);
+  const y=(window._SURF_Y!=null?window._SURF_Y:26);
+  const root=_placeDeformAsset({scene:grp}, { pos:{x:0,z:0}, y, size:Math.max(W,Dp), collide:true, solid:false, meshCollide:true, surf:true, label:'surf' });
+  window._surfPlaneRoot=root; if(typeof announce==='function')announce('SURF ON — ride the swells 🌊','#39e0ff');
+  return root;
+}
+window._spawnSurfPlane=_spawnSurfPlane;
+window._surfOff=function(){ if(window._surfPlaneRoot){ try{ scene.remove(window._surfPlaneRoot); }catch(_){} for(let i=(window._arenaDeformers||[]).length-1;i>=0;i--){ if(window._arenaDeformers[i]&&window._arenaDeformers[i]._surf)window._arenaDeformers.splice(i,1); } for(let i=(window._arenaAssetCols||[]).length-1;i>=0;i--){ if(window._arenaAssetCols[i]&&window._arenaAssetCols[i]._asset==='surf')window._arenaAssetCols.splice(i,1); } window._surfPlaneRoot=null; if(typeof announce==='function')announce('SURF OFF','#9fd8ff'); } };
 window._spawnArenaCube=_spawnArenaCube;
 window._platformAssetGltf=window._platformAssetGltf||null;
 function _spawnArenaPlatform(){
