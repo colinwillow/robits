@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB320</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB321</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -2469,8 +2469,9 @@ function _spawnPortal(x,z){
   if(typeof scene==='undefined'||!scene){ console.warn('[portal] no scene yet'); return; }
   if(window._portalMesh){ try{ scene.remove(window._portalMesh); }catch(_){} window._portalMesh=null; }   // replace, don't stack
   if(window._portalMembraneMesh){ try{ scene.remove(window._portalMembraneMesh); }catch(_){} window._portalMembraneMesh=null; }
-  const _px=(x!=null?x:(window._PORTAL_X!=null?window._PORTAL_X:((typeof player!=='undefined'&&player?player.wx:0)+(window._PORTAL_DIST||140))));
-  const _pz=(z!=null?z:(window._PORTAL_Z!=null?window._PORTAL_Z:((typeof player!=='undefined'&&player?player.wz:0))));
+  const _C=(typeof _CUBE!=='undefined')?(window._CUBE||_CUBE):null;   // park it on a SIDE wall (±Z), mid-length so it's off the crowded centre and clear of the ±X goals
+  const _px=(x!=null?x:(window._PORTAL_X!=null?window._PORTAL_X:(_C?(window._PORTAL_OFFX||0):((typeof player!=='undefined'&&player?player.wx:0)+(window._PORTAL_DIST||140)))));
+  const _pz=(z!=null?z:(window._PORTAL_Z!=null?window._PORTAL_Z:(_C?(_C.hz*(window._PORTAL_SIDE!=null?window._PORTAL_SIDE:0.72)):((typeof player!=='undefined'&&player?player.wz:0)))));
   const loader=new GLTFLoader();
   loader.load(PORTAL_GLB, gltf=>{
     _portalGltf=gltf; const root=gltf.scene;
@@ -20277,36 +20278,7 @@ function updateUI(){
   }
   // Weapon HUD icons
   if(player){ updateWeaponHUD(); }
-  let bd=document.getElementById('boost-bar-wrap');
-  if(!bd){
-    bd=document.createElement('div'); bd.id='boost-bar-wrap';
-    bd.style.cssText='margin-top:6px;width:80px';
-    bd.innerHTML=`<div style="height:6px;background:#00d9ff14;border-radius:3px;overflow:hidden">
-      <div id="boost-fill" style="height:100%;border-radius:3px;background:#00d9ff;transition:width 0.05s"></div>
-    </div>`;
-    document.getElementById('health-bar').parentElement.appendChild(bd);
-  }
-  const _bfill=document.getElementById('boost-fill');
-  if(_bfill){
-    const pct=player.boostFuel/player.boostMax;
-    const jetting=player._jetting&&player.boostFuel>0;
-    // Real-time charge from hold duration
-    const charge=player._charging&&player._chargeStart
-      ? Math.min(1,(performance.now()-player._chargeStart)/800)
-      : (player._jumpCharge||0);
-    const charging=player._charging&&charge>0;
-    if(charging){
-      const flash=Math.sin(performance.now()*0.025)*0.5+0.5;
-      const col=charge>0.7?`#ff${Math.floor((1-charge)*255).toString(16).padStart(2,'0')}00`:`rgb(${Math.floor(200+charge*55)},${Math.floor(150*(1-charge))},0)`;
-      _bfill.style.width=(charge*100)+'%';
-      _bfill.style.background=col;
-      _bfill.style.boxShadow=`0 0 ${6+flash*14}px ${col}`;
-    } else {
-      _bfill.style.width=(pct*100)+'%';
-      _bfill.style.background=pct<0.15?'#ff4400':jetting?'#ffaa00':'#00d9ff';
-      _bfill.style.boxShadow=jetting?'0 0 8px #ffaa00':'none';
-    }
-  }
+  { const bd=document.getElementById('boost-bar-wrap'); if(bd)bd.remove(); }   // RETIRED: the tiny upper-middle jetpack bar was a duplicate. Jetpack fuel now reads ONLY on the left bolt gauge (hud-fuel / bb-boost).
   const bp=document.getElementById('bomb-pips');
   if(bp.childElementCount!==Math.max(3,player.bombs)){ bp.innerHTML=''; for(let i=0;i<Math.max(3,player.bombs);i++){const d=document.createElement('div');d.className='pip bomb';bp.appendChild(d);} }
   [...bp.children].forEach((c,i)=>c.classList.toggle('full',i<player.bombs));
