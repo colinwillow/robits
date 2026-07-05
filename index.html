@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB335</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB336</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12187,19 +12187,24 @@ class Player{
       const _passUp=(this.pvy||0)>(window._PLAT_LAND_VY||16), _dropping=(this._dropThru||0)>0;
       const _chkPlat=(b)=>{ const dx=this.wx-b.x, dz=this.wz-b.z;
         if(b._meshes&&b._meshes.length){   // REAL-GEOMETRY collider: raycast straight down onto the actual triangles -> stand on true surfaces, fall through true gaps (arbitrary imported meshes)
-          if(Math.abs(dx)>b.hw+10||Math.abs(dz)>b.hd+10) return;                 // cheap footprint reject
+          if(Math.abs(dx)>b.hw+10||Math.abs(dz)>b.hd+10){ if(this._stuckMesh===b){this._stuckMesh=null;this._stuckY=null;} return; }                 // cheap footprint reject
           const RU=(window._MESH_RAY_UP||70), RD=(window._MESH_RAY_DOWN||50);
           if(!window._meshRay){ window._meshRay=new THREE.Raycaster(); window._meshRayO=new THREE.Vector3(); window._meshRayD=new THREE.Vector3(0,-1,0); }
           const rc=window._meshRay; rc.set(window._meshRayO.set(this.wx, this.py+RU, this.wz), window._meshRayD); rc.far=RU+RD;
-          const hits=rc.intersectObjects(b._meshes,false); if(!hits.length) return;
+          const hits=rc.intersectObjects(b._meshes,false); if(!hits.length){ if(this._stuckMesh===b){this._stuckMesh=null;this._stuckY=null;} return; }
           let hy=hits[0].point.y; const _capM = Math.max(_capC,(window._MESH_CATCH||55));
-          if(!_passUp && !_dropping && this.py<=hy+2 && this.py>=hy-_capM && hy>=eFloor){
+          // DESCENDING-PLATFORM STICK: when a platform drops faster than gravity pulls us down, its surface sinks below our feet and the tight +2 top-catch misses -> the pose flickers to airborne. If we were standing on THIS platform last frame, widen the top tolerance by exactly how far it dropped (measured, so jumps aren't affected) and glue us back down onto it.
+          const _stuck = (!b._surf && this._stuckMesh===b && this._stuckY!=null);
+          const _descend = _stuck ? Math.max(0, this._stuckY - hy) : 0;
+          const _topTol = 2 + (_stuck ? _descend + (window._PLAT_STICK_MARGIN||8) : 0);
+          if(!_passUp && !_dropping && this.py<=hy+_topTol && this.py>=hy-_capM && hy>=eFloor){
             if(b._surf && window._SURF_EASE!==false){   // EASE the ride height so a passing wave lifts/drops you smoothly instead of snapping frame-to-frame
               if(this._surfY==null || Math.abs(hy-this._surfY)>(window._SURF_EASE_SNAP||80)) this._surfY=hy;   // snap on first touch / big jump (landing), then glide
               else this._surfY += (hy-this._surfY)*Math.min(1,(dt||0.016)*(window._SURF_EASE_K||8));
               hy=this._surfY;
             }
             eFloor=hy; _onPlat=true; this._platformY=hy;
+            if(!b._surf){ if(this.py>hy){ this.py=hy; if(this.pvy<0)this.pvy=0; } this._stuckMesh=b; this._stuckY=hy; }   // glue to a rigid platform (surf keeps its own ease)
             // PLATFORM CARRY — ride the surface horizontally when it animates: track the hit face's centroid and shift the player by its frame-to-frame motion
             if(window._PLAT_CARRY!==false){ const _hf=hits[0].face, _sm=b._meshes[0];
               if(_hf && _sm && _sm.isSkinnedMesh && typeof _skinnedVertexWorld==='function'){
@@ -12210,7 +12215,7 @@ class Player{
                 this._platCarryFace=hits[0].faceIndex; if(!this._platCarryPrev)this._platCarryPrev=[0,0]; this._platCarryPrev[0]=_ccx; this._platCarryPrev[1]=_ccz;
               } else this._platCarryFace=-1;
             }
-          } else { if(b._surf)this._surfY=null; this._platCarryFace=-1; }   // left the surface -> reset smoother + carry tracking so re-landing doesn't jump
+          } else { if(b._surf)this._surfY=null; this._platCarryFace=-1; if(this._stuckMesh===b){this._stuckMesh=null;this._stuckY=null;} }   // left the surface (or jumped) -> reset smoother + carry + stick tracking so re-landing doesn't jump
           return;
         }
         if(b.ring){ const rr=Math.hypot(dx,dz); if(rr<b.ring.rIn||rr>b.ring.rOut) return; }   // ANNULUS platform (ring): walkable band only, hole open -> fall through the middle
@@ -16633,7 +16638,7 @@ function _spawnAnimatedPlatform(){
     scene.add(root);
     let sm=null; root.traverse(o=>{ if((o.isSkinnedMesh||o.isMesh)&&o.geometry&&!sm)sm=o; }); if(!sm){ console.warn('platform_02: no mesh'); return; }
     if(!sm.geometry.attributes.normal)sm.geometry.computeVertexNormals();
-    sm.material=new THREE.MeshBasicMaterial({color:(window._APLAT_FILL!=null?window._APLAT_FILL:0x06121e),transparent:true,opacity:(window._APLAT_FILL_OP!=null?window._APLAT_FILL_OP:0.32),side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:1.5,polygonOffsetUnits:2}); sm.frustumCulled=false;   // faint holographic fill (skins with the mesh)
+    sm.material=new THREE.MeshBasicMaterial({color:(window._APLAT_FILL!=null?window._APLAT_FILL:0x000000),transparent:true,opacity:(window._APLAT_FILL_OP!=null?window._APLAT_FILL_OP:0.5),side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:1.5,polygonOffsetUnits:2}); sm.frustumCulled=false;   // semi-transparent black fill under the wireframe -> reads as a solid holographic panel (recolour via window._APLAT_FILL / _APLAT_FILL_OP)
     const qidx=_quadEdgesFromGeo(sm.geometry), nP=sm.geometry.attributes.position.count;   // quad edges (threshold hides tri diagonals)
     const wgeo=new THREE.BufferGeometry(); wgeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(nP*3),3)); wgeo.setIndex(qidx);
     const wire=new THREE.LineSegments(wgeo,new THREE.LineBasicMaterial({color:(window._APLAT_WIRE_COL!=null?window._APLAT_WIRE_COL:0x39e0ff),transparent:true,opacity:(window._APLAT_WIRE_OP!=null?window._APLAT_WIRE_OP:0.9),blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); wire.frustumCulled=false; wire.renderOrder=3; wire._isPlatformAsset=true; scene.add(wire);
