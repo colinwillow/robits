@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB349</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB350</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -32819,11 +32819,15 @@ function _platProjSurf(b, dt){
   const RU=(window._PLAT_PROJ_UP||70), RD=(window._PLAT_PROJ_DN||70), rc=window._projRay;
   rc.set(window._projRayO.set(b.wx,by+RU,b.wz), window._projRayD); rc.far=RU+RD;
   const hits=rc.intersectObject(surf,false); if(!hits.length) return false;                          // no deck below (edge / shot past it) -> free
-  const hy=hits[0].point.y, above=by-hy, SOI=(window._PLAT_PROJ_SOI||34), RIDE=(window._PLAT_PROJ_RIDE||7);
-  if(above>SOI || above<-6) return false;                                                            // well above the deck (shooting across) or below it -> free
+  const hy=hits[0].point.y, above=by-hy, SOI=(window._PLAT_PROJ_SOI||40), RIDE=(window._PLAT_PROJ_RIDE||7);
+  if(above>SOI || above<-8) return false;                                                            // well above the deck (shooting across) or below it -> free
   if(b.vy===undefined)b.vy=0;
-  b.y = by + ((hy+RIDE)-by)*Math.min(1, dt*(window._PLAT_PROJ_K||12));   // ease to ride height -> the shot follows the contour over bumps and down slopes
-  b.vy = 0;                                                              // horizontal velocity carries it along; _cf below makes the main loop skip gravity/extra Y
+  // WORLD surface normal at the hit — geometric (from the triangle), so it reflects the CURVED / deforming deck, not a flat assumption
+  let nx=0,ny=1,nz=0; const fc=hits[0].face; if(fc&&fc.normal){ nx=fc.normal.x; ny=fc.normal.y; nz=fc.normal.z; const nl=Math.hypot(nx,ny,nz)||1; nx/=nl; ny/=nl; nz/=nl; if(ny<0){ nx=-nx; ny=-ny; nz=-nz; } }
+  const sp=Math.hypot(b.vx,b.vy,b.vz)||1;
+  const dn=b.vx*nx+b.vy*ny+b.vz*nz; b.vx-=nx*dn; b.vy-=ny*dn; b.vz-=nz*dn;                            // TANGENT-FOLLOW: strip the normal component -> the velocity now lies in the surface's tangent plane, so on the curved/tilted deck the shot bends ALONG the geometry (re-projected every frame as it travels)
+  const gap=(hy+RIDE)-by, ST=(window._PLAT_PROJ_STICK||0.35); b.vx+=nx*gap*ST; b.vy+=ny*gap*ST; b.vz+=nz*gap*ST;   // STICK: spring toward ride height along the normal so it hugs the surface instead of peeling off
+  const ns=Math.hypot(b.vx,b.vy,b.vz)||1; b.vx=b.vx/ns*sp; b.vy=b.vy/ns*sp; b.vz=b.vz/ns*sp;          // keep the shot's speed steady (Y integrates via the _cf branch / next-frame step)
   if(typeof _platDeformDimple==='function' && Math.random()<0.4) _platDeformDimple(b.wx,b.wz,(window._PLAT_PROJ_DIP||1.2),(window._PDEF_BULLET_R||24));   // faint skim wake
   return true;
 }
