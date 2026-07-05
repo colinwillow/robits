@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB347</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB348</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -10328,6 +10328,7 @@ class Bullet{
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this.life-=this.decay*dt*60;
     let _cf = (GS.zone===-16) ? _cityProjOrbit(this, 12, 34, dt) : (GS.zone===-19 ? _cubeProjStick(this, window._CUBE_PROJ_R||12, window._CUBE_PROJ_SOI||90, dt) : false);   // building field / cube inner shell owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the corner
     if(!_cf && typeof _assetProjStick==='function' && window._arenaAssetCols && window._arenaAssetCols.length) _cf = _assetProjStick(this, window._ASSET_PROJ_R||12, window._ASSET_PROJ_SOI||70, dt);   // + smart-asset boxes (cube.glb): shots climb their walls too
+    if(!_cf && GS.zone===-19 && typeof _platProjSurf==='function') _cf = _platProjSurf(this, dt);   // + animated platform: shots skimming the deck follow its (deforming) top surface
     if(this._mountArc){                                                        // MOUNTED shot: level out, clear the creature, then dip DOWN and SKIM the ground (rakes the whole lane -> forgiving on moving enemies)
       const _hsp=Math.hypot(this.vx,this.vz)||1; this._mtTrav=(this._mtTrav||0)+_hsp*dt;
       const _fy=(window._MOUNT_ARC_SKIM_Y||9);
@@ -32800,6 +32801,30 @@ function _assetProjStick(b, R, SOI, dt){
   const ns=Math.hypot(b.vx,b.vy,b.vz); if(ns>20){ b.vx=b.vx/ns*sp; b.vy=b.vy/ns*sp; b.vz=b.vz/ns*sp; }   // steady speed while travelling
   return true;
 }
+// SURFACE-HUG for the animated platform: a shot skimming along the top rides the deforming surface (raycast down, pin to RIDE
+// above it) — like the way shots climb the cube walls, but for a horizontal deck. Self-gating: the platform is elevated, so a
+// shot's downward ray only finds it when you're up on the deck firing near the surface; ground shots (or shots way overhead)
+// sail free, and firing off the edge (no surface below) releases the shot. window._PLAT_PROJ=false to turn it off.
+function _platProjSurf(b, dt){
+  if(typeof GS==='undefined'||GS.zone!==-19||window._PLAT_PROJ===false||b._noOrbit) return false;
+  const cols=window._arenaAssetCols; if(!cols||!cols.length) return false;
+  let col=null; for(const c of cols){ if(c&&c._asset==='platform_02.glb'){ col=c; break; } } if(!col) return false;
+  const surf=(window._platWire&&window._platWire.fill)||(col._meshes&&col._meshes[0]); if(!surf) return false;
+  const by=(b.y!==undefined?b.y:9);
+  if(Math.abs(b.wx-col.x)>col.hw+24||Math.abs(b.wz-col.z)>col.hd+24) return false;                 // not over the deck -> free
+  if(!window._projRay){ window._projRay=new THREE.Raycaster(); window._projRayO=new THREE.Vector3(); window._projRayD=new THREE.Vector3(0,-1,0); }
+  const RU=(window._PLAT_PROJ_UP||70), RD=(window._PLAT_PROJ_DN||70), rc=window._projRay;
+  rc.set(window._projRayO.set(b.wx,by+RU,b.wz), window._projRayD); rc.far=RU+RD;
+  const hits=rc.intersectObject(surf,false); if(!hits.length) return false;                          // no deck below (edge / shot past it) -> free
+  const hy=hits[0].point.y, above=by-hy, SOI=(window._PLAT_PROJ_SOI||34), RIDE=(window._PLAT_PROJ_RIDE||7);
+  if(above>SOI || above<-6) return false;                                                            // well above the deck (shooting across) or below it -> free
+  if(b.vy===undefined)b.vy=0;
+  b.y = by + ((hy+RIDE)-by)*Math.min(1, dt*(window._PLAT_PROJ_K||12));   // ease to ride height -> the shot follows the contour over bumps and down slopes
+  b.vy = 0;                                                              // horizontal velocity carries it along; _cf below makes the main loop skip gravity/extra Y
+  if(typeof _platDeformDimple==='function' && Math.random()<0.4) _platDeformDimple(b.wx,b.wz,(window._PLAT_PROJ_DIP||1.2),(window._PDEF_BULLET_R||24));   // faint skim wake
+  return true;
+}
+window._platProjSurf=_platProjSurf;
 window._assetProjStick=_assetProjStick;
 function _cityLedgeHangPlayer(p,dt){
   if(GS.zone!==-16 || typeof _cityBoxes==='undefined' || !_cityBoxes.length) return;
