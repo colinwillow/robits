@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB350</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB351</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12195,25 +12195,28 @@ class Player{
           const rc=window._meshRay; rc.set(window._meshRayO.set(this.wx, this.py+RU, this.wz), window._meshRayD); rc.far=RU+RD;
           const hits=rc.intersectObjects(b._meshes,false); if(!hits.length){ if(this._stuckMesh===b){this._stuckMesh=null;this._stuckY=null;} return; }
           let hy=hits[0].point.y; const _capM = Math.max(_capC,(window._MESH_CATCH||55));
-          // DESCENDING-PLATFORM STICK: when a platform drops faster than gravity pulls us down, its surface sinks below our feet and the tight +2 top-catch misses -> the pose flickers to airborne. If we were standing on THIS platform last frame, widen the top tolerance by exactly how far it dropped (measured, so jumps aren't affected) and glue us back down onto it.
-          const _stuck = (!b._surf && this._stuckMesh===b && this._stuckY!=null);
-          const _descend = _stuck ? Math.max(0, this._stuckY - hy) : 0;
-          const _topTol = 2 + (_stuck ? _descend + (window._PLAT_STICK_MARGIN||8) : 0);
-          if(!_passUp && !_dropping && this.py<=hy+_topTol && this.py>=hy-_capM && hy>=eFloor){
-            if(b._surf && window._SURF_EASE!==false){   // EASE the ride height so a passing wave lifts/drops you smoothly instead of snapping frame-to-frame
+          const _stuck = (!b._surf && this._stuckMesh===b && this._stuckY!=null);   // already standing on this rigid deck last frame
+          // STUCK -> STAY: once you're on the deck, ride its surface up/down and DON'T drop just because the raycast height jumped a frame (curved deck + being carried/aim-spun made the ray graze a higher/lower spot -> the "dip through then pop back up" bug). Release only on a real jump / drop-thru / leaving the footprint / a genuine gap (no hit above). First landing still uses the normal catch window.
+          const _catch = _stuck ? (!_passUp && !_dropping) : (!_passUp && !_dropping && this.py<=hy+2 && this.py>=hy-_capM && hy>=eFloor);
+          if(_catch){
+            if(b._surf && window._SURF_EASE!==false){   // SURF: ease the ride height so a passing wave lifts/drops you smoothly instead of snapping frame-to-frame
               if(this._surfY==null || Math.abs(hy-this._surfY)>(window._SURF_EASE_SNAP||80)) this._surfY=hy;   // snap on first touch / big jump (landing), then glide
               else this._surfY += (hy-this._surfY)*Math.min(1,(dt||0.016)*(window._SURF_EASE_K||8));
               hy=this._surfY;
+            } else if(!b._surf){   // RIGID DECK: smooth the ride height -> filters raycast/face-flicker jitter so you glide instead of snapping; snap on a big legit step
+              if(this._stuckY==null || Math.abs(hy-this._stuckY)>(window._PLAT_SNAP||90)) this._stuckY=hy;
+              else this._stuckY += (hy-this._stuckY)*Math.min(1,(dt||0.016)*(window._PLAT_EASE_K||16));
+              hy=this._stuckY;
             }
             eFloor=hy; _onPlat=true; this._platformY=hy;
-            if(!b._surf){ if(this.py>hy){ this.py=hy; if(this.pvy<0)this.pvy=0; } this._stuckMesh=b; this._stuckY=hy; }   // glue to a rigid platform (surf keeps its own ease)
+            if(!b._surf){ this.py=hy; if(this.pvy<0)this.pvy=0; this._stuckMesh=b; }   // firm glue to the smoothed deck height (both directions) -> ride it up/down, never dip/pop
             // PLATFORM CARRY — ride the surface horizontally when it animates: track the hit face's centroid and shift the player by its frame-to-frame motion
             if(window._PLAT_CARRY!==false){ const _hf=hits[0].face, _sm=(b._skin||b._meshes[0]);
               if(_hf && _sm && _sm.isSkinnedMesh && typeof _skinnedVertexWorld==='function'){
                 if(!window._pcvA){ window._pcvA=new THREE.Vector3(); window._pcvB=new THREE.Vector3(); window._pcvC=new THREE.Vector3(); }
                 _skinnedVertexWorld(_sm,_hf.a,window._pcvA); _skinnedVertexWorld(_sm,_hf.b,window._pcvB); _skinnedVertexWorld(_sm,_hf.c,window._pcvC);
                 const _ccx=(window._pcvA.x+window._pcvB.x+window._pcvC.x)/3, _ccz=(window._pcvA.z+window._pcvB.z+window._pcvC.z)/3;
-                if(this._platCarryFace===hits[0].faceIndex && this._platCarryPrev){ this.wx+=(_ccx-this._platCarryPrev[0]); this.wz+=(_ccz-this._platCarryPrev[1]); }
+                if(this._platCarryFace===hits[0].faceIndex && this._platCarryPrev){ const _sh=Math.hypot(_ccx-this._platCarryPrev[0],_ccz-this._platCarryPrev[1]); if(_sh<(window._PLAT_CARRY_MAX||40)){ this.wx+=(_ccx-this._platCarryPrev[0]); this.wz+=(_ccz-this._platCarryPrev[1]); } }   // ignore a big centroid jump (face flicker) so the carry can't fling you
                 this._platCarryFace=hits[0].faceIndex; if(!this._platCarryPrev)this._platCarryPrev=[0,0]; this._platCarryPrev[0]=_ccx; this._platCarryPrev[1]=_ccz;
               } else this._platCarryFace=-1;
             }
