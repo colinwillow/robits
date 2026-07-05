@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB297</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB298</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14326,7 +14326,8 @@ function _detonateItem(type,x,z,od){
         for(const rf of [0.5,1.0]){ const rr=R*rf, nn=10; for(let k=0;k<nn;k++){ const a=(k/nn)*TAU+rf; try{ gridSheetsBlast(x+Math.cos(a)*rr,9,z+Math.sin(a)*rr,P*Math.max(0.3,1-rf*0.5),SR2*0.6); }catch(_){} } } }catch(_){} }   // secondary ripple ring so the deform travels out like the nuke's
       if(typeof hitStop==='function')hitStop(6); if(typeof addTrauma==='function')addTrauma(0.22);
       if(window._blastBall)try{ window._blastBall(x,9,z,R,(window._BOMB_BALL_PW||900)); }catch(_){}   // punts the RL ball
-      if(player&&player.alive!==false&&(player.inv||0)<=0){ const pd=Math.hypot(player.wx-x,player.wz-z); if(pd<(window._BOMB_HURT_R||66)){ if(player.shieldActive&&player.shieldHit){ player.shieldHit(18,'blast'); } else if(window._BOMB_HURTS_PLAYER!==false && player.knock){ player.knock(player.wx-x,player.wz-z,(window._BOMB_KB_MAG||16),(window._BOMB_KB_LIFT||420),24); } } }   // your own bomb catches you (knockback, not instakill)
+      // your own bomb FLINGS you like the nuke does — just a smaller radius (~blast size, not the tiny 66) and ~half the nuke's launch. Distance-scaled so a near miss barely nudges, a direct hit sends you flying.
+      if(player&&player.alive!==false&&(player.inv||0)<=0){ const pd=Math.hypot(player.wx-x,player.wz-z); const FR=(window._BOMB_FLING_R!=null?window._BOMB_FLING_R:R*0.9); if(pd<FR){ const n=Math.max(0,1-pd/FR); if(player.shieldActive&&player.shieldHit){ player.shieldHit(18,'blast'); } else if(window._BOMB_HURTS_PLAYER!==false && player.knock){ player.knock(player.wx-x,player.wz-z,(window._BOMB_KB_MAG||16),(window._BOMB_KB_LIFT||360)*(0.45+n*0.55),28); } } }
       if(typeof Audio!=='undefined'&&Audio.blip){ try{ Audio.blip(70,0.2,'sine',0.3,60); Audio.blip(180,0.12,'square',0.18,120); }catch(_){} }
     }
     else if(type==='barrel'){
@@ -30110,14 +30111,18 @@ function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
     if(typeof comboOverride==='number'){ player._meleeCombo=comboOverride; }
     else { const _seq=(window._MELEE_SEQ&&window._MELEE_SEQ.length)?window._MELEE_SEQ:[3,2,1];   // ground combo: SPIN (melee_3) first, then 2, then the uppercut (melee_1). Reorder live with window._MELEE_SEQ.
       const _fresh=(player._meleeComboT||0)<=0;
-      const _dirChanged=(player._flickStartMelee!=null)&&(player._flickStartMelee!==player._comboAnchor);   // flicked a DIFFERENT direction -> jump straight to that direction's attack
+      // By DEFAULT the combo follows _seq order (fresh -> _seq[0], then forward, wrapping) regardless of which way you flick —
+      // the flick direction only steers WHERE you swing (facing), not WHICH attack. Set window._MELEE_DIR_START=true to opt back
+      // into flick-direction picking the opening attack (UP=melee_2, DOWN=melee_3, L/R=melee_1).
+      const _dirStart=(window._MELEE_DIR_START===true);
+      const _dirChanged=_dirStart&&(player._flickStartMelee!=null)&&(player._flickStartMelee!==player._comboAnchor);
       if(_fresh || _dirChanged){
         let _ss=0;
-        if(player._flickStartMelee!=null){ const _i=_seq.indexOf(player._flickStartMelee); if(_i>=0)_ss=_i; }
+        if(_dirStart && player._flickStartMelee!=null){ const _i=_seq.indexOf(player._flickStartMelee); if(_i>=0)_ss=_i; }
         player._meleeStep=_ss;
-        player._comboAnchor=(player._flickStartMelee!=null?player._flickStartMelee:_seq[_ss]);   // remember which direction owns this chain
+        player._comboAnchor=(_dirStart&&player._flickStartMelee!=null?player._flickStartMelee:_seq[_ss]);   // remember which direction owns this chain
       } else {
-        player._meleeStep=((player._meleeStep||0)+1)%_seq.length;   // SAME direction within the window -> continue forward, wrapping
+        player._meleeStep=((player._meleeStep||0)+1)%_seq.length;   // continue forward within the combo window, wrapping
       }
       player._flickStartMelee=null;   // consume so a later tap/cycle doesn't inherit a stale direction
       player._meleeCombo=_seq[player._meleeStep]; }
