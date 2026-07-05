@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB353</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB354</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11733,7 +11733,10 @@ class Player{
     // MELEE/SLIDE CAMERA ALIGN (experimental): after a directional melee/slide, swing the camera to sit BEHIND the direction he just lunged, so you're looking at his back toward the fight (helps when a target slips off-frame mid-combo). Right-stick aim / free-look override it. Toggle via window._MELEE_CAM_ALIGN.
     if((this._camAlignT||0)>0 && !window._ballCam){ this._camAlignT=Math.max(0,this._camAlignT-dt); const _am=Math.hypot(avx||0,avz||0);
       if(_am<=(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.06)){ let diff=((this._camAlignYaw-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI; CAM.tyaw+=diff*Math.min(1,dt*(window._MELEE_CAM_SPD||6)); } else { this._camAlignT=0; } }   // right-stick aim cancels the auto-align so you keep manual control
-    if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)){ _cubeWalkMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1);
+    if(typeof _platWalkOn==='function' && _platWalkOn(this)){ _platWalkMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1);   // BOOTS on the animated platform mesh: walk its top / underside / sides (takes priority over the cube shell when you're on the deck)
+      if(!window._ballCam){ const _am=Math.hypot(avx||0,avz||0); if(_am>(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.06)){ const desired=-this.aim-Math.PI/2; let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI; if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4); } }
+    }
+    else if(typeof _cubeWalkOn==='function' && _cubeWalkOn(this)){ _cubeWalkMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1);
       if(!window._ballCam){ const _am=Math.hypot(avx||0,avz||0); if(_am>(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.06)){ const desired=-this.aim-Math.PI/2; let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI; if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4); } }   // camera eases BEHIND the right-stick aim (follows on ANY aim input now) -> full 360, correct handedness
     }   // cube arena: boots = walk walls/ceiling (movement), then fall through to the _inPlanetGravity aim/shoot branch below so the shoot stick works
     else if(typeof _cubeMomentumOn==='function' && _cubeMomentumOn(this)){ _cubeMomentumMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1);   // NO-BOOTS Rocket-League drive: carry speed up the chamfer + wall
@@ -26356,6 +26359,65 @@ function _cubeWalkRender(P,N,tanDir,dt,grounded){
   _cubeCam(new THREE.Vector3(P.wx,P.py,P.wz), dt);
   if(typeof _syncCollider==='function') _syncCollider(P, P.model?P.model.quaternion:null);   // keep the collider riding the hips in wall-walk (draw() bails here)
 }
+// ══════════ MAGNETIC BOOTS ON ARBITRARY MESH (platform_02) — walk the top / underside / sides of a complex GLB ══════════
+// STAGE 1. The cube walk reads an analytic SDF (_cubeSDF/_cubeGrad) for the surface normal + ride distance; a GLB has none, so
+// we sample the nearest surface by casting a few rays (into the current up, plus the 6 axes), take the closest triangle hit,
+// and use its geometric normal. Feeds the SAME _cubeWalkRender (orientation/camera/aim) so it behaves like the cube wall-walk.
+const _PW_AXES=[[0,-1,0],[0,1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]];
+function _platSurfSample(px,py,pz,soi,prevN){
+  const cols=window._arenaAssetCols; if(!cols||!cols.length) return null;
+  let col=null; for(const c of cols){ if(c&&c._asset==='platform_02.glb'){ col=c; break; } } if(!col) return null;
+  const surf=(window._platWire&&window._platWire.fill)||(col._meshes&&col._meshes[0]); if(!surf) return null;
+  if(Math.abs(px-col.x)>col.hw+soi||Math.abs(pz-col.z)>col.hd+soi) return null;
+  if(!window._pwRay){ window._pwRay=new THREE.Raycaster(); window._pwO=new THREE.Vector3(); window._pwD=new THREE.Vector3(); }
+  const rc=window._pwRay; let best=null, bestD=soi;
+  const dirs=[]; if(prevN){ dirs.push([-prevN.x,-prevN.y,-prevN.z]); }   // cast INTO the surface you were on first -> keeps you stuck to it
+  for(const a of _PW_AXES)dirs.push(a);
+  for(const d of dirs){ const dl=Math.hypot(d[0],d[1],d[2])||1; window._pwD.set(d[0]/dl,d[1]/dl,d[2]/dl); rc.set(window._pwO.set(px,py,pz),window._pwD); rc.far=soi;
+    const hits=rc.intersectObject(surf,false); if(hits.length && hits[0].distance<bestD){ const h=hits[0]; let nx=0,ny=1,nz=0; if(h.face&&h.face.normal){ nx=h.face.normal.x; ny=h.face.normal.y; nz=h.face.normal.z; const nl=Math.hypot(nx,ny,nz)||1; nx/=nl; ny/=nl; nz/=nl; }
+      const tox=px-h.point.x, toy=py-h.point.y, toz=pz-h.point.z; if(nx*tox+ny*toy+nz*toz<0){ nx=-nx; ny=-ny; nz=-nz; }   // normal points OUT of the surface toward the player
+      best={ px:h.point.x, py:h.point.y, pz:h.point.z, nx, ny, nz, dist:hits[0].distance }; bestD=hits[0].distance; } }
+  return best;
+}
+window._platSurfSample=_platSurfSample;
+function _platWalkOn(P){
+  if(window._PLAT_WALK===false) return false;
+  if(!(GS.zone===-19 && P && P._hasBoots && P._bootsEquipped)) return false;
+  if(P._launched || (P._kbStun||0)>0 || P._cwDislodge) return false;
+  if((P._cwNoCatchT||0)>0){ P._cwNoCatchT=Math.max(0,P._cwNoCatchT-0.016); P._platUp=null; P._platSample=null; return false; }   // brief window after a jump-off so the magnets don't instantly re-grab
+  const s=_platSurfSample(P.wx,P.py,P.wz,(P._platUp?(window._PLAT_WALK_HOLD||46):(window._PLAT_WALK_SOI||30)),P._platUp);   // wider keep-range once attached, tighter grab-range to first catch it
+  if(s){ P._platSample=s; return true; }
+  P._platSample=null; P._platUp=null; return false;
+}
+window._platWalkOn=_platWalkOn;
+function _platWalkMove(P,rawX,rawZ,dt){
+  dt=Math.min(dt,0.033);
+  const s0=P._platSample||_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_WALK_HOLD||46),P._platUp);
+  if(!s0){ P._inPlanetGravity=false; P._platUp=null; P._platSample=null; return; }
+  P._inPlanetGravity=true; P._cwSetGrav=true; P._onPlatform=false;
+  let N=new THREE.Vector3(s0.nx,s0.ny,s0.nz);
+  const RIDE=(window._PLAT_WALK_RIDE||13), TOP=(window._CUBE_MAXS||300)*(window._SPEED_SCALE||0.6);
+  // JUMP / JET -> release the magnets, hand back to normal world gravity so you fall/fly off
+  if(P._jumpTapped){ P._jumpTapped=false; P.vx=(P.vx||0)+N.x*(window._PLAT_WALK_JUMP||230); P.pvy=(P.pvy||0)+N.y*(window._PLAT_WALK_JUMP||230); P.vz=(P.vz||0)+N.z*(window._PLAT_WALK_JUMP||230); P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._cwNoCatchT=(window._PLAT_WALK_NOCATCH||0.4); if(typeof Audio!=='undefined')Audio.blip(240,0.16,'sawtooth',0.12,120); return; }   // jump = magnetic release -> world gravity takes over (brief no-catch so it doesn't instantly re-grab)
+  // input -> raw screen stick (undo cam yaw), same as the cube walk
+  const _cy=Math.cos(CAM.yaw), _sy=Math.sin(CAM.yaw);
+  const sx=_cy*rawX - _sy*rawZ, sz=_sy*rawX + _cy*rawZ, inMag=Math.hypot(sx,sz);
+  const cr=(window._ballCam||(player&&player._cubeCamAuth))?new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0):new THREE.Vector3(_cy,0,-_sy);
+  let prr=cr.addScaledVector(N,-cr.dot(N)); if(prr.lengthSq()<1e-5){ prr.crossVectors(N,P._cwLastTN||new THREE.Vector3(0,0,1)); } prr.normalize();
+  let pf; { const _cu=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1); _cu.addScaledVector(N,-_cu.dot(N)); if(_cu.lengthSq()>0.04) pf=_cu.normalize(); else { pf=new THREE.Vector3().crossVectors(N,prr); pf.normalize(); } }
+  let tanDir=null; if(inMag>0.05){ tanDir=pf.clone().multiplyScalar(-sz).addScaledVector(prr,sx); if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); P._cwLastTN=pf.clone(); } else tanDir=null; }
+  // GROUNDED direct move (stage 1: no airborne arc yet — magnets hold you to the surface)
+  let v; if(tanDir){ v=tanDir.clone().multiplyScalar(TOP*Math.min(1,inMag)); } else v=new THREE.Vector3(0,0,0);
+  P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
+  // RE-SNAP to ride height on the freshly-sampled surface (this is what carries you across the curve / onto the underside)
+  const s2=_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_WALK_HOLD||46),N)||s0;
+  N.set(s2.nx,s2.ny,s2.nz);
+  P.wx=s2.px+N.x*RIDE; P.py=s2.py+N.y*RIDE; P.wz=s2.pz+N.z*RIDE;
+  P._platUp=N.clone(); P._platSample=s2; P.boostFuel=Math.min(P.boostMax||100,(P.boostFuel||0)+(window._CUBE_JET_RECHARGE||40)*dt);
+  P.vx=v.x; P.pvy=v.y; P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); P._glGrounded=true;
+  if(typeof _cubeWalkRender==='function') _cubeWalkRender(P,N,tanDir,dt,true);
+}
+window._platWalkMove=_platWalkMove;
 // WORLD-UP cameras for the cube. FREE cam orbits by CAM.yaw (steered by the right stick), BALL cam looks past you toward the ball.
 // Both stay parallel to the TRUE ground (never roll) -> on the ceiling you're plainly upside-down. Same distance as on the floor.
 // HYBRID cube cam:
