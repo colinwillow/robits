@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB338</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB339</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12370,6 +12370,21 @@ class Player{
       if(Math.abs(this.wx)<_h+2 && Math.abs(this.wz)<_h+2 && _top<=this.py+2){ groundY=Math.max(groundY,_top); if(Math.abs(this.py-_top)<3) onSurface=true; }
     }
 
+    // ── UNIVERSAL LEVEL-SURFACE PROBE — every registered walkable asset (animated platform, ring, kit slabs). Reuses the SAME
+    //    collision registries the physics stands on, so the indicator fires above every real surface. Real down-raycast onto
+    //    mesh colliders (the rippling platform included) -> the ring/arrow projects onto the true animated surface below you.
+    if((window._arenaAssetCols&&window._arenaAssetCols.length)||(window._cubePlatforms&&window._cubePlatforms.length)){
+      const _probe=(b)=>{ if(!b)return; const dx=this.wx-(b.x||0), dz=this.wz-(b.z||0);
+        if(b._meshes&&b._meshes.length){ if(Math.abs(dx)>b.hw+12||Math.abs(dz)>b.hd+12)return;
+          if(!window._meshRay){ window._meshRay=new THREE.Raycaster(); window._meshRayO=new THREE.Vector3(); window._meshRayD=new THREE.Vector3(0,-1,0); }
+          const rc=window._meshRay, oy=this.py+40; rc.set(window._meshRayO.set(this.wx,oy,this.wz),window._meshRayD); rc.far=oy+80;
+          const hits=rc.intersectObjects(b._meshes,false); if(hits.length){ const hy=hits[0].point.y; if(hy<=this.py+2){ groundY=Math.max(groundY,hy); if(Math.abs(this.py-hy)<4)onSurface=true; } }
+        } else { if(b.ring){ const rr=Math.hypot(dx,dz); if(rr<b.ring.rIn||rr>b.ring.rOut)return; } else if(Math.abs(dx)>=b.hw||Math.abs(dz)>=b.hd)return;
+          const top=b.top; if(top!=null && top<=this.py+2){ groundY=Math.max(groundY,top); if(Math.abs(this.py-top)<4)onSurface=true; } } };
+      if(window._arenaAssetCols)for(const b of window._arenaAssetCols)_probe(b);
+      if(window._cubePlatforms)for(const b of window._cubePlatforms)_probe(b);
+    }
+
     // CITY TEST — box buildings: rooftop landing has PRIORITY (descent capture), walls only block below the roof
     if(GS.zone===-16 && _cityBoxes.length && !this._inPlanetGravity && !this._hang){
       const cap=Math.min(34, Math.max(8, Math.abs(this.pvy||0)*dt + 6));   // capture window scales with fall speed so fast drops still land
@@ -13456,6 +13471,26 @@ function _updateRobitShards(dt){
   }
 }
 window._explodeRobit=_explodeRobit; window._updateRobitShards=_updateRobitShards;
+// ── THREAT GLOW — a fog-immune locator aura so distant enemies never dim out of sight ──
+// The scene has exponential fog that darkens everything with distance (correct for the level), but it
+// also swallows rival pilots far across the arena. This sprite uses fog:false + additive, so it stays
+// bright at any range while the body still fogs, and it's distance-scaled so it never shrinks to a dot.
+// Coloured with the bot's own palette colour -> doubles as rival identification. window._THREAT_GLOW=false to kill it.
+let _threatGlowTex=null;
+function _threatGlowTexture(){ if(_threatGlowTex)return _threatGlowTex; try{ const c=document.createElement('canvas'); c.width=c.height=64; const x=c.getContext('2d'); const g=x.createRadialGradient(32,32,0,32,32,32); g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(0.25,'rgba(255,255,255,0.72)'); g.addColorStop(0.6,'rgba(255,255,255,0.18)'); g.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle=g; x.beginPath(); x.arc(32,32,32,0,Math.PI*2); x.fill(); _threatGlowTex=new THREE.CanvasTexture(c); }catch(_){} return _threatGlowTex; }
+function _ensureThreatGlow(unit){
+  if(window._THREAT_GLOW===false || !unit || !unit.model) return;
+  if(!unit._threatGlow){ const tex=_threatGlowTexture(); if(!tex)return;
+    const col=new THREE.Color(unit._color!=null?unit._color:0xff3a3a);
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,color:col,transparent:true,opacity:(window._THREAT_GLOW_OP||0.55),blending:THREE.AdditiveBlending,depthWrite:false,fog:false,toneMapped:false}));
+    sp.position.set(0,(window._THREAT_GLOW_Y||14),0); sp.renderOrder=6; sp._noVox=true; unit.model.add(sp); unit._threatGlow=sp; }
+  const sp=unit._threatGlow; if(sp.parent!==unit.model){ try{ sp.parent&&sp.parent.remove(sp); }catch(_){} unit.model.add(sp); }   // model can be swapped when the GLB skin loads -> keep the aura attached
+  if(unit._color!=null && sp.material.color)sp.material.color.set(unit._color);
+  let dist=200; try{ if(typeof camera!=='undefined')dist=Math.hypot(camera.position.x-unit.wx, camera.position.y-(unit.py||0), camera.position.z-unit.wz); }catch(_){}
+  const base=(window._THREAT_GLOW_SIZE||26), s=base*(1+dist/(window._THREAT_GLOW_DIST||520))*(0.85+0.15*Math.sin(performance.now()*0.006));   // grow with camera distance -> constant-ish on-screen size, gentle pulse
+  sp.scale.set(s,s,1); sp.visible=(unit.alive!==false);
+}
+window._ensureThreatGlow=_ensureThreatGlow;
 // ════════════════════════════════════════════════════════════
 //  BOT PILOT — AI-controlled rival pilot
 //  Same saucer/robot model as player, own state machine brain
@@ -13848,6 +13883,7 @@ class BotPilot{
     if(!this.alive) return;
     if(this.inv>0) this.inv--;
     this._tickHitFlash();
+    if(typeof _ensureThreatGlow==='function') _ensureThreatGlow(this);   // keep the fog-immune locator aura alive/scaled every frame
     if(this._dashCD>0) this._dashCD--;
     this.stateT=Math.max(0,this.stateT-1);
 
