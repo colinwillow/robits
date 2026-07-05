@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB342</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB343</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12264,6 +12264,8 @@ class Player{
             }
             if(str>0.4) addTrauma(str*0.06);
             if(str>0.8) Audio.blip(80+rand(20),0.15,'sine',0.25,40);
+            // ANIMATED PLATFORM: a jump/slam landing sends a BIG deform wave racing across the slab (scaled by impact), totally unlike the tiny running dimple — the exaggerated shockwave the grid gets
+            if(GS.zone===-19 && typeof window._platDeformShock==='function' && this._stuckMesh && this._stuckMesh._asset==='platform_02.glb'){ const _si=clamp(impact/110,0.4,2.4)*(this._airSlam?(window._PDEF_SLAM_MULT||1.8):1); window._platDeformShock(this.wx,this.py,this.wz,(window._PDEF_SLAM_STR||6)*_si,(window._PDEF_SLAM_REACH||440)); }
             if(typeof MP!=='undefined'&&MP.active) this._mpLandFx={x:this.wx,z:this.wz,str,roof:eFloor>0?eFloor:0};
           }
         }
@@ -16371,7 +16373,7 @@ function _buildDeformEntry(mesh){
 }
 function _arenaDeformShockOne(e,x,y,z,str){ if(e.shocks.length>=(window._ADEF_MAXSHOCK||10)) e.shocks.shift(); e.shocks.push({x,y,z,r:0,str:str||1,life:1}); }
 function _arenaDeformShock(x,y,z,str){ const D=window._arenaDeformers; if(D)for(const e of D){ if(Math.hypot(x-e.center.x,y-e.center.y,z-e.center.z) < e.radius+80) _arenaDeformShockOne(e,x,y,z,str); }
-  const PD=window._platDeform; if(PD && window._PLAT_DEFORM!==false && typeof _platDeformShock==='function' && Math.hypot(x-PD.cx,z-PD.cz) < (PD.radius||400)+(window._PDEF_BLAST_REACH||220)) _platDeformShock(x,y,z,str);   // explosions ripple the animated platform too
+  const PD=window._platDeform; if(PD && window._PLAT_DEFORM!==false && typeof _platDeformShock==='function' && Math.hypot(x-PD.cx,z-PD.cz) < (PD.radius||400)+(window._PDEF_BLAST_REACH||220)) _platDeformShock(x,y,z,str*(window._PDEF_BLAST_MUL||1.1),(window._PDEF_BLAST_R||420));   // explosions send a big far-traveling wave across the platform
 }
 window._arenaDeformShock=_arenaDeformShock;
 // SOLID SIDE-WALLS for the deform assets: you can stand ON TOP (handled by the landing check) but also can't RUN THROUGH the sides.
@@ -16661,23 +16663,24 @@ window._spawnArenaPlatform=_spawnArenaPlatform;
 // vertex to world space each frame -> we add a vertical spring/shock displacement on top of that bake
 // and render both the wireframe and a non-skinned FILL mesh from the result. Same watery model as the
 // ground grid-sheets / surf, just evaluated per-vertex by 2D (XZ) distance from each traveling ring.
-function _platDeformShock(x,y,z,str){ const PD=window._platDeform; if(!PD)return; if(PD.shocks.length>=(window._PDEF_MAXSHOCK||12))PD.shocks.shift(); PD.shocks.push({x:x,z:z,r:0,str:str||1,life:1}); PD.settled=false; }
+function _platDeformShock(x,y,z,str,reach){ const PD=window._platDeform; if(!PD)return; if(PD.shocks.length>=(window._PDEF_MAXSHOCK||16))PD.shocks.shift(); PD.shocks.push({x:x,z:z,r:0,str:str||1,life:1,reach:(reach||window._PDEF_REACH_DEF||80)}); PD.settled=false; }   // reach is PER-SHOCK: a jog leaves a tiny local dimple, a slam/explosion sends a wave racing across the whole slab
 window._platDeformShock=_platDeformShock;
 function _platDeformFeed(dt,PD,rad){   // player wake / ball splash / bullet pings -> traveling rings (blasts feed in via _arenaDeformShock)
   PD._pcd=Math.max(0,(PD._pcd||0)-dt); PD._bcd=Math.max(0,(PD._bcd||0)-dt); PD._blcd=Math.max(0,(PD._blcd||0)-dt);
   const cx=PD.cx, cz=PD.cz;
-  if(typeof player!=='undefined'&&player&&player.alive){ const dxz=Math.hypot(player.wx-cx,player.wz-cz), spd=Math.hypot(player.vx||0,player.vz||0), onIt=(player._stuckMesh&&player._stuckMesh._asset==='platform_02.glb');
-    if((onIt||dxz<rad+30)&&spd>(window._PDEF_MINSPD||28)&&PD._pcd<=0){ _platDeformShock(player.wx,(player.py||0),player.wz,(window._PDEF_STEP_STR||3.2)*Math.min(1.7,0.5+spd/240)); PD._pcd=(window._PDEF_STEP_CD||0.1); } }
-  if(typeof _cubeBall!=='undefined'&&_cubeBall&&_cubeBall.pos){ const b=_cubeBall.pos; if(Math.hypot(b.x-cx,b.z-cz)<rad+22 && PD._bcd<=0){ _platDeformShock(b.x,b.y,b.z,Math.min(5,1.6+(_cubeBall.vel?_cubeBall.vel.length():0)/170)); PD._bcd=0.09; } }
-  if(PD._blcd<=0 && typeof GS!=='undefined'&&GS.bullets&&GS.bullets.length){ for(const bl of GS.bullets){ if(!bl)continue; const bx=(bl.wx!=null?bl.wx:bl.x), bz=(bl.wz!=null?bl.wz:bl.z); if(bx==null)continue; if(Math.hypot(bx-cx,bz-cz)<rad+8){ _platDeformShock(bx,(bl.y!=null?bl.y:9),bz,(window._PDEF_BULLET_STR||1.6)); PD._blcd=(window._PDEF_BULLET_CD||0.06); break; } } }
+  if(typeof player!=='undefined'&&player&&player.alive){ const spd=Math.hypot(player.vx||0,player.vz||0), onIt=(player._stuckMesh&&player._stuckMesh._asset==='platform_02.glb');
+    // RUNNING: a barely-there LOCAL dimple that trails your feet (only while actually standing on it) — never a slab-wide wave. Slam/jump landings are the big deform (fired from the landing code).
+    if(onIt&&spd>(window._PDEF_MINSPD||34)&&PD._pcd<=0){ _platDeformShock(player.wx,(player.py||0),player.wz,(window._PDEF_STEP_STR||0.9)*Math.min(1.5,0.5+spd/300),(window._PDEF_STEP_REACH||70)); PD._pcd=(window._PDEF_STEP_CD||0.12); } }
+  if(typeof _cubeBall!=='undefined'&&_cubeBall&&_cubeBall.pos){ const b=_cubeBall.pos; if(Math.hypot(b.x-cx,b.z-cz)<rad+22 && PD._bcd<=0){ _platDeformShock(b.x,b.y,b.z,Math.min(4,1.2+(_cubeBall.vel?_cubeBall.vel.length():0)/200),(window._PDEF_BALL_REACH||120)); PD._bcd=0.1; } }
+  if(PD._blcd<=0 && typeof GS!=='undefined'&&GS.bullets&&GS.bullets.length){ for(const bl of GS.bullets){ if(!bl)continue; const bx=(bl.wx!=null?bl.wx:bl.x), bz=(bl.wz!=null?bl.wz:bl.z); if(bx==null)continue; if(Math.hypot(bx-cx,bz-cz)<rad+8){ _platDeformShock(bx,(bl.y!=null?bl.y:9),bz,(window._PDEF_BULLET_STR||1.3),(window._PDEF_BULLET_REACH||55)); PD._blcd=(window._PDEF_BULLET_CD||0.06); break; } } }   // bullets ping ONE spot locally, not the whole platform
 }
 function _platDeformStep(dt,PD,base,n){   // advance the traveling rings + damped springs — matches the GridSheet feel: DOMINANT in-plane (XZ) swirl travel, SMALL vertical, snappy elastic rebound that dissipates fast
   dt=Math.min(dt||0,0.033); PD.t=(PD.t||0)+dt;
   const rad=PD.radius||400;
-  const REACH=(window._PDEF_REACH!=null?window._PDEF_REACH:rad*(window._PDEF_REACH_K||0.8));    // how far a ring travels — tightened so ripples read at the grid's fine scale, not sweeping the whole slab
-  const RSPD =(window._PDEF_SPD  !=null?window._PDEF_SPD  :(window._PDEF_SPD_ABS||440));         // grid-like absolute ring speed (world units/sec)
-  const BAND =(window._PDEF_BAND !=null?window._PDEF_BAND :(window._PDEF_BAND_ABS||22));         // wave width — tighter crest
-  const LIFEK=(window._PDEF_LIFEK||1.9);                                                         // life -= dt*LIFEK -> ~0.5s ring, quick dissipation
+  const REACH=(window._PDEF_REACH!=null?window._PDEF_REACH:(window._PDEF_REACH_DEF||80));        // fallback reach ONLY — real reach is per-shock now (jog=local, slam=far). Absolute, NOT radius-scaled (that's what made it swallow the whole slab).
+  const RSPD =(window._PDEF_SPD  !=null?window._PDEF_SPD  :(window._PDEF_SPD_ABS||620));         // ring speed — fast enough that a far slam wave actually reaches across before it fades
+  const BAND =(window._PDEF_BAND !=null?window._PDEF_BAND :(window._PDEF_BAND_ABS||20));         // wave width — tight crest
+  const LIFEK=(window._PDEF_LIFEK||1.3);                                                         // life fade — long enough for a far slam ring to travel, while local dimples are culled by their small reach first
   const WAVEK=(window._PDEF_WAVEK||0.03), SWIRL=(window._PDEF_SWIRL!=null?window._PDEF_SWIRL:0.6);
   const HINJ=(window._PDEF_HINJ||11), VINJ=(window._PDEF_VINJ||4);                               // horizontal (in-plane) DOMINANT, vertical SMALL — both scaled ~40% of before
   const STIFF =(window._PDEF_STIFF ||0.013), DAMP =(window._PDEF_DAMP ||0.9);                    // in-plane spring: elastic, rubber-band overshoot then settle
@@ -16685,9 +16688,9 @@ function _platDeformStep(dt,PD,base,n){   // advance the traveling rings + dampe
   const MAXH=(window._PDEF_MAXH||18), MAXY=(window._PDEF_MAXY!=null?window._PDEF_MAXY:5);        // clamp: in-plane travel + shallow vertical, both ~40% of before -> matches the grid's scale
   const dx=PD.dx,dz=PD.dz,dy=PD.dy, vx=PD.vx,vz=PD.vz,vy=PD.vy, sk=PD.shocks;
   _platDeformFeed(dt,PD,rad);
-  for(let s=sk.length-1;s>=0;s--){ const S=sk[s]; S.r+=RSPD*dt; S.life-=dt*LIFEK; if(S.life<=0||S.r>REACH)sk.splice(s,1); }
+  for(let s=sk.length-1;s>=0;s--){ const S=sk[s]; S.r+=RSPD*dt; S.life-=dt*LIFEK; if(S.life<=0||S.r>(S.reach||REACH))sk.splice(s,1); }
   const co=Math.cos(SWIRL), so=Math.sin(SWIRL);
-  for(let s=0;s<sk.length;s++){ const S=sk[s], R=S.r, att=(R<REACH?(1-R/REACH):0), imp=S.str*S.life*att; if(imp<=0.0001)continue;
+  for(let s=0;s<sk.length;s++){ const S=sk[s], SR=(S.reach||REACH), R=S.r, att=(R<SR?(1-R/SR):0), imp=S.str*S.life*att; if(imp<=0.0001)continue;
     for(let i=0;i<n;i++){ const i3=i*3, ddx=base[i3]-S.x, ddz=base[i3+2]-S.z, dist=Math.sqrt(ddx*ddx+ddz*ddz)||1, dr=dist-R;
       if(dr>-BAND&&dr<BAND){ const f=((BAND-Math.abs(dr))/BAND)*imp, ux=ddx/dist, uz=ddz/dist;   // radial outward + swirl -> the elegant sweeping in-plane travel
         vx[i]+=(ux*co-uz*so)*f*dt*HINJ; vz[i]+=(ux*so+uz*co)*f*dt*HINJ; vy[i]+=Math.sin(dr*WAVEK)*f*dt*VINJ; } } }
