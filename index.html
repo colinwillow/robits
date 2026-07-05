@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB310</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB311</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -16384,7 +16384,9 @@ function _placeDeformAsset(gltf, opts){
   let box=new THREE.Box3().setFromObject(root); const size=new THREE.Vector3(); box.getSize(size);
   const maxD=Math.max(size.x,size.y,size.z)||1, sc=(opts.size||170)/maxD; root.scale.setScalar(sc);
   root.updateMatrixWorld(true); box=new THREE.Box3().setFromObject(root); const c=box.getCenter(new THREE.Vector3());
-  const P=opts.pos||{x:0,z:0}; root.position.x += P.x - c.x; root.position.z += P.z - c.z; root.position.y += (opts.y!=null?opts.y:0) - box.min.y;
+  const P=opts.pos||{x:0,z:0}; root.position.x += P.x - c.x; root.position.z += P.z - c.z;
+  if(opts.centerY!=null) root.position.y += opts.centerY - (box.min.y+box.max.y)*0.5;   // center the asset's mid-height at centerY (float it), instead of resting its base at y
+  else root.position.y += (opts.y!=null?opts.y:0) - box.min.y;
   root.updateMatrixWorld(true); if(typeof scene!=='undefined') scene.add(root);
   box=new THREE.Box3().setFromObject(root); const ctr=box.getCenter(new THREE.Vector3()), rad=box.getSize(new THREE.Vector3()).length()*0.5;
   let grpN=0; for(const o of meshes){ o.updateMatrixWorld(true); const en=_buildDeformEntry(o); en.root=root; en.center=ctr.clone(); en.radius=rad; en._label=opts.label; grpN+=en.groups.length; window._arenaDeformers.push(en); }
@@ -16416,11 +16418,11 @@ function _spawnArenaCube(){
 // at half the arena height. Deforming quads + a WALKABLE ANNULUS collider (hole open) — perimeter track you can run around.
 function _spawnRingPlatform(){
   const C=window._CUBE||_CUBE; const span=Math.min(2*C.hx,2*C.hz)*(window._RING_FIT!=null?window._RING_FIT:0.98);   // shorter of length/width, tiny inset
-  const _thickRatio=(window._RING_THICK_RATIO!=null?window._RING_THICK_RATIO:(80/572));   // model thin-axis / max-axis, so thickness after uniform scale = span*ratio
-  const thick=span*_thickRatio, cy=(C.h||650)*(window._RING_Y_FRAC!=null?window._RING_Y_FRAC:0.5), y=cy-thick*0.5;   // centre it vertically at half height
-  _spawnDeformGLB('models/ring_platform.glb','_ringAssetGltf','_ARENA_RING',{ pos:{x:0,z:0}, y, size:span, collide:true, solid:false, ring:true, rot:{x:-Math.PI/2,y:0,z:0}, colPad:(window._RING_COLPAD||0), label:'ring_platform.glb' });
-window._spawnRingPlatform=_spawnRingPlatform;   // console: force-spawn the ring without rebuilding the arena
+  const cy=(C.h||650)*(window._RING_Y_FRAC!=null?window._RING_Y_FRAC:0.5);   // centre it vertically at half height
+  const _rx=(window._RING_ROT_X!=null?window._RING_ROT_X:0);   // the GLB's own node hierarchy already lays the ring FLAT (Y-up) -> no extra tilt. Set _RING_ROT_X if an export comes in sideways.
+  _spawnDeformGLB('models/ring_platform.glb','_ringAssetGltf','_ARENA_RING',{ pos:{x:0,z:0}, centerY:cy, size:span, collide:true, solid:false, ring:true, rot:{x:_rx,y:(window._RING_ROT_Y||0),z:(window._RING_ROT_Z||0)}, colPad:(window._RING_COLPAD||0), label:'ring_platform.glb' });
 }
+window._spawnRingPlatform=_spawnRingPlatform;   // console: force-spawn the ring without rebuilding the arena
 window._spawnArenaCube=_spawnArenaCube;
 window._platformAssetGltf=window._platformAssetGltf||null;
 function _spawnArenaPlatform(){
