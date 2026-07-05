@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB339</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB340</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -16697,7 +16697,12 @@ function _platWireTick(dt){ const W=window._platWire; if(!W||!W.mesh||!W.line)re
   for(let i=0;i<n;i++){ tmp.set(pa.getX(i),pa.getY(i),pa.getZ(i)); if(sm.applyBoneTransform)sm.applyBoneTransform(i,tmp); else if(sm.boneTransform)sm.boneTransform(i,tmp); sm.localToWorld(tmp); const i3=i*3; out[i3]=tmp.x; out[i3+1]=tmp.y; out[i3+2]=tmp.z; if(base){ base[i3]=tmp.x; base[i3+1]=tmp.y; base[i3+2]=tmp.z; } if(fout){ fout[i3]=tmp.x; fout[i3+1]=tmp.y; fout[i3+2]=tmp.z; } }
   // 2) WORLD-SPACE RIPPLE composited on top (never touches the skinned bind buffer -> no conflict)
   if(deform){ _platDeformStep(dt,PD,base,n);
-    if(!PD.settled || PD.shocks.length){ const d=PD.d; for(let i=0;i<n;i++){ const i3=i*3, y=base[i3+1]+d[i]; out[i3+1]=y; if(fout)fout[i3+1]=y; } }
+    if(!PD.settled || PD.shocks.length){ const d=PD.d;
+      for(let i=0;i<n;i++){ const i3=i*3, y=base[i3+1]+d[i]; out[i3+1]=y; if(fout)fout[i3+1]=y; }
+      if(W.wcol){ const wc=W.wcol, PAL=_ADEF_PAL, CS=(window._PDEF_COL_SCALE||16), WB=(window._PDEF_WIRE_BRIGHT||1.0);   // colour ramps with |displacement| -> cyan (rest) through magenta (stretched), just like the grid
+        for(let i=0;i<n;i++){ let t=(d[i]<0?-d[i]:d[i])/CS; if(t>1)t=1; const seg=t*3, si=seg<2?(seg|0):2, f=seg-si, a=PAL[si], b=PAL[si+1], i3=i*3; wc[i3]=(a[0]+(b[0]-a[0])*f)*WB; wc[i3+1]=(a[1]+(b[1]-a[1])*f)*WB; wc[i3+2]=(a[2]+(b[2]-a[2])*f)*WB; }
+        W.line.geometry.attributes.color.needsUpdate=true; }
+    }
   }
   W.line.geometry.attributes.position.needsUpdate=true; W.line.geometry.boundingSphere=null;
   if(W.fill){ const fg=W.fill.geometry; fg.attributes.position.needsUpdate=true; fg.boundingSphere=null; fg.boundingBox=null; }
@@ -16723,19 +16728,23 @@ function _spawnAnimatedPlatform(){
     sm.material=new THREE.MeshBasicMaterial({color:(window._APLAT_FILL!=null?window._APLAT_FILL:0x000000),transparent:!_fillSolid,opacity:_fillOp,side:THREE.DoubleSide,depthWrite:_fillSolid,polygonOffset:true,polygonOffsetFactor:1.5,polygonOffsetUnits:2}); sm.frustumCulled=false;   // black fill under the wireframe -> reads as a solid panel (recolour via window._APLAT_FILL / _APLAT_FILL_OP; drop opacity below _APLAT_FILL_SOLID_AT for translucent holo)
     const qidx=_quadEdgesFromGeo(sm.geometry), nP=sm.geometry.attributes.position.count;   // quad edges (threshold hides tri diagonals)
     const wgeo=new THREE.BufferGeometry(); wgeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(nP*3),3)); wgeo.setIndex(qidx);
-    const wire=new THREE.LineSegments(wgeo,new THREE.LineBasicMaterial({color:(window._APLAT_WIRE_COL!=null?window._APLAT_WIRE_COL:0x39e0ff),transparent:true,opacity:(window._APLAT_WIRE_OP!=null?window._APLAT_WIRE_OP:0.9),blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); wire.frustumCulled=false; wire.renderOrder=3; wire._isPlatformAsset=true; scene.add(wire);
-    window._platWire={ mesh:sm, line:wire, bind:sm.geometry.attributes.position, tmp:new THREE.Vector3(), root:root };
+    const _wcolArr=new Float32Array(nP*3); { const c0=_ADEF_PAL[0]; for(let i=0;i<nP;i++){ _wcolArr[i*3]=c0[0]; _wcolArr[i*3+1]=c0[1]; _wcolArr[i*3+2]=c0[2]; } } wgeo.setAttribute('color',new THREE.BufferAttribute(_wcolArr,3));   // per-vertex colour -> ramps with displacement (cyan rest -> magenta stretch), same palette as the grid sheets
+    const wire=new THREE.LineSegments(wgeo,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:(window._APLAT_WIRE_OP!=null?window._APLAT_WIRE_OP:0.9),blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); wire.frustumCulled=false; wire.renderOrder=3; wire._isPlatformAsset=true; scene.add(wire);
+    window._platWire={ mesh:sm, line:wire, bind:sm.geometry.attributes.position, tmp:new THREE.Vector3(), root:root, wcol:_wcolArr };
     if(gltf.animations&&gltf.animations.length){ const mx=new THREE.AnimationMixer(root); const cl=gltf.animations; let clip=(window._APLAT_CLIP?cl.find(c=>c.name===window._APLAT_CLIP):null)||cl.find(c=>/move|level|loop/i.test(c.name||''))||cl.reduce((a,b)=>((b.duration||0)>(a.duration||0)?b:a),cl[0]); const act=mx.clipAction(clip); act.setLoop(THREE.LoopRepeat,Infinity); act.play(); window._animPlatMixer=mx; console.log('[platform_02] clip:',clip&&clip.name,'dur',clip&&clip.duration.toFixed(2)); }
     _platWireTick();
     const bx=new THREE.Box3().setFromObject(root,true); const col={ x:P.x, z:P.z, hw:(bx.max.x-bx.min.x)*0.5, hd:(bx.max.z-bx.min.z)*0.5, top:bx.max.y, bottom:bx.min.y, _asset:'platform_02.glb', _solid:false, _meshes:[sm] };
     window._arenaAssetCols=window._arenaAssetCols||[]; window._arenaAssetCols.push(col); window._platform2Root=root;
-    // WORLD-SPACE REACTIVE RIPPLE: render a non-skinned FILL mesh (shares the skinned topology) driven by the world bake + ripple; hide the skinned mesh, raycast the rippled fill so you ride the bumps. Skinned mesh is kept as the horizontal-carry source.
+    // GRID-SHEET-STYLE VISUAL DEFORM WITH A STATIC COLLIDER: the fill + wire ripple and colour-ramp exactly like the arena
+    // grid (shockwave-reactive), but COLLISION raycasts the un-rippled skinned surface (sm) — so you walk the animated platform
+    // normally and the deformation never shoves the physics around (same deal as the deforming ground plane). To ride the bumps
+    // instead (surf/hoverboard feel), set window._PLAT_DEFORM_RIDE=true.
     if(window._PLAT_DEFORM!==false){
       const fgeo=new THREE.BufferGeometry(); fgeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(nP*3),3)); if(sm.geometry.index)fgeo.setIndex(sm.geometry.index);
       const fill=new THREE.Mesh(fgeo, sm.material); fill.frustumCulled=false; fill.renderOrder=2; fill._isPlatformAsset=true; scene.add(fill);
       sm.visible=false; window._platWire.fill=fill;
       window._platDeform={ d:new Float32Array(nP), vd:new Float32Array(nP), base:new Float32Array(nP*3), shocks:[], t:0, settled:true, cx:P.x, cz:P.z, radius:Math.max(col.hw,col.hd) };
-      col._meshes=[fill]; col._skin=sm;   // stand on / ripple-ride the fill; carry still reads the skinned mesh
+      col._meshes=[ window._PLAT_DEFORM_RIDE===true ? fill : sm ]; col._skin=sm;   // DEFAULT: collide on the un-rippled skinned surface (deform is visual only); RIDE mode: collide on the rippled fill
       _platWireTick();   // populate the fill buffer immediately (avoid a 1-frame flash at origin)
     }
     const j={}; root.traverse(o=>{ if(o.name&&/powerup/i.test(o.name))j[o.name]=o; }); window._platJoints=j;
