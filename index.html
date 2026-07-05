@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB296</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB297</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -29726,18 +29726,22 @@ function _ballShell(){
   return ball.grp;
 }
 const _ballOffV=new THREE.Vector3();
+function _ballEnterBlendY(B, ty){   // ease the VISUAL height from wherever the character was into the ball center over the entry window — kills the vertical teleport on a mid-air flick-to-ball
+  if(B && B._mEnterP!=null && B._mEnterP<1 && B._mEnterY!=null){ const p=B._mEnterP, e=p*p*(3-2*p); return B._mEnterY + (ty-B._mEnterY)*e; }
+  return ty;
+}
 function _ballPlaceModel(B){   // place the curled model in the ball — pivot about the BODY CENTRE (not the feet/origin) for retargeted skins, so they don't swing around as the ball spins
   const m=player&&player.model; if(!m)return;
   const LIFT=(window._BALL_MODEL_LIFT!=null?window._BALL_MODEL_LIFT:(window._BALL_VIS_R||16));
-  if(B.noQuat){ m.position.set(B.px, B.py, B.pz); return; }
+  if(B.noQuat){ m.position.set(B.px, _ballEnterBlendY(B,B.py), B.pz); return; }
   const co=player._ballCenterOff;
-  if(co){ _ballOffV.copy(co).applyQuaternion(B.q); m.position.set(B.px-_ballOffV.x, B.py+LIFT-_ballOffV.y, B.pz-_ballOffV.z); }
-  else { m.position.set(B.px, B.py+LIFT, B.pz); }   // robot: unchanged
+  if(co){ _ballOffV.copy(co).applyQuaternion(B.q); m.position.set(B.px-_ballOffV.x, _ballEnterBlendY(B,B.py+LIFT-_ballOffV.y), B.pz-_ballOffV.z); }
+  else { m.position.set(B.px, _ballEnterBlendY(B,B.py+LIFT), B.pz); }   // robot: unchanged
   m.quaternion.copy(B.q);
 }
 function _ballShellTick(charge, speed, lifted){
   const g=_ballShell(); if(!g||typeof player==='undefined'||!player)return; const P=window._ballShellParts; const R=(P&&P.R)||(window._BALL_VIS_R||16);
-  g.visible=true; g.position.set(player.wx, (player.py||0)+R, player.wz); if(window._BALL.q)g.quaternion.copy(window._BALL.q);   // rotate the whole detailed ball — reads clearly
+  g.visible=true; g.position.set(player.wx, _ballEnterBlendY(window._BALL,(player.py||0)+R), player.wz); if(window._BALL.q)g.quaternion.copy(window._BALL.q);   // rotate the whole detailed ball — reads clearly (shell rides the same entry-height ease as the model)
   const lvl = lifted ? charge : Math.min(1, 0.45+speed/((window._BALL_MAX_SPD||840)));
   if(P){ if(P.glowShell&&P.glowShell.material) P.glowShell.material.opacity=0.1+lvl*0.5;
     if(P.shellMat){ P.shellMat.emissiveIntensity=0.6+lvl*1.7; }
@@ -29820,6 +29824,7 @@ window._ballEnterRolling=function(){   // DOUBLE-TAP entry: ball up + start ROLL
   const B=window._BALL; if(typeof player==='undefined'||!player||!player.alive||B.state)return;
   if(player._launched||(player._kbStun||0)>0)return;
   B.vx=0; B.vz=0; B.vy=(player.pvy||0); B.px=player.wx; B.pz=player.wz; B.py=player.py||0; B.t=0; B._lerpT=0; B.charge=0; if(!B.q)B.q=new THREE.Quaternion();
+  B._mEnterY=(player.model?player.model.position.y:null); B._mEnterP=0;   // remember where the character was so the ball eases in from there instead of teleporting to the ball height
   B.state='rolling'; player._ballActive=true; B._lastPuff=null; if(!player.model.userData._ballPose)_ballPose(true); _ballShell(); _ballShellTick(1,0,false);
   player.inv=Math.max(player.inv||0,8);
   if(typeof ps!=='undefined'){ ps.ring(player.wx,player.wz,[0.25,0.9,1],20,130); ps.burst(player.wx,player.wz,[0.3,0.95,1],14,100); }
@@ -29837,6 +29842,7 @@ window._ballChargeStart=function(){
   if(player._launched||(player._kbStun||0)>0)return;   // can't ball up mid-knockback
   if(player._ballCharge!=null && player._ballCharge<(window._BALL_MIN_ENTER||15)){ if(typeof announce==='function')announce('BALL CHARGING…','#66e0ff'); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(140,0.08,'square',0.1,90); return; }   // not enough charge to spin up
   B.state='charging'; B.charge=0; B.px=player.wx; B.pz=player.wz; B.py=player.py||0; B.vx=B.vz=B.vy=0; B.t=0; B.q=new THREE.Quaternion();
+  B._mEnterY=(player.model?player.model.position.y:null); B._mEnterP=0;   // ease the ball in from the character's current height
   player._ballActive=true; player.inv=Math.max(player.inv||0,4); _ballPose(true); _ballShell(); _ballShellTick(0,0,true);
   if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(150,0.12,'sawtooth',0.1,360);
 };
@@ -29858,6 +29864,7 @@ window._ballEnter=function(charge, dx, dz){
   const lo=(window._BALL_MIN_SPD||210), hi=(window._BALL_MAX_SPD||840);
   const sp=lo + Math.max(0,Math.min(1,charge))*(hi-lo); const dl=Math.hypot(dx,dz)||1;
   B.vx=dx/dl*sp; B.vz=dz/dl*sp; B.vy=(player.pvy||0); B.px=player.wx; B.pz=player.wz; B.py=player.py||0; B.t=0; B._lerpT=0; B.charge=charge; if(!B.q)B.q=new THREE.Quaternion();
+  if(!player._ballActive){ B._mEnterY=(player.model?player.model.position.y:null); B._mEnterP=0; }   // fresh entry (flick from run/air): ease in from the character's height. Charge-release (already balled) skips — no pop.
   B.state='rolling'; player._ballActive=true; B._lastPuff=null; player.aim=Math.atan2(dz,dx); if(!player.model.userData._ballPose)_ballPose(true); _ballShell(); _ballShellTick(1,Math.hypot(B.vx,B.vz),false);
   player.inv=Math.max(player.inv||0,8);
   if(typeof ps!=='undefined'){ ps.ring(player.wx,player.wz,[0.25,0.9,1],22,150); ps.burst(player.wx,player.wz,[0.3,0.95,1],16,120); }
@@ -29872,6 +29879,7 @@ window._ballExit=function(){ const B=window._BALL; const _sp=Math.hypot(B.vx||0,
   if(typeof ps!=='undefined'&&typeof player!=='undefined'&&player)ps.ring(player.wx,player.wz,[0.3,0.9,1],12,80); };
 window._ballUpdate=function(dt){
   const B=window._BALL; if(!B.state||typeof player==='undefined'||!player||!player.model)return; if(dt>0.05)dt=0.05;
+  if(B._mEnterP!=null && B._mEnterP<1) B._mEnterP=Math.min(1, B._mEnterP + dt/(window._BALL_ENTER_BLEND||0.2));   // advance the entry-height ease
   const R=(window._BALL_R||11);
   if((typeof performance!=='undefined'?performance.now():0) >= (player._ballPoseFadeUntil||0)){ const ud=player.model.userData; const a=(ud.clips&&ud.clips['ball'])||ud._ballPh; if(a){ try{ if(!a.isRunning())a.reset().play(); a.setLoop(THREE.LoopRepeat,Infinity); a.clampWhenFinished=false; a.enabled=true; a.setEffectiveWeight(1); }catch(_){} for(const k in ud.clips){ const o=ud.clips[k]; if(o!==a && o.getEffectiveWeight && o.getEffectiveWeight()>0.01){ try{o.setEffectiveWeight(0);}catch(_){} } } ud.currentClip=(ud.clips&&ud.clips['ball']&&a===ud.clips['ball'])?'ball':ud.currentClip; } }   // LOCK the ball pose: force it dominant + zero every other clip each frame, so aiming/shooting (right stick) can't pop the body into a shoot/idle/T-pose. (Skipped during the entry fade-in so the crossfade-in still reads.)
   if(B.state==='charging'){
