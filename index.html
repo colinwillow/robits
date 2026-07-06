@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB368</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB369</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1257,6 +1257,7 @@ function updateCamera(dt){
   if(player&&player._inPlanetGravity&&(GS.zone===-15||GS.zone===-16)) return;   // lab/city gravity cam owns the camera
   // BALL CAM works in the cube whether or not boots are equipped (without boots the wall-walk render path that normally dispatches it never runs)
   if(window._ballCam && GS.zone===-19 && player && typeof _ballCam==='function' && !(typeof _cubeWalkOn==='function' && _cubeWalkOn(player))){ _ballCam(new THREE.Vector3(player.wx,player.py,player.wz), dt); player._cubeCamAuth=false; return; }
+  if(player && player._platCamOwn){ return; }   // EXTERIOR platform cam (magnetic side/underside walk) owns it — decoupled from _cubeWalkOn so it survives the deep-interior bail
   if(typeof _cubeWalkOn==='function' && _cubeWalkOn(player) && (window._ballCam || player._cubeCamAuth)){ return; }   // BALL cam or the AUTHORITATIVE wall cam owns it; the FLOOR uses this normal path
   if(player && player._driveActive && GS.zone===-19 && !window._ballCam){ return; }   // MOMENTUM DRIVE: _cubeWalkRender->_cubeCam owns the wall camera; don't let the normal cam fight it
   // ENEMY CAM — frames the player + a focused enemy / nearby-enemy centroid. Yields to cube wall-walk (the wall/ball cams own the cube when you have boots on a wall).
@@ -11749,7 +11750,7 @@ class Player{
     // MELEE/SLIDE CAMERA ALIGN (experimental): after a directional melee/slide, swing the camera to sit BEHIND the direction he just lunged, so you're looking at his back toward the fight (helps when a target slips off-frame mid-combo). Right-stick aim / free-look override it. Toggle via window._MELEE_CAM_ALIGN.
     if((this._camAlignT||0)>0 && !window._ballCam){ this._camAlignT=Math.max(0,this._camAlignT-dt); const _am=Math.hypot(avx||0,avz||0);
       if(_am<=(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.06)){ let diff=((this._camAlignYaw-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI; CAM.tyaw+=diff*Math.min(1,dt*(window._MELEE_CAM_SPD||6)); } else { this._camAlignT=0; } }   // right-stick aim cancels the auto-align so you keep manual control
-    if(typeof _platTopWalk==='function' && _platTopWalk(this)){ this._inPlanetGravity=false; this._cwSetGrav=false; this._cubeCamAuth=false; this._platUp=null; this._platSample=null; this._extEye=null; this._cwDislodge=false; }   // BOOTS on the deck TOP -> normal gravity + normal deck collision (_chkPlat) + normal camera (rock-solid, same as no boots)
+    if(typeof _platTopWalk==='function' && _platTopWalk(this)){ this._inPlanetGravity=false; this._cwSetGrav=false; this._cubeCamAuth=false; this._platCamOwn=false; this._platUp=null; this._platSample=null; this._extEye=null; this._cwDislodge=false; }   // BOOTS on the deck TOP -> normal gravity + normal deck collision (_chkPlat) + normal camera (rock-solid, same as no boots)
     else if(typeof _platWalkOn==='function' && _platWalkOn(this)){ _platWalkMove(this,rawX,rawZ,dt); this.dashing=0; this.inv=Math.max(0,this.inv-1);   // BOOTS magnetic walk on the platform mesh (sides/underside — opt-in via _PLAT_WALK_MAGNETIC)
       if(!window._ballCam){ const _am=Math.hypot(avx||0,avz||0); if(_am>(window._CAM_AIM_DEAD!=null?window._CAM_AIM_DEAD:0.06)){ const desired=-this.aim-Math.PI/2; let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI; if(Math.abs(diff)>0.05) CAM.tyaw+=diff*Math.min(1,dt*4); } }
     }
@@ -26124,7 +26125,9 @@ window._platTopWalk=_platTopWalk;
 function _cubeWalkOn(P){ if(P && (P._launched || (P._kbStun||0)>0)) return false;   // a launch overrides wall-walk so the knockback arc can play
   if(P && P._platLeftUntil && typeof performance!=='undefined' && performance.now()<P._platLeftUntil) return false;   // just jumped OFF the platform -> free-fall / jetpack, don't let the cube-shell magnets yank you to the floor
   if(typeof _platTopWalk==='function' && _platTopWalk(P)) return false;   // on the deck top -> hand off to normal walking (not the cube-shell magnets)
-  return (GS.zone===-19 && P && P._hasBoots && P._bootsEquipped) || (typeof _SE!=='undefined' && _SE.cube && _SE.cube.state==='up' && P===player); }   // survival interior cube: walk all 6 inside walls automatically (it's your own gravity world)
+  const _boots=(GS.zone===-19 && P && P._hasBoots && P._bootsEquipped);
+  if(_boots && typeof _cubeSDF==='function' && _cubeSDF(P.wx,P.py,P.wz) < -(window._CUBE_WALK_DEPTH||80)) return false;   // DEEP in the interior (on/near the platform, airborne across the middle) -> NORMAL physics + camera, not the cube-shell magnets. Only near an arena wall/floor (SDF ~ -RIDE) do the boots wall-walk.
+  return _boots || (typeof _SE!=='undefined' && _SE.cube && _SE.cube.state==='up' && P===player); }   // survival interior cube: walk all 6 inside walls automatically (it's your own gravity world)
 // AIR flick in the cube = a Rocket-League flip. Direction picks the axis; velocity carries (the flip is purely visual rotation).
 function _doCubeFlip(ax, ay){
   if(!player||!player.alive) return;
@@ -26463,21 +26466,21 @@ function _platWalkOn(P){
   if((P._cwNoCatchT||0)>0){ P._cwNoCatchT=Math.max(0,P._cwNoCatchT-0.016); P._platUp=null; P._platSample=null; return false; }   // brief window after a jump-off so the magnets don't instantly re-grab
   const s=_platSurfSample(P.wx,P.py,P.wz,(P._platUp?(window._PLAT_WALK_HOLD||60):(window._PLAT_WALK_SOI||22)),P._platUp);   // FIRST catch only on CONTACT (small range) so it never grabs mid-air; wide keep-range once attached
   if(s){
-    if(s.ny > (window._PLAT_MAG_MAXNY||0.35)){ P._platSample=null; P._platUp=null; P._extEye=null; return false; }   // surface under you is up-ISH -> that's ground, let normal walking own it (never magnetise it -> no upside-down, even if you were magnetic a frame ago)
+    if(s.ny > (window._PLAT_MAG_MAXNY||0.35)){ P._platSample=null; P._platUp=null; P._extEye=null; P._platCamOwn=false; return false; }   // surface under you is up-ISH -> that's ground, let normal walking own it (never magnetise it -> no upside-down, even if you were magnetic a frame ago)
     P._platSample=s; P._platGrace=(window._PLAT_WALK_GRACE||0.2); return true; }
   if(P._platUp && (P._platGrace||0)>0){ P._platGrace=Math.max(0,P._platGrace-0.016); return true; }   // COYOTE: a single missed ray on the moving mesh shouldn't drop you -> hold the magnets briefly (kills the fall-through/re-grab flicker)
-  P._platSample=null; P._platUp=null; P._extEye=null; return false;
+  P._platSample=null; P._platUp=null; P._extEye=null; P._platCamOwn=false; return false;
 }
 window._platWalkOn=_platWalkOn;
 function _platWalkMove(P,rawX,rawZ,dt){
   dt=Math.min(dt,0.033);
   const s0=P._platSample||_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_WALK_HOLD||46),P._platUp);
-  if(!s0){ P._inPlanetGravity=false; P._platUp=null; P._platSample=null; return; }
+  if(!s0){ P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._platCamOwn=false; return; }
   P._inPlanetGravity=true; P._cwSetGrav=true; P._onPlatform=false;
   let N=new THREE.Vector3(s0.nx,s0.ny,s0.nz);
   const RIDE=(window._PLAT_WALK_RIDE||13), TOP=(window._CUBE_MAXS||300)*(window._SPEED_SCALE||0.6);
   // JUMP / JET -> release the magnets, hand back to normal world gravity so you fall/fly off
-  if(P._jumpTapped){ P._jumpTapped=false; P.vx=(P.vx||0)+N.x*(window._PLAT_WALK_JUMP||230); P.pvy=(P.pvy||0)+N.y*(window._PLAT_WALK_JUMP||230); P.vz=(P.vz||0)+N.z*(window._PLAT_WALK_JUMP||230); P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._extEye=null; P._cwNoCatchT=(window._PLAT_WALK_NOCATCH||0.4); P._platLeftUntil=(typeof performance!=='undefined'?performance.now():0)+(window._PLAT_LEAVE_MS||700); if(typeof Audio!=='undefined')Audio.blip(240,0.16,'sawtooth',0.12,120); return; }   // jump = magnetic release -> free-fall/fly (the _platLeftUntil window keeps the cube-shell magnets off so you don't teleport to the floor)
+  if(P._jumpTapped){ P._jumpTapped=false; P.vx=(P.vx||0)+N.x*(window._PLAT_WALK_JUMP||230); P.pvy=(P.pvy||0)+N.y*(window._PLAT_WALK_JUMP||230); P.vz=(P.vz||0)+N.z*(window._PLAT_WALK_JUMP||230); P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._extEye=null; P._platCamOwn=false; P._cwNoCatchT=(window._PLAT_WALK_NOCATCH||0.4); P._platLeftUntil=(typeof performance!=='undefined'?performance.now():0)+(window._PLAT_LEAVE_MS||700); if(typeof Audio!=='undefined')Audio.blip(240,0.16,'sawtooth',0.12,120); return; }   // jump = magnetic release -> free-fall/fly (the _platLeftUntil window keeps the cube-shell magnets off so you don't teleport to the floor)
   // input -> raw screen stick (undo cam yaw), same as the cube walk
   const _cy=Math.cos(CAM.yaw), _sy=Math.sin(CAM.yaw);
   const sx=_cy*rawX - _sy*rawZ, sz=_sy*rawX + _cy*rawZ, inMag=Math.hypot(sx,sz);
@@ -26494,7 +26497,7 @@ function _platWalkMove(P,rawX,rawZ,dt){
   let Nn=new THREE.Vector3(s2.nx,s2.ny,s2.nz);
   if(P._platUp && P._platUp.lengthSq()>1e-6){ Nn.copy(P._platUp).lerp(new THREE.Vector3(s2.nx,s2.ny,s2.nz), Math.min(1,dt*(window._PLAT_WALK_NK||12))); if(Nn.lengthSq()<1e-6)Nn.set(s2.nx,s2.ny,s2.nz); }
   Nn.normalize(); N.copy(Nn);
-  if(N.y > (window._PLAT_MAG_MAXNY||0.35)){ P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._extEye=null; P._pwFace=-1; return; }   // HARD GUARD: the surface is up-facing -> it's ground, bail to normal walking (never orient upside-down/tilted on the top, however we got here)
+  if(N.y > (window._PLAT_MAG_MAXNY||0.35)){ P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._extEye=null; P._platCamOwn=false; P._pwFace=-1; return; }   // HARD GUARD: the surface is up-facing -> it's ground, bail to normal walking (never orient upside-down/tilted on the top, however we got here)
   // EASE toward ride height instead of hard-snapping every frame -> no glitchy pop as the deck animates under you
   const tx=s2.px+N.x*RIDE, ty=s2.py+N.y*RIDE, tz=s2.pz+N.z*RIDE, pk=Math.min(1,dt*(window._PLAT_WALK_PK||18));
   P.wx+=(tx-P.wx)*pk; P.py+=(ty-P.py)*pk; P.wz+=(tz-P.wz)*pk;
@@ -26522,7 +26525,7 @@ function _platExtCam(P,N,dt){
   P._extEye.lerp(new THREE.Vector3(P.wx+sx*dist, P.py+high, P.wz+sz*dist), Math.min(1,dt*(window._PLAT_EXT_K||6)));
   camera.up.set(0,1,0); camera.position.copy(P._extEye); camera.lookAt(P.wx, P.py+looky, P.wz);
   if(typeof CAM!=='undefined'){ CAM.yaw=CAM.tyaw=Math.atan2(P.wx-P._extEye.x, P.wz-P._extEye.z); }   // keep CAM.yaw synced so handing back to the normal cam on detach isn't a jump
-  if(player)player._cubeCamAuth=true;   // own the camera -> updateCamera defers
+  if(player){ player._cubeCamAuth=true; player._platCamOwn=true; }   // own the camera -> updateCamera defers (decoupled from _cubeWalkOn so it survives the deep-interior bail)
 }
 window._platExtCam=_platExtCam;
 // WORLD-UP cameras for the cube. FREE cam orbits by CAM.yaw (steered by the right stick), BALL cam looks past you toward the ball.
