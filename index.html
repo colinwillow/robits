@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB385</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB386</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26496,6 +26496,17 @@ function _platSurfSample(px,py,pz,soi,prevN){
   return best;
 }
 window._platSurfSample=_platSurfSample;
+function _platFaceCentroid(fi,out){   // CURRENT world centroid of proxy triangle fi — read from the freshly-baked proxy positions, so the face you stood on LAST frame can still be tracked THIS frame even after you've crossed onto a different face (that's what lets the carry survive seams/triangle crossings)
+  if(fi==null||fi<0) return null;
+  const cols=window._arenaAssetCols; if(!cols) return null;
+  let col=null; for(const c of cols){ if(c&&c._asset==='platform_02.glb'){ col=c; break; } } if(!col) return null;
+  const m=col._meshes&&col._meshes[0]; if(!m||!m.geometry) return null;
+  const g=m.geometry, pos=g.attributes.position, idx=g.index; if(!pos) return null;
+  let ia,ib,ic; if(idx){ const b=fi*3; if(b+2>=idx.count) return null; ia=idx.getX(b); ib=idx.getX(b+1); ic=idx.getX(b+2); } else { ia=fi*3; ib=ia+1; ic=ia+2; if(ic>=pos.count) return null; }
+  out=out||{}; out.x=(pos.getX(ia)+pos.getX(ib)+pos.getX(ic))/3; out.y=(pos.getY(ia)+pos.getY(ib)+pos.getY(ic))/3; out.z=(pos.getZ(ia)+pos.getZ(ib)+pos.getZ(ic))/3;
+  return out;
+}
+window._platFaceCentroid=_platFaceCentroid;
 function _platWalkOn(P){
   // DISQUALIFIERS -> if you were side-walking (had the magnets) when one of these fires (boots taken off, stunned, launched, feature toggled off), DETACH CLEANLY: drop back to normal gravity + ease the camera, instead of freezing stuck to the face (the "unequip mid-side-walk and you can't move" bug).
   const _disq=(window._PLAT_WALK_MAGNETIC===false) || (window._PLAT_WALK===false) || !(GS.zone===-19 && P && P._hasBoots && P._bootsEquipped) || (P&&(P._launched||(P._kbStun||0)>0));
@@ -26614,8 +26625,13 @@ function _platWalkMove(P,rawX,rawZ,dt){
   // EASE toward ride height instead of hard-snapping every frame -> no glitchy pop as the deck animates under you
   const tx=s2.px+N.x*RIDE, ty=s2.py+N.y*RIDE, tz=s2.pz+N.z*RIDE, pk=Math.min(1,dt*(window._PLAT_WALK_PK||18));
   P.wx+=(tx-P.wx)*pk; P.py+=(ty-P.py)*pk; P.wz+=(tz-P.wz)*pk;
-  // CARRY — ride the pad's horizontal animation (same face -> centroid delta) so you stay on the spot as it moves/rotates under you (was: stuck in world space). Applied AFTER the ride-snap so it isn't undone.
-  if(s2.fi!=null){ if(P._pwFace===s2.fi && P._pwPrev){ const _sh=Math.hypot(s2.ccx-P._pwPrev[0],s2.ccz-P._pwPrev[1]); if(_sh<(window._PLAT_CARRY_MAX||40)){ P.wx+=(s2.ccx-P._pwPrev[0]); P.wz+=(s2.ccz-P._pwPrev[1]); } } P._pwFace=s2.fi; if(!P._pwPrev)P._pwPrev=[0,0]; P._pwPrev[0]=s2.ccx; P._pwPrev[1]=s2.ccz; } else P._pwFace=-1;
+  // CARRY — ride the deck's animation in FULL 3D (vertical bob included). Track the face you stood on LAST frame by re-reading its CURRENT centroid from the freshly-baked proxy and shifting by its delta — this works even when the face index CHANGES (seams, triangle crossings). The old carry required the SAME face two frames running and was horizontal-only, so exactly at the seams it dropped out and you held world position while the deck animated under you = the seam twitch/resistance. Applied AFTER the ride-snap so it isn't undone.
+  if(P._pwFace>=0 && P._pwPrev && typeof _platFaceCentroid==='function'){
+    const _fc=_platFaceCentroid(P._pwFace, window._pwFC||(window._pwFC={}));
+    if(_fc){ const _dx=_fc.x-P._pwPrev[0], _dy=_fc.y-P._pwPrev[1], _dz=_fc.z-P._pwPrev[2];
+      if(Math.hypot(_dx,_dy,_dz)<(window._PLAT_CARRY_MAX||40)){ P.wx+=_dx; P.py+=_dy; P.wz+=_dz; } }
+  }
+  if(s2.fi!=null && typeof _platFaceCentroid==='function'){ const _fc2=_platFaceCentroid(s2.fi, window._pwFC2||(window._pwFC2={})); if(_fc2){ P._pwFace=s2.fi; if(!P._pwPrev)P._pwPrev=[0,0,0]; P._pwPrev[0]=_fc2.x; P._pwPrev[1]=_fc2.y; P._pwPrev[2]=_fc2.z; } else P._pwFace=-1; } else P._pwFace=-1;   // re-anchor to the face under you NOW (post-carry) for next frame's delta
   P._platUp=N.clone(); P._platSample=s2; P.boostFuel=Math.min(P.boostMax||100,(P.boostFuel||0)+(window._CUBE_JET_RECHARGE||40)*dt);
   P.vx=v.x; P.pvy=v.y; P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); P._glGrounded=true;
   if(typeof _cubeWalkRender==='function') _cubeWalkRender(P,N,tanDir,dt,true,true);   // skipCam -> the platform is an EXTERIOR surface, so it needs its own outside-looking-in camera, not the cube's interior cam
