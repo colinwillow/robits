@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB384</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB385</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26546,6 +26546,7 @@ function _platWalkMove(P,rawX,rawZ,dt){
   const s0=P._platSample||_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_WALK_HOLD||46),P._platUp);
   if(!s0){ P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._platCamOwn=false; return; }
   P._inPlanetGravity=true; P._cwSetGrav=true; P._onPlatform=false;
+  if(!P._platUp && P._onTopT && typeof performance!=='undefined' && (performance.now()-P._onTopT)<(window._PLAT_SEED_MS||400)){ P._platUp=new THREE.Vector3(0,1,0); }   // fresh attach right after leaving the TOP -> seed the up-vector UPRIGHT so the normal smoothing ROLLS you 90° onto the side (continuous 45° sweep) instead of snapping instantly sideways
   let N=new THREE.Vector3(s0.nx,s0.ny,s0.nz);
   const RIDE=(window._PLAT_WALK_RIDE||13), TOP=(window._CUBE_MAXS||300)*(window._SPEED_SCALE||0.6);
   // JUMP / JET -> release the magnets, hand back to normal world gravity so you fall/fly off
@@ -26561,13 +26562,26 @@ function _platWalkMove(P,rawX,rawZ,dt){
   let v; if(tanDir){ v=tanDir.clone().multiplyScalar(TOP*Math.min(1,inMag)); } else v=new THREE.Vector3(0,0,0);
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
   // RE-SNAP to ride height on the freshly-sampled surface (this is what carries you across the curve / onto the underside)
-  const s2=_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_WALK_HOLD||60),N)||s0;
+  let s2=_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_WALK_HOLD||60),N);
+  // ── EDGE WRAP: ONE generic mechanism for EVERY convex 90° seam (top->side, side->top, side->under, under->side).
+  // Fresh sample missed = the face you're on ran out at an edge. Probe a point wrapped AROUND the corner in your
+  // movement direction (ahead along T, pulled in past the old surface plane: Q = P + T*step - N*drop) and cast BACK
+  // along -T: from there the ADJACENT face is in front of you, so the ray hits it from OUTSIDE (front-face gate holds).
+  // The normal then EASES through the corner via the smoothing below -> a continuous 45° roll, not a 90° snap.
+  if(!s2 && tanDir){
+    const _st=(window._PLAT_WRAP_STEP||26);
+    for(const _dp of (window._PLAT_WRAP_DROPS||[30,14])){   // two pull-in depths: deep for tall faces, shallow for the THIN slab (deep would overshoot past the far surface)
+      const w=_platSurfSample(P.wx+tanDir.x*_st-N.x*_dp, P.py+tanDir.y*_st-N.y*_dp, P.wz+tanDir.z*_st-N.z*_dp, (window._PLAT_WRAP_SOI||70), tanDir);   // prevN=T -> primary ray casts -T from Q, back into the adjacent face
+      if(w){ s2=w; break; }
+    }
+  }
+  if(!s2) s2=s0;
   // SMOOTH the normal (moving/curved mesh + face flicker made the orientation + camera jitter) — ease from the previous up toward the sample
   let Nn=new THREE.Vector3(s2.nx,s2.ny,s2.nz);
   if(P._platUp && P._platUp.lengthSq()>1e-6){ Nn.copy(P._platUp).lerp(new THREE.Vector3(s2.nx,s2.ny,s2.nz), Math.min(1,dt*(window._PLAT_WALK_NK||12))); if(Nn.lengthSq()<1e-6)Nn.set(s2.nx,s2.ny,s2.nz); }
   Nn.normalize(); N.copy(Nn);
   // ── CREST (side -> top): a HARD top edge has no rounded corner to rotate you onto the deck, so climbing up the side you'd just stall at the lip. When moving UP a side face, probe up-and-INWARD (toward the deck centre) for the top surface; if it's there at ~your height, step onto it and hand to normal top-walking. Guards (climbing + on a side + the hit is at/above your feet) stop it firing mid-face or grabbing the underside from inside.
-  if(v.y > (window._PLAT_CREST_VY||30) && N.y < (window._PLAT_CREST_MAXNY||0.6)){
+  if(window._PLAT_TCREST===true && v.y > (window._PLAT_CREST_VY||30) && N.y < (window._PLAT_CREST_MAXNY||0.6)){   // DISABLED by default: superseded by the generic EDGE WRAP above (which rolls the corner smoothly instead of teleport-stepping onto the deck). Re-enable with window._PLAT_TCREST=true if the wrap ever misses the lip.
     let inx=-N.x, inz=-N.z; const il=Math.hypot(inx,inz);
     if(il>0.2){ inx/=il; inz/=il;
       const cx=P.wx+inx*(window._PLAT_CREST_IN||26), cz=P.wz+inz*(window._PLAT_CREST_IN||26), cyp=P.py+(window._PLAT_CREST_UP||34);
