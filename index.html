@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB397</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB398</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -4926,10 +4926,9 @@ class Crawler extends Enemy{
       }
     }
     let _gGY=9; if(GS.zone===-19 && typeof _creatureDeckStep==='function'){ const _dcy=_creatureDeckStep(this);   // Y + horizontal carry in one raycast
-      if(_dcy!=null){ _gGY=_dcy; this._deckY=_dcy; this._onDeckT=(window._DECK_GRACE||0.5); this._deckLocked=true; }   // on the deck -> ride it + LANDLOCK (this spider now belongs to the deck)
-      else if(this._deckLocked){ _gGY=(this._deckY!=null?this._deckY:_gGY);   // deck-locked but stepped past the edge -> hold height + steer BACK onto the deck (never drop to the ground or teleport to a wall)
-        let _lc=null; const _cs=window._arenaAssetCols; if(_cs)for(const c of _cs){ if(c&&c._asset==='platform_02.glb'){ _lc=c; break; } }
-        if(_lc){ this.wx+=(_lc.x-this.wx)*Math.min(1,dt*(window._DECK_RETURN||2.5)); this.wz+=(_lc.z-this.wz)*Math.min(1,dt*(window._DECK_RETURN||2.5)); } }
+      if(_dcy!=null){ _gGY=_dcy; this._deckY=_dcy; this._onDeckT=(window._DECK_GRACE||0.5); this._deckLocked=true; if(!this._deckAnchor)this._deckAnchor=[0,0]; this._deckAnchor[0]=this.wx; this._deckAnchor[1]=this.wz; }   // on the deck -> ride it + LANDLOCK; remember this exact spot as the return anchor
+      else if(this._deckLocked && this._deckAnchor){ _gGY=(this._deckY!=null?this._deckY:_gGY);   // deck-locked but stepped past the edge -> hold height + steer back to the LAST GOOD SPOT on THIS pad (NOT a global pad centre -> no teleporting across the ring to another pad, no clustering over the geyser)
+        this.wx+=(this._deckAnchor[0]-this.wx)*Math.min(1,dt*(window._DECK_RETURN||6)); this.wz+=(this._deckAnchor[1]-this.wz)*Math.min(1,dt*(window._DECK_RETURN||6)); }
       else if((this._onDeckT||0)>0){ _gGY=(this._deckY!=null?this._deckY:9); this._onDeckT=Math.max(0,this._onDeckT-dt); } }   // transient miss: hold the last deck height instead of dropping
     this._climbY += (_gGY-this._climbY)*Math.min(1,dt*6);
     this._upV.set(0,1,0); this._fwdV.set(this._vx2,0,this._vz2);
@@ -12544,19 +12543,22 @@ class Player{
     }
     // ── VERTICAL AIM-ASSIST: find the nearest thing near this shot's line and bias vy to MEET its height, so point-blank
     //    shots stop sailing over short enemies — AND over barrels/crates (the muzzle sits high, so a flat shot skims the top). Horizontal aim is untouched. ──
-    let _assistVY=null, _mtTargT=null, _mtTargY=9;   // _mtTarg* = the assist target's along-aim distance + height (fed to the mounted arc so it dips onto near/far enemies)
+    let _assistVY=null, _mtTargT=null, _mtTargY=9, _assistDir3=null;   // _mtTarg* = the assist target's along-aim distance + height (fed to the mounted arc so it dips onto near/far enemies); _assistDir3 = full 3D lock onto a SHORT hostile (spider) so the bullet angles DOWN onto it
     if(window._AIM_ASSIST_V!==false){
       const cax=Math.cos(a), caz=Math.sin(a); let bestT=null,bestPerp=1e9,bestEY=9;
-      const _consider=(tx,tz,ty,sz)=>{ const ex=tx-spawnX, ez=tz-spawnZ; const t=ex*cax+ez*caz; if(t<8||t>(window._AIM_ASSIST_R||420))return; const perp=Math.abs(-ex*caz+ez*cax); if(perp<((sz||12)*0.7+(window._AIM_ASSIST_CONE||42)) && perp<bestPerp){ bestPerp=perp; bestT=t; bestEY=ty; } };
-      if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||!e.alive||e._captured)continue; _consider(e.wx,e.wz,(e.mesh?e.mesh.position.y:9),(e.size||12)); }
+      let lockE=null, lockScore=1e9;   // SHORT-hostile full-3D lock target
+      const _consider=(tx,tz,ty,sz,e)=>{ const ex=tx-spawnX, ez=tz-spawnZ; const t=ex*cax+ez*caz; if(t<4||t>(window._AIM_ASSIST_R||420))return; const perp=Math.abs(-ex*caz+ez*cax); if(perp<((sz||12)*0.7+(window._AIM_ASSIST_CONE||42)) && perp<bestPerp){ bestPerp=perp; bestT=t; bestEY=ty; }
+        if(e && e._isCrawler && e.alive!==false && perp<(window._SPIDER_LOCK_CONE||75) && t<(window._SPIDER_LOCK_R||640)){ const sc=perp+t*0.04; if(sc<lockScore){ lockScore=sc; lockE=e; } } };   // a spider well inside a tight cone -> lock the whole bullet onto it
+      if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||!e.alive||e._captured)continue; _consider(e.wx,e.wz,(e.mesh?e.mesh.position.y:9),(e.size||12),e); }
       if(window._AIM_ASSIST_OBJ!==false){   // also lock vy onto barrels + crates so you can actually shoot them
-        if(window._crates)for(const c of window._crates){ if(c)_consider(c.x,c.z,(c.y!=null?c.y:12),16); }
-        if(window._itemPU)for(const p of window._itemPU){ if(p&&p.type==='barrel'&&(p.settled||p._lying))_consider(p.x,p.z,(p.y||9)+6,(window._BARREL_SIZE||11)+2); }
-        if(window._itemShots)for(const s of window._itemShots){ if(s&&s.type==='barrel')_consider(s.x,s.z,(s.y||9),(window._BARREL_SIZE||11)+2); }
+        if(window._crates)for(const c of window._crates){ if(c)_consider(c.x,c.z,(c.y!=null?c.y:12),16,null); }
+        if(window._itemPU)for(const p of window._itemPU){ if(p&&p.type==='barrel'&&(p.settled||p._lying))_consider(p.x,p.z,(p.y||9)+6,(window._BARREL_SIZE||11)+2,null); }
+        if(window._itemShots)for(const s of window._itemShots){ if(s&&s.type==='barrel')_consider(s.x,s.z,(s.y||9),(window._BARREL_SIZE||11)+2,null); }
       }
       // PREFER the soft-locked target (the one with the on-screen indicator): aim the shot's vy straight at ITS centre so the trajectory physically goes onto it
       if(this._softLock){ const L=this._softLock, lx=(L.wx!=null?L.wx:L.x), lz=(L.wz!=null?L.wz:L.z); if(lx!=null){ const ex=lx-spawnX, ez=lz-spawnZ, t=ex*cax+ez*caz; if(t>8){ bestT=t; bestEY=(L.mesh?L.mesh.position.y:(L.py!=null?L.py:(L.y!=null?L.y:9)))+(window._LOCK_AIM_YOFF||4); } } }
       if(bestT!=null){ const ty=bestEY+(window._AIM_ASSIST_YOFF!=null?window._AIM_ASSIST_YOFF:0); _assistVY=(ty-y0)/Math.max(bestT/bspd,1e-4); _mtTargT=bestT; _mtTargY=ty; }   // vy so the bullet descends/rises to the target height; also remember the target for the mounted arc
+      if(lockE && window._SPIDER_LOCK!==false){ const _ly=(lockE.mesh?lockE.mesh.position.y:9)+(window._SPIDER_LOCK_YOFF||3); let ddx=lockE.wx-spawnX, ddy=_ly-y0, ddz=lockE.wz-spawnZ; const _L=Math.hypot(ddx,ddy,ddz)||1; _assistDir3={x:ddx/_L,y:ddy/_L,z:ddz/_L}; }   // exact 3D dir onto the spider's body -> the bullet visibly ANGLES DOWN and connects
     }
     const fire=(ang,kind)=>{
       if(this._mount && window._MOUNT_SHOOT_ARC!==false){
@@ -12579,6 +12581,12 @@ class Player{
           else _b._mtClear=Math.max((window._MOUNT_ARC_MIN_CLEAR||34), Math.min(_baseClear, _mtTargT*(window._MOUNT_ARC_CLEAR_FRAC||0.4))); }   // far target: shrink clearance a bit but keep enough to clear the head
         else _b._mtClear=_baseClear;
         GS.bullets.push(_b); return;
+      }
+      if(_assistDir3 && !this._mount){                          // SPIDER LOCK: a short hostile near your aim -> fire the whole bullet DOWN onto it (rotated by this pellet's spread)
+        const off=ang-a, ca=Math.cos(off), sa=Math.sin(off);
+        const dx=_assistDir3.x*ca-_assistDir3.z*sa, dz=_assistDir3.x*sa+_assistDir3.z*ca, dy=_assistDir3.y;
+        const _b=new Bullet(spawnX,spawnZ,dx*bspd,dz*bspd,kind,y0,dy*bspd,true); _b._straightAim=true; GS.bullets.push(_b);
+        if(_roofFire) _b._noOrbit=true; return;
       }
       if(_droneAimDir){                                          // DRONE LOCK: straight at the selected target in 3D, regardless of the drone's position
         const off=ang-ab, ca=Math.cos(off), sa=Math.sin(off);
