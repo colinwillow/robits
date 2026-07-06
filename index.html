@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB359</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB360</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26408,14 +26408,25 @@ function _platSurfSample(px,py,pz,soi,prevN){
   const surf=col._meshes; if(!surf||!surf.length) return null;   // raycast the walkable collider mesh (proven to hit), not the fill
   if(Math.abs(px-col.x)>col.hw+soi||Math.abs(pz-col.z)>col.hd+soi) return null;
   if(!window._pwRay){ window._pwRay=new THREE.Raycaster(); window._pwO=new THREE.Vector3(); window._pwD=new THREE.Vector3(); }
-  const rc=window._pwRay; let best=null, bestD=soi;
-  const dirs=[]; if(prevN){ dirs.push([-prevN.x,-prevN.y,-prevN.z]); }   // cast INTO the surface you were on first -> keeps you stuck to it
-  for(const a of _PW_AXES)dirs.push(a);
-  const BO=(window._PLAT_WALK_BACK||16);   // back-offset: start each ray BEHIND the player so a surface right at the feet still registers (a ray starting exactly on a face misses)
-  for(const d of dirs){ const dl=Math.hypot(d[0],d[1],d[2])||1, ux=d[0]/dl, uy=d[1]/dl, uz=d[2]/dl; window._pwD.set(ux,uy,uz); rc.set(window._pwO.set(px-ux*BO,py-uy*BO,pz-uz*BO),window._pwD); rc.far=soi+BO;
-    const hits=rc.intersectObjects(surf,false); if(hits.length){ const eff=hits[0].distance-BO; if(eff<bestD){ const h=hits[0]; let nx=0,ny=1,nz=0; if(h.face&&h.face.normal){ nx=h.face.normal.x; ny=h.face.normal.y; nz=h.face.normal.z; const nl=Math.hypot(nx,ny,nz)||1; nx/=nl; ny/=nl; nz/=nl; }
-      const tox=px-h.point.x, toy=py-h.point.y, toz=pz-h.point.z; if(nx*tox+ny*toy+nz*toz<0){ nx=-nx; ny=-ny; nz=-nz; }   // normal points OUT of the surface toward the player
-      best={ px:h.point.x, py:h.point.y, pz:h.point.z, nx, ny, nz, dist:Math.max(0,eff) }; bestD=eff; } } }
+  const rc=window._pwRay, sm=col._skin||surf[0], BO=(window._PLAT_WALK_BACK||16);
+  const _try=(ux,uy,uz)=>{ window._pwD.set(ux,uy,uz); rc.set(window._pwO.set(px-ux*BO,py-uy*BO,pz-uz*BO),window._pwD); rc.far=soi+BO;
+    const hits=rc.intersectObjects(surf,false); if(!hits.length) return null; const h=hits[0], eff=h.distance-BO, hf=h.face;
+    // TRUE WORLD normal from the SKINNED triangle (bind-pose face.normal is wrong on an animated mesh -> that was the "rotation halfway into the object")
+    let nx=0,ny=1,nz=0;
+    if(hf && sm && sm.isSkinnedMesh && typeof _skinnedVertexWorld==='function'){
+      if(!window._pnA){ window._pnA=new THREE.Vector3(); window._pnB=new THREE.Vector3(); window._pnC=new THREE.Vector3(); window._pnN=new THREE.Vector3(); window._pnE=new THREE.Vector3(); }
+      _skinnedVertexWorld(sm,hf.a,window._pnA); _skinnedVertexWorld(sm,hf.b,window._pnB); _skinnedVertexWorld(sm,hf.c,window._pnC);
+      window._pnE.subVectors(window._pnB,window._pnA); window._pnN.subVectors(window._pnC,window._pnA).cross(window._pnE);   // (C-A) × (B-A)
+      if(window._pnN.lengthSq()>1e-9){ window._pnN.normalize(); nx=window._pnN.x; ny=window._pnN.y; nz=window._pnN.z; }
+    } else if(hf && hf.normal){ nx=hf.normal.x; ny=hf.normal.y; nz=hf.normal.z; const nl=Math.hypot(nx,ny,nz)||1; nx/=nl; ny/=nl; nz/=nl; }
+    const tox=px-h.point.x, toy=py-h.point.y, toz=pz-h.point.z; if(nx*tox+ny*toy+nz*toz<0){ nx=-nx; ny=-ny; nz=-nz; }   // point OUT of the surface toward the player
+    return { px:h.point.x, py:h.point.y, pz:h.point.z, nx, ny, nz, dist:Math.max(0,eff) };
+  };
+  // PRIMARY: lock to the surface you're already on (cast INTO it), else straight down. Single stable ray -> no frame-to-frame face flipping (the twitching).
+  if(prevN){ const r=_try(-prevN.x,-prevN.y,-prevN.z); if(r && r.dist<=soi) return r; }
+  { const r=_try(0,-1,0); if(r && r.dist<=soi) return r; }
+  // FALLBACK (first attach from an odd angle): nearest of the 6 axes
+  let best=null,bestD=soi; for(const a of _PW_AXES){ const dl=Math.hypot(a[0],a[1],a[2])||1; const r=_try(a[0]/dl,a[1]/dl,a[2]/dl); if(r && r.dist<bestD){ best=r; bestD=r.dist; } }
   return best;
 }
 window._platSurfSample=_platSurfSample;
@@ -26459,9 +26470,8 @@ function _platWalkMove(P,rawX,rawZ,dt){
   const tx=s2.px+N.x*RIDE, ty=s2.py+N.y*RIDE, tz=s2.pz+N.z*RIDE, pk=Math.min(1,dt*(window._PLAT_WALK_PK||18));
   P.wx+=(tx-P.wx)*pk; P.py+=(ty-P.py)*pk; P.wz+=(tz-P.wz)*pk;
   P._platUp=N.clone(); P._platSample=s2; P.boostFuel=Math.min(P.boostMax||100,(P.boostFuel||0)+(window._CUBE_JET_RECHARGE||40)*dt);
-  P._cubeCamAuth=false;   // let the NORMAL updateCamera run (the cube cam recomputes up from the cube SDF -> wrong on a floating deck; that was the "camera constantly correcting")
   P.vx=v.x; P.pvy=v.y; P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); P._glGrounded=true;
-  if(typeof _cubeWalkRender==='function') _cubeWalkRender(P,N,tanDir,dt,true,true);   // skipCam -> platform owns the camera (normal cam)
+  if(typeof _cubeWalkRender==='function') _cubeWalkRender(P,N,tanDir,dt,true);   // reverted the forced-normal-cam experiment (it read worse) — back to the cube-walk camera
 }
 window._platWalkMove=_platWalkMove;
 // WORLD-UP cameras for the cube. FREE cam orbits by CAM.yaw (steered by the right stick), BALL cam looks past you toward the ball.
