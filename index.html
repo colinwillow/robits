@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB357</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB358</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -4913,7 +4913,7 @@ class Crawler extends Enemy{
         let bb=null,bD=1e9; for(const box of _cityBoxes){ const ex=Math.max(Math.abs(this.wx-box.x)-box.hw,0), ez=Math.max(Math.abs(this.wz-box.z)-box.hd,0); const hd=Math.hypot(ex,ez); if(hd<bD){bD=hd;bb=box;} }
         if(bb && bD<32){ this._cgBox=bb; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // bind to the building -> continuous surface crawl
       } else if(GS.zone===-19){
-        const _onDeck=(typeof _creatureDeckClimbY==='function' && _creatureDeckClimbY(this.wx,this.wz,this._climbY)!=null);   // standing on the animated deck -> WALK it, don't peel off to climb the shell
+        const _onDeck=((this._onDeckT||0)>0) || (typeof _creatureDeckClimbY==='function' && _creatureDeckClimbY(this.wx,this.wz,this._climbY)!=null);   // on the deck (or within the grace window) -> WALK it, don't peel off to climb the shell on a transient raycast miss
         if(!_onDeck){
           const _abox=_nearestClimbBox(this.wx,this.wz,(window._SPIDER_ASSET_ATTACH_R||30));
           if(_abox){ this._cgBox=_abox; this._cubeCrawl=false; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // near a deform-asset box (cube.glb) -> crawl up it like a building
@@ -4924,7 +4924,9 @@ class Crawler extends Enemy{
         if(near && near.dist<24){ _sheetWorldNormal(near.sheet,_gsN); if(Math.abs(_gsN.y)<0.6){ this._gs=near.sheet; this._gcu=near.cu; this._gcv=near.cv; this._cstate='climb'; this._climbT=0; this._climbTotal=0; this._stuckT=0; } }
       }
     }
-    let _gGY=9; if(GS.zone===-19 && typeof _creatureDeckClimbY==='function'){ const _dcy=_creatureDeckClimbY(this.wx,this.wz,this._climbY); if(_dcy!=null)_gGY=_dcy; }   // walk on the animated deck if standing on it
+    let _gGY=9; if(GS.zone===-19 && typeof _creatureDeckClimbY==='function'){ const _dcy=_creatureDeckClimbY(this.wx,this.wz,this._climbY);
+      if(_dcy!=null){ _gGY=_dcy; this._deckY=_dcy; this._onDeckT=(window._DECK_GRACE||0.5); }   // on the deck -> ride it, refresh grace
+      else if((this._onDeckT||0)>0){ _gGY=(this._deckY!=null?this._deckY:9); this._onDeckT=Math.max(0,this._onDeckT-dt); } }   // transient miss: hold the last deck height instead of dropping
     this._climbY += (_gGY-this._climbY)*Math.min(1,dt*6);
     this._upV.set(0,1,0); this._fwdV.set(this._vx2,0,this._vz2);
     this._orient(this._upV,this._fwdV,dt);
@@ -8995,11 +8997,14 @@ class AllyBot{
     for(const o of GS.allies){ if(o===this) continue; const ox=this.wx-o.wx, oz=this.wz-o.wz, d=Math.hypot(ox,oz)||1; const mn=20; if(d<mn){ const pu=(mn-d)*0.5; this.wx+=ox/d*pu; this.wz+=oz/d*pu; o.wx-=ox/d*pu; o.wz-=oz/d*pu; } }
     { const _cbl=_climbBoxList(); if(_cbl) for(const box of _cbl){ if(box._solid===false)continue; if(Math.abs(this.wx-box.x)<box.hw && Math.abs(this.wz-box.z)<box.hd && (this._climbY||9)<box.top){ const dxr=this.wx-box.x, dzr=this.wz-box.z; if(box.hw-Math.abs(dxr) < box.hd-Math.abs(dzr)) this.wx=box.x+(dxr>=0?1:-1)*(box.hw+2); else this.wz=box.z+(dzr>=0?1:-1)*(box.hd+2); break; } } }
     // ATTACH: grab a climbable box & crawl it — a city building when the target's up high, or a cube-arena asset box whenever we're near one
-    if(this._attachCD<=0 && ((CITY && TY>22) || (GS.zone===-19 && window._SPIDER_ASSET_CLIMB!==false)) && !(typeof _creatureDeckClimbY==='function' && _creatureDeckClimbY(this.wx,this.wz,this._climbY)!=null)){   // on the deck -> walk it, don't grab a climb box
+    if(this._attachCD<=0 && ((CITY && TY>22) || (GS.zone===-19 && window._SPIDER_ASSET_CLIMB!==false)) && !(((this._onDeckT||0)>0) || (typeof _creatureDeckClimbY==='function' && _creatureDeckClimbY(this.wx,this.wz,this._climbY)!=null))){   // on the deck (or within grace) -> walk it, don't grab a climb box
       const bb=_nearestClimbBox(this.wx,this.wz,(window._SPIDER_ASSET_ATTACH_R||32));
       if(bb){ this._cgBox=bb; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }
     }
-    { let _gGY=9; if(GS.zone===-19 && typeof _creatureDeckClimbY==='function'){ const _dcy=_creatureDeckClimbY(this.wx,this.wz,this._climbY); if(_dcy!=null)_gGY=_dcy; } this._climbY += (_gGY-this._climbY)*Math.min(1,dt*6); }   // ally spiders walk the animated deck too
+    { let _gGY=9; if(GS.zone===-19 && typeof _creatureDeckClimbY==='function'){ const _dcy=_creatureDeckClimbY(this.wx,this.wz,this._climbY);
+        if(_dcy!=null){ _gGY=_dcy; this._deckY=_dcy; this._onDeckT=(window._DECK_GRACE||0.5); }
+        else if((this._onDeckT||0)>0){ _gGY=(this._deckY!=null?this._deckY:9); this._onDeckT=Math.max(0,this._onDeckT-dt); } }
+      this._climbY += (_gGY-this._climbY)*Math.min(1,dt*6); }   // ally spiders walk the animated deck too (held through transient misses)
     this._upV.set(0,1,0);
     if(Math.hypot(this._vx2,this._vz2)>10){ this._fwdV.set(this._vx2,0,this._vz2); this._lookH=Math.atan2(this._vx2,this._vz2); }
     else { this._fwdV.set(Math.sin(this._lookH),0,Math.cos(this._lookH)); }   // standing: slow ~20deg glances left/right
@@ -26398,7 +26403,8 @@ function _platWalkOn(P){
   if(P._launched || (P._kbStun||0)>0) return false;
   if((P._cwNoCatchT||0)>0){ P._cwNoCatchT=Math.max(0,P._cwNoCatchT-0.016); P._platUp=null; P._platSample=null; return false; }   // brief window after a jump-off so the magnets don't instantly re-grab
   const s=_platSurfSample(P.wx,P.py,P.wz,(P._platUp?(window._PLAT_WALK_HOLD||60):(window._PLAT_WALK_SOI||40)),P._platUp);   // wider keep-range once attached, tighter grab-range to first catch it
-  if(s){ P._platSample=s; return true; }
+  if(s){ P._platSample=s; P._platGrace=(window._PLAT_WALK_GRACE||0.2); return true; }
+  if(P._platUp && (P._platGrace||0)>0){ P._platGrace=Math.max(0,P._platGrace-0.016); return true; }   // COYOTE: a single missed ray on the moving mesh shouldn't drop you -> hold the magnets briefly (kills the fall-through/re-grab flicker)
   P._platSample=null; P._platUp=null; return false;
 }
 window._platWalkOn=_platWalkOn;
@@ -26422,9 +26428,14 @@ function _platWalkMove(P,rawX,rawZ,dt){
   let v; if(tanDir){ v=tanDir.clone().multiplyScalar(TOP*Math.min(1,inMag)); } else v=new THREE.Vector3(0,0,0);
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
   // RE-SNAP to ride height on the freshly-sampled surface (this is what carries you across the curve / onto the underside)
-  const s2=_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_WALK_HOLD||46),N)||s0;
-  N.set(s2.nx,s2.ny,s2.nz);
-  P.wx=s2.px+N.x*RIDE; P.py=s2.py+N.y*RIDE; P.wz=s2.pz+N.z*RIDE;
+  const s2=_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_WALK_HOLD||60),N)||s0;
+  // SMOOTH the normal (moving/curved mesh + face flicker made the orientation + camera jitter) — ease from the previous up toward the sample
+  let Nn=new THREE.Vector3(s2.nx,s2.ny,s2.nz);
+  if(P._platUp && P._platUp.lengthSq()>1e-6){ Nn.copy(P._platUp).lerp(new THREE.Vector3(s2.nx,s2.ny,s2.nz), Math.min(1,dt*(window._PLAT_WALK_NK||12))); if(Nn.lengthSq()<1e-6)Nn.set(s2.nx,s2.ny,s2.nz); }
+  Nn.normalize(); N.copy(Nn);
+  // EASE toward ride height instead of hard-snapping every frame -> no glitchy pop as the deck animates under you
+  const tx=s2.px+N.x*RIDE, ty=s2.py+N.y*RIDE, tz=s2.pz+N.z*RIDE, pk=Math.min(1,dt*(window._PLAT_WALK_PK||18));
+  P.wx+=(tx-P.wx)*pk; P.py+=(ty-P.py)*pk; P.wz+=(tz-P.wz)*pk;
   P._platUp=N.clone(); P._platSample=s2; P.boostFuel=Math.min(P.boostMax||100,(P.boostFuel||0)+(window._CUBE_JET_RECHARGE||40)*dt);
   P._cubeCamAuth=(N.y < (window._PLAT_WALK_WALLCAM_NY||0.55));   // walking the TOP (up-ish normal) -> normal floor camera; a real wall/underside -> authoritative wall cam (stops the cam lurching on the flat top)
   P.vx=v.x; P.pvy=v.y; P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); P._glGrounded=true;
@@ -32911,7 +32922,7 @@ function _assetProjStick(b, R, SOI, dt){
 // shot's downward ray only finds it when you're up on the deck firing near the surface; ground shots (or shots way overhead)
 // sail free, and firing off the edge (no surface below) releases the shot. window._PLAT_PROJ=false to turn it off.
 function _platProjSurf(b, dt){
-  if(typeof GS==='undefined'||GS.zone!==-19||window._PLAT_PROJ===false||b._noOrbit) return false;
+  if(typeof GS==='undefined'||GS.zone!==-19||window._PLAT_PROJ!==true||b._noOrbit) return false;   // OFF by default now (the tangent-follow made shots hook hard into the deck); opt in with window._PLAT_PROJ=true
   const cols=window._arenaAssetCols; if(!cols||!cols.length) return false;
   let col=null; for(const c of cols){ if(c&&c._asset==='platform_02.glb'){ col=c; break; } } if(!col) return false;
   const surf=col._meshes; if(!surf||!surf.length) return false;   // raycast the walkable collider mesh (proven to hit), not the fill
