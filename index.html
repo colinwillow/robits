@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB382</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB383</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26504,7 +26504,9 @@ function _platWalkOn(P){
   if(P._crestBlend) return true;   // a crest-blend is in flight (rolling side->top) -> keep _platWalkMove running so it can finish the roll
   if(typeof _platTopWalk==='function' && _platTopWalk(P)) return false;   // on the top -> normal walking owns it (the hook clears our state + eases the cam)
   if((P._cwNoCatchT||0)>0){ P._cwNoCatchT=Math.max(0,P._cwNoCatchT-0.016); P._platUp=null; P._platSample=null; return false; }   // brief window after a jump-off so the magnets don't instantly re-grab
-  const s=_platSurfSample(P.wx,P.py,P.wz,(P._platUp?(window._PLAT_WALK_HOLD||60):(window._PLAT_WALK_SOI||34)),P._platUp);   // FIRST catch only on CONTACT (short-ish range so it never grabs mid-air, but wide enough to reach the side face as you roll off the top edge); wide keep-range once attached
+  const _recentTop=(P._onTopT && typeof performance!=='undefined' && (performance.now()-P._onTopT) < (window._PLAT_BRIDGE_MS||200));   // just stepped off the top
+  const _soi = P._platUp ? (window._PLAT_WALK_HOLD||60) : (_recentTop ? (window._PLAT_BRIDGE_SOI||90) : (window._PLAT_WALK_SOI||34));   // BRIDGE: widen the reach for a moment after leaving the top so a FAST wrap catches the (thin) side/underside across the gap instead of flickering to AIR
+  const s=_platSurfSample(P.wx,P.py,P.wz,_soi,P._platUp);   // FIRST catch on CONTACT (short range so it never grabs mid-air), bridged wider right after the top, wide keep-range once attached
   if(s){
     if(s.ny > (window._PLAT_MAG_MAXNY||0.45) || (window._PLAT_UNDER===false && s.ny < -(window._PLAT_MAG_UNDER||0.35))){ P._platSample=null; P._platUp=null; P._extEye=null; P._platCamOwn=false; return false; }   // up-ISH = top/ground (top-walk/normal owns it). Down-ISH = UNDERSIDE, now safe: the outward-normal + front-face gate in _platSurfSample stops the thin-slab top/bottom confusion. Disable with window._PLAT_UNDER=false.
     P._platSample=s; P._platGrace=(window._PLAT_WALK_GRACE||0.2); return true; }
@@ -26515,7 +26517,8 @@ function _platWalkOn(P){
     let ox=P.wx-dcx, oz=P.wz-dcz; const ol=Math.hypot(ox,oz);
     if(ol>1){ ox/=ol; oz/=ol;
       const es=_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_EDGE_SOI||54),new THREE.Vector3(ox,0,oz));   // prevN=outward -> primary ray casts INWARD (toward the deck centre) = into the side face you just ran over
-      if(es && es.ny<=(window._PLAT_MAG_MAXNY||0.45) && es.ny>=-(window._PLAT_MAG_UNDER||0.35)){ P._platSample=es; P._platGrace=(window._PLAT_WALK_GRACE||0.2); P._onTopT=0; return true; }
+      const _underOK=(window._PLAT_UNDER!==false);
+      if(es && es.ny<=(window._PLAT_MAG_MAXNY||0.45) && (es.ny>=-(window._PLAT_MAG_UNDER||0.35) || _underOK)){ P._platSample=es; P._platGrace=(window._PLAT_WALK_GRACE||0.2); P._onTopT=0; return true; }   // grab the side OR (thin slab) wrap straight onto the underside — either way, don't drop to AIR
     }
   }
   if(P._platUp && (P._platGrace||0)>0){ P._platGrace=Math.max(0,P._platGrace-0.016); return true; }   // COYOTE: a single missed ray on the moving mesh shouldn't drop you -> hold the magnets briefly (kills the fall-through/re-grab flicker)
