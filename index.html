@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB383</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB384</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26489,10 +26489,9 @@ function _platSurfSample(px,py,pz,soi,prevN){
     if(_fdot < (window._PLAT_FRONT_EPS!=null?window._PLAT_FRONT_EPS:-6)) return null;   // player is BEHIND the face -> that would be INSIDE the solid -> not a valid surface (this is what disambiguates top vs underside on a thin slab: on top you're in front of the up-face and behind the down-face, so only the top is valid)
     return { px:h.point.x, py:h.point.y, pz:h.point.z, nx, ny, nz, dist:Math.max(0,eff), fi:h.faceIndex, ccx, ccz };
   };
-  // PRIMARY: lock to the surface you're already on (cast INTO it), else straight down. Single stable ray -> no frame-to-frame face flipping (the twitching).
+  // PRIMARY: lock to the surface you're ALREADY on (cast INTO it) for continuity — no frame-to-frame face flip.
   if(prevN){ const r=_try(-prevN.x,-prevN.y,-prevN.z); if(r && r.dist<=soi) return r; }
-  { const r=_try(0,-1,0); if(r && r.dist<=soi) return r; }
-  // FALLBACK (first attach from an odd angle): nearest of the 6 axes
+  // Otherwise pick the NEAREST face across all 6 axes. (Was "straight-DOWN first", which on a thin slab grabbed the far UNDERSIDE below you instead of the near SIDE beside you the instant you stepped off the top edge — that's why it favoured the bottom and skipped the side.)
   let best=null,bestD=soi; for(const a of _PW_AXES){ const dl=Math.hypot(a[0],a[1],a[2])||1; const r=_try(a[0]/dl,a[1]/dl,a[2]/dl); if(r && r.dist<bestD){ best=r; bestD=r.dist; } }
   return best;
 }
@@ -26584,7 +26583,7 @@ function _platWalkMove(P,rawX,rawZ,dt){
     }
   }
   // ── CREST (side -> UNDERSIDE): mirror of the top crest at the BOTTOM edge. Descending a side face, probe down-and-INWARD for the down-facing underside; if it's there at ~your height, roll onto it (stay magnetic — the underside is magnetic walk, not normal walk). Same guards, flipped vertically.
-  if(window._PLAT_UNDER!==false && v.y < -(window._PLAT_CREST_VY||30) && Math.abs(N.y) < (window._PLAT_CREST_MAXNY||0.6)){
+  if(window._PLAT_UCREST===true && v.y < -(window._PLAT_CREST_VY||30) && Math.abs(N.y) < (window._PLAT_CREST_MAXNY||0.6)){   // DISABLED by default: on a thin slab the underside is always within probe range, so this snapped you to the bottom the instant you moved down the side (couldn't hold the side). Side<->underside now flows continuously via the nearest-face sampler + normal smoothing at the ACTUAL bottom edge. Re-enable with window._PLAT_UCREST=true.
     let inx=-N.x, inz=-N.z; const il=Math.hypot(inx,inz);
     if(il>0.2){ inx/=il; inz/=il;
       const ux=P.wx+inx*(window._PLAT_CREST_IN||26), uz=P.wz+inz*(window._PLAT_CREST_IN||26), uyp=P.py-(window._PLAT_CREST_UP||34);
