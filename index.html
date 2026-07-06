@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB362</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB363</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26485,10 +26485,29 @@ function _platWalkMove(P,rawX,rawZ,dt){
   P.wx+=(tx-P.wx)*pk; P.py+=(ty-P.py)*pk; P.wz+=(tz-P.wz)*pk;
   P._platUp=N.clone(); P._platSample=s2; P.boostFuel=Math.min(P.boostMax||100,(P.boostFuel||0)+(window._CUBE_JET_RECHARGE||40)*dt);
   P.vx=v.x; P.pvy=v.y; P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); P._glGrounded=true;
-  if(typeof _cubeWalkRender==='function') _cubeWalkRender(P,N,tanDir,dt,true,true);   // skipCam -> drive the camera with the DECK's normal (below), not the cube SDF
-  if(typeof _cubeCam==='function') _cubeCam(new THREE.Vector3(P.wx,P.py,P.wz), dt, N);   // reuse the proven cube wall/underside camera, fed the platform surface normal
+  if(typeof _cubeWalkRender==='function') _cubeWalkRender(P,N,tanDir,dt,true,true);   // skipCam -> the platform is an EXTERIOR surface, so it needs its own outside-looking-in camera, not the cube's interior cam
+  if(typeof _platExtCam==='function') _platExtCam(P,N,dt);
 }
 window._platWalkMove=_platWalkMove;
+// EXTERIOR surface camera (opposite of the interior cube cam): sits OUTSIDE the surface along the outward normal, world-up, looking IN at the player with a downward tilt.
+// Stays to the SIDE via the normal's HORIZONTAL component so walking onto the underside just lowers the angle (never flips the camera underneath you). Like walking the outside of a building.
+function _platExtCam(P,N,dt){
+  if(typeof camera==='undefined') return;
+  if(window._ballCam){ if(typeof _ballCam==='function')_ballCam(new THREE.Vector3(P.wx,P.py,P.wz),dt); if(player)player._cubeCamAuth=false; return; }
+  const dist=(window._PLAT_EXT_DIST||100), high=(window._PLAT_EXT_H||34), looky=(window._PLAT_EXT_LOOKY||8);
+  let sx=N.x, sz=N.z, sl=Math.hypot(sx,sz);
+  if(sl<(window._PLAT_EXT_MINH||0.22)){   // normal near-vertical (top/underside) -> keep the cam to the SIDE using the last good side (else outward from the deck centre) so it never swings under you
+    if(P._extSide){ sx=P._extSide[0]; sz=P._extSide[1]; sl=Math.hypot(sx,sz)||1; }
+    else { const cx=(window._platDeform?window._platDeform.cx:0), cz=(window._platDeform?window._platDeform.cz:0); sx=P.wx-cx; sz=P.wz-cz; sl=Math.hypot(sx,sz)||1; }
+  }
+  sx/=sl; sz/=sl; if(!P._extSide)P._extSide=[0,0]; P._extSide[0]=sx; P._extSide[1]=sz;   // remember the side so the underside inherits it
+  if(!P._extEye)P._extEye=new THREE.Vector3(P.wx+sx*dist,P.py+high,P.wz+sz*dist);
+  P._extEye.lerp(new THREE.Vector3(P.wx+sx*dist, P.py+high, P.wz+sz*dist), Math.min(1,dt*(window._PLAT_EXT_K||6)));
+  camera.up.set(0,1,0); camera.position.copy(P._extEye); camera.lookAt(P.wx, P.py+looky, P.wz);
+  if(typeof CAM!=='undefined'){ CAM.yaw=CAM.tyaw=Math.atan2(P.wx-P._extEye.x, P.wz-P._extEye.z); }   // keep CAM.yaw synced so handing back to the normal cam on detach isn't a jump
+  if(player)player._cubeCamAuth=true;   // own the camera -> updateCamera defers
+}
+window._platExtCam=_platExtCam;
 // WORLD-UP cameras for the cube. FREE cam orbits by CAM.yaw (steered by the right stick), BALL cam looks past you toward the ball.
 // Both stay parallel to the TRUE ground (never roll) -> on the ceiling you're plainly upside-down. Same distance as on the floor.
 // HYBRID cube cam:
