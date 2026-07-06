@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB386</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB387</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26507,6 +26507,14 @@ function _platFaceCentroid(fi,out){   // CURRENT world centroid of proxy triangl
   return out;
 }
 window._platFaceCentroid=_platFaceCentroid;
+function _platRecover(P){   // NEVER-FALL recovery: when every normal sample misses (mid-corner, mesh animating), cast from the player TOWARD the slab — the last face you rode at its CURRENT baked position, else the deck bounds centre. From outside a convex-ish slab this always finds the outward surface facing you (front-face gate holds), so an attached player is ALWAYS one of TOP/SIDE/UNDER — only JUMP releases the magnets.
+  let tx=null,ty,tz;
+  if(P._pwFace>=0 && typeof _platFaceCentroid==='function'){ const c=_platFaceCentroid(P._pwFace, window._pwRC||(window._pwRC={})); if(c){ tx=c.x; ty=c.y; tz=c.z; } }
+  if(tx==null){ const cols=window._arenaAssetCols; let col=null; if(cols)for(const c of cols){ if(c&&c._asset==='platform_02.glb'){ col=c; break; } } if(!col) return null; tx=col.x; ty=((col.top!=null&&col.bottom!=null)?(col.top+col.bottom)*0.5:P.py); tz=col.z; }
+  let dx=tx-P.wx, dy=ty-P.py, dz=tz-P.wz; const l=Math.hypot(dx,dy,dz); if(l<1e-3) return null;
+  return _platSurfSample(P.wx,P.py,P.wz,(window._PLAT_RECOVER_SOI||170),new THREE.Vector3(-dx/l,-dy/l,-dz/l));   // prevN=-dir -> the sampler's primary ray casts +dir = toward the slab
+}
+window._platRecover=_platRecover;
 function _platWalkOn(P){
   // DISQUALIFIERS -> if you were side-walking (had the magnets) when one of these fires (boots taken off, stunned, launched, feature toggled off), DETACH CLEANLY: drop back to normal gravity + ease the camera, instead of freezing stuck to the face (the "unequip mid-side-walk and you can't move" bug).
   const _disq=(window._PLAT_WALK_MAGNETIC===false) || (window._PLAT_WALK===false) || !(GS.zone===-19 && P && P._hasBoots && P._bootsEquipped) || (P&&(P._launched||(P._kbStun||0)>0));
@@ -26514,9 +26522,10 @@ function _platWalkOn(P){
   if(P._crestBlend) return true;   // a crest-blend is in flight (rolling side->top) -> keep _platWalkMove running so it can finish the roll
   if(typeof _platTopWalk==='function' && _platTopWalk(P)) return false;   // on the top -> normal walking owns it (the hook clears our state + eases the cam)
   if((P._cwNoCatchT||0)>0){ P._cwNoCatchT=Math.max(0,P._cwNoCatchT-0.016); P._platUp=null; P._platSample=null; return false; }   // brief window after a jump-off so the magnets don't instantly re-grab
+  if(P._platUp) return true;   // ATTACHED IS A STATE, not a ray result: magnetic boots NEVER drop you on a missed sample (that grace-expiry mid-corner is exactly why the upward seams kept dying). You are always one of TOP/SIDE/UNDER; _platWalkMove re-finds the surface every frame (fresh sample -> edge wrap -> recover-cast toward the slab). ONLY jump (above) or the disqualifiers release the magnets.
   const _recentTop=(P._onTopT && typeof performance!=='undefined' && (performance.now()-P._onTopT) < (window._PLAT_BRIDGE_MS||200));   // just stepped off the top
-  const _soi = P._platUp ? (window._PLAT_WALK_HOLD||60) : (_recentTop ? (window._PLAT_BRIDGE_SOI||90) : (window._PLAT_WALK_SOI||34));   // BRIDGE: widen the reach for a moment after leaving the top so a FAST wrap catches the (thin) side/underside across the gap instead of flickering to AIR
-  const s=_platSurfSample(P.wx,P.py,P.wz,_soi,P._platUp);   // FIRST catch on CONTACT (short range so it never grabs mid-air), bridged wider right after the top, wide keep-range once attached
+  const _soi = _recentTop ? (window._PLAT_BRIDGE_SOI||90) : (window._PLAT_WALK_SOI||34);   // BRIDGE: widen the reach for a moment after leaving the top so a FAST wrap catches the (thin) side/underside across the gap
+  const s=_platSurfSample(P.wx,P.py,P.wz,_soi,null);   // FIRST catch only on CONTACT (short range so it never grabs mid-air)
   if(s){
     if(s.ny > (window._PLAT_MAG_MAXNY||0.45) || (window._PLAT_UNDER===false && s.ny < -(window._PLAT_MAG_UNDER||0.35))){ P._platSample=null; P._platUp=null; P._extEye=null; P._platCamOwn=false; return false; }   // up-ISH = top/ground (top-walk/normal owns it). Down-ISH = UNDERSIDE, now safe: the outward-normal + front-face gate in _platSurfSample stops the thin-slab top/bottom confusion. Disable with window._PLAT_UNDER=false.
     P._platSample=s; P._platGrace=(window._PLAT_WALK_GRACE||0.2); return true; }
@@ -26554,8 +26563,9 @@ function _platWalkMove(P,rawX,rawZ,dt){
     }
     return;
   }
-  const s0=P._platSample||_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_WALK_HOLD||46),P._platUp);
-  if(!s0){ P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._platCamOwn=false; return; }
+  let s0=P._platSample||_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_WALK_HOLD||46),P._platUp);
+  if(!s0 && P._platUp && typeof _platRecover==='function') s0=_platRecover(P);   // attached -> recover the surface instead of dropping
+  if(!s0){ P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._platCamOwn=false; return; }   // truly nothing (deck gone) -> release
   P._inPlanetGravity=true; P._cwSetGrav=true; P._onPlatform=false;
   if(!P._platUp && P._onTopT && typeof performance!=='undefined' && (performance.now()-P._onTopT)<(window._PLAT_SEED_MS||400)){ P._platUp=new THREE.Vector3(0,1,0); }   // fresh attach right after leaving the TOP -> seed the up-vector UPRIGHT so the normal smoothing ROLLS you 90° onto the side (continuous 45° sweep) instead of snapping instantly sideways
   let N=new THREE.Vector3(s0.nx,s0.ny,s0.nz);
@@ -26586,6 +26596,7 @@ function _platWalkMove(P,rawX,rawZ,dt){
       if(w){ s2=w; break; }
     }
   }
+  if(!s2 && typeof _platRecover==='function') s2=_platRecover(P);   // wrap missed too (deep corner, mesh mid-animation) -> recover-cast toward the slab; the magnets hold
   if(!s2) s2=s0;
   // SMOOTH the normal (moving/curved mesh + face flicker made the orientation + camera jitter) — ease from the previous up toward the sample
   let Nn=new THREE.Vector3(s2.nx,s2.ny,s2.nz);
