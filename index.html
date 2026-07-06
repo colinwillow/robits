@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB389</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB390</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26614,9 +26614,22 @@ function _platWalkMove(P,rawX,rawZ,dt){
   }
   if(!s2 && typeof _platRecover==='function') s2=_platRecover(P);   // wrap missed too (deep corner, mesh mid-animation) -> recover-cast toward the slab; the magnets hold
   if(!s2) s2=s0;
-  // ── STALL -> FORCE WRAP: at a HARD lip the surface ray keeps re-clipping the OLD face at the corner, so the sample never misses and the miss-triggered wrap never fires — you're pinned ("side->top just blocked"). If a firmly-held input produces almost no actual motion for ~0.12s, run the wrap probe anyway and take a genuinely DIFFERENT face (dot<0.7) — that rolls you over the lip.
-  if(tanDir && inMag>0.5 && P._pwPos){
-    const _asp=Math.hypot(P.wx-P._pwPos[0],P.py-P._pwPos[1],P.wz-P._pwPos[2])/Math.max(dt,1e-3);   // actual speed over the last frame (post ride-snap/carry)
+  // ── LEDGE-AHEAD: while moving, verify the floor still EXISTS one step ahead (cast into it from P+T*step). The instant it doesn't, you're AT the edge -> wrap NOW. This is what lets you walk casually face-to-face: the stall detector below was being MASKED by the deck-bob carry (your measured motion included the deck's animation, so a pinned player never read as stalled — why casual side->top stayed blocked while speed worked: a fast overshoot made the base ray miss outright and took the clean wrap path).
+  if(tanDir && inMag>0.25 && s2 && (s2.nx*N.x+s2.ny*N.y+s2.nz*N.z) > 0.9){   // still travelling on the same plane -> watch for the edge
+    const _ah=(window._PLAT_AHEAD||22);
+    const _ahd=_platSurfSample(P.wx+tanDir.x*_ah, P.py+tanDir.y*_ah, P.wz+tanDir.z*_ah, (window._PLAT_WALK_RIDE||13)+28, N);   // prevN=N -> casts -N into where the floor ahead should be
+    if(!_ahd || (_ahd.nx*N.x+_ahd.ny*N.y+_ahd.nz*N.z) < 0.7){   // floor ahead is GONE (or already the next face) -> wrap the corner now, no stall needed
+      const _sw2=(window._PLAT_WRAP_STEP||26);
+      for(const _dp2 of (window._PLAT_WRAP_DROPS||[30,14])){
+        const w2=_platSurfSample(P.wx+tanDir.x*_sw2-N.x*_dp2, P.py+tanDir.y*_sw2-N.y*_dp2, P.wz+tanDir.z*_sw2-N.z*_dp2, (window._PLAT_WRAP_SOI||70), tanDir);
+        if(w2 && (w2.nx*N.x+w2.ny*N.y+w2.nz*N.z) < 0.7){ s2=w2; break; }
+      }
+    }
+  }
+  // ── STALL -> FORCE WRAP (backstop): pinned with held input and no REAL motion for ~0.12s -> wrap anyway. Motion is measured MINUS the deck-carry so the bob can't mask a stall.
+  if(tanDir && inMag>0.3 && P._pwPos){
+    const _ccx=(P._pwCarry?P._pwCarry[0]:0), _ccy=(P._pwCarry?P._pwCarry[1]:0), _ccz=(P._pwCarry?P._pwCarry[2]:0);
+    const _asp=Math.hypot(P.wx-P._pwPos[0]-_ccx,P.py-P._pwPos[1]-_ccy,P.wz-P._pwPos[2]-_ccz)/Math.max(dt,1e-3);   // actual speed over the last frame, deck motion removed
     if(_asp < TOP*(window._PLAT_STALL_FRAC||0.25)) P._pwStallT=(P._pwStallT||0)+dt; else P._pwStallT=0;
     if((P._pwStallT||0) > (window._PLAT_STALL_T||0.12)){
       const _sw=(window._PLAT_WRAP_STEP||26);
@@ -26665,10 +26678,11 @@ function _platWalkMove(P,rawX,rawZ,dt){
   const tx=s2.px+N.x*RIDE, ty=s2.py+N.y*RIDE, tz=s2.pz+N.z*RIDE, pk=Math.min(1,dt*(window._PLAT_WALK_PK||18));
   P.wx+=(tx-P.wx)*pk; P.py+=(ty-P.py)*pk; P.wz+=(tz-P.wz)*pk;
   // CARRY — ride the deck's animation in FULL 3D (vertical bob included). Track the face you stood on LAST frame by re-reading its CURRENT centroid from the freshly-baked proxy and shifting by its delta — this works even when the face index CHANGES (seams, triangle crossings). The old carry required the SAME face two frames running and was horizontal-only, so exactly at the seams it dropped out and you held world position while the deck animated under you = the seam twitch/resistance. Applied AFTER the ride-snap so it isn't undone.
+  if(!P._pwCarry)P._pwCarry=[0,0,0]; P._pwCarry[0]=0; P._pwCarry[1]=0; P._pwCarry[2]=0;
   if(P._pwFace>=0 && P._pwPrev && typeof _platFaceCentroid==='function'){
     const _fc=_platFaceCentroid(P._pwFace, window._pwFC||(window._pwFC={}));
     if(_fc){ const _dx=_fc.x-P._pwPrev[0], _dy=_fc.y-P._pwPrev[1], _dz=_fc.z-P._pwPrev[2];
-      if(Math.hypot(_dx,_dy,_dz)<(window._PLAT_CARRY_MAX||40)){ P.wx+=_dx; P.py+=_dy; P.wz+=_dz; } }
+      if(Math.hypot(_dx,_dy,_dz)<(window._PLAT_CARRY_MAX||40)){ P.wx+=_dx; P.py+=_dy; P.wz+=_dz; P._pwCarry[0]=_dx; P._pwCarry[1]=_dy; P._pwCarry[2]=_dz; } }   // record the applied deck-carry so the stall detector can subtract it (deck motion must not read as player motion)
   }
   if(s2.fi!=null && typeof _platFaceCentroid==='function'){ const _fc2=_platFaceCentroid(s2.fi, window._pwFC2||(window._pwFC2={})); if(_fc2){ P._pwFace=s2.fi; if(!P._pwPrev)P._pwPrev=[0,0,0]; P._pwPrev[0]=_fc2.x; P._pwPrev[1]=_fc2.y; P._pwPrev[2]=_fc2.z; } else P._pwFace=-1; } else P._pwFace=-1;   // re-anchor to the face under you NOW (post-carry) for next frame's delta
   if(!P._pwPos)P._pwPos=[0,0,0]; P._pwPos[0]=P.wx; P._pwPos[1]=P.py; P._pwPos[2]=P.wz;   // end-of-frame position -> next frame's stall detector
