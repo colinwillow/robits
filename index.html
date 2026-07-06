@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB364</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB365</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26029,6 +26029,7 @@ function _occList(){
   if(window._cubeSpawnPads)for(const p of window._cubeSpawnPads)if(p&&p.g)out.push(p.g);
   if(window._barrelDispensers)for(const d of window._barrelDispensers)if(d&&d.g)out.push(d.g);
   if(window._weaponPads)for(const w of window._weaponPads){ const g=w&&(w.grp||w.g||w.group); if(g)out.push(g); }
+  if(window._OCC_PLAT!==false && window._platWire && window._platWire.fill) out.push(window._platWire.fill);   // the animated platform's solid fill fades when it's between the camera and you (wire stays -> see the player through the holo grid)
   return out;
 }
 function _updateOccluders(dt){
@@ -26108,9 +26109,12 @@ function _platTopWalk(P){   // BOOTS while on the FLAT deck top -> normal walkin
   if(!(GS.zone===-19 && P && P._hasBoots && P._bootsEquipped)) return false;
   if(P._launched||(P._kbStun||0)>0) return false;
   if(typeof _platSurfSample!=='function') return false;
-  const s=_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_TOP_SOI||70),_PW_DOWN); if(!s) return false;   // straight-down sample (with the true world normal)
-  const above=(P.py||0)-s.py;
-  return s.ny > (window._PLAT_TOP_NY||0.72) && above > -(window._PLAT_TOP_BELOW||16) && above < (window._PLAT_TOP_ABOVE||80);   // flat-ish top under your feet -> normal walking; tilted -> magnetic takes over
+  const _now=(typeof performance!=='undefined')?performance.now():0;   // CACHE within a frame -> this is called ~4x/frame (hook, camera, _cubeWalkOn, _platWalkOn); one raycast, not four (the boots framerate fix)
+  if(P._ptwT!=null && (_now-P._ptwT) < (window._PLAT_CACHE_MS||10)) return P._ptwR;
+  P._ptwT=_now;
+  const s=_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_TOP_SOI||70),_PW_DOWN);
+  let r=false; if(s){ const above=(P.py||0)-s.py; r = s.ny > (window._PLAT_TOP_NY||0.72) && above > -(window._PLAT_TOP_BELOW||16) && above < (window._PLAT_TOP_ABOVE||80); }
+  P._ptwR=r; return r;
 }
 window._platTopWalk=_platTopWalk;
 function _cubeWalkOn(P){ if(P && (P._launched || (P._kbStun||0)>0)) return false;   // a launch overrides wall-walk so the knockback arc can play
@@ -26420,6 +26424,7 @@ function _platSurfSample(px,py,pz,soi,prevN){
   let col=null; for(const c of cols){ if(c&&c._asset==='platform_02.glb'){ col=c; break; } } if(!col) return null;
   const surf=col._meshes; if(!surf||!surf.length) return null;   // raycast the walkable collider mesh (proven to hit), not the fill
   if(Math.abs(px-col.x)>col.hw+soi||Math.abs(pz-col.z)>col.hd+soi) return null;
+  if(py < (col.bottom!=null?col.bottom:0)-soi-40 || py > (col.top!=null?col.top:99999)+soi+40) return null;   // cheap VERTICAL reject -> no raycast when far below/above the deck (e.g. standing on the floor under its huge footprint) — this was the boots-near-platform framerate crash
   if(!window._pwRay){ window._pwRay=new THREE.Raycaster(); window._pwO=new THREE.Vector3(); window._pwD=new THREE.Vector3(); }
   const rc=window._pwRay, sm=col._skin||surf[0], BO=(window._PLAT_WALK_BACK||16);
   const _try=(ux,uy,uz)=>{ window._pwD.set(ux,uy,uz); rc.set(window._pwO.set(px-ux*BO,py-uy*BO,pz-uz*BO),window._pwD); rc.far=soi+BO;
