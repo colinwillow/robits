@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB394</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB395</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26588,21 +26588,19 @@ function _platWalkMove(P,rawX,rawZ,dt){
   let prr=cr.addScaledVector(N,-cr.dot(N)); if(prr.lengthSq()<1e-5){ prr.crossVectors(N,P._cwLastTN||new THREE.Vector3(0,0,1)); } prr.normalize();
   let pf; { const _cu=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1); _cu.addScaledVector(N,-_cu.dot(N)); if(_cu.lengthSq()>0.04) pf=_cu.normalize(); else { pf=new THREE.Vector3().crossVectors(N,prr); pf.normalize(); } }
   let tanDir=null; if(inMag>0.05){ tanDir=pf.clone().multiplyScalar(-sz).addScaledVector(prr,sx); if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); P._cwLastTN=pf.clone(); } else tanDir=null; }
-  // ── CORNER DIRECTION-LOCK (parallel transport): crossing a 90° seam flips what the stick MEANS through the camera (on the underside "down" walks you toward the camera; the instant you wrap onto the side that same "down" walks you straight back under -> the seam VIBRATION, and upward seams can't be held at all). While the surface-up is mid-rotation AND the stick is held steady, ignore the camera remap and carry the PREVIOUS world direction around the edge (rotated with the surface) — one held input = one continuous walk around the slab. Releasing or clearly changing the stick re-syncs to the camera mapping.
-  if(inMag>0.05){
-    const _sd=P._pwStick, _sm=Math.hypot(sx,sz)||1;
-    const _sdot=_sd&&(Math.hypot(_sd[0],_sd[1])>0.01) ? ((sx*_sd[0]+sz*_sd[1])/(_sm*Math.hypot(_sd[0],_sd[1]))) : -1;   // how steady is the held stick vs last frame
-    const _corner=(P._platUp && P._platUp.dot(N) < (window._PLAT_LOCK_DOT||0.86));                                       // surface-up is rotating -> corner in progress
-    if(_corner && _sdot > (window._PLAT_LOCK_STICK||0.5) && P._pwTan) P._pwLockT=(window._PLAT_LOCK_T||0.5);             // (re-)arm the lock through the whole corner
-    if((P._pwLockT||0)>0 && _sdot > (window._PLAT_LOCK_STICK||0.5) && P._pwTan && P._pwTanUp){
-      P._pwLockT-=dt;
-      const _q=new THREE.Quaternion().setFromUnitVectors(P._pwTanUp,N);                                                  // rotate the held direction by exactly the up-delta = parallel transport around the edge
-      const _tt=P._pwTan.clone().applyQuaternion(_q); _tt.addScaledVector(N,-_tt.dot(N));
-      if(_tt.lengthSq()>1e-4){ _tt.normalize(); tanDir=_tt; }
-    } else P._pwLockT=0;
+  // ── DIRECTION-LOCK (persistent parallel transport) — the LOOP-CONTINUITY model. The stick is normally remapped through the camera every frame, so wrapping a face flips what a held input MEANS (underside "down" = toward camera; the instant you wrap onto the side that same "down" walks you back under). Instead: COMMIT "forward" in the surface's own frame when you first push, then carry it around the geometry (rotate by the surface-up delta each frame) for as long as you hold that direction — flat, corner, or a full LOOP. Forward stays forward the entire way. Only RELEASING or clearly TURNING the stick re-syncs to the camera mapping. Disable with window._PLAT_DIRLOCK=false.
+  if(window._PLAT_DIRLOCK!==false && inMag>0.05){
+    const _sd=P._pwStick, _hadStick=!!(_sd&&(Math.hypot(_sd[0],_sd[1])>0.05));
+    const _sdot=_hadStick ? ((sx*_sd[0]+sz*_sd[1])/((Math.hypot(sx,sz)||1)*(Math.hypot(_sd[0],_sd[1])||1))) : -1;   // how steady the held stick is vs last frame
+    const _steady=_hadStick && _sdot > (window._PLAT_LOCK_STICK||0.55);                                            // same direction held -> keep the committed forward
+    if(_steady && P._pwTan && P._pwTanUp && P._pwTanUp.lengthSq()>1e-6){
+      const _q=new THREE.Quaternion().setFromUnitVectors(P._pwTanUp,N);                                            // rotate the committed direction by the surface-up delta = parallel transport
+      const _tt=P._pwTan.clone().applyQuaternion(_q); _tt.addScaledVector(N,-_tt.dot(N));                          // keep it in the tangent plane
+      if(_tt.lengthSq()>1e-4){ _tt.normalize(); tanDir=_tt; }                                                     // hold forward (ignore the camera remap while committed)
+    }   // else: fresh push or a real turn -> tanDir stays camera-derived, then re-commits below
     if(!P._pwStick)P._pwStick=[0,0]; P._pwStick[0]=sx; P._pwStick[1]=sz;
-  } else { P._pwLockT=0; if(P._pwStick){ P._pwStick[0]=0; P._pwStick[1]=0; } }
-  if(tanDir){ P._pwTan=(P._pwTan||new THREE.Vector3()).copy(tanDir); P._pwTanUp=(P._pwTanUp||new THREE.Vector3()).copy(N); }   // remember the world direction + the up it was expressed in (for next frame's transport)
+  } else if(P._pwStick){ P._pwStick[0]=0; P._pwStick[1]=0; }
+  if(tanDir){ P._pwTan=(P._pwTan||new THREE.Vector3()).copy(tanDir); P._pwTanUp=(P._pwTanUp||new THREE.Vector3()).copy(N); }   // commit the current world forward + the up it's expressed in (for next frame's transport)
   // GROUNDED direct move (stage 1: no airborne arc yet — magnets hold you to the surface)
   let v; if(tanDir){ v=tanDir.clone().multiplyScalar(TOP*Math.min(1,inMag)); } else v=new THREE.Vector3(0,0,0);
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
