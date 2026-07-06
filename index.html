@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB363</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB364</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26102,14 +26102,15 @@ function updateCubeArena(dt){
   if(player.py> C.h-pad){ player.py=C.h-pad; if(player.pvy>0)player.pvy=0; }   // ceiling
 }
 // ════════ CUBE WALL-WALK (boots) — stick to the rounded interior shell, run up walls onto the ceiling ════════
-function _platTopWalk(P){   // BOOTS while on the deck TOP -> treat it exactly like normal ground (normal collision + camera). Rock-solid; the magnetic sides/underside walk is opt-in (window._PLAT_WALK_MAGNETIC).
+const _PW_DOWN={x:0,y:1,z:0};
+function _platTopWalk(P){   // BOOTS while on the FLAT deck top -> normal walking (rock-solid). Yields to the magnetic walk the moment the surface tilts (the curved edge), so you roll onto the side/underside instead of walking off.
   if(window._PLAT_WALK===false) return false;
   if(!(GS.zone===-19 && P && P._hasBoots && P._bootsEquipped)) return false;
   if(P._launched||(P._kbStun||0)>0) return false;
-  if(typeof _platSurfaceY!=='function') return false;
-  const dy=_platSurfaceY(P.wx,P.wz); if(dy==null) return false;
-  const above=(P.py||0)-dy;
-  return above > -(window._PLAT_TOP_BELOW||16) && above < (window._PLAT_TOP_ABOVE||70);   // on / just above the deck top
+  if(typeof _platSurfSample!=='function') return false;
+  const s=_platSurfSample(P.wx,P.py,P.wz,(window._PLAT_TOP_SOI||70),_PW_DOWN); if(!s) return false;   // straight-down sample (with the true world normal)
+  const above=(P.py||0)-s.py;
+  return s.ny > (window._PLAT_TOP_NY||0.72) && above > -(window._PLAT_TOP_BELOW||16) && above < (window._PLAT_TOP_ABOVE||80);   // flat-ish top under your feet -> normal walking; tilted -> magnetic takes over
 }
 window._platTopWalk=_platTopWalk;
 function _cubeWalkOn(P){ if(P && (P._launched || (P._kbStun||0)>0)) return false;   // a launch overrides wall-walk so the knockback arc can play
@@ -26494,7 +26495,7 @@ window._platWalkMove=_platWalkMove;
 function _platExtCam(P,N,dt){
   if(typeof camera==='undefined') return;
   if(window._ballCam){ if(typeof _ballCam==='function')_ballCam(new THREE.Vector3(P.wx,P.py,P.wz),dt); if(player)player._cubeCamAuth=false; return; }
-  const dist=(window._PLAT_EXT_DIST||100), high=(window._PLAT_EXT_H||34), looky=(window._PLAT_EXT_LOOKY||8);
+  const dist=(window._PLAT_EXT_DIST||230), high=(window._PLAT_EXT_H||200), looky=(window._PLAT_EXT_LOOKY||8);   // match the normal cam's dist/height so it's not zoomed in on the character
   let sx=N.x, sz=N.z, sl=Math.hypot(sx,sz);
   if(sl<(window._PLAT_EXT_MINH||0.22)){   // normal near-vertical (top/underside) -> keep the cam to the SIDE using the last good side (else outward from the deck centre) so it never swings under you
     if(P._extSide){ sx=P._extSide[0]; sz=P._extSide[1]; sl=Math.hypot(sx,sz)||1; }
