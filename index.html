@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB379</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB380</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26437,6 +26437,14 @@ function _platSurfSample(px,py,pz,soi,prevN){
   if(py < (col.bottom!=null?col.bottom:0)-soi-40 || py > (col.top!=null?col.top:99999)+soi+40) return null;   // cheap VERTICAL reject -> no raycast when far below/above the deck (e.g. standing on the floor under its huge footprint) — this was the boots-near-platform framerate crash
   if(!window._pwRay){ window._pwRay=new THREE.Raycaster(); window._pwO=new THREE.Vector3(); window._pwD=new THREE.Vector3(); }
   const rc=window._pwRay, sm=col._skin||surf[0], BO=(window._PLAT_WALK_BACK||16);
+  if(col._wind==null){   // CALIBRATE the winding sign ONCE: the deck TOP face outward normal must be +Y. Cast straight down onto the deck centre from well above; the sign that makes that face point up is the outward sign for the whole mesh (winding is consistent + constant under the up/down animation).
+    try{ window._pwD.set(0,-1,0); rc.set(window._pwO.set(col.x,(col.top!=null?col.top:py)+400,col.z),window._pwD); rc.far=3000;
+      const ch=rc.intersectObjects(surf,false);
+      if(ch.length && ch[0].face){ const chf=ch[0].face; let wny=(chf.normal?chf.normal.y:1);
+        if(sm && sm.isSkinnedMesh && typeof _skinnedVertexWorld==='function'){ const A=new THREE.Vector3(),B=new THREE.Vector3(),C=new THREE.Vector3(); _skinnedVertexWorld(sm,chf.a,A); _skinnedVertexWorld(sm,chf.b,B); _skinnedVertexWorld(sm,chf.c,C); wny=C.sub(A).cross(B.sub(A)).y; }   // (C-A)×(B-A).y — same formula _try uses
+        col._wind=(wny>=0?1:-1); }
+    }catch(_){ }
+  }
   const _try=(ux,uy,uz)=>{ window._pwD.set(ux,uy,uz); rc.set(window._pwO.set(px-ux*BO,py-uy*BO,pz-uz*BO),window._pwD); rc.far=soi+BO;
     const hits=rc.intersectObjects(surf,false); if(!hits.length) return null; const h=hits[0], eff=h.distance-BO, hf=h.face;
     // TRUE WORLD normal from the SKINNED triangle (bind-pose face.normal is wrong on an animated mesh -> that was the "rotation halfway into the object")
@@ -26448,10 +26456,9 @@ function _platSurfSample(px,py,pz,soi,prevN){
       if(window._pnN.lengthSq()>1e-9){ window._pnN.normalize(); nx=window._pnN.x; ny=window._pnN.y; nz=window._pnN.z; }
       ccx=(window._pnA.x+window._pnB.x+window._pnC.x)/3; ccz=(window._pnA.z+window._pnB.z+window._pnC.z)/3;   // skinned face centroid -> horizontal carry
     } else if(hf && hf.normal){ nx=hf.normal.x; ny=hf.normal.y; nz=hf.normal.z; const nl=Math.hypot(nx,ny,nz)||1; nx/=nl; ny/=nl; nz/=nl; }
-    // OUTWARD normal: orient the winding normal AWAY from the slab's centre (winding-agnostic, correct for a convex-ish slab). NEVER flip it toward the player — that was the root bug: it made every face stand-on-able from EITHER side, so on a thin slab you could stick to the BACK face / stand INSIDE the solid (upside-down on top).
-    const _cty=(col.top!=null&&col.bottom!=null)?(col.top+col.bottom)*0.5:(col.y!=null?col.y:py);
-    const _ox=h.point.x-col.x, _oy=h.point.y-_cty, _oz=h.point.z-col.z;
-    if(nx*_ox+ny*_oy+nz*_oz<0){ nx=-nx; ny=-ny; nz=-nz; }   // -> points OUT of the solid
+    // OUTWARD normal via the calibrated winding SIGN (col._wind). Winding is CONSTANT as the deck animates up/down, so this gives a correct outward normal on EVERY face with no stale slab-centre (the animating centre is exactly what inverted the top). Fallback (uncalibrated): orient away from the slab centre.
+    if(col._wind){ nx*=col._wind; ny*=col._wind; nz*=col._wind; }
+    else { const _cty=(col.top!=null&&col.bottom!=null)?(col.top+col.bottom)*0.5:py; if(nx*(h.point.x-col.x)+ny*(h.point.y-_cty)+nz*(h.point.z-col.z)<0){ nx=-nx; ny=-ny; nz=-nz; } }
     const _fdot=(px-h.point.x)*nx+(py-h.point.y)*ny+(pz-h.point.z)*nz;   // where is the player relative to this OUTWARD face?
     if(_fdot < (window._PLAT_FRONT_EPS!=null?window._PLAT_FRONT_EPS:-6)) return null;   // player is BEHIND the face -> that would be INSIDE the solid -> not a valid surface (this is what disambiguates top vs underside on a thin slab: on top you're in front of the up-face and behind the down-face, so only the top is valid)
     return { px:h.point.x, py:h.point.y, pz:h.point.z, nx, ny, nz, dist:Math.max(0,eff), fi:h.faceIndex, ccx, ccz };
