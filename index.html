@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB396</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB397</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -4915,7 +4915,7 @@ class Crawler extends Enemy{
         if(bb && bD<32){ this._cgBox=bb; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // bind to the building -> continuous surface crawl
       } else if(GS.zone===-19){
         const _onDeck=((this._onDeckT||0)>0) || (typeof _creatureDeckClimbY==='function' && _creatureDeckClimbY(this.wx,this.wz,this._climbY)!=null);   // on the deck (or within the grace window) -> WALK it, don't peel off to climb the shell on a transient raycast miss
-        if(!_onDeck){
+        if(!_onDeck && !this._deckLocked){   // LANDLOCKED to the floating deck -> NEVER climb off to the shell/ground/wall (no teleporting). A deck spider just patrols the deck.
           const _abox=_nearestClimbBox(this.wx,this.wz,(window._SPIDER_ASSET_ATTACH_R||30));
           if(_abox){ this._cgBox=_abox; this._cubeCrawl=false; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // near a deform-asset box (cube.glb) -> crawl up it like a building
           else if(p._cubeCamAuth || (p.py||0)>40){ this._cubeCrawl=true; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // else, player up a wall/ceiling -> ride the inner shell toward them
@@ -4926,7 +4926,10 @@ class Crawler extends Enemy{
       }
     }
     let _gGY=9; if(GS.zone===-19 && typeof _creatureDeckStep==='function'){ const _dcy=_creatureDeckStep(this);   // Y + horizontal carry in one raycast
-      if(_dcy!=null){ _gGY=_dcy; this._deckY=_dcy; this._onDeckT=(window._DECK_GRACE||0.5); }   // on the deck -> ride it, refresh grace
+      if(_dcy!=null){ _gGY=_dcy; this._deckY=_dcy; this._onDeckT=(window._DECK_GRACE||0.5); this._deckLocked=true; }   // on the deck -> ride it + LANDLOCK (this spider now belongs to the deck)
+      else if(this._deckLocked){ _gGY=(this._deckY!=null?this._deckY:_gGY);   // deck-locked but stepped past the edge -> hold height + steer BACK onto the deck (never drop to the ground or teleport to a wall)
+        let _lc=null; const _cs=window._arenaAssetCols; if(_cs)for(const c of _cs){ if(c&&c._asset==='platform_02.glb'){ _lc=c; break; } }
+        if(_lc){ this.wx+=(_lc.x-this.wx)*Math.min(1,dt*(window._DECK_RETURN||2.5)); this.wz+=(_lc.z-this.wz)*Math.min(1,dt*(window._DECK_RETURN||2.5)); } }
       else if((this._onDeckT||0)>0){ _gGY=(this._deckY!=null?this._deckY:9); this._onDeckT=Math.max(0,this._onDeckT-dt); } }   // transient miss: hold the last deck height instead of dropping
     this._climbY += (_gGY-this._climbY)*Math.min(1,dt*6);
     this._upV.set(0,1,0); this._fwdV.set(this._vx2,0,this._vz2);
@@ -5006,6 +5009,7 @@ class Portal extends Enemy{
   update(p,dt){
     this.baseUpdate(); this.t+=dt; this._particleT+=dt;
     if(this.hitFlash>0)this.hitFlash--;
+    if((this._shoveT||0)>0){ this.wx+=(this._shoveVx||0)*dt; this.wz+=(this._shoveVz||0)*dt; const _sd=Math.pow((window._SPIDER_SHOVE_DAMP||0.08),dt); this._shoveVx*=_sd; this._shoveVz*=_sd; this._shoveT-=dt; }   // SHOOT KNOCKBACK: a brief visible jolt in the bullet direction (added on top of deck-walk/flock so it reads even while landlocked)
 
     // Attract toward nearest other Portal — merge on contact
     let near=null,nd=1e9;
@@ -20415,6 +20419,7 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
           continue;
         }
         kt+=0.015; const pts=e.hit(b.dmg, b.wx, b.wz, b.y); e.knock(b.vx,b.vz,b.dmg,0.1); if(b.pierce>0){b.pierce--;b.hitSet.add(e);}else b.life=0;
+        if(e._isCrawler && e.alive){ const _kl=Math.hypot(b.vx||0,b.vz||0)||1; e._shoveVx=(b.vx/_kl)*(window._SPIDER_SHOVE||95); e._shoveVz=(b.vz/_kl)*(window._SPIDER_SHOVE||95); e._shoveT=(window._SPIDER_SHOVE_T||0.16); e.hitFlash=Math.max(e.hitFlash||0,(window._SPIDER_HIT_FLASH||12)); if(typeof ps!=='undefined'){ const _my=(e.mesh?e.mesh.position.y:9)+(e.size||14)*0.4; ps.spark(b.wx,b.wz,e.glow||[0.6,1,0.7]); } }   // SHOOT feedback: subtle knockback shove + flash so hitting a spider READS (melee still sends them flying)
         if(typeof player!=='undefined'&&player&&player._super>0 && !b._fromBot && !b._ally){   // SUPERCHARGE: every round is a rocket -> big knockback (enemies fly), a detonation, grid ripple + voxel burst
           const _bl=Math.hypot(b.vx||0,b.vz||0)||1, _by=(b.y!=null?b.y:enemyY);
           try{ if(e.knock)e.knock((b.vx||0)/_bl,(b.vz||0)/_bl,(window._SUPER_BULLET_KB||18),(window._SUPER_BULLET_LIFT||430),30,true); }catch(_){}
@@ -20424,7 +20429,8 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
           try{ if(typeof _voxEmit==='function')_voxEmit(b.wx,_by,b.wz,(window._SUPER_BULLET_VOX||7),(window._SUPER_BULLET_COL!=null?window._SUPER_BULLET_COL:0xff8a1e),3,10,13); }catch(_){}   // small VOXEL pop at impact (no sphere shock — that basic circle is gone)
           e._voxTrailT=(window._SUPER_FLING_TRAIL||0.7); if(typeof addTrauma==='function')addTrauma(0.05);   // mark the flung enemy so it trails voxels as it flies (emitted in _superTick)
         }
-        if(typeof _hitMark==='function') _hitMark(b.wx, b.y!=null?b.y:enemyY+10, b.wz, (window._HITMARK_COL||0x9fd8ff), (e.isBoss||(e.size||14)>=24));   // ball-style ring+flash at the impact point (big on dragon/dog/bosses) so shooting them READS
+        { const _emY=enemyY+(e._tall?e._tall*0.5:(e.size||14)*(window._HITMARK_BODY||0.45)); const _mkY=Math.min(b.y!=null?b.y:_emY, _emY);   // clamp the hit marker to the enemy's BODY height -> on a SHORT spider it lands ON it, not floating above (bullets fly flat/high)
+        if(typeof _hitMark==='function') _hitMark(b.wx, _mkY, b.wz, (window._HITMARK_COL||0x9fd8ff), (e.isBoss||(e.size||14)>=24)); }   // ball-style ring+flash at the impact point (big on dragon/dog/bosses) so shooting them READS
         // VertexBoss: give hit vertex momentum
         if(e instanceof VertexBoss){
           const lx=b.wx-e.wx, ly=(b.y||9)-e.mesh.position.y, lz=b.wz-e.wz;
