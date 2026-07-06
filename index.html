@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB365</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB366</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -16785,10 +16785,11 @@ function _platDeformStep(dt,PD,base,n){   // advance the traveling rings + dampe
 }
 function _platWireTick(dt){ const W=window._platWire; if(!W||!W.mesh||!W.line)return; const sm=W.mesh, pa=W.bind, out=W.line.geometry.attributes.position.array, tmp=W.tmp;
   if(W.root)W.root.updateMatrixWorld(true); if(sm.skeleton&&sm.skeleton.update)try{sm.skeleton.update();}catch(_){}
-  const PD=window._platDeform, deform=!!(PD && window._PLAT_DEFORM!==false), base=(PD?PD.base:null), fout=(W.fill?W.fill.geometry.attributes.position.array:null);
+  const PD=window._platDeform, deform=!!(PD && window._PLAT_DEFORM!==false), base=(PD?PD.base:null), fout=(W.fill?W.fill.geometry.attributes.position.array:null), pxa=(W.proxy?W.proxy.geometry.attributes.position.array:null);
   const n=pa.count;
-  // 1) BAKE skinned verts to world space (this is the layer the wireframe already used)
-  for(let i=0;i<n;i++){ tmp.set(pa.getX(i),pa.getY(i),pa.getZ(i)); if(sm.applyBoneTransform)sm.applyBoneTransform(i,tmp); else if(sm.boneTransform)sm.boneTransform(i,tmp); sm.localToWorld(tmp); const i3=i*3; out[i3]=tmp.x; out[i3+1]=tmp.y; out[i3+2]=tmp.z; if(base){ base[i3]=tmp.x; base[i3+1]=tmp.y; base[i3+2]=tmp.z; } if(fout){ fout[i3]=tmp.x; fout[i3+1]=tmp.y; fout[i3+2]=tmp.z; } }
+  // 1) BAKE skinned verts to world space (this is the layer the wireframe already used) -> also feeds the non-skinned collision proxy (un-rippled)
+  for(let i=0;i<n;i++){ tmp.set(pa.getX(i),pa.getY(i),pa.getZ(i)); if(sm.applyBoneTransform)sm.applyBoneTransform(i,tmp); else if(sm.boneTransform)sm.boneTransform(i,tmp); sm.localToWorld(tmp); const i3=i*3; out[i3]=tmp.x; out[i3+1]=tmp.y; out[i3+2]=tmp.z; if(base){ base[i3]=tmp.x; base[i3+1]=tmp.y; base[i3+2]=tmp.z; } if(fout){ fout[i3]=tmp.x; fout[i3+1]=tmp.y; fout[i3+2]=tmp.z; } if(pxa){ pxa[i3]=tmp.x; pxa[i3+1]=tmp.y; pxa[i3+2]=tmp.z; } }
+  if(pxa){ W.proxy.geometry.attributes.position.needsUpdate=true; W.proxy.geometry.boundingSphere=null; }
   // 2) WORLD-SPACE RIPPLE composited on top (never touches the skinned bind buffer -> no conflict)
   if(deform){ _platDeformStep(dt,PD,base,n);
     if(!PD.settled || PD.shocks.length){ const dx=PD.dx, dz=PD.dz, dy=PD.dy;
@@ -16825,9 +16826,12 @@ function _spawnAnimatedPlatform(){
     const _wcolArr=new Float32Array(nP*3); { const c0=_ADEF_PAL[0]; for(let i=0;i<nP;i++){ _wcolArr[i*3]=c0[0]; _wcolArr[i*3+1]=c0[1]; _wcolArr[i*3+2]=c0[2]; } } wgeo.setAttribute('color',new THREE.BufferAttribute(_wcolArr,3));   // per-vertex colour -> ramps with displacement (cyan rest -> magenta stretch), same palette as the grid sheets
     const wire=new THREE.LineSegments(wgeo,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:(window._APLAT_WIRE_OP!=null?window._APLAT_WIRE_OP:0.9),blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); wire.frustumCulled=false; wire.renderOrder=3; wire._isPlatformAsset=true; scene.add(wire);
     window._platWire={ mesh:sm, line:wire, bind:sm.geometry.attributes.position, tmp:new THREE.Vector3(), root:root, wcol:_wcolArr };
+    // FAST COLLISION PROXY — a NON-skinned triangle mesh fed the un-rippled world bake each frame. Raycasting the skinned mesh recomputes bone transforms for all ~2840 verts per ray (the boots-near-platform framerate crash); this is a plain mesh -> cheap raycasts for boots / collision / spiders / items.
+    const _pgeo=new THREE.BufferGeometry(); _pgeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(nP*3),3)); if(sm.geometry.index)_pgeo.setIndex(sm.geometry.index);
+    const _proxy=new THREE.Mesh(_pgeo, new THREE.MeshBasicMaterial({visible:false})); _proxy.visible=false; _proxy.frustumCulled=false; _proxy._isPlatformAsset=true; scene.add(_proxy); window._platWire.proxy=_proxy;
     if(gltf.animations&&gltf.animations.length){ const mx=new THREE.AnimationMixer(root); const cl=gltf.animations; let clip=(window._APLAT_CLIP?cl.find(c=>c.name===window._APLAT_CLIP):null)||cl.find(c=>/move|level|loop/i.test(c.name||''))||cl.reduce((a,b)=>((b.duration||0)>(a.duration||0)?b:a),cl[0]); const act=mx.clipAction(clip); act.setLoop(THREE.LoopRepeat,Infinity); act.play(); window._animPlatMixer=mx; console.log('[platform_02] clip:',clip&&clip.name,'dur',clip&&clip.duration.toFixed(2)); }
     _platWireTick();
-    const bx=new THREE.Box3().setFromObject(root,true); const col={ x:P.x, z:P.z, hw:(bx.max.x-bx.min.x)*0.5, hd:(bx.max.z-bx.min.z)*0.5, top:bx.max.y, bottom:bx.min.y, _asset:'platform_02.glb', _solid:false, _meshes:[sm] };
+    const bx=new THREE.Box3().setFromObject(root,true); const col={ x:P.x, z:P.z, hw:(bx.max.x-bx.min.x)*0.5, hd:(bx.max.z-bx.min.z)*0.5, top:bx.max.y, bottom:bx.min.y, _asset:'platform_02.glb', _solid:false, _meshes:[_proxy], _skin:sm };   // raycast the CHEAP non-skinned proxy; _skin = the skinned mesh for the horizontal carry
     window._arenaAssetCols=window._arenaAssetCols||[]; window._arenaAssetCols.push(col); window._platform2Root=root;
     // GRID-SHEET-STYLE VISUAL DEFORM WITH A STATIC COLLIDER: the fill + wire ripple and colour-ramp exactly like the arena
     // grid (shockwave-reactive), but COLLISION raycasts the un-rippled skinned surface (sm) — so you walk the animated platform
@@ -16838,7 +16842,7 @@ function _spawnAnimatedPlatform(){
       const fill=new THREE.Mesh(fgeo, sm.material); fill.frustumCulled=false; fill.renderOrder=2; fill._isPlatformAsset=true; scene.add(fill);
       sm.visible=false; window._platWire.fill=fill;
       window._platDeform={ dx:new Float32Array(nP), dz:new Float32Array(nP), dy:new Float32Array(nP), vx:new Float32Array(nP), vz:new Float32Array(nP), vy:new Float32Array(nP), base:new Float32Array(nP*3), shocks:[], t:0, settled:true, cx:P.x, cz:P.z, radius:Math.max(col.hw,col.hd) };
-      col._meshes=[ window._PLAT_DEFORM_RIDE===true ? fill : sm ]; col._skin=sm;   // DEFAULT: collide on the un-rippled skinned surface (deform is visual only); RIDE mode: collide on the rippled fill
+      col._skin=sm; if(window._PLAT_DEFORM_RIDE===true)col._meshes=[fill];   // collide on the fast un-rippled proxy by default; RIDE mode rides the visual ripple
       _platWireTick();   // populate the fill buffer immediately (avoid a 1-frame flash at origin)
     }
     const j={}; root.traverse(o=>{ if(o.name&&/powerup/i.test(o.name))j[o.name]=o; }); window._platJoints=j;
@@ -26118,6 +26122,7 @@ function _platTopWalk(P){   // BOOTS while on the FLAT deck top -> normal walkin
 }
 window._platTopWalk=_platTopWalk;
 function _cubeWalkOn(P){ if(P && (P._launched || (P._kbStun||0)>0)) return false;   // a launch overrides wall-walk so the knockback arc can play
+  if(P && P._platLeftUntil && typeof performance!=='undefined' && performance.now()<P._platLeftUntil) return false;   // just jumped OFF the platform -> free-fall / jetpack, don't let the cube-shell magnets yank you to the floor
   if(typeof _platTopWalk==='function' && _platTopWalk(P)) return false;   // on the deck top -> hand off to normal walking (not the cube-shell magnets)
   return (GS.zone===-19 && P && P._hasBoots && P._bootsEquipped) || (typeof _SE!=='undefined' && _SE.cube && _SE.cube.state==='up' && P===player); }   // survival interior cube: walk all 6 inside walls automatically (it's your own gravity world)
 // AIR flick in the cube = a Rocket-League flip. Direction picks the axis; velocity carries (the flip is purely visual rotation).
@@ -26469,7 +26474,7 @@ function _platWalkMove(P,rawX,rawZ,dt){
   let N=new THREE.Vector3(s0.nx,s0.ny,s0.nz);
   const RIDE=(window._PLAT_WALK_RIDE||13), TOP=(window._CUBE_MAXS||300)*(window._SPEED_SCALE||0.6);
   // JUMP / JET -> release the magnets, hand back to normal world gravity so you fall/fly off
-  if(P._jumpTapped){ P._jumpTapped=false; P.vx=(P.vx||0)+N.x*(window._PLAT_WALK_JUMP||230); P.pvy=(P.pvy||0)+N.y*(window._PLAT_WALK_JUMP||230); P.vz=(P.vz||0)+N.z*(window._PLAT_WALK_JUMP||230); P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._cwNoCatchT=(window._PLAT_WALK_NOCATCH||0.4); if(typeof Audio!=='undefined')Audio.blip(240,0.16,'sawtooth',0.12,120); return; }   // jump = magnetic release -> world gravity takes over (brief no-catch so it doesn't instantly re-grab)
+  if(P._jumpTapped){ P._jumpTapped=false; P.vx=(P.vx||0)+N.x*(window._PLAT_WALK_JUMP||230); P.pvy=(P.pvy||0)+N.y*(window._PLAT_WALK_JUMP||230); P.vz=(P.vz||0)+N.z*(window._PLAT_WALK_JUMP||230); P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._cwNoCatchT=(window._PLAT_WALK_NOCATCH||0.4); P._platLeftUntil=(typeof performance!=='undefined'?performance.now():0)+(window._PLAT_LEAVE_MS||700); if(typeof Audio!=='undefined')Audio.blip(240,0.16,'sawtooth',0.12,120); return; }   // jump = magnetic release -> free-fall/fly (the _platLeftUntil window keeps the cube-shell magnets off so you don't teleport to the floor)
   // input -> raw screen stick (undo cam yaw), same as the cube walk
   const _cy=Math.cos(CAM.yaw), _sy=Math.sin(CAM.yaw);
   const sx=_cy*rawX - _sy*rawZ, sz=_sy*rawX + _cy*rawZ, inMag=Math.hypot(sx,sz);
