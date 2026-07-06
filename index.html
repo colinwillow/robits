@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB388</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB389</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26567,6 +26567,7 @@ function _platWalkMove(P,rawX,rawZ,dt){
   if(!s0 && P._platUp && typeof _platRecover==='function') s0=_platRecover(P);   // attached -> recover the surface instead of dropping
   if(!s0){ P._inPlanetGravity=false; P._platUp=null; P._platSample=null; P._platCamOwn=false; return; }   // truly nothing (deck gone) -> release
   P._inPlanetGravity=true; P._cwSetGrav=true; P._onPlatform=false;
+  if(!P._platUp){ P._pwLockT=0; P._pwTan=null; P._pwTanUp=null; P._pwStallT=0; if(P._pwStick){ P._pwStick[0]=0; P._pwStick[1]=0; } }   // FRESH attach -> the direction-lock starts CLEAN. A stale held-direction from the last magnetic session, transported onto the new face, is a garbage first move that flings you off at the attach moment (the top->side fall-off).
   if(!P._platUp && P._onTopT && typeof performance!=='undefined' && (performance.now()-P._onTopT)<(window._PLAT_SEED_MS||400)){ P._platUp=new THREE.Vector3(0,1,0); }   // fresh attach right after leaving the TOP -> seed the up-vector UPRIGHT so the normal smoothing ROLLS you 90° onto the side (continuous 45° sweep) instead of snapping instantly sideways
   let N=new THREE.Vector3(s0.nx,s0.ny,s0.nz);
   const RIDE=(window._PLAT_WALK_RIDE||13), TOP=(window._CUBE_MAXS||300)*(window._SPEED_SCALE||0.6);
@@ -26613,6 +26614,18 @@ function _platWalkMove(P,rawX,rawZ,dt){
   }
   if(!s2 && typeof _platRecover==='function') s2=_platRecover(P);   // wrap missed too (deep corner, mesh mid-animation) -> recover-cast toward the slab; the magnets hold
   if(!s2) s2=s0;
+  // ── STALL -> FORCE WRAP: at a HARD lip the surface ray keeps re-clipping the OLD face at the corner, so the sample never misses and the miss-triggered wrap never fires — you're pinned ("side->top just blocked"). If a firmly-held input produces almost no actual motion for ~0.12s, run the wrap probe anyway and take a genuinely DIFFERENT face (dot<0.7) — that rolls you over the lip.
+  if(tanDir && inMag>0.5 && P._pwPos){
+    const _asp=Math.hypot(P.wx-P._pwPos[0],P.py-P._pwPos[1],P.wz-P._pwPos[2])/Math.max(dt,1e-3);   // actual speed over the last frame (post ride-snap/carry)
+    if(_asp < TOP*(window._PLAT_STALL_FRAC||0.25)) P._pwStallT=(P._pwStallT||0)+dt; else P._pwStallT=0;
+    if((P._pwStallT||0) > (window._PLAT_STALL_T||0.12)){
+      const _sw=(window._PLAT_WRAP_STEP||26);
+      for(const _dp of (window._PLAT_WRAP_DROPS||[30,14])){
+        const w=_platSurfSample(P.wx+tanDir.x*_sw-N.x*_dp, P.py+tanDir.y*_sw-N.y*_dp, P.wz+tanDir.z*_sw-N.z*_dp, (window._PLAT_WRAP_SOI||70), tanDir);
+        if(w && (w.nx*N.x+w.ny*N.y+w.nz*N.z) < 0.7){ s2=w; P._pwStallT=0; break; }
+      }
+    }
+  } else P._pwStallT=0;
   // SMOOTH the normal (moving/curved mesh + face flicker made the orientation + camera jitter) — ease from the previous up toward the sample
   let Nn=new THREE.Vector3(s2.nx,s2.ny,s2.nz);
   if(P._platUp && P._platUp.lengthSq()>1e-6){ Nn.copy(P._platUp).lerp(new THREE.Vector3(s2.nx,s2.ny,s2.nz), Math.min(1,dt*(window._PLAT_WALK_NK||12))); if(Nn.lengthSq()<1e-6)Nn.set(s2.nx,s2.ny,s2.nz); }
@@ -26658,6 +26671,7 @@ function _platWalkMove(P,rawX,rawZ,dt){
       if(Math.hypot(_dx,_dy,_dz)<(window._PLAT_CARRY_MAX||40)){ P.wx+=_dx; P.py+=_dy; P.wz+=_dz; } }
   }
   if(s2.fi!=null && typeof _platFaceCentroid==='function'){ const _fc2=_platFaceCentroid(s2.fi, window._pwFC2||(window._pwFC2={})); if(_fc2){ P._pwFace=s2.fi; if(!P._pwPrev)P._pwPrev=[0,0,0]; P._pwPrev[0]=_fc2.x; P._pwPrev[1]=_fc2.y; P._pwPrev[2]=_fc2.z; } else P._pwFace=-1; } else P._pwFace=-1;   // re-anchor to the face under you NOW (post-carry) for next frame's delta
+  if(!P._pwPos)P._pwPos=[0,0,0]; P._pwPos[0]=P.wx; P._pwPos[1]=P.py; P._pwPos[2]=P.wz;   // end-of-frame position -> next frame's stall detector
   P._platUp=N.clone(); P._platSample=s2; P.boostFuel=Math.min(P.boostMax||100,(P.boostFuel||0)+(window._CUBE_JET_RECHARGE||40)*dt);
   P.vx=v.x; P.pvy=v.y; P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); P._glGrounded=true;
   if(typeof _cubeWalkRender==='function') _cubeWalkRender(P,N,tanDir,dt,true,true);   // skipCam -> the platform is an EXTERIOR surface, so it needs its own outside-looking-in camera, not the cube's interior cam
