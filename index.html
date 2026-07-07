@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB452</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB453</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -23738,6 +23738,7 @@ function loop(ts){ requestAnimationFrame(loop);
           rp._gpx=rx; rp._gpz=rz; rp._gpy=ry;
         }
         if(rp._clone){
+          try{ if(window._MP_REMOTE_WEAPON!==false) _mpEquipRemoteWeapon(rp); }catch(_){}   // hold the same gun/melee the owner holds
           if(rp.state.gn){   // wall-crawling: build the same surface basis the owner uses (right=N×fwd, up=N, fwd)
             const _N=new THREE.Vector3(rp.state.gn[0],rp.state.gn[1],rp.state.gn[2]); if(_N.lengthSq()<0.1)_N.set(0,1,0); _N.normalize();
             let _fwd=new THREE.Vector3(Math.cos(rp.state.aim),0,Math.sin(rp.state.aim)); _fwd.addScaledVector(_N,-_fwd.dot(_N)); if(_fwd.lengthSq()<1e-4)_fwd.set(1,0,0); _fwd.normalize();
@@ -35082,7 +35083,50 @@ function _mpBuildRemoteSkin(rp, id, char){
     rp.mesh=group; rp.mixer=mixer;
     rp._clips=Object.fromEntries(Object.entries(clips).filter(([k,v])=>v&&typeof v.fadeOut==='function'));
     rp._clone=clone; rp._currentClip='idle';
+    rp._rHandBone=null; rp._rGunW=null; rp._rMeleeW=null; rp._rWpnMesh=null;   // new clone -> re-attach the held weapon to its fresh hand bone
   }).catch(()=>{ rp._skinLoading=false; });
+}
+// ── Remote pilot's VISIBLE weapon — hold the same gun/melee the owner holds on THEIR screen (mirror of the bot's
+//    _botEquipGun/_botEquipMelee, operating on rp._clone's RightHand bone). Driven by state.weapon / state.melee. ──
+function _mpEquipRemoteWeapon(rp){
+  const clone=rp._clone; if(!clone) return;
+  const wantMelee=rp.state.melee||null;
+  const wantGun=wantMelee?null:(rp.state.weapon||'bullets');
+  if(rp._rGunW===wantGun && rp._rMeleeW===wantMelee && (rp._rWpnMesh?rp._rWpnMesh.parent:!wantGun&&!wantMelee)) return;   // nothing changed
+  // resolve the right hand bone under the clone
+  let hand=rp._rHandBone;
+  if(!hand){ clone.traverse(o=>{ if(!hand && o.isBone && /mixamorig_RightHand$/i.test(o.name||''))hand=o; });
+    if(!hand){ clone.traverse(o=>{ if(!hand && o.isBone && /hand/i.test(o.name||'')&&!/finger|thumb|index|middle|ring|pinky/i.test(o.name||''))hand=o; }); }
+    rp._rHandBone=hand||null; }
+  if(!hand) return;
+  // tear down the previous mesh
+  if(rp._rWpnMesh&&rp._rWpnMesh.parent)rp._rWpnMesh.parent.remove(rp._rWpnMesh);
+  rp._rWpnMesh=null; rp._rGunW=wantGun; rp._rMeleeW=wantMelee;
+  let m=null;
+  try{
+    if(wantMelee && typeof _makeMeleeWeapon==='function'){ m=_makeMeleeWeapon(wantMelee); }
+    else if(wantGun && typeof _makeWeaponHandModel==='function'){ m=_makeWeaponHandModel(wantGun,1); }
+  }catch(_){ m=null; }
+  if(!m){ return; }
+  hand.add(m);
+  try{ clone.updateWorldMatrix(true,true);
+    const bs=new THREE.Vector3(); hand.getWorldScale(bs);
+    const baseK=wantMelee?((typeof _HAMMER_SCALE!=='undefined'?_HAMMER_SCALE:1)*(window._BOT_MELEE_MESH_SCALE||1)):(window._BOT_GUN_MESH_SCALE||1.4);
+    m.scale.setScalar((1/(Math.abs(bs.x)||1))*baseK);
+    const bq=new THREE.Quaternion(); hand.getWorldQuaternion(bq); const mq=clone.getWorldQuaternion(new THREE.Quaternion());
+    let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
+    let desired;
+    if(wantMelee){ desired=new THREE.Quaternion().setFromUnitVectors((typeof _HAMMER_AXIS!=='undefined'?_HAMMER_AXIS:new THREE.Vector3(0,1,0)), fwd);
+      if(typeof _HAMMER_FIX!=='undefined')desired.multiply(new THREE.Quaternion().setFromEuler(_HAMMER_FIX)); }
+    else { desired=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), fwd);
+      if(window._BOT_GUN_FIX)desired.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(window._BOT_GUN_FIX.x||0,window._BOT_GUN_FIX.y||0,window._BOT_GUN_FIX.z||0))); }
+    m.quaternion.copy(bq.clone().invert().multiply(desired));
+    const Ph=hand.getWorldPosition(new THREE.Vector3()); const refS=(window._WPN_REF_HANDSCALE||Math.abs(bs.x)||1);
+    const off=wantMelee?((typeof _HAMMER_POS!=='undefined')?_HAMMER_POS.clone():new THREE.Vector3()):new THREE.Vector3((window._BOT_GUN_POS&&window._BOT_GUN_POS.x)||0,(window._BOT_GUN_POS&&window._BOT_GUN_POS.y)||0,(window._BOT_GUN_POS&&window._BOT_GUN_POS.z!=null?window._BOT_GUN_POS.z:6));
+    const wo=off.applyQuaternion(mq).multiplyScalar(refS);
+    m.position.copy(hand.worldToLocal(Ph.add(wo)));
+  }catch(_){}
+  rp._rWpnMesh=m;
 }
 function mpAddRemotePlayer(id, state){
   if(MP.players[id]) return;
@@ -35377,7 +35421,8 @@ function mpTick(){
     bombArmed:player.bombArmed,
     firing:player._lastFiring||false,
     jet:player._jetting||false,
-    weapon:GS.weapon||'bullets',
+    weapon:player.primaryWeapon||'bullets',                 // REAL equipped gun (was GS.weapon which is never set) -> peer holds the same launcher
+    melee:(player._hammer?(player._meleeType||null):null),  // armed melee weapon (sword/hammer/mace…) -> peer holds it in-hand
     dead:!player.alive,
     super:(player._super>0)?1:0,   // supercharged? -> peer shows the aura + knows you're buffed
     char:window._playerChar||'robot',
