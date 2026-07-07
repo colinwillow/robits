@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB456</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB457</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -9800,7 +9800,10 @@ class Boomerang{
       this.spd=Math.max(120,this.spd-520*dt); const sp=Math.hypot(this.vx,this.vz)||1; this.vx=this.vx/sp*this.spd; this.vz=this.vz/sp*this.spd;
       this.dist+=this.spd*dt; if(this.dist>=this.outDist||this.spd<=130){ this.phase='back'; }
     } else {
-      const tx=this._remote?this.ox:((typeof player!=='undefined'&&player)?player.wx:this.wx), tz=this._remote?this.oz:((typeof player!=='undefined'&&player)?player.wz:this.wz);
+      let tx,tz;
+      if(this._enemy){ const o=this._ownerBot; tx=(o&&o.alive!==false)?o.wx:this.ox; tz=(o&&o.alive!==false)?o.wz:this.oz; }   // enemy blade returns to the bot that threw it
+      else if(this._remote){ tx=this.ox; tz=this.oz; }
+      else { tx=(typeof player!=='undefined'&&player)?player.wx:this.wx; tz=(typeof player!=='undefined'&&player)?player.wz:this.wz; }
       const dx=tx-this.wx, dz=tz-this.wz, d=Math.hypot(dx,dz)||1;
       if(d<26) return 0;                                   // caught
       this.spd=Math.min(720,this.spd+760*dt); this.vx=dx/d*this.spd; this.vz=dz/d*this.spd;
@@ -9820,6 +9823,13 @@ class Boomerang{
     this._trail.push(this.wx,this.y,this.wz); if(this._trail.length>54)this._trail.splice(0,3);
     for(let i=0;i<18;i++){ const o=Math.max(0,this._trail.length/3-18+i)*3; this._tp[i*3]=this._trail[o]||this.wx; this._tp[i*3+1]=this._trail[o+1]||this.y; this._tp[i*3+2]=this._trail[o+2]||this.wz; }
     this._tmesh.geometry.attributes.position.needsUpdate=true; this._tmesh.geometry.setDrawRange(0,Math.min(18,this._trail.length/3));
+    // ENEMY blade (thrown by a bot): strike the player + rival bots + remote pilots instead of enemies
+    if(this._enemy){
+      if(typeof player!=='undefined'&&player&&player.alive!==false && Math.hypot(player.wx-this.wx,player.wz-this.wz)<24){ const last=this.hitCD.get('P')||0; if(this.t-last>0.25){ this.hitCD.set('P',this.t); if(typeof playerDie==='function')try{ playerDie(this.dmg||2,'#ff5566','boomerang'); }catch(_){} } }
+      if(typeof GS_bots!=='undefined'&&GS_bots)for(const bt of GS_bots){ if(!bt||bt===this._ownerBot||bt.alive===false||bt._netMirror)continue; if(Math.hypot(bt.wx-this.wx,bt.wz-this.wz)<((bt.size||14)+16)){ const last=this.hitCD.get(bt)||0; if(this.t-last>0.25){ this.hitCD.set(bt,this.t); if(bt.hit)try{bt.hit(this.dmg||2);}catch(_){} } } }
+      if(typeof MP!=='undefined'&&MP.active&&MP.versus&&MP.players&&typeof _mpFoeProxy==='function'){ for(const id in MP.players){ const rp=MP.players[id]; if(!rp||!rp.mesh||(rp.state&&rp.state.dead))continue; if(Math.hypot(rp.mesh.position.x-this.wx,rp.mesh.position.z-this.wz)<24){ const last=this.hitCD.get(id)||0; if(this.t-last>0.25){ this.hitCD.set(id,this.t); const pr=_mpFoeProxy(rp,id); if(pr&&pr.hit)pr.hit(this.dmg||2,this._mpBotId); } } } }
+      return 1;
+    }
     // hit enemies (each enemy re-hittable after a short cooldown so it strikes on the way out AND back)
     if(!this._remote) for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive) continue;
       if(Math.hypot(e.wx-this.wx,e.wz-this.wz) < (e.size||14)+16){
@@ -14464,6 +14474,31 @@ class BotPilot{
         try{ const rdx=_foe.wx-this.wx, rdz=_foe.wz-this.wz, rd=Math.hypot(rdx,rdz)||1, _rs=(window._BOT_ROCKET_SPD||64); const _rk=new EnemyMissile(this.wx,this.wz,(this.py||0)+14,(rdx/rd)*_rs,(rdz/rd)*_rs); _rk._ownerBot=this; GS.enemyMissiles.push(_rk); }catch(_){}
         if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(150,0.14,'sawtooth',0.16,60);}catch(_){}
         if(typeof ps!=='undefined')ps.burst(this.wx,(this.py||0)+12,[1,0.5,0.15],5,80);
+      }
+    } else if(this._botGun==='grenade'){   // REAL GRENADE — lob an arcing bomb that explodes on the foe (was a straight slug)
+      this._botNadeT=(this._botNadeT||0)-dt;
+      if(canFire && _foe && _foe.alive!==false && dist<(window._BOT_NADE_R||340) && this._botNadeT<=0){
+        this._botNadeT=(window._BOT_NADE_CD||1.9);
+        try{ this._throwBombAt(px+(_foe.vx||0)*0.3, pz+(_foe.vz||0)*0.3); }catch(_){}
+      }
+    } else if(this._botGun==='flamethrower'){   // REAL FLAMETHROWER — a short cone of flame: sustained DoT + licking particles, no bullets
+      if(canFire && _foe && _foe.alive!==false){
+        const _fr=(window._BOT_FLAME_R||120), ca=Math.atan2(_foe.wz-this.wz,_foe.wx-this.wx);
+        const da=Math.abs(((ca-this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI);
+        if(dist<_fr && da<(window._BOT_FLAME_CONE||0.6)){
+          this._botFlameT=(this._botFlameT||0)-dt;
+          if(this._botFlameT<=0){ this._botFlameT=(window._BOT_FLAME_TICK||0.22);
+            if(_foe===player){ if(typeof playerDie==='function')try{ playerDie(window._BOT_FLAME_DMG||1,'#ff6a1a','flame'); }catch(_){} }
+            else if(_foe.hit){ try{ _foe.hit(window._BOT_FLAME_DMG||1, this._mpBotId); }catch(_){} }
+          }
+          if(typeof ps!=='undefined'&&ps.spark){ for(let k=0;k<3;k++){ const rr=16+Math.random()*(_fr*0.8), aa=this.aim+(Math.random()-0.5)*(window._BOT_FLAME_CONE||0.6); ps.spark(this.wx+Math.cos(aa)*rr, this.wz+Math.sin(aa)*rr, [1,0.45+Math.random()*0.35,0.1], (this.py||0)+9+Math.random()*9); } }
+        }
+      }
+    } else if(this._botGun==='boomerang'){   // REAL BOOMERANG — throws a returning enemy blade that strikes out AND back
+      this._botBoomT=(this._botBoomT||0)-dt;
+      if(canFire && _foe && _foe.alive!==false && dist<(window._BOT_BOOM_R||440) && this._botBoomT<=0 && typeof Boomerang!=='undefined'){
+        this._botBoomT=(window._BOT_BOOM_CD||2.3);
+        try{ const b=new Boomerang(this.wx,this.wz,this.aim,false); b._enemy=true; b._ownerBot=this; b._mpBotId=this._mpBotId; if(!GS.boomerangs)GS.boomerangs=[]; GS.boomerangs.push(b); }catch(_){}
       }
     } else if(canFire&&this.fireT>=fireRate&&dist<(window._BOT_FIRE_R||380)&&(_foe&&_foe.alive!==false)&&this._burstCD<=0){
       this.fireT=0; this._shoot();
