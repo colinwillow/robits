@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB462</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB463</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -5439,11 +5439,17 @@ class RoboOctopus extends Enemy{
     this.swimAmp=(window._OCTO_SWIM_AMP||13); this.swimSpeed=(window._OCTO_SWIM_SPD||2.4); this.swimWave=(window._OCTO_SWIM_WAVE||0.9);
     this.iters=(window._OCTO_ITERS||3);
     this.ALT=(window._OCTO_ALT||64); this.bobAmp=(window._OCTO_BOB||15); this.bobSpd=(window._OCTO_BOB_SPD||1.4);
-    this.PREF=(window._OCTO_RANGE||210);
+    this.PREF=(window._OCTO_RANGE||150);                              // hovers CLOSER now -> more in-your-face
     this.py=this.ALT; this.t=0; this._yaw=Math.random()*TAU; this._orbit=(Math.random()<0.5?1:-1);
     this.armColor=(window._OCTO_ARM_COL!=null?window._OCTO_ARM_COL:0x2fd8ff);
     this.eyeCol =(window._OCTO_EYE_COL!=null?window._OCTO_EYE_COL:0xff3a6e);
     this._eyeCD=2.4+Math.random()*2; this._eyeCharge=0; this._eyeFire=0; this._shockCD=0;
+    // ── AGGRESSION: lunge in + WHIP tentacles at you; a tip that connects GRABs, drags you in, then flings you ──
+    const _wf=Math.min(3,(this.round||1));                           // scales with wave/round
+    this._atkCD=(window._OCTO_ATK_CD0||2.0)+Math.random()*1.4; this._lungeT=0; this._retreatT=0;
+    this._grabT=0; this._grabArm=null; this._grabCD=0; this._grabTick=0;
+    this._strikeArms=Math.min(this.ARMS, (window._OCTO_STRIKE_ARMS||(2+_wf)));   // more arms strike at higher waves
+    this._pX=this.wx; this._pY=0; this._pZ=this.wz;
     this._tubeScratch={};
     this._buildBody(); this._buildArms();
   }
@@ -5482,7 +5488,7 @@ class RoboOctopus extends Enemy{
       const mat=new THREE.MeshBasicMaterial({color:this.armColor,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
       const mesh=new THREE.Mesh(geo,mat); mesh.frustumCulled=false; scene.add(mesh);
       const tip=new THREE.Mesh(new THREE.SphereGeometry(this.tipR*2.4,7,6), new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); mesh.frustumCulled=false; scene.add(tip);
-      this.arms.push({ax,ay,az,baseAng,nodes,geo,pos,mesh,mat,tip,phase:Math.random()*TAU});
+      this.arms.push({ax,ay,az,baseAng,nodes,geo,pos,mesh,mat,tip,phase:Math.random()*TAU,_strike:0});
     }
   }
   _simArm(t,dt,cx,cy,cz){
@@ -5505,10 +5511,17 @@ class RoboOctopus extends Enemy{
       }
       n0.x=awx; n0.y=awy; n0.z=awz;
     }
+    // ── STRIKE: whip the lower half of the arm toward the player (it lances out to reach + grab) ──
+    if(t._strike>0){ const start=Math.floor(this.NODES*0.4), K=(window._OCTO_STRIKE_PULL||0.16);
+      for(let i=start;i<this.NODES;i++){ const n=t.nodes[i], w=i/(this.NODES-1)*K; n.x+=(this._pX-n.x)*w; n.y+=(this._pY-n.y)*w; n.z+=(this._pZ-n.z)*w; }
+    }
+    // ── GRAB: pin this arm's TIP to the player so the tentacle visibly latches on ──
+    if(this._grabArm===t && this._grabT>0){ const tp=t.nodes[this.NODES-1]; tp.x=this._pX; tp.y=this._pY; tp.z=this._pZ; tp.px=tp.x; tp.pz=tp.z; }
     const FL=(window._OCTO_FLOOR!=null?window._OCTO_FLOOR:4);   // soft floor: tips curl along the ground instead of clipping through
     for(let i=1;i<this.NODES;i++){ const n=t.nodes[i]; if(n.y<FL){ n.y=FL; n.py=FL; n.px=n.x+(n.px-n.x)*0.5; n.pz=n.z+(n.pz-n.z)*0.5; } }
     this._extrude(t);
     const tn=t.nodes[this.NODES-1]; t.tip.position.set(tn.x,tn.y,tn.z);
+    t.tip.material.opacity=(t._strike>0||(this._grabArm===t&&this._grabT>0))?1:0.9;   // strike tips flare bright
   }
   _extrude(t){
     const N=this.NODES, RAD=this.RADIAL, pos=t.pos, nodes=t.nodes;
@@ -5531,28 +5544,60 @@ class RoboOctopus extends Enemy{
   }
   update(p,dt){
     this.baseUpdate(); this.t+=dt;
+    this._pX=p.wx; this._pZ=p.wz; this._pY=(p.py||0)+10;                          // cache the target for strike/grab
+    for(const t of this.arms){ if(t._strike>0) t._strike-=dt; }
+    if(this._grabCD>0) this._grabCD-=dt;
     const dx=p.wx-this.wx, dz=p.wz-this.wz, dist=Math.hypot(dx,dz)||1, ux=dx/dist, uz=dz/dist;
-    // ── HOVER DRIFT — keep a preferred distance, orbit slowly, bob in altitude ──
-    const radial=(dist-this.PREF)*(window._OCTO_APPROACH||0.9);
-    const tanx=-uz*this._orbit, tanz=ux*this._orbit;
-    this.vx=lerp(this.vx||0, ux*radial + tanx*(window._OCTO_ORBIT_SPD||34), 0.06);
-    this.vz=lerp(this.vz||0, uz*radial + tanz*(window._OCTO_ORBIT_SPD||34), 0.06);
+    // ── ATTACK — schedule a LUNGE: dive in + whip several arms out at you ──
+    if(this._grabT<=0){
+      if(this._retreatT>0) this._retreatT-=dt;
+      if(this._lungeT<=0 && this._retreatT<=0) this._atkCD-=dt;
+      if(this._atkCD<=0 && this._lungeT<=0 && this._retreatT<=0 && dist<(window._OCTO_ATK_R||320) && GS.state==='playing'){
+        this._lungeT=(window._OCTO_LUNGE_DUR||0.55); this._atkCD=(window._OCTO_ATK_CD||2.8)+Math.random()*1.6;
+        const pool=this.arms.slice();
+        for(let s=0;s<this._strikeArms && pool.length;s++){ const idx=(Math.random()*pool.length)|0; pool[idx]._strike=(window._OCTO_STRIKE_DUR||0.5); pool.splice(idx,1); }
+        if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(150,0.12,'sawtooth',0.14,240);}catch(_){}
+        if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.4,0.9,1],this.bodyR,90,8+this.py);
+      }
+    }
+    // ── MOVEMENT — hover/orbit; LUNGE hard during an attack; then briefly retreat ──
+    let pref=this.PREF, approach=(window._OCTO_APPROACH||0.9), orbitSpd=(window._OCTO_ORBIT_SPD||34), altK=1, le=0.06;
+    if(this._grabT>0){ approach=0; orbitSpd=0; pref=dist; }
+    else if(this._lungeT>0){ this._lungeT-=dt; pref=(window._OCTO_LUNGE_R||26); approach=(window._OCTO_LUNGE_PULL||2.6); orbitSpd=0; altK=0.5; le=0.2; if(this._lungeT<=0)this._retreatT=(window._OCTO_RETREAT_T||1.1); }
+    else if(this._retreatT>0){ pref=(window._OCTO_RETREAT_R||240); }
+    const radial=(dist-pref)*approach, tanx=-uz*orbitSpd, tanz=ux*orbitSpd;
+    this.vx=lerp(this.vx||0, ux*radial + tanx, le); this.vz=lerp(this.vz||0, uz*radial + tanz, le);
     this.wx+=this.vx*dt; this.wz+=this.vz*dt;
-    if(Math.random()<0.004) this._orbit*=-1;                       // occasionally reverse the circle
+    if(Math.random()<0.004) this._orbit*=-1;
     bounceCircle(this,this.bodyR*0.5);
-    this.py=this.ALT+Math.sin(this.t*this.bobSpd)*this.bobAmp;
-    // face the player (eye forward = +Z)
-    const wantYaw=Math.atan2(dx,dz); let dY=((wantYaw-this._yaw+Math.PI)%TAU+TAU)%TAU-Math.PI; this._yaw+=dY*0.08;
+    this.py=(this.ALT*altK)+Math.sin(this.t*this.bobSpd)*this.bobAmp;
+    const wantYaw=Math.atan2(dx,dz); let dY=((wantYaw-this._yaw+Math.PI)%TAU+TAU)%TAU-Math.PI; this._yaw+=dY*0.1;
     const cy=8+this.py;
     this.mesh.position.set(this.wx,cy,this.wz); this.mesh.rotation.y=this._yaw;
     this.mesh.rotation.z=Math.sin(this.t*0.9)*0.06; this.mesh.rotation.x=Math.cos(this.t*0.7)*0.05;   // gentle idle sway
-    // eye pulse + laser
     this._laser(p,dt,cy,dist);
-    // ── tentacle physics ──
     for(const t of this.arms) this._simArm(t,dt,this.wx,cy,this.wz);
-    // ── SHOCK: a live tentacle brushing the player zaps them ──
+    // ── GRAB — a striking tip that reaches you latches on: drag you in, shock-tick, then fling ──
+    if(this._grabT>0){
+      this._grabT-=dt; if(p) p._zapT=Math.max(p._zapT||0,0.18);
+      const gx=this.wx-p.wx, gz=this.wz-p.wz, gl=Math.hypot(gx,gz)||1, hold=(window._OCTO_GRAB_HOLD||62);
+      if(gl>hold){ p.vx=lerp(p.vx||0,(gx/gl)*(window._OCTO_GRAB_PULL||170),0.22); p.vz=lerp(p.vz||0,(gz/gl)*(window._OCTO_GRAB_PULL||170),0.22); }   // reel in...
+      else { p.vx=(p.vx||0)*0.6; p.vz=(p.vz||0)*0.6; }                                   // ...but hold at arm's length, don't yank INTO the body (avoids the contact-damage stack)
+      p.pvy=Math.max(p.pvy||0,(window._OCTO_GRAB_LIFT||60));
+      if(this.t-this._grabTick>0.34){ this._grabTick=this.t; if((p.inv==null||p.inv<=0)&&typeof playerDie==='function'){ if(!(p.shieldActive&&p.shieldHit&&p.shieldHit(2,'shock')))try{playerDie(window._OCTO_GRAB_DMG||1,'#8fd8ff','shock');}catch(_){} } if(typeof ps!=='undefined')for(let k=0;k<7;k++)ps.spark(p.wx+rand(-9,9),p.wz+rand(-9,9),[0.6,0.95,1],(p.py||0)+10); }
+      if(this._grabT<=0){ this._grabArm=null; this._grabCD=(window._OCTO_GRAB_CD||3.5);
+        const fx=(p.wx-this.wx), fz=(p.wz-this.wz), fl=Math.hypot(fx,fz)||1; p.vx=(fx/fl)*(window._OCTO_FLING||230); p.vz=(fz/fl)*(window._OCTO_FLING||230); p.pvy=Math.max(p.pvy||0,(window._OCTO_FLING_LIFT||190));
+        if(typeof addTrauma==='function')addTrauma(0.22); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(90,0.14,'square',0.16,300);}catch(_){}
+      }
+    } else if(this._grabCD<=0 && GS.state==='playing' && p&&p.alive){              // strike tip touching you -> GRAB
+      const GR=(window._OCTO_GRAB_R||20);
+      for(const t of this.arms){ if(t._strike<=0) continue; const tp=t.nodes[this.NODES-1];
+        if(Math.abs(tp.x-p.wx)<GR && Math.abs(tp.z-p.wz)<GR && Math.abs(tp.y-this._pY)<GR+12){ this._grabT=(window._OCTO_GRAB_DUR||0.7); this._grabArm=t; this._grabTick=this.t; t._strike=Math.max(t._strike,0.3);
+          if(typeof addTrauma==='function')addTrauma(0.12); if(typeof announce==='function'&&Math.random()<0.6)try{announce('◑ GRABBED!','#ff3a6e');}catch(_){} break; } }
+    }
+    // ── SHOCK — a live tentacle brushing you zaps (non-strike contact) ──
     if(this._shockCD>0) this._shockCD-=dt;
-    if(this._shockCD<=0 && p&&p.alive&&(p.inv==null||p.inv<=0) && GS.state==='playing'){
+    if(this._grabT<=0 && this._shockCD<=0 && p&&p.alive&&(p.inv==null||p.inv<=0) && GS.state==='playing'){
       const SR=(window._OCTO_SHOCK_R||15), py2=(p.py||0)+10;
       outer: for(const t of this.arms){ for(let i=2;i<this.NODES;i++){ const n=t.nodes[i];
         if(Math.abs(n.x-p.wx)<SR && Math.abs(n.z-p.wz)<SR && Math.abs(n.y-py2)<SR+8){
