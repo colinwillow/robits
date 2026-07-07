@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB453</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB454</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -35293,6 +35293,8 @@ function mpHandleRemoteEvent(msg){
     case 'died':
       ps.ring(rp.mesh.position.x,rp.mesh.position.z,[1,0.3,0.1],30,100);
       addTrauma(0.1);
+      if(MP.versus){ _mpScoreCredit(msg.id, d.by||null);   // victim=msg.id, killer=d.by -> every client credits the same frag
+        if(d.by===MP.myId){ const vn=_mpNameColorFor(msg.id).name; try{ announce('FRAGGED '+(vn||'').toUpperCase(),'#ff5577'); }catch(_){} } }
       break;
     case 'ball':
       if(GS.zone===-19 && typeof _cubeBall!=='undefined' && _cubeBall){
@@ -35317,11 +35319,46 @@ function mpHandleRemoteEvent(msg){
   }
 }
 
+// ── VERSUS KILL/DEATH SCORE ── deterministic on every client: each death is broadcast ONCE by the victim (with `by`=killer),
+//    and every client credits the same kill+death from that single event, so all scoreboards converge without a host authority.
+function _mpNameColorFor(id){
+  if(id===MP.myId) return {name:(MP.myName||'YOU'), color:(MP.myColor||0), you:true};
+  const rp=MP.players&&MP.players[id];
+  return {name:(rp&&rp.name)||(''+id).slice(0,6), color:(rp&&rp.color)||0, you:false};
+}
+function _mpScoreEnsure(id){
+  if(!MP.scores) MP.scores={};
+  let s=MP.scores[id]; if(!s){ s=MP.scores[id]={k:0,d:0}; }
+  const nc=_mpNameColorFor(id); s.name=nc.name; s.color=nc.color; s.you=nc.you; return s;
+}
+function _mpScoreCredit(victimId, killerId){
+  if(!victimId) return;
+  const v=_mpScoreEnsure(victimId); v.d++;
+  if(killerId && killerId!==victimId){ const k=_mpScoreEnsure(killerId); k.k++; }
+  _mpScoreRender();
+}
+function _mpScoreReset(){ MP.scores={}; if(MP.myId)_mpScoreEnsure(MP.myId); for(const id in (MP.players||{}))_mpScoreEnsure(id); _mpScoreRender(); }
+function _mpScoreRender(){
+  let el=document.getElementById('mp-scoreboard');
+  if(!(MP.versus && MP.active)){ if(el)el.style.display='none'; return; }
+  if(!el){ el=document.createElement('div'); el.id='mp-scoreboard';
+    el.style.cssText='position:fixed;left:10px;top:60px;z-index:95;font:10px "Press Start 2P",monospace;color:#cfe8ff;background:rgba(0,0,0,0.42);padding:8px 11px 9px;border-radius:6px;letter-spacing:1px;pointer-events:none;line-height:1.9;text-shadow:0 0 6px #0008;';
+    document.body.appendChild(el); }
+  if(MP.myId)_mpScoreEnsure(MP.myId);
+  const ids=Object.keys(MP.scores||{});
+  if(!ids.length){ el.style.display='none'; return; }
+  const rows=ids.map(id=>MP.scores[id]).sort((a,b)=>(b.k-a.k)||(a.d-b.d));
+  const hex=(ci)=>'#'+('000000'+((MP.PLAYER_COLORS[ci]||0xffffff).toString(16))).slice(-6);
+  el.innerHTML='<div style="color:#ff5577;font-size:8px;margin-bottom:5px;letter-spacing:2px">FRAGS</div>'+
+    rows.map(s=>`<div style="color:${hex(s.color)}">${(s.name||'?').slice(0,10)}${s.you?'<span style="color:#00ffc8">*</span>':''} <span style="color:#fff">${s.k}</span><span style="color:#ff8899">/${s.d}</span></div>`).join('');
+  el.style.display='block';
+}
+window._mpScoreReset=_mpScoreReset; window._mpScoreCredit=_mpScoreCredit;
 function mpTakeDamage(dmg, byId){
   if(typeof MP!=='undefined')MP._hitsRecv=(MP._hitsRecv||0)+1;   // debug overlay: counts EVERY incoming hit (even during i-frames)
   if(!player||!player.alive||player.inv>0||GS.state!=='playing') return;
   const _md=_combatDmg(dmg);   // MP player is a unit too — tanky, tactical TTK (not 3-hit)
-  if((GS.hp-_md)<=0){ mpSend('event',{event:'died'}); ps.ring(player.wx,player.wz,[1,0.3,0.1],30,120); flashScreen&&flashScreen(0.7); addTrauma(0.2); if(Audio.bigDie)Audio.bigDie(); mpRespawn(); return; }
+  if((GS.hp-_md)<=0){ mpSend('event',{event:'died', data:{by:byId||null}}); if(MP.versus)_mpScoreCredit(MP.myId, byId||null); ps.ring(player.wx,player.wz,[1,0.3,0.1],30,120); flashScreen&&flashScreen(0.7); addTrauma(0.2); if(Audio.bigDie)Audio.bigDie(); mpRespawn(); return; }
   GS.hp-=_md; updateUI&&updateUI();
   player.inv=Math.max(player.inv,18); flashScreen&&flashScreen(0.35); addTrauma(0.12);
   if(Audio.blip)Audio.blip(90,0.12,'sawtooth',0.2,50); ps.burst(player.wx,player.wz,[1,0.3,0.2],10,90);
@@ -35340,6 +35377,7 @@ function mpBeginGame(){
   for(const id in MP.players){ _mpClearPuppets(MP.players[id]); }   // fresh start — drop any stale summon puppets
   MP.active=true;
   MP._prevSids=null; MP._goneSids=null; window._mpItemSeq=0;   // reset item-sync bookkeeping so a restart doesn't broadcast a flood of stale removals
+  try{ _mpScoreReset(); }catch(_){}   // fresh kill/death board for the match
   GS.survival=false;
   if(MP.cube){ MP.versus=true; startGame(-19); }                                            // BALL ARENA: the RL cube, PvP on, shared ball + gravity flip
   else if(MP.freeCity){ window._cityMode=window._cityMode||'random'; startGame(-16); }
