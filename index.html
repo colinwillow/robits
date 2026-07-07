@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB409</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB410</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -13739,7 +13739,8 @@ class BotPilot{
   _shoot(){
     const w=this._botWeapon||'rapid';
     // EnemyBullet constructor auto-adds to GS.enemyBullets — fire a pattern based on the bot's current weapon
-    const _fire=(ang,spd,col,sz)=>{ const b=new EnemyBullet(this.wx, this.wz, Math.cos(ang)*spd, Math.sin(ang)*spd); b._ownerBot=this; try{ if(b.mesh&&b.mesh.material&&b.mesh.material.color)b.mesh.material.color.setHex(col); if(sz&&b.mesh)b.mesh.scale.multiplyScalar(sz); }catch(_){} if(typeof ps!=='undefined')ps.spark(this.wx+Math.cos(ang)*14, this.wz+Math.sin(ang)*14, [((col>>16)&255)/255,((col>>8)&255)/255,(col&255)/255]); return b; };
+    // col MUST go through the constructor — b.mesh is a Group (core+tail), so setting b.mesh.material after does nothing (that was the bug that made ALL bot fire red)
+    const _fire=(ang,spd,col,sz)=>{ const b=new EnemyBullet(this.wx, this.wz, Math.cos(ang)*spd, Math.sin(ang)*spd, col); b._ownerBot=this; try{ if(sz&&b.mesh)b.mesh.scale.multiplyScalar(sz); }catch(_){} if(typeof ps!=='undefined')ps.spark(this.wx+Math.cos(ang)*14, this.wz+Math.sin(ang)*14, [((col>>16)&255)/255,((col>>8)&255)/255,(col&255)/255]); return b; };
     if(w==='spread'){   // SHOTGUN: 3-pellet fan
       for(let k=-1;k<=1;k++){ const ang=this.aim+k*(window._BOT_SPREAD_ANG||0.17)+(Math.random()-0.5)*this.aimError; _fire(ang, 360, 0xffaa22, 0.9); }
       if(typeof Audio!=='undefined')Audio.blip(150,0.08,'square',0.1,110);
@@ -13749,8 +13750,9 @@ class BotPilot{
     } else if(w==='heavy'){   // HEAVY CANNON: one big hard-hitting slug
       const ang=this.aim+(Math.random()-0.5)*this.aimError; const b=_fire(ang, 520, 0xff66ff, 1.6); if(b)b.dmg=2;
       if(typeof Audio!=='undefined')Audio.blip(110,0.12,'square',0.14,90);
-    } else {   // RAPID: snappy fast bolt — like the hero's fire, tinted to THIS bot's colour so you can read whose fire is whose
-      const ang=this.aim+(Math.random()-0.5)*this.aimError*2; _fire(ang, (window._BOT_RAPID_SPD||520), (window._BOT_BULLET_COL!=null?window._BOT_BULLET_COL:(this._color!=null?this._color:0x00ccff)), (window._BOT_RAPID_SZ||1.0));   // same speed + size as the hero's bolt
+    } else {   // RAPID: snappy fast bolt — same look as the HERO's round (icy white-blue), not the old red default; _BOT_BULLET_COL to force a colour, _BOT_BULLET_TEAMTINT=true to go back to per-bot colours
+      const _rc=(window._BOT_BULLET_COL!=null?window._BOT_BULLET_COL:(window._BOT_BULLET_TEAMTINT?(this._color!=null?this._color:0x00ccff):(window._HERO_BULLET_COL!=null?window._HERO_BULLET_COL:0xdff0ff)));
+      const ang=this.aim+(Math.random()-0.5)*this.aimError*2; _fire(ang, (window._BOT_RAPID_SPD||520), _rc, (window._BOT_RAPID_SZ||1.0));   // same speed + size as the hero's bolt
       if(typeof Audio!=='undefined')Audio.blip(200+Math.random()*40,0.07,'square',0.07,100);
     }
   }
@@ -13821,6 +13823,9 @@ class BotPilot{
         const foe=this._pickTarget(); const tx=foe?foe.wx:this.wx+Math.cos(this.aim)*220, tz=foe?foe.wz:this.wz+Math.sin(this.aim)*220;
         if(typeof _detonateItem==='function')try{ _detonateItem(type, tx, tz, false); }catch(_){}
         if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL THREW '+(''+type).toUpperCase(),'#ff7a7a');}catch(_){}
+      } else if(type==='sentry'){   // rival deploys the TURRET on its own side -> it hunts YOU (and rival bots)
+        if(typeof _spawnSentry==='function')try{ _spawnSentry(this.wx, this.wz, {owner:this, ownerBot:this, faction:'bot', y:(this.py>20?this.py:9)}); }catch(_){}
+        if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL DEPLOYED SENTRY','#ff5555');}catch(_){}
       } else if(type==='droid'||type==='dog'||type==='dragon'||type==='spiders'||type==='spiderpack'||type==='drone'){   // SUMMON ball -> the rival UNLEASHES the creature on YOU (spawned as a hostile enemy you can gun down)
         if(typeof _botSummonCreature==='function') _botSummonCreature(type, this.wx, this.wz, this);   // pass the owning bot -> creature wears the bot's colour
         if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL SUMMONED '+(''+type).toUpperCase(),'#ff5555');}catch(_){}
@@ -14189,19 +14194,18 @@ class BotPilot{
     // ── FIRE — only when strafing or chasing, not while evading/repositioning ──
     this.fireT++;
     const canFire=this.state==='strafe'||this.state==='chase';
-    const _frBase=(window._BOT_FIRE_BASE&&window._BOT_FIRE_BASE[this.diff])||{rookie:22, soldier:14, elite:8}[this.diff];
+    const _frBase=(window._BOT_FIRE_BASE&&window._BOT_FIRE_BASE[this.diff])||{rookie:12, soldier:9, elite:6}[this.diff];   // frames between shots WITHIN a burst — tighter now so it reads as an automatic weapon (you hold + unload, so should they)
     const fireRate=Math.round(_frBase*({rapid:1, spread:2.4, plasma:2.0, heavy:2.8}[this._botWeapon||'rapid']||1));   // heavier guns fire slower
-    // Add burst pattern — fire a few shots then pause
+    // Automatic-weapon burst: unload a long string of rounds, then a SHORT breath (not the old 2-shots-then-1.5s-pause that read as single fire)
     if(!this._burstCD) this._burstCD=0;
     if(!this._burstCount) this._burstCount=0;
     this._burstCD=Math.max(0,this._burstCD-1);
+    const _burstLen=(window._BOT_BURST_LEN&&window._BOT_BURST_LEN[this.diff])||{rookie:4,soldier:6,elite:8}[this.diff];
+    const _burstGap=(window._BOT_BURST_GAP&&window._BOT_BURST_GAP[this.diff])||{rookie:34,soldier:24,elite:16}[this.diff];   // ~0.4/0.3/0.25s breather between mags — enough that it's not a constant blast
     if(canFire&&this.fireT>=fireRate&&dist<(window._BOT_FIRE_R||380)&&(_foe&&_foe.alive!==false)&&this._burstCD<=0){
       this.fireT=0; this._shoot();
       this._burstCount++;
-      if(this._burstCount>={rookie:2,soldier:3,elite:4}[this.diff]){
-        this._burstCount=0;
-        this._burstCD={rookie:90,soldier:60,elite:35}[this.diff]; // pause between bursts
-      }
+      if(this._burstCount>=_burstLen){ this._burstCount=0; this._burstCD=_burstGap; }
     }
 
     // ── BOMBS — lob at player, prefer when player is grouped with enemies ──
@@ -26997,7 +27001,7 @@ function _spawnSentry(x,z,opts){
   lgeo.setAttribute('color',new THREE.BufferAttribute(new Float32Array([1,0.16,0.42, 0.12,0.0,0.04]),3));   // bright at the emitter -> near-black at the end so (additive) it FADES OUT along its length
   const laser=new THREE.Line(lgeo,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false})); scene.add(laser);
   const s={ grp:g, P, laser, x, z, y, base:y, t:0, yaw:Math.random()*6.28, tYaw:0, pitch:0, spin:0, spinUp:0, fireCd:0, target:null, grow:0, hitFlash:0,
-    hp:(opts.hp||window._SENTRY_HP||16), maxHp:(opts.hp||window._SENTRY_HP||16), _faction:(opts.faction||'ally'), _owner:(opts.owner!=null?opts.owner:'player'),
+    hp:(opts.hp||window._SENTRY_HP||16), maxHp:(opts.hp||window._SENTRY_HP||16), _faction:(opts.faction||'ally'), _owner:(opts.owner!=null?opts.owner:'player'), _ownerBot:(opts.ownerBot||null),
     range:(opts.range||window._SENTRY_RANGE||520), fireRate:(opts.rate||window._SENTRY_RATE||0.07), life:(opts.life!=null?opts.life:(window._SENTRY_LIFE||0)) };
   window._sentries.push(s); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(180,0.2,'square',0.14,90); if(typeof announce==='function')announce('SENTRY ONLINE','#00e6ff');
   return s;
@@ -27010,15 +27014,24 @@ function _sentryTick(dt){
   for(let i=A.length-1;i>=0;i--){ const s=A[i]; try{ s.t+=dt;
     if(s.grow<1){ s.grow=Math.min(1,s.grow+dt*2.2); s.grp.scale.setScalar(0.2+s.grow*0.8); s.grp.position.y=s.base+Math.sin(s.grow*Math.PI)*8; }   // deploy pop-up
     if(s.life>0){ s.life-=dt; if(s.life<=0){ _removeSentry(s); A.splice(i,1); continue; } }
-    // ACQUIRE: nearest hostile enemy in range
+    // ACQUIRE: nearest hostile in range. A PLAYER turret hunts creatures + every rival AI bot; a BOT-captured turret hunts YOU + rival bots (not its owner).
     let tgt=null,tD=s.range*s.range;
-    if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._neutralized||e._faction==='ally')continue; const dx=e.wx-s.x,dz=e.wz-s.z,d2=dx*dx+dz*dz; if(d2<tD){ tD=d2; tgt=e; } }
+    const _botOwned=(s._owner!=null && s._owner!=='player');
+    if(!_botOwned){
+      if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._neutralized||e._faction==='ally')continue; const dx=e.wx-s.x,dz=e.wz-s.z,d2=dx*dx+dz*dz; if(d2<tD){ tD=d2; tgt=e; } }
+      if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false)continue; const dx=b.wx-s.x,dz=b.wz-s.z,d2=dx*dx+dz*dz; if(d2<tD){ tD=d2; tgt=b; } }   // the AI characters ARE valid targets now
+    } else {
+      if(typeof player!=='undefined'&&player&&player.alive){ const dx=player.wx-s.x,dz=player.wz-s.z,d2=dx*dx+dz*dz; if(d2<tD){ tD=d2; tgt=player; } }   // a rival's turret shoots at YOU
+      if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false||b===s._ownerBot)continue; const dx=b.wx-s.x,dz=b.wz-s.z,d2=dx*dx+dz*dz; if(d2<tD){ tD=d2; tgt=b; } }
+      if(typeof GS!=='undefined'&&GS.allies)for(const a of GS.allies){ if(!a||a.alive===false||(a.hp!=null&&a.hp<=0))continue; const dx=a.wx-s.x,dz=a.wz-s.z,d2=dx*dx+dz*dz; if(d2<tD){ tD=d2; tgt=a; } }   // + your summoned allies
+    }
     s.target=tgt; const P=s.P;
-    // TAKE DAMAGE from enemy fire -> destructible
-    if(s.grow>=1 && typeof GS!=='undefined'&&GS.enemyBullets)for(let bi=GS.enemyBullets.length-1;bi>=0;bi--){ const b=GS.enemyBullets[bi]; if(!b)continue; const bx=(b.wx!=null?b.wx:b.x), bz=(b.wz!=null?b.wz:b.z); if(bx==null)continue; const dxb=bx-s.x, dzb=bz-s.z; if(dxb*dxb+dzb*dzb<(window._SENTRY_HITR||22)*(window._SENTRY_HITR||22)){ s.hp-=(b.dmg||1); s.hitFlash=0.12; try{ if(b.remove)b.remove(); }catch(_){} GS.enemyBullets.splice(bi,1); if(typeof ps!=='undefined')try{ps.spark(s.x,s.z,[1,0.4,0.5]);}catch(_){} } }
+    // TAKE DAMAGE -> destructible. A player turret is shot down by ENEMY fire; a rival's turret is shot down by YOUR fire.
+    const _dmgPool=_botOwned?GS.bullets:GS.enemyBullets;
+    if(s.grow>=1 && typeof GS!=='undefined'&&_dmgPool)for(let bi=_dmgPool.length-1;bi>=0;bi--){ const b=_dmgPool[bi]; if(!b)continue; if(_botOwned && (b._ally||b._fromBot))continue; const bx=(b.wx!=null?b.wx:b.x), bz=(b.wz!=null?b.wz:b.z); if(bx==null)continue; const dxb=bx-s.x, dzb=bz-s.z; if(dxb*dxb+dzb*dzb<(window._SENTRY_HITR||22)*(window._SENTRY_HITR||22)){ s.hp-=(b.dmg||1); s.hitFlash=0.12; try{ if(b.remove)b.remove(); }catch(_){} _dmgPool.splice(bi,1); if(typeof ps!=='undefined')try{ps.spark(s.x,s.z,[1,0.4,0.5]);}catch(_){} } }
     if(s.hitFlash>0){ s.hitFlash-=dt; if(P.head)P.head.material.emissiveIntensity=1.4; } else if(P.head) P.head.material.emissiveIntensity=0.32;
     if(s.hp<=0){ if(typeof ps!=='undefined'){try{ps.burst(s.x,s.z,[0,0.9,1],28,160); ps.ring(s.x,s.z,[1,0.4,0.5],32,150);}catch(_){}} if(typeof addTrauma==='function')try{addTrauma(0.14);}catch(_){} if(typeof spawnDebris==='function')try{spawnDebris(s.x,s.z);}catch(_){} if(typeof Audio!=='undefined'&&Audio.bigDie)try{Audio.bigDie();}catch(_){} if(typeof _bombBlastEnemies==='function')try{_bombBlastEnemies(s.x,s.grp.position.y,s.z,(window._SENTRY_DEATH_R||95),(window._SENTRY_DEATH_DMG||0.5));}catch(_){} _removeSentry(s); A.splice(i,1); continue; }   // death: pop + a small blast that hurts nearby enemies
-    const _tx=tgt?tgt.wx:null, _tz=tgt?tgt.wz:null, _ty=tgt?((tgt.mesh?tgt.mesh.position.y:9)+(tgt.size||10)*0.4):9;
+    const _tx=tgt?tgt.wx:null, _tz=tgt?tgt.wz:null, _ty=tgt?((tgt.mesh?tgt.mesh.position.y:(tgt.py!=null?tgt.py+12:9))+(tgt.size||10)*0.4):9;
     if(tgt){ s.tYaw=Math.atan2(_tx-s.x,_tz-s.z); s.spinUp=Math.min(1,s.spinUp+dt*3.2); }
     else { s.tYaw+=dt*(window._SENTRY_SCAN||0.5); s.spinUp=Math.max(0,s.spinUp-dt*1.8); }
     // AIMING LAG: capped angular speed (rad/s), not an instant ease -> a fast/close target can out-run its aim, so you can juke it. Feels robotic, not perfect.
@@ -27044,7 +27057,8 @@ function _sentryTick(dt){
         const mp=new THREE.Vector3(); P.mz.getWorldPosition(mp);
         let bx=_tx-mp.x, by=_ty-mp.y, bz=_tz-mp.z; const L=Math.hypot(bx,by,bz)||1; const spd=(window._SENTRY_BSPD||920), jit=(window._SENTRY_SPREAD||0.03);
         bx=bx/L+rand(-jit,jit); by=by/L+rand(-jit,jit)*0.5; bz=bz/L+rand(-jit,jit); const L2=Math.hypot(bx,by,bz)||1;
-        try{ const b=new Bullet(mp.x,mp.z,bx/L2*spd,bz/L2*spd,'laser',mp.y,by/L2*spd,true); b.dmg=(window._SENTRY_DMG||0.5); b.pierce=0; b._ally=true; b._straightAim=true; GS.bullets.push(b); }catch(_){}
+        if(_botOwned){ try{ const b=new EnemyBullet(mp.x,mp.z,bx/L2*spd,bz/L2*spd,(window._SENTRY_BOT_BULLET_COL!=null?window._SENTRY_BOT_BULLET_COL:0xff4466)); b.dmg=(window._SENTRY_DMG||0.5); b._ownerBot=s._ownerBot||null; }catch(_){} }   // a rival's turret fires ENEMY rounds -> they actually hit YOU
+        else { try{ const b=new Bullet(mp.x,mp.z,bx/L2*spd,bz/L2*spd,'laser',mp.y,by/L2*spd,true); b.dmg=(window._SENTRY_DMG||0.5); b.pierce=0; b._ally=true; b._straightAim=true; GS.bullets.push(b); }catch(_){} }
         if(typeof ps!=='undefined'&&ps.flash)try{ps.flash(mp.x,mp.y,mp.z,s.yaw,[1,0.35,0.5],0.8);}catch(_){}
         if(typeof Audio!=='undefined'&&Audio.blip&&Math.random()<0.6)try{Audio.blip(700+rand(-50,50),0.03,'square',0.045,220);}catch(_){}
         // EJECT a shell casing from the side port
@@ -27081,6 +27095,7 @@ window._spawnSentry=_spawnSentry; window._disposeSentries=_disposeSentries; wind
 // THROW a sentry canister that arcs from the player and DEPLOYS the turret where it lands (via _detonateItem 'sentry').
 window._sentry=function(){ if(typeof player==='undefined'||!player)return; const a=(player.aim!=null?player.aim:0), spd=(window._SENTRY_THROW_SPD||300), up=(window._SENTRY_THROW_UP||210); if(!window._itemShots)window._itemShots=[]; window._itemShots.push({ x:player.wx+Math.cos(a)*16, y:(player.py||0)+20, z:player.wz+Math.sin(a)*16, vx:Math.cos(a)*spd, vz:Math.sin(a)*spd, vy:up, type:'sentry', kind:'item' }); if(typeof announce==='function')announce('SENTRY THROWN','#00e6ff'); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(300,0.12,'sine',0.16,180);}catch(_){} };
 window._spawnSentryNow=function(){ if(player)_spawnSentry(player.wx+Math.cos(player.aim||0)*70, player.wz+Math.sin(player.aim||0)*70, {y:(player.py||0)+9}); };   // instant-place debug
+window._spawnEnemySentry=function(){ if(player)_spawnSentry(player.wx+Math.cos(player.aim||0)*180, player.wz+Math.sin(player.aim||0)*180, {y:(player.py||0)+9, owner:'bot', faction:'bot'}); };   // debug: a RIVAL turret that hunts YOU — shoot it to destroy it
 // WORLD-UP cameras for the cube. FREE cam orbits by CAM.yaw (steered by the right stick), BALL cam looks past you toward the ball.
 // Both stay parallel to the TRUE ground (never roll) -> on the ceiling you're plainly upside-down. Same distance as on the floor.
 // HYBRID cube cam:
