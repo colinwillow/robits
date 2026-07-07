@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB418</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB419</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -4749,6 +4749,17 @@ class Turret extends Enemy{
 }
 
 // ── ENEMY BULLET — fired by Turrets, hurts player on contact ──
+// Shoot a bomb/nuke that a combatant is CARRYING -> it goes off IN THEIR HANDS: real bomb/nuke explosion + it hurts THEM.
+function _detonateHeldBomb(holder, type){
+  if(!holder)return;
+  const isNuke=(type==='nuke'), x=holder.wx, z=holder.wz, y=(holder.py||0), yy=(y>20?y:9), isPlayer=(holder===player);
+  try{ if(isPlayer){ holder._carryPayload=null; if(typeof holder._disarmBomb==='function')holder._disarmBomb(); holder.bombArmed=false; holder._bombMode='bomb'; } else { holder._heldBomb=null; if(holder._heldBombMesh){ try{ if(holder._heldBombMesh.parent)holder._heldBombMesh.parent.remove(holder._heldBombMesh); }catch(_){} holder._heldBombMesh=null; } } }catch(_){}
+  if(isPlayer)holder.inv=0;   // it detonated on you -> the damage lands regardless of i-frames
+  if(typeof _detonateItem==='function')try{ _detonateItem(type, x, z, isNuke, yy); }catch(_){}
+  if(isPlayer){ try{ if(typeof playerDie==='function')playerDie(isNuke?(window._HELD_NUKE_SELF_DMG||4):(window._HELD_BOMB_SELF_DMG||2),'#ff8a2a'); }catch(_){} if(typeof announce==='function')announce(isNuke?'NUKE SHOT IN HAND!':'BOMB SHOT IN HAND!','#ff7a2a'); }
+  else { try{ const ax=(player?player.wx:x), az=(player?player.wz:z), dx=holder.wx-ax, dz=holder.wz-az, dl=Math.hypot(dx,dz)||1; if(holder.knock)holder.knock(dx/dl,dz/dl,(isNuke?22:16),(isNuke?620:460),36); if(holder.hit)holder.hit(isNuke?6:3); }catch(_){} if(typeof announce==='function')announce(isNuke?'NUKE COOKED OFF!':'BOMB COOKED OFF!','#ff9933'); }
+}
+window._detonateHeldBomb=_detonateHeldBomb;
 class EnemyBullet{
   constructor(wx,wz,vx,vz,col){ this.wx=wx;this.wz=wz;this.vx=vx;this.vz=vz;this.life=1;
     const _c=(col!=null?col:0xff4400);
@@ -4783,6 +4794,10 @@ class EnemyBullet{
     if(this.life>0 && window._ENEMY_HIT_ALLIES!==false && typeof GS!=='undefined' && GS.allies && GS.allies.length){
       for(const a of GS.allies){ if(!a||a.alive===false||(a.hp!=null&&a.hp<=0))continue; const ay=(a.py!=null?a.py:(a._cy!=null?a._cy:9));
         if(Math.hypot(a.wx-this.wx,a.wz-this.wz)<((a.size||14)*0.6+9) && Math.abs(9-(ay+12))<48){ this.life=0; if(a.hit)try{a.hit(this.dmg||1);}catch(_){} if(a.knock)try{a.knock(a.wx-this.wx,a.wz-this.wz,1.2);}catch(_){} if(typeof ps!=='undefined')ps.burst(a.wx,a.wz,[1,0.6,0.2],8,80,ay+12); break; } }
+    }
+    // SHOOT A BOMB/NUKE YOU'RE HOLDING -> it cooks off in your hands (real explosion + hurts you). Independent of i-frames — the shot hit the payload.
+    if(this.life>0&&player&&player.alive&&player.py<40&&window._SHOOT_HELD_BOMB!==false&&player._carryPayload&&/^(bomb|nuke)$/.test(player._carryPayload.type||'')&&Math.hypot(player.wx-this.wx,player.wz-this.wz)<(window._HELD_BOMB_HITR||24)){
+      this.life=0; _detonateHeldBomb(player, player._carryPayload.type); return;
     }
     if(this.life>0&&player&&player.alive&&player.inv<=0&&player.py<40){
       if(Math.hypot(player.wx-this.wx,player.wz-this.wz)<20){
@@ -14307,12 +14322,15 @@ class BotPilot{
       if(this._burstCount>=_burstLen){ this._burstCount=0; this._burstCD=_burstGap; }
     }
 
-    // ── BOMBS — lob at player, prefer when player is grouped with enemies ──
-    this.bombT++;
-    const bombRate={rookie:500,soldier:320,elite:200}[this.diff];
-    if(this.bombT>=bombRate&&dist<300&&(_foe&&_foe.alive!==false)&&Math.random()<this.aggression*0.8){
-      this.bombT=0;
-      this._throwBombAt(px+(Math.random()-0.5)*40,pz+(Math.random()-0.5)*40);
+    // ── BOMBS — DISABLED by default: bombs are pickups now, so bots no longer conjure them out of nowhere (that was the
+    //    phantom "DIRECT HIT"). Set window._BOT_AMBIENT_BOMBS=true to bring back free bot bombing. ──
+    if(window._BOT_AMBIENT_BOMBS===true){
+      this.bombT++;
+      const bombRate={rookie:500,soldier:320,elite:200}[this.diff];
+      if(this.bombT>=bombRate&&dist<300&&(_foe&&_foe.alive!==false)&&Math.random()<this.aggression*0.8){
+        this.bombT=0;
+        this._throwBombAt(px+(Math.random()-0.5)*40,pz+(Math.random()-0.5)*40);
+      }
     }
 
     // ── MELEE — close range: swing and LAUNCH the player (Smash) ──
