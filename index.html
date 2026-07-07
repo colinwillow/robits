@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB443</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB444</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14285,6 +14285,31 @@ class BotPilot{
       }
     }
 
+    // ── BALL PLAY (cube RL sandbox) — when no fight is pressing, go bat the arena ball around like the dog/dragon do; swipe it on contact with a real swing ──
+    if(window._BOT_BALL_PLAY!==false && GS.zone===-19 && typeof _cubeBall!=='undefined' && _cubeBall && _cubeBall.pos && _cubeBall.vel){
+      const _b=_cubeBall, _bdx=_b.pos.x-this.wx, _bdz=_b.pos.z-this.wz, _bd=Math.hypot(_bdx,_bdz)||1;
+      const _sw=(window._BOT_BALL_SWIPE_R||((this.size||18)+(_b.R||30)+22));
+      this._ballPlayCD=Math.max(0,(this._ballPlayCD||0)-dt);
+      // swipe on contact (even mid-fight it's fun) — send it flying + play a swing clip
+      if(_bd<_sw && this._ballPlayCD<=0 && (_b.hitCd||0)<=0 && (this._botMeleeAnimT||0)<=0){
+        this._ballPlayCD=(window._BOT_BALL_PLAY_CD||0.55);
+        const _pw=(window._BOT_BALL_PLAY_POWER||640);
+        _b.vel.x+=(_bdx/_bd)*_pw; _b.vel.z+=(_bdz/_bd)*_pw; _b.vel.y+=(window._BOT_BALL_PLAY_LIFT||300);
+        try{ if(_b.vel.length&&_b.vel.length()>(window._BALL_TOP_SPD||1300))_b.vel.setLength(window._BALL_TOP_SPD||1300); }catch(_){} _b.hitCd=0.1;
+        try{ if(this._clips){ const mk=['melee_1','melee_2','melee_3'][(Math.random()*3)|0]; const mc=this._clips[mk]||this._clips['melee_1']; if(mc){ Object.values(this._clips).forEach(a=>{ if(a&&a.fadeOut&&a!==mc)a.fadeOut(0.08); }); mc.reset().setLoop(THREE.LoopOnce,1); mc.clampWhenFinished=true; mc.setEffectiveWeight(1).fadeIn(0.05).play(); this._clips._cur=mk; this._botMeleeAnimT=(mc._clip&&mc._clip.duration)||0.6; } } }catch(_){}
+        this.aim=Math.atan2(_bdz,_bdx);
+        if(typeof ps!=='undefined')ps.ring(_b.pos.x,_b.pos.z,[0.4,0.85,1],14,90,_b.pos.y);
+        if(typeof addTrauma==='function')try{addTrauma(0.04);}catch(_){}
+      }
+      // seek the ball when the nearest foe is far (or the ball is right here) and we're not fetching a weapon / mid-swing
+      if(!this._fetchTarget && (this._botMeleeAnimT||0)<=0){
+        const _fo=(typeof player!=='undefined'&&player&&player.alive!==false)?player:null;
+        const _foeD=_fo?Math.hypot(_fo.wx-this.wx,_fo.wz-this.wz):1e9;
+        if((_foeD>(window._BOT_BALL_PLAY_R||430) || _bd<_sw*1.7) && _bd>_sw*0.6){ mvX=_bdx/_bd; mvZ=_bdz/_bd; this._botPlayBall=true; }
+        else this._botPlayBall=false;
+      }
+    }
+
     // ── ORGANIC WANDER — slight drift so paths aren't laser-straight (feels human) ──
     this._wphase=(this._wphase||(this.wob||Math.random()*99))+dt*1.7;
     mvX+=Math.cos(this._wphase)*0.16; mvZ+=Math.sin(this._wphase*1.3)*0.16;
@@ -20802,7 +20827,7 @@ function _deathLivesBanner(before, after){
   setTimeout(()=>{ if(el){ el.style.transition='opacity 0.5s'; el.style.opacity='0'; } }, (window._DEATH_BANNER_HIDE||3000));
 }
 window._startDeathSeq=_startDeathSeq; window._deathSeqTick=_deathSeqTick;
-window._dbgRefs=function(){ try{ return {player, GS, CAM}; }catch(_){ return null; } };   // debug/headless: live engine refs (player/GS/CAM are module-scoped)
+window._dbgRefs=function(){ try{ return {player, GS, CAM, bots:(typeof GS_bots!=='undefined'?GS_bots:null), ball:(typeof _cubeBall!=='undefined'?_cubeBall:null)}; }catch(_){ return null; } };   // debug/headless: live engine refs (module-scoped)
 
 // ════════════════════════════════════════════════════════════
 //  LEADERBOARD  (localStorage — persists on this device)
