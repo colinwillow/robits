@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB410</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB411</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -19316,6 +19316,24 @@ function _bulletBlocked(b){
   }
   return false;
 }
+// SENTRY COLLIDER — a solid cylinder around each deployed turret so you (and bots/enemies) can't run through it.
+// Cylinder rather than an _arenaObstacle box so it works on the moving DECK too (the box system's height gate assumes
+// world-space obstacle tops and would skip a deck-placed turret). window._SENTRY_SOLID=false to walk through.
+function _resolveSentryCollide(e){
+  const A=window._sentries; if(window._SENTRY_SOLID===false||!A||!A.length||!e)return;
+  const r=(e===player?13:((e.size||14)*0.5)), body=(window._SENTRY_BODY_R||12), vH=(window._SENTRY_COLLIDE_H||52);
+  const ey=(e.py!=null?e.py:(e._cy!=null?e._cy:9));
+  for(const s of A){ if(!s||s.grow<0.5)continue;
+    const sy=(s.grp?s.grp.position.y:(s.base!=null?s.base:s.y));
+    if(Math.abs(ey-sy)>vH)continue;   // only when roughly at the turret's level (lets you pass far above/below)
+    let dx=e.wx-s.x, dz=e.wz-s.z, d=Math.hypot(dx,dz); const mn=r+body;
+    if(d>=mn)continue;
+    if(d<1e-3){ dx=1; dz=0; d=1; }
+    const nx=dx/d, nz=dz/d, push=mn-d; e.wx+=nx*push; e.wz+=nz*push;
+    if(e.vx!==undefined){ const vd=e.vx*nx+e.vz*nz; if(vd<0){ e.vx-=vd*nx; e.vz-=vd*nz; } }
+  }
+}
+window._resolveSentryCollide=_resolveSentryCollide;
 function makeTransGate(color){
   const g=new THREE.Group(); const col=new THREE.Color(color);
   const mat=()=>new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
@@ -20322,6 +20340,30 @@ function registerKill(e){
 function triggerOverdrive(){ if(GS.od<GS.odMax||GS.odActive>0)return; GS.odActive=420;GS.od=0;
   announce('OVERDRIVE','#ffe600');Audio.overdrive();flashScreen(0.6);punchZoom(1);grid.shock(player.wx,player.wz,30);addTrauma(0.16); }
 
+// Pick a respawn spot AWAY from where you died and away from threats — so losing a life reads as dying + coming back
+// somewhere else, not just your shell popping while you stand in the same place. window._RESPAWN_ELSEWHERE=false to
+// respawn in place like before.
+function _pickRespawnPoint(){
+  try{
+    const inCube=(typeof GS!=='undefined'&&GS.zone===-19);
+    const R=(typeof ARENA_R!=='undefined'?ARENA_R:240);
+    const threats=[]; if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(e&&e.alive!==false&&!e._captured)threats.push(e); }
+    if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(b&&b.alive)threats.push(b); }
+    const dx0=(player?player.wx:0), dz0=(player?player.wz:0);
+    let best=null,bestScore=-1;
+    for(let k=0;k<14;k++){
+      let x,z;
+      if(inCube){ const C=(window._CUBE||{hx:1200,hz:900}); x=rand(-C.hx*0.68,C.hx*0.68); z=rand(-C.hz*0.68,C.hz*0.68); }
+      else { const a=Math.random()*Math.PI*2, r=R*(0.3+Math.random()*0.5); x=Math.cos(a)*r; z=Math.sin(a)*r; }
+      let nd=1e9; for(const t of threats){ const d=Math.hypot(t.wx-x,t.wz-z); if(d<nd)nd=d; }
+      const df=Math.hypot(x-dx0,z-dz0);   // also want it a real distance from the death spot
+      if(df<(window._RESPAWN_MIN_DIST||220))continue;   // never right where you died
+      const score=Math.min(nd,600)*0.7+Math.min(df,900)*0.3;
+      if(score>bestScore){ bestScore=score; best={x,z}; }
+    }
+    return best;
+  }catch(_){ return null; }
+}
 function playerDie(dmg=1, col='#ff4444', kind){
   if(player.inv>0||player.dashing>0)return;
   // TIC-TAC-TOE: MELEE BEATS BALL. A melee/contact hit shatters you OUT of ball mode (not absorbed) — the ball only shields ranged/other hits. (window._MELEE_BEATS_BALL=false to disable.)
@@ -20354,7 +20396,7 @@ function playerDie(dmg=1, col='#ff4444', kind){
     if(navigator.vibrate){ try{ navigator.vibrate([0,70,45,95]); }catch(e){} }
     GS.lives--;GS.hp=GS.maxHp;GS.mult=1;GS.multT=0;GS.streak=0;player.weaponLevel=1;GS.od=Math.max(0,GS.od-30);
     if(GS.lives<=0){GS.state='gameover';player.model.visible=false;Audio.gameover();Audio.setIntensity(0);setTimeout(showGameOver,1300);}
-    else{ player.reset(false); updateUI(); }
+    else{ if(window._RESPAWN_ELSEWHERE!==false){ const sp=_pickRespawnPoint(); if(sp){ player.wx=sp.x; player.wz=sp.z; } if(typeof announce==='function')announce('LIFE LOST — '+GS.lives+' LEFT','#ff6688'); } player.reset(false); updateUI(); }
   } else {
     // Just a HP hit — flash and brief invincibility, don't reset position
     flashScreen(0.4);player.inv=90;
@@ -22937,7 +22979,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-16) updateCityTest(dt);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
       if(player&&player._onHoverboard){ firing=false; avx=0; avz=0; aiming=false; if(player._gcur)player._gcur.visible=false; }   // riding: right stick is throttle, not fire; no aim cursor
-      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); resolveBodyCollisions(player); if(typeof _resolveAssetCollisions==='function')_resolveAssetCollisions(player); if(typeof _portalCollide==='function')_portalCollide(player); if(typeof _updateWallRun==='function'){ try{ _updateWallRun(dt); }catch(_wre){ try{ player._wallRun=null; }catch(_){} } } if(window._aimAssistTick){ try{ window._aimAssistTick(dt,firing,Math.hypot(avx,avz)); }catch(_){} } player.draw(od); if(player._spawnAura){ player._spawnAuraMs=(player._spawnAuraMs||0)+dt; if(player._spawnAuraMs>(window._SPAWN_AURA_SEC||4.2)){ try{player._spawnAura.remove();}catch(_){} player._spawnAura=null; player._respawnBlink=0; } } /* FAILSAFE: spawn-in glow shell normally removed in draw() as _respawnBlink counts down; an early-return draw path can freeze it on forever, so force-remove after a fixed time */ if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt); if(window._ballFrame)window._ballFrame(dt); if(window._superTick)window._superTick(dt); if(window._voxTick)window._voxTick(dt); if(window._animPlatMixer)window._animPlatMixer.update(dt); if(window._platWireTick)window._platWireTick(dt); if(window._updateFuelBar)window._updateFuelBar(); if(window._riflePoseTick)window._riflePoseTick(dt);
+      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); if(typeof _resolveSentryCollide==='function')_resolveSentryCollide(player); resolveBodyCollisions(player); if(typeof _resolveAssetCollisions==='function')_resolveAssetCollisions(player); if(typeof _portalCollide==='function')_portalCollide(player); if(typeof _updateWallRun==='function'){ try{ _updateWallRun(dt); }catch(_wre){ try{ player._wallRun=null; }catch(_){} } } if(window._aimAssistTick){ try{ window._aimAssistTick(dt,firing,Math.hypot(avx,avz)); }catch(_){} } player.draw(od); if(player._spawnAura){ player._spawnAuraMs=(player._spawnAuraMs||0)+dt; if(player._spawnAuraMs>(window._SPAWN_AURA_SEC||4.2)){ try{player._spawnAura.remove();}catch(_){} player._spawnAura=null; player._respawnBlink=0; } } /* FAILSAFE: spawn-in glow shell normally removed in draw() as _respawnBlink counts down; an early-return draw path can freeze it on forever, so force-remove after a fixed time */ if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt); if(window._ballFrame)window._ballFrame(dt); if(window._superTick)window._superTick(dt); if(window._voxTick)window._voxTick(dt); if(window._animPlatMixer)window._animPlatMixer.update(dt); if(window._platWireTick)window._platWireTick(dt); if(window._updateFuelBar)window._updateFuelBar(); if(window._riflePoseTick)window._riflePoseTick(dt);
       if(window._rippleTick){ window._rippleTick(rawDt); if((window._RIPPLE_ON||window._rippleTP)&&player){ const _rsp=Math.hypot(player.vx||0,player.vz||0); player._ripTrailT=(player._ripTrailT||0)-rawDt; if(_rsp>(window._RIP_TRAIL_SPD||190)&&player._ripTrailT<=0){ window._rippleHit(player.wx,player.py,player.wz,(window._RIP_TRAIL_AMP||0.5),(window._RIP_TRAIL_LIFE||0.9)); player._ripTrailT=(window._RIP_TRAIL_CD||0.12); } } }   // ripple field: advance the impact rings + drop a faint trailing ring as the player runs
       if(window._updateHitMarks) window._updateHitMarks(rawDt);   // ball-style bullet hit-marks (enemies + friendly-fire red)
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _ww=(typeof _cubeWalkOn==='function'&&_cubeWalkOn(player)&&player._cubeUp&&player._cubeUp.y<0.9); const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(_ww||!_bmv) window._reorientGameBoots(); }   // on a wall/ceiling re-aim the boots to the surface every frame; on the floor only when standing still (avoids stride jitter)
@@ -23110,6 +23152,7 @@ function loop(ts){ requestAnimationFrame(loop);
           e._ro=true; e._roVy=0; e._kbVx=(e.vx||0)*0.02; e._kbVz=(e.vz||0)*0.02;
         }
         if(!e._ball&&!e._ro&&!e._burn&&!e._climbing&&typeof resolveObstacles==='function') resolveObstacles(e,(e.size||12)*0.4);
+        if(!e._ball&&!e._ro&&!e._climbing&&typeof _resolveSentryCollide==='function')_resolveSentryCollide(e);
         if(e._kbYOff>0 && e.mesh) e.mesh.position.y+=e._kbYOff;
         if(typeof _arenaEnemyHazard==='function') _arenaEnemyHazard(e);
       }
@@ -23651,6 +23694,7 @@ function loop(ts){ requestAnimationFrame(loop);
           continue;
         }
         bot.update(dt);
+        if(typeof _resolveSentryCollide==='function')_resolveSentryCollide(bot);   // bots can't walk through a deployed turret either
         if(typeof _botMountTick==='function')_botMountTick(bot,dt);   // seek/climb a loose dragon-dog, then ride it (runs after update so the seat pin wins)
         // Check player bullets hitting bot
         for(let j=GS.bullets.length-1;j>=0;j--){
