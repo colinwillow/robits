@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB460</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB461</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -5417,6 +5417,207 @@ class HoverBomber extends Enemy{
   die(){ ps.burst(this.wx,this.wz,this.glow,14,80); spawnDebris(this.wx,this.wz,3,0.8);
     grid.shock(this.wx,this.wz,4); addTrauma(0.024); this.remove(); }
 }
+
+// ════════════════════════════════════════════════════════════
+//  ROBO-OCTOPUS — a floating robotic cephalopod. Verlet-rope tentacles that
+//  trail + undulate with real physics, a bobbing hover drift, a tracking laser
+//  eye, and tentacles that SHOCK you on contact. Arms are extruded neon tubes
+//  updated in place (no per-frame allocation). Tunables: window._OCTO_*.
+// ════════════════════════════════════════════════════════════
+class RoboOctopus extends Enemy{
+  constructor(wx,wz,wave){
+    super(wx,wz);
+    this.glow=[0.35,0.85,1]; this.isBoss=false; this._tall=90;
+    this.ARMS   =Math.max(3,Math.min(8, window._OCTO_ARMS!=null?window._OCTO_ARMS:6));
+    this.NODES  =Math.max(4,Math.min(14,window._OCTO_NODES!=null?window._OCTO_NODES:9));
+    this.RADIAL =Math.max(3,Math.min(10,window._OCTO_RADIAL!=null?window._OCTO_RADIAL:6));
+    this.bodyR  =(window._OCTO_BODY_R||26);
+    this.seg    =(window._OCTO_SEG||9);                  // tentacle segment length
+    this.armBaseR=(window._OCTO_ARM_R||4.8); this.tipR=(window._OCTO_TIP_R||0.7);
+    this.size=this.bodyR+4; this.hp=(window._OCTO_HP||8); this.score=(window._OCTO_SCORE||320);
+    this.gravity=(window._OCTO_GRAV||30); this.damp=(window._OCTO_DAMP||0.9);       // lower gravity + more carry -> tentacles DRIFT/undulate (float) instead of dropping like ropes
+    this.swimAmp=(window._OCTO_SWIM_AMP||13); this.swimSpeed=(window._OCTO_SWIM_SPD||2.4); this.swimWave=(window._OCTO_SWIM_WAVE||0.9);
+    this.iters=(window._OCTO_ITERS||3);
+    this.ALT=(window._OCTO_ALT||64); this.bobAmp=(window._OCTO_BOB||15); this.bobSpd=(window._OCTO_BOB_SPD||1.4);
+    this.PREF=(window._OCTO_RANGE||210);
+    this.py=this.ALT; this.t=0; this._yaw=Math.random()*TAU; this._orbit=(Math.random()<0.5?1:-1);
+    this.armColor=(window._OCTO_ARM_COL!=null?window._OCTO_ARM_COL:0x2fd8ff);
+    this.eyeCol =(window._OCTO_EYE_COL!=null?window._OCTO_EYE_COL:0xff3a6e);
+    this._eyeCD=2.4+Math.random()*2; this._eyeCharge=0; this._eyeFire=0; this._shockCD=0;
+    this._tubeScratch={};
+    this._buildBody(); this._buildArms();
+  }
+  _buildBody(){
+    const g=new THREE.Group();
+    // mantle — squashed metallic dome + neon wire shell + soft rim glow
+    const mGeo=new THREE.SphereGeometry(this.bodyR,18,14); mGeo.scale(1,0.82,1);
+    const mMat=new THREE.MeshStandardMaterial({color:0x0b1a2a,metalness:0.65,roughness:0.4,emissive:new THREE.Color(this.armColor),emissiveIntensity:1.15,toneMapped:false});
+    this._mantle=new THREE.Mesh(mGeo,mMat); g.add(this._mantle);
+    const wire=new THREE.Mesh(mGeo.clone(), new THREE.MeshBasicMaterial({color:this.armColor,wireframe:true,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); wire.scale.setScalar(1.04); g.add(wire); this._wire=wire;
+    // hood crest — a low dome cap on top for silhouette
+    const crest=new THREE.Mesh(new THREE.SphereGeometry(this.bodyR*0.62,14,8,0,TAU,0,Math.PI*0.5), new THREE.MeshBasicMaterial({color:this.armColor,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); crest.position.y=this.bodyR*0.34; g.add(crest);
+    // laser EYE at the front (+Z) — dark socket, glowing iris that tracks, bright pupil
+    const eye=new THREE.Group(); eye.position.set(0,-this.bodyR*0.05,this.bodyR*0.92);
+    const socket=new THREE.Mesh(new THREE.SphereGeometry(this.bodyR*0.42,14,12), new THREE.MeshStandardMaterial({color:0x05080d,metalness:0.8,roughness:0.3,toneMapped:false})); eye.add(socket);
+    this._iris=new THREE.Mesh(new THREE.SphereGeometry(this.bodyR*0.3,14,12), new THREE.MeshBasicMaterial({color:this.eyeCol,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); this._iris.position.z=this.bodyR*0.16; eye.add(this._iris);
+    this._pupil=new THREE.Mesh(new THREE.SphereGeometry(this.bodyR*0.13,10,8), new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); this._pupil.position.z=this.bodyR*0.3; eye.add(this._pupil);
+    g.add(eye); this._eye=eye;
+    // underside glow ring
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(this.bodyR*0.72,1.6,6,26), new THREE.MeshBasicMaterial({color:this.armColor,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); ring.rotation.x=Math.PI/2; ring.position.y=-this.bodyR*0.34; g.add(ring);
+    // laser beam (hidden until fired) — a thin additive cylinder along +Z from the eye
+    const beam=new THREE.Mesh(new THREE.CylinderGeometry(1.4,1.4,1,7,1,true), new THREE.MeshBasicMaterial({color:this.eyeCol,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false})); beam.geometry.rotateX(Math.PI/2); beam.geometry.translate(0,0,0.5); scene.add(beam); this._beam=beam;
+    this.mesh=g; scene.add(g); g.visible=false;
+  }
+  _buildArms(){
+    this.arms=[];
+    for(let i=0;i<this.ARMS;i++){
+      const baseAng=i/this.ARMS*TAU;
+      const ax=Math.cos(baseAng)*this.bodyR*0.7, az=Math.sin(baseAng)*this.bodyR*0.7, ay=-this.bodyR*0.36;
+      const nodes=[];
+      for(let j=0;j<this.NODES;j++){ const wx=this.wx+ax, wy=this.py+ay-j*this.seg, wz=this.wz+az; nodes.push({x:wx,y:wy,z:wz,px:wx,py:wy,pz:wz}); }
+      const vcount=this.NODES*this.RADIAL, pos=new Float32Array(vcount*3);
+      const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+      const idx=[]; for(let r=0;r<this.NODES-1;r++){ for(let a=0;a<this.RADIAL;a++){ const a2=(a+1)%this.RADIAL; const i0=r*this.RADIAL+a,i1=r*this.RADIAL+a2,i2=(r+1)*this.RADIAL+a,i3=(r+1)*this.RADIAL+a2; idx.push(i0,i2,i1, i1,i2,i3); } }
+      geo.setIndex(idx);
+      const mat=new THREE.MeshBasicMaterial({color:this.armColor,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+      const mesh=new THREE.Mesh(geo,mat); mesh.frustumCulled=false; scene.add(mesh);
+      const tip=new THREE.Mesh(new THREE.SphereGeometry(this.tipR*2.4,7,6), new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); mesh.frustumCulled=false; scene.add(tip);
+      this.arms.push({ax,ay,az,baseAng,nodes,geo,pos,mesh,mat,tip,phase:Math.random()*TAU});
+    }
+  }
+  _simArm(t,dt,cx,cy,cz){
+    const c=Math.cos(this._yaw), s=Math.sin(this._yaw);
+    const awx=cx+(t.ax*c - t.az*s), awz=cz+(t.ax*s + t.az*c), awy=cy+t.ay;   // world anchor (rotated by body yaw)
+    const n0=t.nodes[0]; n0.x=awx; n0.y=awy; n0.z=awz; n0.px=awx; n0.py=awy; n0.pz=awz;
+    const G=this.gravity*dt*dt*60, damp=this.damp;
+    const lax=Math.cos(t.baseAng+this._yaw+Math.PI/2), laz=Math.sin(t.baseAng+this._yaw+Math.PI/2);   // lateral swim axis
+    for(let i=1;i<this.NODES;i++){ const n=t.nodes[i];
+      const vx=(n.x-n.px)*damp, vy=(n.y-n.py)*damp, vz=(n.z-n.pz)*damp;
+      n.px=n.x; n.py=n.y; n.pz=n.z;
+      const ph=t.phase+this.t*this.swimSpeed+i*this.swimWave, sw=Math.sin(ph)*this.swimAmp*(i/this.NODES)*dt*dt*60;
+      n.x+=vx+lax*sw; n.y+=vy-G; n.z+=vz+laz*sw;
+    }
+    for(let k=0;k<this.iters;k++){
+      for(let i=1;i<this.NODES;i++){ const a=t.nodes[i-1], b=t.nodes[i];
+        let dx=b.x-a.x, dy=b.y-a.y, dz=b.z-a.z; const d=Math.hypot(dx,dy,dz)||1e-4, diff=(d-this.seg)/d;
+        if(i-1===0){ b.x-=dx*diff; b.y-=dy*diff; b.z-=dz*diff; }
+        else { const h=0.5; a.x+=dx*diff*h; a.y+=dy*diff*h; a.z+=dz*diff*h; b.x-=dx*diff*h; b.y-=dy*diff*h; b.z-=dz*diff*h; }
+      }
+      n0.x=awx; n0.y=awy; n0.z=awz;
+    }
+    const FL=(window._OCTO_FLOOR!=null?window._OCTO_FLOOR:4);   // soft floor: tips curl along the ground instead of clipping through
+    for(let i=1;i<this.NODES;i++){ const n=t.nodes[i]; if(n.y<FL){ n.y=FL; n.py=FL; n.px=n.x+(n.px-n.x)*0.5; n.pz=n.z+(n.pz-n.z)*0.5; } }
+    this._extrude(t);
+    const tn=t.nodes[this.NODES-1]; t.tip.position.set(tn.x,tn.y,tn.z);
+  }
+  _extrude(t){
+    const N=this.NODES, RAD=this.RADIAL, pos=t.pos, nodes=t.nodes;
+    // seed a stable normal perpendicular to the first tangent, then PARALLEL-TRANSPORT it down the arm so the tube
+    // never flips/pinches (the spiky-star artifact came from recomputing the frame per ring against world-up).
+    let a0=nodes[0], b0=nodes[1]; let sx=b0.x-a0.x, sy=b0.y-a0.y, sz=b0.z-a0.z; let sl=Math.hypot(sx,sy,sz)||1; sx/=sl; sy/=sl; sz/=sl;
+    let refx=Math.abs(sy)<0.9?0:1, refy=Math.abs(sy)<0.9?1:0, refz=0;               // up-ish, unless tangent is vertical
+    let nX=refy*sz-refz*sy, nY=refz*sx-refx*sz, nZ=refx*sy-refy*sx; let nl=Math.hypot(nX,nY,nZ)||1; nX/=nl; nY/=nl; nZ/=nl;
+    for(let r=0;r<N;r++){ const cN=nodes[r], a=nodes[Math.max(0,r-1)], b=nodes[Math.min(N-1,r+1)];
+      let Tx=b.x-a.x, Ty=b.y-a.y, Tz=b.z-a.z; let Tl=Math.hypot(Tx,Ty,Tz)||1; Tx/=Tl; Ty/=Tl; Tz/=Tl;
+      const dp=nX*Tx+nY*Ty+nZ*Tz; nX-=Tx*dp; nY-=Ty*dp; nZ-=Tz*dp; let l2=Math.hypot(nX,nY,nZ); if(l2<1e-4){ nX=1; nY=0; nZ=0; l2=1; } nX/=l2; nY/=l2; nZ/=l2;   // re-orthogonalize to this ring's tangent
+      const bX=Ty*nZ-Tz*nY, bY=Tz*nX-Tx*nZ, bZ=Tx*nY-Ty*nX;
+      const rad=this.tipR+(this.armBaseR-this.tipR)*(1-r/(N-1));
+      for(let aI=0;aI<RAD;aI++){ const ang=aI/RAD*TAU, cs=Math.cos(ang), sn=Math.sin(ang);
+        const ox=(nX*cs+bX*sn)*rad, oy=(nY*cs+bY*sn)*rad, oz=(nZ*cs+bZ*sn)*rad;
+        const vi=(r*RAD+aI)*3; pos[vi]=cN.x+ox; pos[vi+1]=cN.y+oy; pos[vi+2]=cN.z+oz;
+      }
+    }
+    t.geo.attributes.position.needsUpdate=true; t.geo.computeBoundingSphere();
+  }
+  update(p,dt){
+    this.baseUpdate(); this.t+=dt;
+    const dx=p.wx-this.wx, dz=p.wz-this.wz, dist=Math.hypot(dx,dz)||1, ux=dx/dist, uz=dz/dist;
+    // ── HOVER DRIFT — keep a preferred distance, orbit slowly, bob in altitude ──
+    const radial=(dist-this.PREF)*(window._OCTO_APPROACH||0.9);
+    const tanx=-uz*this._orbit, tanz=ux*this._orbit;
+    this.vx=lerp(this.vx||0, ux*radial + tanx*(window._OCTO_ORBIT_SPD||34), 0.06);
+    this.vz=lerp(this.vz||0, uz*radial + tanz*(window._OCTO_ORBIT_SPD||34), 0.06);
+    this.wx+=this.vx*dt; this.wz+=this.vz*dt;
+    if(Math.random()<0.004) this._orbit*=-1;                       // occasionally reverse the circle
+    bounceCircle(this,this.bodyR*0.5);
+    this.py=this.ALT+Math.sin(this.t*this.bobSpd)*this.bobAmp;
+    // face the player (eye forward = +Z)
+    const wantYaw=Math.atan2(dx,dz); let dY=((wantYaw-this._yaw+Math.PI)%TAU+TAU)%TAU-Math.PI; this._yaw+=dY*0.08;
+    const cy=8+this.py;
+    this.mesh.position.set(this.wx,cy,this.wz); this.mesh.rotation.y=this._yaw;
+    this.mesh.rotation.z=Math.sin(this.t*0.9)*0.06; this.mesh.rotation.x=Math.cos(this.t*0.7)*0.05;   // gentle idle sway
+    // eye pulse + laser
+    this._laser(p,dt,cy,dist);
+    // ── tentacle physics ──
+    for(const t of this.arms) this._simArm(t,dt,this.wx,cy,this.wz);
+    // ── SHOCK: a live tentacle brushing the player zaps them ──
+    if(this._shockCD>0) this._shockCD-=dt;
+    if(this._shockCD<=0 && p&&p.alive&&(p.inv==null||p.inv<=0) && GS.state==='playing'){
+      const SR=(window._OCTO_SHOCK_R||15), py2=(p.py||0)+10;
+      outer: for(const t of this.arms){ for(let i=2;i<this.NODES;i++){ const n=t.nodes[i];
+        if(Math.abs(n.x-p.wx)<SR && Math.abs(n.z-p.wz)<SR && Math.abs(n.y-py2)<SR+8){
+          this._shock(p,n); break outer; } } }
+    }
+  }
+  _laser(p,dt,cy,dist){
+    // iris tracks + breathes
+    if(this._iris) this._iris.material.opacity=0.7+0.25*Math.sin(this.t*4);
+    if(this._eyeCD>0){ this._eyeCD-=dt; if(this._beam)this._beam.material.opacity=Math.max(0,this._beam.material.opacity-dt*4); }
+    const inRange=dist<(window._OCTO_LASER_R||340);
+    if(this._eyeCD<=0 && this._eyeCharge<=0 && this._eyeFire<=0 && inRange && Math.random()<0.03){ this._eyeCharge=(window._OCTO_LASER_TELE||0.8); }
+    if(this._eyeCharge>0){ this._eyeCharge-=dt;                    // TELEGRAPH — iris flares, pupil swells
+      const k=1+ (1-this._eyeCharge/0.8)*2; if(this._pupil)this._pupil.scale.setScalar(k);
+      if(this._iris)this._iris.material.opacity=1;
+      if(typeof ps!=='undefined'&&Math.random()<0.5){ const ex=this.wx+Math.sin(this._yaw)*this.bodyR, ez=this.wz+Math.cos(this._yaw)*this.bodyR; ps.spark(ex,ez,[1,0.2,0.4],cy); }
+      if(this._eyeCharge<=0){ this._fireBeam(p,cy); }
+    }
+    if(this._eyeFire>0){ this._eyeFire-=dt; if(this._pupil)this._pupil.scale.setScalar(1); }
+  }
+  _fireBeam(p,cy){
+    this._eyeFire=(window._OCTO_LASER_DUR||0.16); this._eyeCD=(window._OCTO_LASER_CD||3.2)+Math.random()*1.5;
+    const ex=this.wx+Math.sin(this._yaw)*this.bodyR*0.95, ez=this.wz+Math.cos(this._yaw)*this.bodyR*0.95, ey=cy-this.bodyR*0.05;
+    const dx=p.wx-ex, dy=(p.py||0)+10-ey, dz=p.wz-ez, L=Math.hypot(dx,dy,dz)||1;
+    if(this._beam){ this._beam.position.set(ex,ey,ez); this._beam.scale.set(1,1,L); this._beam.material.opacity=0.95;
+      this._beam.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), new THREE.Vector3(dx/L,dy/L,dz/L)); }
+    if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(90,0.18,'sawtooth',0.16,900);}catch(_){}
+    if(typeof addTrauma==='function')addTrauma(0.08);
+    // hit: player roughly along the beam + in range
+    if(p&&p.alive&&(p.inv==null||p.inv<=0)&&GS.state==='playing'){
+      if(L<(window._OCTO_LASER_R||340)){
+        if(p.shieldActive&&p.shieldHit&&p.shieldHit(2,'laser')){}
+        else if(typeof playerDie==='function'){ try{ playerDie(window._OCTO_LASER_DMG||2,'#ff3a6e','laser'); }catch(_){} }
+      }
+    }
+  }
+  _shock(p,n){
+    this._shockCD=(window._OCTO_SHOCK_CD||0.7);
+    if(p.shieldActive&&p.shieldHit&&p.shieldHit(2,'shock')) { /* shield eats it */ }
+    else if(typeof playerDie==='function'){ try{ playerDie(window._OCTO_SHOCK_DMG||1,'#8fd8ff','shock'); }catch(_){} }
+    const kx=(p.wx-n.x), kz=(p.wz-n.z), kl=Math.hypot(kx,kz)||1;
+    p.vx=(p.vx||0)+(kx/kl)*(window._OCTO_SHOCK_KB||150); p.vz=(p.vz||0)+(kz/kl)*(window._OCTO_SHOCK_KB||150);
+    p.pvy=Math.max(p.pvy||0,(window._OCTO_SHOCK_LIFT||120));
+    if(typeof ps!=='undefined'){ for(let k=0;k<10;k++)ps.spark(n.x+rand(-6,6),n.z+rand(-6,6),[0.6,0.95,1],n.y+rand(-6,6)); }
+    if(typeof addTrauma==='function')addTrauma(0.14); if(typeof flashScreen==='function')try{flashScreen(0.25);}catch(_){}
+    if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(300,0.1,'square',0.14,120);}catch(_){}
+  }
+  addToScene(){ if(this.mesh){ scene.add(this.mesh); this.mesh.visible=false; } }
+  die(){
+    if(typeof ps!=='undefined'){ ps.burst(this.wx,this.wz,[0.35,0.85,1],26,140,8+this.py); ps.ring(this.wx,this.wz,[0.5,0.9,1],24,150,8+this.py);
+      for(let k=0;k<26;k++)ps.spark(this.wx+rand(-30,30),this.wz+rand(-30,30),[0.2,0.5,0.9],8+this.py+rand(-20,20)); }   // ink + spark burst
+    if(typeof grid!=='undefined'&&grid.shock)grid.shock(this.wx,this.wz,5); if(typeof addTrauma==='function')addTrauma(0.1);
+    if(typeof Audio!=='undefined'&&Audio.bigDie)try{Audio.bigDie();}catch(_){}
+    this.remove();
+  }
+  remove(){
+    if(this.arms)for(const t of this.arms){ try{ scene.remove(t.mesh); t.geo.dispose(); t.mat.dispose(); scene.remove(t.tip); t.tip.geometry.dispose(); t.tip.material.dispose(); }catch(_){} }
+    if(this._beam){ try{ scene.remove(this._beam); this._beam.geometry.dispose(); this._beam.material.dispose(); }catch(_){} }
+    if(this.mesh){ try{ scene.remove(this.mesh); this.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ const m=Array.isArray(o.material)?o.material:[o.material]; m.forEach(x=>x.dispose&&x.dispose()); } }); }catch(_){} }
+  }
+}
+window._spawnOctopus=function(n){ n=n||1; if(typeof player==='undefined'||!player){ return; }
+  for(let i=0;i<n;i++){ const a=Math.random()*TAU, r=(window._OCTO_SPAWN_R||260); const wx=(player.wx||0)+Math.cos(a)*r, wz=(player.wz||0)+Math.sin(a)*r;
+    try{ const o=new RoboOctopus(wx,wz,GS.wave||1); o.addToScene(); GS.enemies.push(o); if(typeof announce==='function')announce('◑ ROBO-OCTOPUS','#2fd8ff'); }catch(e){ console.warn('octopus',e); } }
+};
 
 // GHOST — invisible, only visible when near player or when it attacks
 class Ghost extends Enemy{
