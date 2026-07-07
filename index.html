@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB412</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB413</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -11709,18 +11709,24 @@ class Player{
     if(this._shellBuilt) this._disposeShieldShell();
     const model=this.model; if(!model) return false;
     this._shellMeshes=[]; this._shellFillMats=[]; this._shellLineMats=[];
-    const INF1=(window._SHIELD_SHELL_INF!=null?window._SHIELD_SHELL_INF:1.7), INF2=(window._SHIELD_SHELL_INF2!=null?window._SHIELD_SHELL_INF2:3.0);
+    // proud distance is specified in WORLD units and converted to each mesh's LOCAL units (÷ world scale). The GLB is
+    // authored tiny and scaled up hugely by the armature, so a fixed local offset ballooned to arena size — this fixes it.
+    const OFF1=(window._SHIELD_SHELL_OFF1!=null?window._SHIELD_SHELL_OFF1:2.2), OFF2=(window._SHIELD_SHELL_OFF2!=null?window._SHIELD_SHELL_OFF2:3.8);
     const OPF=(window._SHIELD_SHELL_FILL_OP!=null?window._SHIELD_SHELL_FILL_OP:0.05), OPL=(window._SHIELD_SHELL_LINE_OP!=null?window._SHIELD_SHELL_LINE_OP:0.11);
     const baseCol=new THREE.Color(window._SHIELD_HEX_COL!=null?window._SHIELD_HEX_COL:0x66ccff);
     try{ model.updateWorldMatrix(true,true); }catch(_){}
     const src=[]; model.traverse(o=>{ if(o.isSkinnedMesh && o.skeleton && o.geometry && o.geometry.attributes && o.geometry.attributes.position && o.geometry.attributes.normal && !o.userData._isShield) src.push(o); });
     if(!src.length) return false;
+    const _ws=new THREE.Vector3();
     for(const o of src){
+      try{ o.getWorldScale(_ws); }catch(_){ _ws.set(1,1,1); }
+      const wsAvg=(Math.abs(_ws.x)+Math.abs(_ws.y)+Math.abs(_ws.z))/3||1;   // local offset = world offset ÷ armature scale
+      const off1=OFF1/wsAvg, off2=OFF2/wsAvg;
       const mk=(inf,wire,op)=>{
         let g; try{ g=o.geometry.clone(); }catch(_){ return null; }
         const pos=g.attributes.position, nor=g.attributes.normal;
-        for(let i=0;i<pos.count;i++){ pos.setXYZ(i, pos.getX(i)+nor.getX(i)*inf, pos.getY(i)+nor.getY(i)*inf, pos.getZ(i)+nor.getZ(i)*inf); }
-        pos.needsUpdate=true;
+        for(let i=0;i<pos.count;i++){ const nx=nor.getX(i),ny=nor.getY(i),nz=nor.getZ(i),nl=Math.hypot(nx,ny,nz)||1; pos.setXYZ(i, pos.getX(i)+(nx/nl)*inf, pos.getY(i)+(ny/nl)*inf, pos.getZ(i)+(nz/nl)*inf); }
+        pos.needsUpdate=true; g.computeBoundingSphere();
         const m=new THREE.MeshBasicMaterial({color:baseCol.clone(),transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,wireframe:!!wire});
         let sh; try{ sh=new THREE.SkinnedMesh(g,m); sh.bind(o.skeleton, o.bindMatrix.clone()); sh.bindMode=o.bindMode; }catch(_){ try{ g.dispose(); }catch(__){} m.dispose(); return null; }
         sh.position.copy(o.position); sh.quaternion.copy(o.quaternion); sh.scale.copy(o.scale);
@@ -11728,8 +11734,8 @@ class Player{
         try{ o.parent.add(sh); }catch(_){ return null; }
         this._shellMeshes.push(sh); return m;
       };
-      const fm=mk(INF1,false,OPF); if(fm)this._shellFillMats.push(fm);
-      const lm=mk(INF2,true,OPL); if(lm)this._shellLineMats.push(lm);
+      const fm=mk(off1,false,OPF); if(fm)this._shellFillMats.push(fm);
+      const lm=mk(off2,true,OPL); if(lm)this._shellLineMats.push(lm);
     }
     if(!this._shellMeshes.length){ this._shellMeshes=null; return false; }
     this._shellBuilt=true; this._shellModelRef=model; this._shellFlash=0; this._shieldT=0; return true;
@@ -11741,16 +11747,21 @@ class Player{
   _updateShieldShell(dt){
     if(this.shieldHp>0 && (!this._shellBuilt || this._shellModelRef!==this.model)) this._buildShieldShell();
     if(!this._shellBuilt) return;
-    const on=(this.shieldActive && this.shieldHp>0);
     this._shieldT=(this._shieldT||0)+dt;
-    this._shellFlash=Math.max(0,(this._shellFlash||0)-dt*(window._SHIELD_SHELL_FLASH_DECAY||3.4));
+    this._shellFlash=Math.max(0,(this._shellFlash||0)-dt*(window._SHIELD_SHELL_FLASH_DECAY||1.8));   // slower decay -> the shell flares on a hit and fades over ~0.6s
+    const fl=this._shellFlash;
+    // NOT out all the time: the shell is invisible until a shot reveals it (flares then fades), like a force field taking an impact.
+    // window._SHIELD_SHELL_ALWAYS=true for a permanent faint aura.
+    const always=!!window._SHIELD_SHELL_ALWAYS;
+    const on=(this.shieldHp>0 && (always || fl>0.02));
     const p=Math.max(0,Math.min(1,this.shieldHp/this.shieldMax));
     const hc=new THREE.Color(p>0.6?(window._SHIELD_HEX_COL!=null?window._SHIELD_HEX_COL:0x66ccff):(p>0.3?0xaa66ff:0xff4466));
     const white=new THREE.Color(1,1,1);
-    const fl=this._shellFlash, pulse=0.82+0.18*Math.sin(this._shieldT*3.0);
-    const baseF=(window._SHIELD_SHELL_FILL_OP!=null?window._SHIELD_SHELL_FILL_OP:0.05), baseL=(window._SHIELD_SHELL_LINE_OP!=null?window._SHIELD_SHELL_LINE_OP:0.11);
-    if(this._shellFillMats)for(const m of this._shellFillMats){ m.color.copy(hc).lerp(white,fl*0.7); m.opacity=(baseF+fl*0.55)*pulse; }
-    if(this._shellLineMats)for(const m of this._shellLineMats){ m.color.copy(hc).lerp(white,fl*0.6); m.opacity=(baseL+fl*0.85)*pulse; }
+    const pulse=0.82+0.18*Math.sin(this._shieldT*6.0);
+    const baseF=always?(window._SHIELD_SHELL_FILL_OP!=null?window._SHIELD_SHELL_FILL_OP:0.05):0;
+    const baseL=always?(window._SHIELD_SHELL_LINE_OP!=null?window._SHIELD_SHELL_LINE_OP:0.11):0;
+    if(this._shellFillMats)for(const m of this._shellFillMats){ m.color.copy(hc).lerp(white,fl*0.7); m.opacity=(baseF+fl*0.6)*pulse; }
+    if(this._shellLineMats)for(const m of this._shellLineMats){ m.color.copy(hc).lerp(white,fl*0.6); m.opacity=(baseL+fl*1.0)*pulse; }
     if(this._shellMeshes)for(const sh of this._shellMeshes){ if(sh.visible!==on)sh.visible=on; }
   }
   activateShield(){
