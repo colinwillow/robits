@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB436</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB437</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1423,7 +1423,7 @@ const Audio={
     // Reverb for atmosphere
     this._makeReverb();
     // preload sample SFX (laser bullet sounds) — decoded once, then played polyphonically
-    try{ this.loadSample('laser_01','audio/laser_01.mp3'); this.loadSample('laser_02','audio/laser_02.mp3'); }catch(_){}
+    try{ this.loadSample('laser_01','audio/laser_01.mp3'); this.loadSample('laser_02','audio/laser_02.mp3'); this.loadSample('powerup_01','audio/powerup_01.mp3'); }catch(_){}
   },
 
   _makeReverb(){
@@ -1487,6 +1487,10 @@ const Audio={
   dash(){ this.blip(300,0.12,'sine',0.14,1100); this.noise(0.08,0.07,3000); },
   hurt(){ this.blip(200,0.4,'sawtooth',0.28,60); this.noise(0.3,0.2,900); },
   pickup(step=0){ const b=900+Math.min(step,16)*70; this.blip(b,0.07,'sine',0.14,b*1.7); },
+  // grabbed a new WEAPON (gun / melee / cannons / etc.) -> the custom powerup sample; falls back to the synth pickup until it decodes
+  powerup(){ if(!this.on||!this.ctx)return; const nm=(window._POWERUP_SFX_NAME||'powerup_01'), buf=this.samples[nm];
+    if(buf&&buf!=='pending'){ this.playSample(nm,(window._POWERUP_SFX_VOL!=null?window._POWERUP_SFX_VOL:0.9)); }
+    else { this.pickup(6); this.blip(1320,0.12,'triangle',0.12,520); } },
   overdrive(){ this.blip(440,0.6,'sawtooth',0.26,1760); this.blip(660,0.6,'square',0.16,2640); },
   wave(){ this.blip(523,0.15,'sine',0.16,784); setTimeout(()=>this.blip(784,0.2,'sine',0.16,1046),120); },
   gameover(){ this.blip(330,1.5,'sawtooth',0.26,55); },
@@ -32995,7 +32999,7 @@ function _equipWeapon(weapon,ammo){
   if(typeof updateWeaponHUD==='function') updateWeaponHUD();
   if(typeof announce==='function') announce((swapped?'\u21c4 ':'\u25b8 ')+weapon.toUpperCase(), _WPN_HEX[weapon]||'#00ccff');
   if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[1,0.7,0.2],30,160); ps.ring(player.wx,player.wz,[0.6,1,1],20,140); }
-  if(typeof Audio!=='undefined'){ Audio.blip(440,0.1,'square',0.2,900); Audio.blip(180,0.16,'sawtooth',0.18,60); }
+  if(typeof Audio!=='undefined'&&Audio.powerup)try{ Audio.powerup(); }catch(_){}   // grabbed a new gun / cannon -> powerup_01 sample
 }
 // ════════════════ TWO-HANDED RIFLE STANCE ════════════════
 // Flag any projectile weapon as a "rifle" -> while it's equipped the character holds it two-handed
@@ -33221,7 +33225,7 @@ function _collectHammer(st){
   if(player._meleeType===type) return false;                    // already holding this one -> step onto the other pad to swap
   const ok=_equipMeleeType(type);
   if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[1,0.2,0.7],34,170); ps.ring(player.wx,player.wz,[0.2,1,0.9],22,150); }
-  if(typeof Audio!=='undefined'){ Audio.blip(160,0.18,'sawtooth',0.25,70); Audio.blip(420,0.12,'square',0.2,900); }
+  if(typeof Audio!=='undefined'&&Audio.powerup)try{ Audio.powerup(); }catch(_){}   // grabbed a new melee weapon -> powerup_01 sample
   if(typeof addTrauma==='function') addTrauma(0.12);
   if(typeof announce==='function') announce(ok?(((window._MELEE_NAMES&&window._MELEE_NAMES[type])||'\u2694 BLADE')+(window._hammerDirBone?' \u2014 aimed':' \u2014 no dir bone')):'NO HAND BONE FOUND', ok?'#33ffdd':'#ff5555');
   if(typeof _updateStowButton==='function') _updateStowButton();
