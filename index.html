@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB440</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB441</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -4807,7 +4807,7 @@ class EnemyBullet{
     }
     if(this.life>0&&player&&player.alive&&player.inv<=0&&player.py<40){
       if(Math.hypot(player.wx-this.wx,player.wz-this.wz)<20){
-        if(player.shieldActive&&player.shieldHit(2,'bullet')){
+        if(player.shieldActive&&player.shieldHit(2,'bullet',this.wx,this.wz,(this.y!=null?this.y:(player.py||0)+18))){
           // Deflect — reverse velocity and fade out
           this.vx*=-0.6; this.vz*=-0.6; this.life=0.3;
           return;
@@ -11775,10 +11775,11 @@ class Player{
         const pos=g.attributes.position, nor=g.attributes.normal;
         for(let i=0;i<pos.count;i++){ const nx=nor.getX(i),ny=nor.getY(i),nz=nor.getZ(i),nl=Math.hypot(nx,ny,nz)||1; pos.setXYZ(i, pos.getX(i)+(nx/nl)*inf, pos.getY(i)+(ny/nl)*inf, pos.getZ(i)+(nz/nl)*inf); }
         pos.needsUpdate=true; g.computeBoundingSphere();
-        const m=new THREE.MeshBasicMaterial({color:baseCol.clone(),transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,wireframe:!!wire});
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(pos.count*3), 3));   // per-vertex glow: 0 = dark (additive => invisible). Only verts near an impact get lit.
+        const m=new THREE.MeshBasicMaterial({color:0xffffff,vertexColors:true,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,wireframe:!!wire});
         let sh; try{ sh=new THREE.SkinnedMesh(g,m); sh.bind(o.skeleton, o.bindMatrix.clone()); sh.bindMode=o.bindMode; }catch(_){ try{ g.dispose(); }catch(__){} m.dispose(); return null; }
         sh.position.copy(o.position); sh.quaternion.copy(o.quaternion); sh.scale.copy(o.scale);
-        sh.frustumCulled=false; sh.renderOrder=3; sh.userData._isShield=true; sh.visible=false;
+        sh.frustumCulled=false; sh.renderOrder=3; sh.userData._isShield=true; sh.userData._isLine=!!wire; sh.userData._heat=new Float32Array(pos.count); sh.userData._lit=false; sh.visible=false;
         try{ o.parent.add(sh); }catch(_){ return null; }
         this._shellMeshes.push(sh); return m;
       };
@@ -11792,25 +11793,40 @@ class Player{
     if(this._shellMeshes){ for(const sh of this._shellMeshes){ try{ if(sh.parent)sh.parent.remove(sh); if(sh.geometry)sh.geometry.dispose(); if(sh.material&&sh.material.dispose)sh.material.dispose(); }catch(_){} } }
     this._shellMeshes=null; this._shellFillMats=null; this._shellLineMats=null; this._shellBuilt=false; this._shellModelRef=null;
   }
+  // LIGHT UP ONLY WHERE HIT: raise per-vertex "heat" on the shell verts near the impact world-point. The wireframe lattice + fill fade in around that spot (a localized cyber-absorb), then decay in _updateShieldShell.
+  _shellHitAt(wx,wy,wz){
+    if(!this._shellMeshes)return; const R=(window._SHIELD_HIT_R||18), R2=R*R, _v=new THREE.Vector3();
+    for(const sh of this._shellMeshes){
+      const g=sh.geometry, pos=g&&g.attributes&&g.attributes.position, heat=sh.userData&&sh.userData._heat; if(!pos||!heat)continue;
+      try{ sh.updateWorldMatrix(true,false); }catch(_){}
+      const mw=sh.matrixWorld; let touched=false;
+      for(let i=0;i<pos.count;i++){ _v.set(pos.getX(i),pos.getY(i),pos.getZ(i)).applyMatrix4(mw); const dx=_v.x-wx,dy=_v.y-wy,dz=_v.z-wz,d2=dx*dx+dy*dy+dz*dz;
+        if(d2<R2){ const f=1-Math.sqrt(d2)/R; if(f>heat[i]){ heat[i]=Math.min(1,f*1.3); touched=true; } } }
+      if(touched){ sh.userData._lit=true; sh.visible=true; }
+    }
+  }
   _updateShieldShell(dt){
     if(this.shieldHp>0 && (!this._shellBuilt || this._shellModelRef!==this.model)) this._buildShieldShell();
-    if(!this._shellBuilt) return;
+    if(!this._shellBuilt || !this._shellMeshes) return;
     this._shieldT=(this._shieldT||0)+dt;
-    this._shellFlash=Math.max(0,(this._shellFlash||0)-dt*(window._SHIELD_SHELL_FLASH_DECAY||1.8));   // slower decay -> the shell flares on a hit and fades over ~0.6s
-    const fl=this._shellFlash;
-    // NOT out all the time: the shell is invisible until a shot reveals it (flares then fades), like a force field taking an impact.
-    // window._SHIELD_SHELL_ALWAYS=true for a permanent faint aura.
     const always=!!window._SHIELD_SHELL_ALWAYS;
-    const on=(this.shieldHp>0 && (always || fl>0.02));
     const p=Math.max(0,Math.min(1,this.shieldHp/this.shieldMax));
-    const hc=new THREE.Color(p>0.6?(window._SHIELD_HEX_COL!=null?window._SHIELD_HEX_COL:0x66ccff):(p>0.3?0xaa66ff:0xff4466));
-    const white=new THREE.Color(1,1,1);
-    const pulse=0.82+0.18*Math.sin(this._shieldT*6.0);
-    const baseF=always?(window._SHIELD_SHELL_FILL_OP!=null?window._SHIELD_SHELL_FILL_OP:0.05):0;
-    const baseL=always?(window._SHIELD_SHELL_LINE_OP!=null?window._SHIELD_SHELL_LINE_OP:0.11):0;
-    if(this._shellFillMats)for(const m of this._shellFillMats){ m.color.copy(hc).lerp(white,Math.min(0.5,fl*0.45)); m.opacity=(baseF+fl*(window._SHIELD_SHELL_FLARE_F||0.3))*pulse; }   // stay cyan-tinted + translucent (not a blown-out white blob) so the body-shaped shield reads
-    if(this._shellLineMats)for(const m of this._shellLineMats){ m.color.copy(hc).lerp(white,Math.min(0.55,fl*0.5)); m.opacity=(baseL+fl*(window._SHIELD_SHELL_FLARE_L||0.55))*pulse; }
-    if(this._shellMeshes)for(const sh of this._shellMeshes){ if(sh.visible!==on)sh.visible=on; }
+    const hc=new THREE.Color(p>0.6?(window._SHIELD_HEX_COL!=null?window._SHIELD_HEX_COL:0x66ccff):(p>0.3?0xaa66ff:0xff4466));   // tint by shield charge: cyan -> purple -> red
+    const base=always?(window._SHIELD_SHELL_BASE!=null?window._SHIELD_SHELL_BASE:0.05):0;
+    const decay=dt/(window._SHIELD_HIT_LIFE||0.55);
+    const pulse=0.85+0.15*Math.sin(this._shieldT*6.0);
+    for(const sh of this._shellMeshes){
+      const heat=sh.userData&&sh.userData._heat, g=sh.geometry, col=g&&g.attributes&&g.attributes.color; if(!heat||!col)continue;
+      if(!always && !sh.userData._lit){ if(sh.visible)sh.visible=false; continue; }   // idle + dark -> skip the repaint entirely
+      const boost=sh.userData._isLine?(window._SHIELD_LINE_GAIN||1.25):(window._SHIELD_FILL_GAIN||0.7);
+      let anyLit=false;
+      for(let i=0;i<heat.length;i++){ let h=heat[i]; if(h>0){ h-=decay; if(h<0)h=0; heat[i]=h; }
+        const v=(base + h*boost)*pulse; if(v>0.003)anyLit=true;
+        const wmix=Math.min(0.75,h*0.75);   // hottest core whitens
+        col.setXYZ(i, (hc.r+(1-hc.r)*wmix)*v, (hc.g+(1-hc.g)*wmix)*v, (hc.b+(1-hc.b)*wmix)*v); }
+      col.needsUpdate=true; sh.userData._lit=anyLit;
+      const vis=anyLit||always; if(sh.visible!==vis)sh.visible=vis;
+    }
   }
   activateShield(){
     if(this.shieldHp<=0){ announce('SHIELD DEPLETED','#ff4400'); return; }
@@ -11829,20 +11845,24 @@ class Player{
     if(this._shellMeshes)for(const sh of this._shellMeshes){ sh.visible=false; }
     Audio.blip(440,0.08,'sine',0.08,300);
   }
-  shieldHit(dmg,type='bullet',hitX,hitZ){
+  shieldHit(dmg,type='bullet',hitX,hitZ,hitY){
     if(this.shieldHp<=0) return false;
     const _shell=((window._SHIELD_STYLE||'hex')==='shell');
     if(_shell){ if(!this._shellBuilt)this._buildShieldShell(); }   // absorb defensively even if the model hasn't loaded yet
     else if(!this._shieldMesh3D) return false;
     this.shieldHp=Math.max(0,this.shieldHp-dmg);
-    this._shieldHitFlash=14; this._shellFlash=1;   // whole shell flares white on impact
+    this._shieldHitFlash=14;
     const hx=(hitX!==undefined?hitX:this.wx+Math.cos(this.aim)*30)-this.wx;
     const hz=(hitZ!==undefined?hitZ:this.wz+Math.sin(this.aim)*30)-this.wz;
     const hl=Math.hypot(hx,hz)||1;
     if(this._shieldDeformDir) this._shieldDeformDir.set(hx/hl,0,hz/hl);
     this._shieldDeformT=16;
-    { const _hd=(hl>0.01)?{x:hx/hl,z:hz/hl}:{x:Math.cos(this.aim),z:Math.sin(this.aim)}; const _sr=(window._SHIELD_R||27); if(typeof _hitMark==='function')_hitMark(this.wx+_hd.x*_sr, (this.py||0)+18, this.wz+_hd.z*_sr, (window._SHIELD_HIT_COL||0x66ccff), false);
-      if(this._shieldHits){ this._shieldHits.push({dx:_hd.x,dy:0,dz:_hd.z,s:1}); if(this._shieldHits.length>(window._SHIELD_HEX_MAX||10))this._shieldHits.shift(); } }   // light up the hex lattice cells nearest this impact
+    const _hd=(hl>0.01)?{x:hx/hl,z:hz/hl}:{x:Math.cos(this.aim),z:Math.sin(this.aim)};
+    const _wy=(hitY!==undefined?hitY:(this.py||0)+18);
+    // LOCALIZED shell glow at the actual impact point (bullet pos if we have it, else projected onto the front of the shield)
+    if(_shell){ const ix=(hitX!==undefined?hitX:this.wx+_hd.x*(window._SHIELD_R||22)), iz=(hitZ!==undefined?hitZ:this.wz+_hd.z*(window._SHIELD_R||22)); try{ this._shellHitAt(ix,_wy,iz); }catch(_){} }
+    { const _sr=(window._SHIELD_R||27); if(typeof _hitMark==='function')_hitMark(this.wx+_hd.x*_sr, _wy, this.wz+_hd.z*_sr, (window._SHIELD_HIT_COL||0x66ccff), false);
+      if(this._shieldHits){ this._shieldHits.push({dx:_hd.x,dy:0,dz:_hd.z,s:1}); if(this._shieldHits.length>(window._SHIELD_HEX_MAX||10))this._shieldHits.shift(); } }   // light up the hex lattice cells nearest this impact (old hex style)
     if(this.shieldHp<=0){
       this._shieldRegenDelay=360; // 6s double delay when shield dies
       this.shieldActive=false;
