@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB467</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB468</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14482,6 +14482,30 @@ class BotPilot{
     if(typeof _ensureThreatGlow==='function') try{ _ensureThreatGlow(this); }catch(_){}
     if(this.model){ const yaw=-this.aim+Math.PI/2; this.model.rotation.set(0,yaw,0); this.model.position.set(this.wx,this.py||0,this.wz); }
   }
+  // ── STAND ON CUSTOM PLATFORMS ── raycast straight down onto the imported platform.glb triangles (the same _arenaAssetCols
+  //    colliders the PLAYER lands on) so bots can climb + fight up on your real multi-level, not just the pad decks.
+  _standOnAssets(dt){
+    const cols=window._arenaAssetCols; if(!cols||!cols.length||this._onPad) return false;
+    const LV=(window._PLAT_LAND_VY||16); let landed=false, bestY=-1e9, bestB=null;
+    const RU=(window._MESH_RAY_UP||70), RD=(window._MESH_RAY_DOWN||50);
+    if(!window._meshRay){ window._meshRay=new THREE.Raycaster(); window._meshRayO=new THREE.Vector3(); window._meshRayD=new THREE.Vector3(0,-1,0); }
+    const rc=window._meshRay;
+    for(const b of cols){ if(!b||b._solid===false) continue;
+      if(b._meshes&&b._meshes.length){                                   // real-geometry deck: raycast down onto the actual surface
+        if(Math.abs(this.wx-b.x)>b.hw+12||Math.abs(this.wz-b.z)>b.hd+12){ if(this._stuckAsset===b)this._stuckAsset=null; continue; }
+        rc.set(window._meshRayO.set(this.wx,(this.py||0)+RU,this.wz), window._meshRayD); rc.far=RU+RD;
+        const hits=rc.intersectObjects(b._meshes,false); if(!hits.length){ if(this._stuckAsset===b)this._stuckAsset=null; continue; }
+        const hy=hits[0].point.y, cap=Math.max(14,Math.abs(this.pvy||0)*dt+10,(window._MESH_CATCH||55)), stuck=(this._stuckAsset===b);
+        const ok = stuck ? ((this.pvy||0)<=LV) : ((this.pvy||0)<=LV && (this.py||0)<=hy+2 && (this.py||0)>=hy-cap);
+        if(ok){ if(hy>bestY){ bestY=hy; landed=true; bestB=b; } } else if(this._stuckAsset===b) this._stuckAsset=null;
+      } else if(b.top!=null){                                            // simple box asset collider -> box stand
+        const hw=b.hw||30, hd=b.hd||30, top=b.top; if(top<=2)continue;
+        if(Math.abs(this.wx-b.x)<hw && Math.abs(this.wz-b.z)<hd && (this.py||0)<=top+2 && (this.py||0)>=top-(window._BOT_PLAT_CAP||60) && (this.pvy||0)<=0){ if(top>bestY){ bestY=top; landed=true; } }
+      }
+    }
+    if(landed){ this.py=bestY; if((this.pvy||0)<0)this.pvy=0; this._onPlatform=true; this._stuckAsset=bestB; return true; }
+    return false;
+  }
   update(dt){
     if(!this.alive) return;
     if(this._netMirror){ try{ this._netMirrorTick(dt); }catch(_){} return; }   // non-host: display-only mirror driven by the host's broadcast (no local AI)
@@ -14889,6 +14913,8 @@ class BotPilot{
             else { this.py=a.y; if((this.pvy||0)<0)this.pvy=0; this._onPlatform=true; } }
           if(!this._onPad && A){ for(const a of A){ const d=Math.hypot(this.wx-a.x,this.wz-a.z); if(d<a.r+8 && (this.pvy||0)<=0 && Math.abs((this.py||0)-a.y)<(window._PAD_LAND_DY||16)){ this._onPad=a; this.py=a.y; this.pvy=0; break; } } }   // land on a pad from above
           const PL=window._cubePlatforms; if(PL && !this._onPad){ for(const pl of PL){ if(!pl)continue; const hw=pl.hw||30,hd=pl.hd||30,top=pl.top||0; if(top<=2)continue; if(Math.abs(this.wx-pl.x)<hw && Math.abs(this.wz-pl.z)<hd && (this.py||0)<=top+2 && (this.py||0)>=top-(window._BOT_PLAT_CAP||60) && (this.pvy||0)<=0){ this.py=top; this.pvy=0; this._onPlatform=true; break; } } }   // stand on the raised power-pad / spawn decks
+          if(window._BOT_ASSET_STAND!==false && !this._onPad){ try{ this._standOnAssets(dt); }catch(_){} }   // + your imported platform.glb: bots climb + fight up on the real multi-level too
+
           if(!this._onPad && A && (this.py||0)<GND){   // ENGAGE the lift when standing under a pad. A bot that intentionally came here (_padGoal) engages almost instantly; an incidental walk-on uses the player's full dwell.
             let onA=null; for(const a of A){ if(Math.hypot(this.wx-a.x,this.wz-a.z)<a.r){ onA=a; break; } }
             if(onA){ const _need=(this._padGoal===onA)?(window._BOT_PAD_DWELL||0.12):DELAY;
