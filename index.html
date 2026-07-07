@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB441</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB442</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -4808,8 +4808,7 @@ class EnemyBullet{
     if(this.life>0&&player&&player.alive&&player.inv<=0&&player.py<40){
       if(Math.hypot(player.wx-this.wx,player.wz-this.wz)<20){
         if(player.shieldActive&&player.shieldHit(2,'bullet',this.wx,this.wz,(this.y!=null?this.y:(player.py||0)+18))){
-          // Deflect — reverse velocity and fade out
-          this.vx*=-0.6; this.vz*=-0.6; this.life=0.3;
+          this.life=0;   // shield ABSORBS the shot — it does NOT bounce/parry it back (parrying is melee-only). The old code reversed the bullet's velocity, which read as an auto-shield parry.
           return;
         }
         this.life=0;
@@ -11776,10 +11775,12 @@ class Player{
         for(let i=0;i<pos.count;i++){ const nx=nor.getX(i),ny=nor.getY(i),nz=nor.getZ(i),nl=Math.hypot(nx,ny,nz)||1; pos.setXYZ(i, pos.getX(i)+(nx/nl)*inf, pos.getY(i)+(ny/nl)*inf, pos.getZ(i)+(nz/nl)*inf); }
         pos.needsUpdate=true; g.computeBoundingSphere();
         g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(pos.count*3), 3));   // per-vertex glow: 0 = dark (additive => invisible). Only verts near an impact get lit.
+        let _vbone=null; { const si=g.attributes.skinIndex, sw=g.attributes.skinWeight; if(si&&sw){ _vbone=new Int16Array(pos.count);   // each vert's DOMINANT bone -> at hit time we light verts whose bone is nearest the impact (bones follow the live animation, unlike rest-pose verts)
+          for(let i=0;i<pos.count;i++){ let bi=si.getX(i),bw=sw.getX(i); const iy=si.getY(i),wy2=sw.getY(i); if(wy2>bw){bi=iy;bw=wy2;} const iz=si.getZ(i),wz2=sw.getZ(i); if(wz2>bw){bi=iz;bw=wz2;} const iw=si.getW(i),ww=sw.getW(i); if(ww>bw){bi=iw;bw=ww;} _vbone[i]=bi; } } }
         const m=new THREE.MeshBasicMaterial({color:0xffffff,vertexColors:true,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,wireframe:!!wire});
         let sh; try{ sh=new THREE.SkinnedMesh(g,m); sh.bind(o.skeleton, o.bindMatrix.clone()); sh.bindMode=o.bindMode; }catch(_){ try{ g.dispose(); }catch(__){} m.dispose(); return null; }
         sh.position.copy(o.position); sh.quaternion.copy(o.quaternion); sh.scale.copy(o.scale);
-        sh.frustumCulled=false; sh.renderOrder=3; sh.userData._isShield=true; sh.userData._isLine=!!wire; sh.userData._heat=new Float32Array(pos.count); sh.userData._lit=false; sh.visible=false;
+        sh.frustumCulled=false; sh.renderOrder=3; sh.userData._isShield=true; sh.userData._isLine=!!wire; sh.userData._heat=new Float32Array(pos.count); sh.userData._vbone=_vbone; sh.userData._lit=false; sh.visible=false;
         try{ o.parent.add(sh); }catch(_){ return null; }
         this._shellMeshes.push(sh); return m;
       };
@@ -11795,13 +11796,18 @@ class Player{
   }
   // LIGHT UP ONLY WHERE HIT: raise per-vertex "heat" on the shell verts near the impact world-point. The wireframe lattice + fill fade in around that spot (a localized cyber-absorb), then decay in _updateShieldShell.
   _shellHitAt(wx,wy,wz){
-    if(!this._shellMeshes)return; const R=(window._SHIELD_HIT_R||18), R2=R*R, _v=new THREE.Vector3();
+    if(!this._shellMeshes)return; const _v=new THREE.Vector3(), SPREAD=(window._SHIELD_HIT_SPREAD||11), R=(window._SHIELD_HIT_R||26), R2=R*R;
     for(const sh of this._shellMeshes){
-      const g=sh.geometry, pos=g&&g.attributes&&g.attributes.position, heat=sh.userData&&sh.userData._heat; if(!pos||!heat)continue;
-      try{ sh.updateWorldMatrix(true,false); }catch(_){}
-      const mw=sh.matrixWorld; let touched=false;
-      for(let i=0;i<pos.count;i++){ _v.set(pos.getX(i),pos.getY(i),pos.getZ(i)).applyMatrix4(mw); const dx=_v.x-wx,dy=_v.y-wy,dz=_v.z-wz,d2=dx*dx+dy*dy+dz*dz;
-        if(d2<R2){ const f=1-Math.sqrt(d2)/R; if(f>heat[i]){ heat[i]=Math.min(1,f*1.3); touched=true; } } }
+      const g=sh.geometry, pos=g&&g.attributes&&g.attributes.position, heat=sh.userData&&sh.userData._heat, vbone=sh.userData&&sh.userData._vbone, skel=sh.skeleton; if(!pos||!heat)continue;
+      let touched=false;
+      if(vbone && skel && skel.bones && skel.bones.length){   // BONE-ACCURATE: bones follow the live animation, so shooting a raised arm lights the raised arm. Light relative to the NEAREST bone (falls off over SPREAD) so only the hit limb lights, not every joint clustered near the torso.
+        const bones=skel.bones, bd=new Float32Array(bones.length); let dmin=1e9;
+        for(let b=0;b<bones.length;b++){ bones[b].getWorldPosition(_v); const dx=_v.x-wx,dy=_v.y-wy,dz=_v.z-wz; const d=Math.sqrt(dx*dx+dy*dy+dz*dz); bd[b]=d; if(d<dmin)dmin=d; }
+        if(dmin<(window._SHIELD_HIT_MAX||90)){ for(let i=0;i<vbone.length;i++){ const f=1-(bd[vbone[i]]-dmin)/SPREAD; if(f>0){ const h=Math.min(1,f); if(h>heat[i]){ heat[i]=h; touched=true; } } } }
+      } else {   // fallback (no skin data): rest-pose vertex distance
+        try{ sh.updateWorldMatrix(true,false); }catch(_){} const mw=sh.matrixWorld;
+        for(let i=0;i<pos.count;i++){ _v.set(pos.getX(i),pos.getY(i),pos.getZ(i)).applyMatrix4(mw); const dx=_v.x-wx,dy=_v.y-wy,dz=_v.z-wz,d2=dx*dx+dy*dy+dz*dz; if(d2<R2){ const f=1-Math.sqrt(d2)/R; if(f>heat[i]){ heat[i]=Math.min(1,f*1.3); touched=true; } } }
+      }
       if(touched){ sh.userData._lit=true; sh.visible=true; }
     }
   }
