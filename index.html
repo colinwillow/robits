@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB405</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB406</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -26903,7 +26903,9 @@ function _makeSentryGun(){
   for(const bx of [[-9,7,3],[9,7,3],[-9,-6,-9],[9,-6,-9]]){ const bolt=new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,1.2,6),M(0x2a3340,NEON,0.4)); bolt.rotation.x=Math.PI/2; bolt.position.set(bx[0],bx[1],bx[2]+0.3); yaw.add(bolt); }
   // EJECTION PORT (right side) — casings spray from here
   const port=new THREE.Mesh(new THREE.BoxGeometry(2.5,2,3.5),M(0x1a2029,0xffcc44,0.3)); port.position.set(9.5,-3,4); yaw.add(port);
-  g.userData.parts={yaw,pitch,roll,eye,eyeCore,mz,lem,tip,head,light,panel,bars,port,headY:HEADY};
+  // HEAD-PITCH: reparent EVERY head part into one pivot so the WHOLE head swivels up/down as a unit (was only the front barrel drooping = "bends in half"). Barrels keep their own spin (roll) inside it.
+  const headPitch=new THREE.Group(); { const kids=[...yaw.children]; for(const k of kids) headPitch.add(k); } yaw.add(headPitch);
+  g.userData.parts={yaw,headPitch,pitch,roll,eye,eyeCore,mz,lem,tip,head,light,panel,bars,port,headY:HEADY};
   return g;
 }
 window._makeSentryGun=_makeSentryGun;
@@ -26943,9 +26945,9 @@ function _sentryTick(dt){
     // AIMING LAG: capped angular speed (rad/s), not an instant ease -> a fast/close target can out-run its aim, so you can juke it. Feels robotic, not perfect.
     let dy=((s.tYaw-s.yaw+Math.PI)%(Math.PI*2)+Math.PI*2)%(Math.PI*2)-Math.PI; const _mt=(window._SENTRY_TURN_SPD||2.3)*dt; s.yaw+=Math.max(-_mt,Math.min(_mt,dy)); P.yaw.rotation.y=s.yaw;
     s.spin+=(window._SENTRY_SPIN||30)*s.spinUp*dt; P.roll.rotation.z=s.spin;
-    let desP=0; if(tgt){ const horiz=Math.hypot(_tx-s.x,_tz-s.z)||1; desP=Math.atan2(_ty-(s.grp.position.y+(P.headY||40)),horiz); }
-    const _mp2=(window._SENTRY_PITCH_SPD||1.8)*dt; const dp=desP-s.pitch; s.pitch+=Math.max(-_mp2,Math.min(_mp2,dp));   // pitch also lags
-    P.pitch.rotation.x=-s.pitch; if(P.head)P.head.rotation.x=-s.pitch*(window._SENTRY_HEAD_TILT||0.4);   // NOSE the head with the aim so the whole gun reads as pitching, not just the barrels
+    let desP=0; if(tgt){ const horiz=Math.hypot(_tx-s.x,_tz-s.z)||1; desP=Math.atan2(_ty-(s.grp.position.y+(P.headY||40)),horiz); const _pc=(window._SENTRY_PITCH_MAX||0.62); desP=Math.max(-_pc,Math.min(_pc,desP)); }   // clamp so the whole head doesn't over-rotate
+    const _mp2=(window._SENTRY_PITCH_SPD||1.8)*dt; const dp=desP-s.pitch; s.pitch+=Math.max(-_mp2,Math.min(_mp2,dp));   // pitch lags
+    if(P.headPitch)P.headPitch.rotation.x=-s.pitch; else P.pitch.rotation.x=-s.pitch;   // pitch the WHOLE head as a unit
     // glow pulse
     P.eye.material.opacity=(tgt?0.75:0.5)+0.25*Math.sin(s.t*(tgt?22:4)); P.light.intensity=1.0+0.7*s.spinUp; P.tip.material.opacity=0.6+0.35*Math.sin(s.t*6+1);
     s.grp.updateMatrixWorld(true);
