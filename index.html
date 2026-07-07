@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB415</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB416</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1421,6 +1421,8 @@ const Audio={
     this.sfxGain=this.ctx.createGain(); this.sfxGain.gain.value=0.55; this.sfxGain.connect(this.master);
     // Reverb for atmosphere
     this._makeReverb();
+    // preload sample SFX (laser bullet sounds) — decoded once, then played polyphonically
+    try{ this.loadSample('laser_01','audio/laser_01.mp3'); this.loadSample('laser_02','audio/laser_02.mp3'); }catch(_){}
   },
 
   _makeReverb(){
@@ -1452,7 +1454,33 @@ const Audio={
     const g=this.ctx.createGain();g.gain.value=v;
     s.connect(flt);flt.connect(g);g.connect(this.sfxGain);s.start(t);
   },
-  shoot(){ this.blip(880+rand(-60,60),0.07,'square',0.08,220); },
+  // ── SAMPLE SFX (decoded mp3/wav buffers, polyphonic) ──
+  samples:{}, _laserNext:0,
+  loadSample(name,url){
+    if(!this.ctx||this.samples[name]==='pending'||this.samples[name])return;
+    this.samples[name]='pending';
+    fetch(url).then(r=>r.arrayBuffer()).then(ab=>this.ctx.decodeAudioData(ab)).then(buf=>{ this.samples[name]=buf; }).catch(e=>{ this.samples[name]=null; try{console.warn('sfx load failed',name,e);}catch(_){} });
+  },
+  playSample(name,gain=1,rate=1){
+    if(!this.on||!this.ctx)return null; const buf=this.samples[name]; if(!buf||buf==='pending')return null;
+    const s=this.ctx.createBufferSource(); s.buffer=buf; s.playbackRate.value=rate;
+    const g=this.ctx.createGain(); g.gain.value=gain;
+    s.connect(g); g.connect(this.sfxGain); try{ s.start(this.ctx.currentTime); }catch(_){}
+    return s;
+  },
+  // Default BULLET fire = the laser_02 sample. STRINGS when held: each shot's sound only retriggers every ~half its length,
+  // so the next one starts partway through the previous (they overlap/layer). A single tap plays it through once.
+  laserShot(){
+    if(!this.on||!this.ctx)return;
+    const nm=(window._LASER_SFX_NAME||'laser_02'), buf=this.samples[nm];
+    if(!buf||buf==='pending'){ this.blip(880+rand(-60,60),0.07,'square',0.08,220); return; }   // fallback until the sample decodes
+    const now=this.ctx.currentTime;
+    const gap=(window._LASER_SFX_GAP!=null?window._LASER_SFX_GAP:buf.duration*(window._LASER_SFX_OVERLAP||0.5));   // retrigger every half the clip -> 50% overlap
+    if(now<this._laserNext)return;
+    this._laserNext=now+gap;
+    this.playSample(nm,(window._LASER_SFX_VOL!=null?window._LASER_SFX_VOL:0.9));
+  },
+  shoot(){ this.laserShot(); },
   enemyDie(){ this.blip(rand(140,220),0.18,'sawtooth',0.14,40); this.noise(0.12,0.1,2400); },
   bigDie(){ this.blip(90,0.5,'sawtooth',0.26,30); this.noise(0.45,0.26,800); },
   bomb(){ this.blip(180,1.1,'sine',0.4,28); this.blip(120,1.2,'triangle',0.3,20); this.noise(0.9,0.32,500); },
