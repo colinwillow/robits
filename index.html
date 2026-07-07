@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB413</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB414</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -22654,13 +22654,26 @@ function loop(ts){ requestAnimationFrame(loop);
             const bombClip=targetClip.replace('_shoot','')+'_bomb';
             if(bombArmed&&ud.clips[bombClip]) targetClip=bombClip;
             else if(meleeEquipped){
-              // holding the melee weapon -> _sword family; firing/shield -> _sword_shoot (left-hand up)
-              const _sp=(firing||wallPushing||player._shieldRaised);
-              const swShoot=targetClip+'_sword_shoot', sw=targetClip+'_sword';
-              if(_sp&&ud.clips[swShoot]) targetClip=swShoot;
-              else if(ud.clips[sw]) targetClip=sw;
-              else { const sc=targetClip+'_shoot'; if(_sp&&ud.clips[sc]) targetClip=sc; }
-              if(targetClip.indexOf('_sword')>=0 && !window._swordAnimConfirmed){ window._swordAnimConfirmed=true; if(typeof announce==='function')announce('SWORD ANIMS LIVE','#33ffdd'); }
+              // NEW TWO-HANDED SWORD: dedicated sword_* clip family (sword_idle/walk/run/strafe/charge). Only the sword uses
+              // this (its rig has the extra weapon2 joint); every other melee weapon keeps the old one-handed _sword-suffix set.
+              if(player._meleeType==='sword' && window._SWORD2H!==false && ud.clips['sword_idle']){
+                let sw2;
+                if(player._swordCharging && ud.clips['sword_charge']) sw2='sword_charge';        // holding the charge -> cocked-back stance
+                else if(!moving) sw2='sword_idle';
+                else if(Math.abs(angleDiff)>Math.PI*0.7) sw2=(ud.clips['sword_walk_forward']?'sword_walk_forward':'sword_run_forward');   // backpedal (walk for now)
+                else if(Math.abs(angleDiff)<Math.PI*0.3) sw2=(spd>(window._SWORD_RUN_SPD||150)&&ud.clips['sword_run_forward'])?'sword_run_forward':(ud.clips['sword_walk_forward']?'sword_walk_forward':'sword_run_forward');
+                else if(angleDiff>0) sw2='sword_strafe_right';
+                else sw2='sword_strafe_left';
+                if(sw2 && ud.clips[sw2]) targetClip=sw2;
+              } else {
+                // holding the melee weapon -> _sword family; firing/shield -> _sword_shoot (left-hand up)
+                const _sp=(firing||wallPushing||player._shieldRaised);
+                const swShoot=targetClip+'_sword_shoot', sw=targetClip+'_sword';
+                if(_sp&&ud.clips[swShoot]) targetClip=swShoot;
+                else if(ud.clips[sw]) targetClip=sw;
+                else { const sc=targetClip+'_shoot'; if(_sp&&ud.clips[sc]) targetClip=sc; }
+              }
+              if(targetClip.indexOf('sword')>=0 && !window._swordAnimConfirmed){ window._swordAnimConfirmed=true; if(typeof announce==='function')announce('SWORD ANIMS LIVE','#33ffdd'); }
             }
             else {
               const _sp=(firing||wallPushing||player._shieldRaised);
@@ -22680,7 +22693,7 @@ function loop(ts){ requestAnimationFrame(loop);
           // swings across the run/strafe boundary, so the clip thrashed run→strafe→idle→run in <0.2s (each a reset+fadeIn
           // = the visible "pause then resume"). Hold a locomotion clip briefly before letting it flip to ANOTHER loco clip;
           // switches to/from non-loco clips (melee/slide/jump/land) stay instant.
-          const _locoFam=(n)=> !!n && (n.indexOf('run')===0 || n.indexOf('strafe')===0 || n.indexOf('idle')===0);
+          const _locoFam=(n)=> !!n && (n.indexOf('run')===0 || n.indexOf('strafe')===0 || n.indexOf('idle')===0 || n.indexOf('sword_')===0);
           const _tgtLoco=_locoFam(targetClip), _curLoco=_locoFam(ud.currentClip);
           const _debounced=(window._LOCO_DEBOUNCE!==false && _tgtLoco && _curLoco && (ud._locoDwell||0)>0);
           if(targetClip!==ud.currentClip&&ud.clips[targetClip]&&!_debounced){
