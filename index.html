@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB449</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB450</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -13957,7 +13957,7 @@ class BotPilot{
     if(t.kind==='gun'){
       const w=(t.ref.weapon)||'bullets';
       const map={plasma:'plasma',minigun:'rapid',bullets:'rapid',rockets:'heavy',grenade:'heavy',boomerang:'spread',bow:'heavy',flamethrower:'spread'};
-      this._botWeapon=map[w]||'rapid'; this._botWeaponLocked=true; this._botWeaponT=(window._BOT_WEAPON_SWITCH||7)+8;
+      this._botWeapon=map[w]||'rapid'; this._botGun=w; this._botWeaponLocked=true; this._botWeaponT=(window._BOT_WEAPON_SWITCH||7)+8;   // _botGun = the REAL weapon (rockets fire actual homing missiles; others still use the bullet pattern above for now)
       if(typeof _padConsume==='function')try{_padConsume(t.ref);}catch(_){}
       if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL GRABBED '+(''+w).toUpperCase(),'#ff7a7a');}catch(_){}
       if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[1,0.5,0.2],18,120);
@@ -14402,7 +14402,15 @@ class BotPilot{
     this._burstCD=Math.max(0,this._burstCD-1);
     const _burstLen=(window._BOT_BURST_LEN&&window._BOT_BURST_LEN[this.diff])||{rookie:4,soldier:6,elite:8}[this.diff];
     const _burstGap=(window._BOT_BURST_GAP&&window._BOT_BURST_GAP[this.diff])||{rookie:34,soldier:24,elite:16}[this.diff];   // ~0.4/0.3/0.25s breather between mags — enough that it's not a constant blast
-    if(canFire&&this.fireT>=fireRate&&dist<(window._BOT_FIRE_R||380)&&(_foe&&_foe.alive!==false)&&this._burstCD<=0){
+    if(this._botGun==='rockets' && typeof EnemyMissile!=='undefined' && typeof GS!=='undefined' && GS.enemyMissiles){   // REAL ROCKETS: fire homing enemy missiles that actually fly at the player, on a slow launcher cadence
+      this._botRocketT=(this._botRocketT||0)-dt;
+      if(canFire && dist<(window._BOT_ROCKET_R||460) && _foe && _foe.alive!==false && this._botRocketT<=0){
+        this._botRocketT=(window._BOT_ROCKET_CD||1.6);
+        try{ const rdx=_foe.wx-this.wx, rdz=_foe.wz-this.wz, rd=Math.hypot(rdx,rdz)||1, _rs=(window._BOT_ROCKET_SPD||64); GS.enemyMissiles.push(new EnemyMissile(this.wx,this.wz,(this.py||0)+14,(rdx/rd)*_rs,(rdz/rd)*_rs)); }catch(_){}
+        if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(150,0.14,'sawtooth',0.16,60);}catch(_){}
+        if(typeof ps!=='undefined')ps.burst(this.wx,(this.py||0)+12,[1,0.5,0.15],5,80);
+      }
+    } else if(canFire&&this.fireT>=fireRate&&dist<(window._BOT_FIRE_R||380)&&(_foe&&_foe.alive!==false)&&this._burstCD<=0){
       this.fireT=0; this._shoot();
       this._burstCount++;
       if(this._burstCount>=_burstLen){ this._burstCount=0; this._burstCD=_burstGap; }
