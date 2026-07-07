@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB427</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB428</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -17048,7 +17048,10 @@ function _platPUInit(){
   const names=window._PLAT_PU_NODES||['powerup_lower_1','powerup_lower_2','powerup_middle','powerup_higher_1','powerup_higher_2'];
   const types=window._PLAT_PU_TYPES||['drone','spiders','sentry','bomb','nuke'];
   const A=[];
-  for(let i=0;i<names.length;i++){ const node=root.getObjectByName(names[i]); if(node)A.push({node, type:types[i%types.length], item:null, cd:0}); }
+  for(let i=0;i<names.length;i++){ const node=root.getObjectByName(names[i]); if(!node)continue;
+    const slot={node, type:types[i%types.length], item:null, cd:0, pad:null};
+    if(window._PLAT_PU_PAD!==false && typeof _makePowerPad==='function'){ try{ const def=(typeof _ITEMDEF!=='undefined'&&_ITEMDEF[slot.type])||null; const col=(def&&def.glow!=null)?def.glow:0x33e0ff; const pad=_makePowerPad(0,0,col); pad.scale.setScalar(window._PLAT_PAD_SIZE||18); pad._isPlatformAsset=true; pad.renderOrder=2; scene.add(pad); slot.pad=pad; }catch(_){} }   // an actual glowing pad under each powerup
+    A.push(slot); }
   if(!A.length)return false;
   window._platPU=A;
   for(const slot of A)_platPUSpawnSlot(slot);
@@ -17061,6 +17064,7 @@ function _platPUTick(dt){
   const A=window._platPU, hov=(window._PLAT_PU_HOVER||14);
   for(const slot of A){ if(!slot.node)continue;
     slot.node.getWorldPosition(_platPUV);
+    if(slot.pad)slot.pad.position.set(_platPUV.x, _platPUV.y+(window._PLAT_PAD_Y||1), _platPUV.z);   // the pad rides the joint at deck level (powerup floats above it)
     const it=slot.item, live=it && window._itemPU && window._itemPU.indexOf(it)>=0;
     if(live){ const gy=_platPUV.y+hov; it.x=_platPUV.x; it.z=_platPUV.z; it.y=gy; it._floatY=gy; it.settled=true; it._noExpire=true;   // pin to the (animating) joint — set the mesh directly since the item loop only bobs .y
       if(it.grp){ const bob=Math.sin((it.t||0)*(window._POWERPAD_BOB_SPD||2.2))*(window._POWERPAD_BOB||7); it.grp.position.set(_platPUV.x, gy+bob, _platPUV.z); }
@@ -17070,7 +17074,7 @@ function _platPUTick(dt){
 }
 window._platPUTick=_platPUTick;
 function _platPUDispose(){
-  try{ const A=window._platPU; if(A)for(const slot of A){ const it=slot.item; if(it&&window._itemPU){ const i=window._itemPU.indexOf(it); if(i>=0)window._itemPU.splice(i,1); if(it.grp){ try{ scene.remove(it.grp); it.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();}); }catch(_){} } } } }catch(_){}
+  try{ const A=window._platPU; if(A)for(const slot of A){ const it=slot.item; if(it&&window._itemPU){ const i=window._itemPU.indexOf(it); if(i>=0)window._itemPU.splice(i,1); if(it.grp){ try{ scene.remove(it.grp); it.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();}); }catch(_){} } } if(slot.pad){ try{ if(slot.pad.parent)slot.pad.parent.remove(slot.pad); slot.pad.traverse(o=>{if(o.geometry)o.geometry.dispose();}); }catch(_){} } } }catch(_){}
   window._platPU=null;
 }
 window._platPUDispose=_platPUDispose;
