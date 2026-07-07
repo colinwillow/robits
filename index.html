@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB463</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB464</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -8317,8 +8317,14 @@ class EnemyMissile{
   }
   update(dt){
     this.t+=dt; this.life-=dt*0.012*60;
-    // Slow gentle homing toward player
-    if(player&&player.alive){
+    if(this._deflected){
+      // shot/parried back: it now flies where it was flicked and HEAT-SEEKS the nearest foe (enemy/bot) instead of you
+      let tgt=null,td=1e9;
+      if(GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false)continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<td){td=d;tgt=e;} }
+      if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false||b._netMirror)continue; const d=Math.hypot(b.wx-this.wx,b.wz-this.wz); if(d<td){td=d;tgt=b;} }
+      if(tgt){ const dx=tgt.wx-this.wx,dz=tgt.wz-this.wz,d=Math.hypot(dx,dz)||1, sp=Math.max(this.speed||90,220); this.vx=lerp(this.vx,(dx/d)*sp,dt*2); this.vz=lerp(this.vz,(dz/d)*sp,dt*2); }
+    } else if(player&&player.alive){
+      // Slow gentle homing toward player
       const dx=player.wx-this.wx, dz=player.wz-this.wz;
       const d=Math.hypot(dx,dz)||1;
       this.vx=lerp(this.vx,(dx/d)*this.speed,dt*1.2);
@@ -8340,8 +8346,12 @@ class EnemyMissile{
     this.group.rotation.y=-(ang-Math.PI/2);
     this.group.position.set(this.wx,this.y,this.wz);
     this._glowMat.opacity=0.2+0.2*Math.sin(this.t*10);
-    // Hit player
-    if(player&&player.alive&&player.inv<=0){
+    if(this._deflected){
+      // now a friendly-to-you projectile: detonate on the nearest foe it reaches
+      if(GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false)continue; if(Math.hypot(e.wx-this.wx,e.wz-this.wz)<((e.size||14)+14)){ this.detonate(); return 0; } }
+      if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false||b._netMirror)continue; if(Math.hypot(b.wx-this.wx,b.wz-this.wz)<((b.size||18)+14)){ this.detonate(); return 0; } }
+    } else if(player&&player.alive&&player.inv<=0){
+      // Hit player
       const pd=Math.hypot(player.wx-this.wx,player.wz-this.wz);
       if(pd<20){
         if(player.shieldActive&&player.shieldHit(20,'rocket')){
@@ -8354,6 +8364,17 @@ class EnemyMissile{
     }
     if(this.life<=0||_projOOB(this.wx,this.wz,this.y,50)){ this.remove(); return 0; }
     return 1;
+  }
+  detonate(){   // shot down / reached a foe -> explode (small blast on nearby enemies+bots)
+    if(this._dead) return; this._dead=true;
+    const R=(window._ROCKET_BLAST_R||70);
+    if(typeof ps!=='undefined'){ ps.burst(this.wx,this.wz,[1,0.55,0.15],20,150,this.y); ps.ring(this.wx,this.wz,[1,0.6,0.2],16,130,this.y); }
+    if(typeof grid!=='undefined'&&grid.shock)try{grid.shock(this.wx,this.wz,2);}catch(_){}
+    if(typeof addTrauma==='function')addTrauma(0.05);
+    if(GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false)continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<R){ if(e.hit)try{e.hit(Math.max(1,Math.ceil(3*(1-d/R)+1)),this.wx,this.wz);}catch(_){} if(e.knock)try{e.knock(e.wx-this.wx,e.wz-this.wz,2,120,10);}catch(_){} } }
+    if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false||b._netMirror)continue; const d=Math.hypot(b.wx-this.wx,b.wz-this.wz); if(d<R&&b.hit)try{b.hit(Math.max(1,Math.ceil(3*(1-d/R)+1)));}catch(_){} }
+    if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(80,0.16,'sawtooth',0.16,60);}catch(_){}
+    this.remove();
   }
   remove(){
     scene.remove(this.group); scene.remove(this._trailMesh);
@@ -16591,8 +16612,42 @@ function _shieldBlockScan(dt){
   if(typeof GS!=='undefined'&&GS.bullets){ for(let i=GS.bullets.length-1;i>=0;i--){ const b=GS.bullets[i]; if(!b||b._deflected)continue; if(_front(b.wx,b.wz,b.vx||0,b.vz||0)){ if(perfect){ const s=Math.hypot(b.vx,b.vz)||300; b.vx=fx*s; b.vz=fz*s; b._deflected=true; _fx(b.wx,b.wz,true);} else { b.life=0; _fx(b.wx,b.wz,false);} } } }
   if(typeof GS!=='undefined'&&GS.missiles){ for(let i=GS.missiles.length-1;i>=0;i--){ const m=GS.missiles[i]; if(!m||m._deflected)continue; if(_front(m.wx,m.wz,m.vx||0,m.vz||0)){ if(perfect){ m._deflected=true; m._homePlayer=false; m._fromCannon=false; m.target=null; const s=Math.max(m.speed||300,340); m.vx=fx*s; m.vz=fz*s; m.speed=s; _fx(m.wx,m.wz,true);} else { if(m.group)scene.remove(m.group); GS.missiles.splice(i,1); _fx(m.wx,m.wz,false);} } } }
   if(typeof GS!=='undefined'&&GS.dropBombs){ for(const b of GS.dropBombs){ if(!b||b.dead||b._deflected||!b._fromCannon)continue; if(_front(b.wx,b.wz,b.vx||0,b.vz||0)){ if(perfect){ b._deflected=true; b._fromCannon=false; b.vx=fx*SPD; b.vz=fz*SPD; b.vy=Math.max(b.vy||0,150); if(b.timer!=null)b.timer=Math.max(b.timer,1.4); _fx(b.wx,b.wz,true);} else { b.dead=true; if(typeof ps!=='undefined')ps.burst(b.wx,b.wz,[0.4,0.8,1],16,120); _fx(b.wx,b.wz,false);} } } }
+  if(typeof GS!=='undefined'&&GS.enemyMissiles){ for(let i=GS.enemyMissiles.length-1;i>=0;i--){ const m=GS.enemyMissiles[i]; if(!m||m._deflected)continue; if(_front(m.wx,m.wz,m.vx||0,m.vz||0)){ if(perfect){ m._deflected=true; m._ownerBot=null; const s=Math.max(m.speed||300,360); m.vx=fx*s; m.vz=fz*s; m.speed=s; _fx(m.wx,m.wz,true);} else { if(m.detonate)m.detonate(); else m.remove(); GS.enemyMissiles.splice(i,1); _fx(m.wx,m.wz,false);} } } }   // ROCKETS blocked too (send back on a perfect raise, else shoot down)
   if(window._itemShots){ for(const s of window._itemShots){ if(!s||s._deflected)continue; if(_front(s.x,s.z,s.vx||0,s.vz||0)){ if(perfect){ s._deflected=true; s.vx=fx*SPD; s.vz=fz*SPD; s.vy=Math.max(s.vy||0,150); _fx(s.x,s.z,true);} else { s._deflected=true; s.vx*=0.1; s.vz*=0.1; _fx(s.x,s.z,false);} } } }
 }
+// ── MELEE DEFLECTS ROCKETS ── swing your melee near an incoming rocket and you knock it away (heat-seeks a foe now, not you).
+//    Same idea as parrying bombs/nukes, extended to enemy/bot rockets. window._MELEE_DEFLECT_ROCKET=false to disable.
+function _meleeDeflectRockets(dt){
+  if(window._MELEE_DEFLECT_ROCKET===false || !player || player.alive===false || GS.state!=='playing') return;
+  const ud=player.model&&player.model.userData; const swinging=!!(ud&&(ud._meleeTimer>0||ud._swActive))||((window._procMeleeT||0)>0) || (player._sliding);
+  if(!swinging) return;
+  const R=(window._MELEE_ROCKET_R||72), R2=R*R, fx=Math.cos(player.aim||0), fz=Math.sin(player.aim||0), S=Math.max(360,(window._PARRY_SPEED||560));
+  const _do=(m)=>{ m._deflected=true; m.vx=fx*S; m.vz=fz*S; if('speed' in m)m.speed=S;
+    if(typeof ps!=='undefined'){ ps.ring(m.wx,m.wz,[0.6,1,1],14,170,(m.y||9)); ps.burst(m.wx,m.wz,[0.6,1,1],22,170,(m.y||9)); }
+    if(typeof grid!=='undefined'&&grid.shock)try{grid.shock(m.wx,m.wz,2);}catch(_){}
+    if(typeof addTrauma==='function')addTrauma(0.12); if(typeof hitStop==='function')hitStop(5);
+    if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(920,0.07,'square',0.2,1300);}catch(_){}
+    if(typeof announce==='function')announce('ROCKET DEFLECT!','#7dffd0'); };
+  if(GS.enemyMissiles)for(const m of GS.enemyMissiles){ if(!m||m._deflected)continue; const dx=m.wx-player.wx,dz=m.wz-player.wz; if(dx*dx+dz*dz<R2 && Math.abs((m.y||9)-((player.py||0)+12))<48){ m._ownerBot=null; _do(m); } }
+  if(GS.missiles)for(const m of GS.missiles){ if(!m||m._deflected||(!m._homePlayer&&!m._fromCannon))continue; const dx=m.wx-player.wx,dz=m.wz-player.wz; if(dx*dx+dz*dz<R2){ m._homePlayer=false; m._fromCannon=false; m.target=null; _do(m); } }
+}
+// ── SHOOT DOWN ROCKETS ── your gun helps: a slight aim-assist curves your bullets toward an incoming rocket that's roughly
+//    in your aim, and a bullet that reaches one detonates it. Rockets are slow + bullets are fast, so it's real counterplay.
+function _bulletsVsRockets(dt){
+  if(window._SHOOT_ROCKETS===false || !GS.bullets || !GS.enemyMissiles || !GS.enemyMissiles.length) return;
+  const AH=(window._BULLET_ROCKET_HOME||0.16), COSC=Math.cos(window._BULLET_ROCKET_CONE||0.55), HR=(window._BULLET_ROCKET_HITR||18), AR=(window._BULLET_ROCKET_R||170);
+  for(let bi=GS.bullets.length-1;bi>=0;bi--){ const b=GS.bullets[bi]; if(!b||b._fromBot||b._ally||(b.life!=null&&b.life<=0))continue;
+    const bx=(b.wx!=null?b.wx:b.x), bz=(b.wz!=null?b.wz:b.z); if(bx==null)continue;
+    const bvl=Math.hypot(b.vx||0,b.vz||0)||1, bux=(b.vx||0)/bvl, buz=(b.vz||0)/bvl;
+    let best=null,bd=1e9;
+    for(let mi=GS.enemyMissiles.length-1;mi>=0;mi--){ const m=GS.enemyMissiles[mi]; if(!m||m._deflected)continue; const dx=m.wx-bx, dz=m.wz-bz, d=Math.hypot(dx,dz)||1;
+      if(d<HR){ if(m.detonate)m.detonate(); else m.remove(); GS.enemyMissiles.splice(mi,1); if((b.pierce||0)>0){b.pierce--;}else{ if(b.life!=null)b.life=0; else b.dead=true; } if(typeof _hitMark==='function')try{_hitMark(bx,(b.y!=null?b.y:9),bz,(window._HITMARK_COL||0xff8a2a),false);}catch(_){} best=null; break; }
+      if(d<AR){ const dot=(dx/d)*bux+(dz/d)*buz; if(dot>COSC && d<bd){ bd=d; best={dx,dz,d}; } }   // in the aim cone -> assist candidate
+    }
+    if(best && (b.life==null||b.life>0)){ const tvx=best.dx/best.d*bvl, tvz=best.dz/best.d*bvl; b.vx=lerp(b.vx||0,tvx,AH); b.vz=lerp(b.vz||0,tvz,AH); }
+  }
+}
+window._bulletsVsRockets=_bulletsVsRockets; window._meleeDeflectRockets=_meleeDeflectRockets;
 function _ensureShieldHold(){
   const b=document.getElementById('btn-shield'); if(!b||b._heldWired)return; b._heldWired=true;
   b.style.right='96px'; b.style.left='auto'; b.style.bottom='calc(max(env(safe-area-inset-bottom),28px) + 150px)'; b.style.zIndex='121';
@@ -24197,6 +24252,8 @@ function loop(ts){ requestAnimationFrame(loop);
       }
       for(let i=GS.enemyBullets.length-1;i>=0;i--){GS.enemyBullets[i].update(dt);if(GS.enemyBullets[i].life<=0){GS.enemyBullets[i].remove();GS.enemyBullets.splice(i,1);}}
       checkHits();
+      try{ _bulletsVsRockets(dt); }catch(_){}   // gun shoots down incoming rockets (+aim assist)
+      try{ _meleeDeflectRockets(dt); }catch(_){}   // melee swing knocks rockets away
 
       // ── DROP BOMBS ──
       for(let i=GS.dropBombs.length-1;i>=0;i--){
