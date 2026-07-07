@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB416</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB417</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1474,10 +1474,9 @@ const Audio={
     if(!this.on||!this.ctx)return;
     const nm=(window._LASER_SFX_NAME||'laser_02'), buf=this.samples[nm];
     if(!buf||buf==='pending'){ this.blip(880+rand(-60,60),0.07,'square',0.08,220); return; }   // fallback until the sample decodes
-    const now=this.ctx.currentTime;
-    const gap=(window._LASER_SFX_GAP!=null?window._LASER_SFX_GAP:buf.duration*(window._LASER_SFX_OVERLAP||0.5));   // retrigger every half the clip -> 50% overlap
-    if(now<this._laserNext)return;
-    this._laserNext=now+gap;
+    // ONE sound per bullet: the clip is now a single isolated shot, so fire it on every call. Polyphony (a fresh source each
+    // time) lets rapid fire overlap naturally. window._LASER_SFX_MIN_GAP>0 adds an optional safety throttle (default off).
+    const mg=(window._LASER_SFX_MIN_GAP||0); if(mg>0){ const now=this.ctx.currentTime; if(now<this._laserNext)return; this._laserNext=now+mg; }
     this.playSample(nm,(window._LASER_SFX_VOL!=null?window._LASER_SFX_VOL:0.9));
   },
   shoot(){ this.laserShot(); },
@@ -21792,8 +21791,7 @@ jR.onHoldStart=function(){
   // far too easy to fling yourself by accident while aiming or peeking the camera. Now: tap = hop,
   // hold-while-airborne = jetpack. (To restore the super jump: re-enable the _charging block below.)
   if(onGround&&!player.bombArmed){
-    if(typeof _swordChargeStart==='function' && _swordChargeStart()) return;   // SWORD equipped -> hold = charge the lunge
-    return; // otherwise do nothing on the ground/surface — no charge, no launch on release
+    return; // do nothing on the ground/surface — sword charge is a per-frame stick-DOWN gesture now, not a plain hold
     // player._charging=true; player._chargeStart=performance.now(); player._jumpCharge=0; return;
   }
   // Galaxy: hold on surface = charge jump (handled above)
@@ -21807,7 +21805,6 @@ jR.onHoldStart=function(){
 };
 jR.onHoldEnd=function(){
   if(player){
-    if(player._swordCharging){ _swordRelease(); jR._holdingForJet=false; jR._jetLatch=false; jR._jetEligible=false; return; }   // release the sword lunge
     // Charge jump — works everywhere when on ground/surface
     const onGround=player.py<=8||player._onPlatform||_gOnSurface;
     if(onGround&&player._charging&&player._chargeStart>0){
@@ -21880,14 +21877,13 @@ function _swordChargeStart(){
 }
 function _swordPickTarget(){
   if(!player) return null;
-  let ax=Math.cos(player.aim), az=Math.sin(player.aim);
-  if(typeof shootIn!=='undefined'&&shootIn){ const m=Math.hypot(shootIn.x,shootIn.y); if(m>0.2 && typeof rotInput==='function'){ const ws=rotInput(shootIn.x,shootIn.y); const l=Math.hypot(ws.x,ws.z)||1; ax=ws.x/l; az=ws.z/l; } }
+  const ax=Math.cos(player.aim||0), az=Math.sin(player.aim||0);   // aim along FACING (the down-stick is the trigger, not the aim)
   player._swordAimX=ax; player._swordAimZ=az;
   const R=(window._SWORD_LUNGE_MAX||300);
   let best=null,bs=-1e9;
-  const consider=(e)=>{ if(!e||e.alive===false||e._captured||e._dying||e._neutralized)return; const dx=e.wx-player.wx,dz=e.wz-player.wz,d=Math.hypot(dx,dz); if(d>R*1.25||d<1)return; const dot=(dx*ax+dz*az)/d; if(dot<0.25)return; const score=dot*2 - d/R; if(score>bs){bs=score;best=e;} };
-  if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies)consider(e);
-  if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)consider(b);
+  const consider=(e)=>{ if(!e||e.alive===false||e._captured||e._dying||e._neutralized)return; const dx=e.wx-player.wx,dz=e.wz-player.wz,d=Math.hypot(dx,dz); if(d>R*1.3||d<1)return; const dot=(dx*ax+dz*az)/d; const score=dot*1.5 - d/R; if(score>bs){bs=score;best=e;} };
+  try{ if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies)consider(e); }catch(_){}
+  try{ if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)consider(b); }catch(_){}
   return best;
 }
 function _swordRelease(){
@@ -22986,13 +22982,22 @@ function loop(ts){ requestAnimationFrame(loop);
           if(_sv > (window._FIRE_FLICK_VEL!=null?window._FIRE_FLICK_VEL:0.13)) player._fireSuppressT=performance.now()+(window._FIRE_FLICK_HOLD||150); }
         const _flickGuard = (player._fireSuppressT && performance.now()<player._fireSuppressT) || player._flickPending;
         const held=(typeof jR!=='undefined')?jR.isHeld:(stickMag>0.05);
+        // ── SWORD CHARGE — hold the right stick DOWN (toward you, away from your facing) with the sword out -> charge the lunge.
+        //    Forward / left / right holds still shoot normally. Release (or move off the down-cone / lift) -> lunge. ──
+        if(typeof _swordEquipped==='function' && _swordEquipped() && window._SWORD_CHARGE!==false){
+          const _swBack=(window._SWORD_CHARGE_BACK!=null?window._SWORD_CHARGE_BACK:0.5);
+          const _onGnd = (player.py<=8||player._onPlatform||player._cubeCamAuth);
+          const _swDown = held && _onGnd && shootIn.y>_swBack && Math.abs(shootIn.y)>Math.abs(shootIn.x)*1.05;
+          if(_swDown){ if(!player._swordCharging && (player._swordLungeT||0)<=0) _swordChargeStart(); }
+          else if(player._swordCharging){ _swordRelease(); }
+        }
         const _wallFire = !!(player._cubeCamAuth && !player._cwDislodge && (player._cwAir||0)<=0);   // grounded on a WALL/CEILING -> hold anywhere fires (no dead zone). On the floor or in the AIR -> must push past the dead zone, so a center tap is free for the jetpack (no accidental shot)
-        if(!held){ player._fireLatched=false; }
+        if(!held||player._swordCharging){ player._fireLatched=false; }
         else if(!_flickGuard){ if(_wallFire || stickMag > (window._FIRE_DEADZONE!=null?window._FIRE_DEADZONE:0.22)) player._fireLatched=true; }   // a fast flick is still suppressed so melee reads as melee
         // CAMERA + FACING orient the INSTANT the stick moves — not gated on the fire latch or the flick window. The camera was
         // waiting until firing engaged (past the deadzone), so a slow push felt laggy/dead until it "caught". Now any real push
         // eases the view + facing that way immediately; FIRING still waits for the latch below.
-        if(held && stickMag > (window._AIM_ORIENT_DEAD!=null?window._AIM_ORIENT_DEAD:0.1)){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; aiming=true; }
+        if(held && !player._swordCharging && stickMag > (window._AIM_ORIENT_DEAD!=null?window._AIM_ORIENT_DEAD:0.1)){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; aiming=true; }
         else if(player._fireLatched){ avx=Math.cos(player.aim)*0.04; avz=Math.sin(player.aim)*0.04; aiming=true; }   // latched but stick back at center -> keep facing, minimal mag = steepest dive at your feet
         if(player._fireLatched){
           firing=!flickActive&&!nearWallStick&&!player._wallClimb&&!_flickGuard&&!player._swordCharging&&!(player._swordLungeT>0);   // charging/lunging the sword suppresses fire (so aiming the lunge doesn't shoot)
@@ -23186,7 +23191,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
       if(player&&player._onHoverboard){ firing=false; avx=0; avz=0; aiming=false; if(player._gcur)player._gcur.visible=false; }   // riding: right stick is throttle, not fire; no aim cursor
       if(player._swordCharging){ mvx=0; mvz=0; }   // locked in place while charging the sword
-      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); if(typeof _resolveSentryCollide==='function')_resolveSentryCollide(player); resolveBodyCollisions(player); if(typeof _resolveAssetCollisions==='function')_resolveAssetCollisions(player); if(typeof _portalCollide==='function')_portalCollide(player); if(typeof _updateWallRun==='function'){ try{ _updateWallRun(dt); }catch(_wre){ try{ player._wallRun=null; }catch(_){} } } if(window._aimAssistTick){ try{ window._aimAssistTick(dt,firing,Math.hypot(avx,avz)); }catch(_){} } player.draw(od); if(player._spawnAura){ player._spawnAuraMs=(player._spawnAuraMs||0)+dt; if(player._spawnAuraMs>(window._SPAWN_AURA_SEC||4.2)){ try{player._spawnAura.remove();}catch(_){} player._spawnAura=null; player._respawnBlink=0; } } /* FAILSAFE: spawn-in glow shell normally removed in draw() as _respawnBlink counts down; an early-return draw path can freeze it on forever, so force-remove after a fixed time */ if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt); if(window._swordTick)window._swordTick(dt); if(window._ballFrame)window._ballFrame(dt); if(window._superTick)window._superTick(dt); if(window._voxTick)window._voxTick(dt); if(window._animPlatMixer)window._animPlatMixer.update(dt); if(window._platWireTick)window._platWireTick(dt); if(window._updateFuelBar)window._updateFuelBar(); if(window._riflePoseTick)window._riflePoseTick(dt);
+      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); if(typeof _resolveSentryCollide==='function')_resolveSentryCollide(player); resolveBodyCollisions(player); if(typeof _resolveAssetCollisions==='function')_resolveAssetCollisions(player); if(typeof _portalCollide==='function')_portalCollide(player); if(typeof _updateWallRun==='function'){ try{ _updateWallRun(dt); }catch(_wre){ try{ player._wallRun=null; }catch(_){} } } if(window._aimAssistTick){ try{ window._aimAssistTick(dt,firing,Math.hypot(avx,avz)); }catch(_){} } player.draw(od); if(player._spawnAura){ player._spawnAuraMs=(player._spawnAuraMs||0)+dt; if(player._spawnAuraMs>(window._SPAWN_AURA_SEC||4.2)){ try{player._spawnAura.remove();}catch(_){} player._spawnAura=null; player._respawnBlink=0; } } /* FAILSAFE: spawn-in glow shell normally removed in draw() as _respawnBlink counts down; an early-return draw path can freeze it on forever, so force-remove after a fixed time */ if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt); if(window._swordTick){try{window._swordTick(dt);}catch(_swe){}} if(window._ballFrame)window._ballFrame(dt); if(window._superTick)window._superTick(dt); if(window._voxTick)window._voxTick(dt); if(window._animPlatMixer)window._animPlatMixer.update(dt); if(window._platWireTick)window._platWireTick(dt); if(window._updateFuelBar)window._updateFuelBar(); if(window._riflePoseTick)window._riflePoseTick(dt);
       if(window._rippleTick){ window._rippleTick(rawDt); if((window._RIPPLE_ON||window._rippleTP)&&player){ const _rsp=Math.hypot(player.vx||0,player.vz||0); player._ripTrailT=(player._ripTrailT||0)-rawDt; if(_rsp>(window._RIP_TRAIL_SPD||190)&&player._ripTrailT<=0){ window._rippleHit(player.wx,player.py,player.wz,(window._RIP_TRAIL_AMP||0.5),(window._RIP_TRAIL_LIFE||0.9)); player._ripTrailT=(window._RIP_TRAIL_CD||0.12); } } }   // ripple field: advance the impact rings + drop a faint trailing ring as the player runs
       if(window._updateHitMarks) window._updateHitMarks(rawDt);   // ball-style bullet hit-marks (enemies + friendly-fire red)
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _ww=(typeof _cubeWalkOn==='function'&&_cubeWalkOn(player)&&player._cubeUp&&player._cubeUp.y<0.9); const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(_ww||!_bmv) window._reorientGameBoots(); }   // on a wall/ceiling re-aim the boots to the surface every frame; on the floor only when standing still (avoids stride jitter)
