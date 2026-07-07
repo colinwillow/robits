@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB432</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB433</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -12985,18 +12985,20 @@ class Player{
         return;
       }
     }
-    const targetFocY = (GS.zone===-10) ? (10+this.py*0.85) : (4+this.py*0.55+Math.max(0,this.py-50)*0.45);   // above 50u, track ~fully so a high fling never leaves frame
-    this._camFocY=lerp(this._camFocY, targetFocY, (GS.zone===-10)?0.14:0.12);
-    CAM.dist=lerp(CAM.dist, 230, 0.03);
-    CAM.height=lerp(CAM.height, 200, 0.03);
-    {
-      const aspect=window.innerWidth/window.innerHeight;
-      if(aspect>1.1&&this.py>20){
-        const tDist=Math.min(420,230+(this.py-20)*0.9);
-        CAM.dist=lerp(CAM.dist,tDist,0.04);
+    if(!this._deathSeq){   // during the death cinematic the camera is owned ENTIRELY by _deathSeqTick — don't let the (inflated, descending) py here zoom the camera out / lift the focus off the pad
+      const targetFocY = (GS.zone===-10) ? (10+this.py*0.85) : (4+this.py*0.55+Math.max(0,this.py-50)*0.45);   // above 50u, track ~fully so a high fling never leaves frame
+      this._camFocY=lerp(this._camFocY, targetFocY, (GS.zone===-10)?0.14:0.12);
+      CAM.dist=lerp(CAM.dist, 230, 0.03);
+      CAM.height=lerp(CAM.height, 200, 0.03);
+      {
+        const aspect=window.innerWidth/window.innerHeight;
+        if(aspect>1.1&&this.py>20){
+          const tDist=Math.min(420,230+(this.py-20)*0.9);
+          CAM.dist=lerp(CAM.dist,tDist,0.04);
+        }
       }
+      CAM.tfocus.set(this.wx,this._camFocY,this.wz);
     }
-    CAM.tfocus.set(this.wx,this._camFocY,this.wz);
 
     // Model position and rotation
     const bob=(this.model.userData.isRobot||this.py>1)?0:Math.sin(performance.now()*0.003)*1.5;   // procedural ship bobs; GLB robot does not
@@ -20662,7 +20664,12 @@ function _deathSeqTick(dt){
     if(S.beam)try{_deathBeamStep(S.beam,dt,Math.min(1,S.t/T));}catch(_){}
     if(S.t>=T){ player.py=S.sy; player.pvy=0; _deathFinish(S); return; }
   }
-  try{ if(typeof CAM!=='undefined' && CAM.tfocus){ CAM.tfocus.set(S.camX, (S.camY||0)+CY, S.camZ); } }catch(_){}   // redirect the camera onto the cinematic target (overrides the player-follow set in draw)
+  try{ if(typeof CAM!=='undefined' && CAM.tfocus){
+    // frame the beam a bit higher (so the full column + the descending model are in shot), and hold a stable distance so the camera never zooms/glitches during the cinematic
+    const _fy = (S.camY||0) + CY + (S.phase==='beam'?(window._DEATH_BEAM_FOCUS_LIFT||46):0);
+    CAM.tfocus.set(S.camX, _fy, S.camZ);
+    if(typeof lerp==='function'){ CAM.dist=lerp(CAM.dist, (window._DEATH_CAM_DIST||270), 0.08); CAM.height=lerp(CAM.height, (window._DEATH_CAM_HEIGHT||150), 0.08); }
+  } }catch(_){}   // redirect the camera onto the cinematic target (overrides the player-follow set in draw)
 }
 // tap ANYWHERE on screen also respawns during the prompt (not just the button / right-stick), so you can never get stuck not knowing how
 if(typeof window!=='undefined' && !window._deathTapWired){ window._deathTapWired=true;
