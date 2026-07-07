@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB454</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB455</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -14022,6 +14022,11 @@ class BotPilot{
   }
 
   hit(dmg){
+    if(this._netMirror){   // MIRROR bot (non-host): host owns HP -> forward the damage, don't apply locally (host broadcasts the reduced hp back)
+      try{ if(typeof mpSend==='function')mpSend('event',{event:'bot_hit',data:{id:this._mpBotId,dmg:dmg||1}}); }catch(_){}
+      this._hitFlash=6; if(typeof ps!=='undefined'){ ps.burst(this.wx,this.wz,[1,1,1],8,70,(this.py||0)+12); }
+      return;
+    }
     if(this.isDummy){ this._hitFlash=6; addTrauma(0.04); ps.burst(this.wx,this.wz,[1,1,1],10,80,(this.py||0)+12); ps.burst(this.wx,this.wz,[1,0.5,0.2],8,60,(this.py||0)+12); if(typeof spawnDmgNum==='function')spawnDmgNum(this.wx,(this.py||0)+30,this.wz,Math.round(_combatDmg(dmg)),dmg>=15?'#ff5555':'#ffcc44'); this.hp-=_combatDmg(dmg); this._updateHpBar(); if(this.hp<=0 && this.alive!==false && typeof this.die==='function'){ this.die(); }   /* KILLABLE: a training dummy now actually takes (full) damage so you can read each weapon's hit, and dies at 0 */ return; }
     if(this._botBallInv){ if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.4,0.9,1],14,90); return; }   // ball mode tanks bullets/melee like the player's ball shield
     if(this.inv>0) return;
@@ -14147,6 +14152,7 @@ class BotPilot{
 
   die(){
     this.alive=false;
+    if(this._netMirror){ try{ if(window._EXPLODE_DEATH!==false && typeof _explodeRobit==='function')_explodeRobit(this.model,this._color!=null?this._color:0xff2a2a,this.py); }catch(_){} try{ ps.ring(this.wx,this.wz,[1,0.4,0.1],30,120); scene.remove(this.model); }catch(_){} this._removeShieldMesh&&this._removeShieldMesh(); return; }   // mirror: no score/announce (host already credited) — just the visual
     ps.ring(this.wx,this.wz,[1,0.4,0.1],30,120);
     ps.burst(this.wx,this.wz,[1,0.6,0.2],20,100);
     addTrauma(0.2); Audio.blip(120,0.3,'sine',0.5,80);
@@ -14177,8 +14183,28 @@ class BotPilot{
     scene.add(group); this._shieldMesh3D=group;
   }
 
+  // ── NETWORK MIRROR (non-host): drive this bot purely from the host's broadcast — interp position, face aim, play the
+  //    reported clip, hold the reported weapon, mirror hp. No AI, no physics; it's a hittable puppet (hits route to host). ──
+  _netMirrorTick(dt){
+    if(this._netTX!=null){
+      if(Math.hypot(this._netTX-this.wx,this._netTZ-this.wz)>90){ this.wx=this._netTX; this.wz=this._netTZ; }   // snap on teleport/respawn
+      else { this.wx=lerp(this.wx,this._netTX,0.35); this.wz=lerp(this.wz,this._netTZ,0.35); }
+    }
+    if(this._netTY!=null) this.py=lerp(this.py||0,this._netTY,0.4);
+    if(this._netAim!=null) this.aim=this._netAim;
+    if(this._netHp!=null && this._netHp!==this.hp){ this.hp=this._netHp; if(this._updateHpBar)this._updateHpBar(); }
+    try{ if(this._netMelee){ if(this._botMeleeWeapon!==this._netMelee && this._botEquipMelee)this._botEquipMelee(this._netMelee); }
+      else if(this._netWeapon){ if(this._gunMeshWeapon!==this._netWeapon && this._botEquipGun)this._botEquipGun(this._netWeapon); } }catch(_){}
+    if(this._clips){ let want=this._netClip; if(!want||!this._clips[want])want='idle';
+      if(want!==this._clips._cur && this._clips[want]){ Object.values(this._clips).forEach(a=>{ if(a&&a.fadeOut&&a!==this._clips[want])a.fadeOut(0.12); }); this._clips[want].reset().setEffectiveWeight(1).fadeIn(0.12).play(); this._clips._cur=want; } }
+    if(this._mixer) this._mixer.update(dt);
+    if(this._tickHitFlash) this._tickHitFlash();
+    if(typeof _ensureThreatGlow==='function') try{ _ensureThreatGlow(this); }catch(_){}
+    if(this.model){ const yaw=-this.aim+Math.PI/2; this.model.rotation.set(0,yaw,0); this.model.position.set(this.wx,this.py||0,this.wz); }
+  }
   update(dt){
     if(!this.alive) return;
+    if(this._netMirror){ try{ this._netMirrorTick(dt); }catch(_){} return; }   // non-host: display-only mirror driven by the host's broadcast (no local AI)
     if(this.inv>0) this.inv--;
     this._tickHitFlash();
     if(typeof _ensureThreatGlow==='function') _ensureThreatGlow(this);   // keep the fog-immune locator aura alive/scaled every frame
@@ -34838,6 +34864,10 @@ function mpConnectAbly(roomCode){
       if(MP.isHost) return;
       _mpSyncEnemies(msg.data.enemies);
     });
+    ch.subscribe('bots', (msg)=>{
+      if(MP.isHost) return;
+      _mpSyncBots(msg.data.list);
+    });
 
     // Presence: track who's in room
     ch.presence.subscribe('enter', (m)=>{
@@ -34940,6 +34970,55 @@ function _mpSyncEnemies(list){
     if(ed.alive===false&&e.alive!==false){ e.alive=false; if(e.remove)e.remove(); GS.enemies.splice(i,1); i--; }
   }
 }
+// ── AI-BOT NETWORKING (host-authoritative) ── the host owns the roster of AI pilots (GS_bots) and broadcasts their
+//    state; every other client mirrors them as hittable puppets in its own GS_bots (so all local weapon code targets
+//    them, and a client's hit forwards to the host via 'bot_hit'). This is what makes the AI fill-ins visible to — and
+//    fightable by — everyone in the match. The host also spawns the fill-ins to round out the lobby.
+function _mpRemoveBotMirror(id){
+  const m=MP.botMirrors&&MP.botMirrors[id]; if(!m) return;
+  try{ const i=(typeof GS_bots!=='undefined'&&GS_bots)?GS_bots.indexOf(m):-1; if(i>=0)GS_bots.splice(i,1); }catch(_){}
+  try{ m.alive=false; if(m.model)scene.remove(m.model); if(m._removeShieldMesh)m._removeShieldMesh(); if(m._hpBar&&m._hpBar.parent)m._hpBar.parent.remove(m._hpBar); }catch(_){}
+  delete MP.botMirrors[id];
+}
+function _mpSyncBots(list){
+  if(!list||typeof BotPilot==='undefined'||typeof GS_bots==='undefined') return;
+  if(MP.isHost) return;                                   // the host IS the authority — never mirror your own bots
+  if(!MP.botMirrors) MP.botMirrors={};
+  const seen={};
+  for(const bd of list){ if(!bd||!bd.id) continue; seen[bd.id]=1;
+    if(bd.alive===false){ if(MP.botMirrors[bd.id]){ const mm=MP.botMirrors[bd.id]; try{ if(mm.die)mm.die(); }catch(_){} _mpRemoveBotMirror(bd.id); } continue; }
+    let m=MP.botMirrors[bd.id];
+    if(!m){ try{ m=new BotPilot(bd.x,bd.z,{difficulty:bd.diff||'soldier', colorIdx:bd.ci, color:bd.color}); }catch(_){ continue; }
+      m._netMirror=true; m._mpBotId=bd.id; m.wx=bd.x; m.wz=bd.z; m.py=bd.y||0; m.aim=bd.aim||0; m.hp=bd.hp||m.hp; m.maxHp=bd.maxHp||m.maxHp; m.inv=0;
+      MP.botMirrors[bd.id]=m; GS_bots.push(m); try{ _mpScoreEnsureBot(bd.id, bd.name, bd.color); }catch(_){}
+    }
+    m._netTX=bd.x; m._netTZ=bd.z; m._netTY=bd.y; m._netAim=bd.aim; m._netClip=bd.clip; m._netWeapon=bd.weapon||null; m._netMelee=bd.melee||null; m._netHp=bd.hp; m.maxHp=bd.maxHp||m.maxHp;
+  }
+  for(const id in MP.botMirrors){ if(!seen[id]) _mpRemoveBotMirror(id); }
+}
+// Host: build the broadcast list for its real (non-mirror) bots
+function _mpBotBroadcastList(){
+  const bl=[]; if(typeof GS_bots==='undefined'||!GS_bots) return bl;
+  for(const b of GS_bots){ if(!b||b._netMirror) continue;
+    if(!b._mpBotId){ MP._botSeq=(MP._botSeq||0)+1; b._mpBotId='bot'+MP._botSeq; }
+    bl.push({ id:b._mpBotId, diff:b.diff, ci:b._colorIdx, color:b._color, name:(b._mpName||('AI '+((b._colorIdx||0)+1))),
+      x:Math.round(b.wx), z:Math.round(b.wz), y:Math.round(b.py||0), aim:Math.round((b.aim||0)*100)/100,
+      hp:Math.round(b.hp), maxHp:Math.round(b.maxHp), clip:(b._clips&&b._clips._cur)||'idle',
+      weapon:b._botGun||null, melee:b._botMeleeWeapon||null, alive:b.alive!==false });
+  }
+  return bl;
+}
+// Host: spawn AI fill-ins so the match has rivals for everyone (count via window._MP_FILL_BOTS, default 1)
+function _mpSpawnFillBots(){
+  if(!MP.isHost || typeof GS_bots==='undefined') return;
+  const already=GS_bots.filter(b=>b&&!b._netMirror&&b._mpFill).length;
+  const want=(window._MP_FILL_BOTS!=null?window._MP_FILL_BOTS:1);
+  for(let i=already;i<want;i++){
+    try{ if(typeof window._spawnBot!=='function')break; window._spawnBot('soldier');
+      const b=GS_bots[GS_bots.length-1]; if(b){ MP._botSeq=(MP._botSeq||0)+1; b._mpBotId='bot'+MP._botSeq; b._mpFill=true; b._mpName='AI '+((b._colorIdx||0)+1); try{ _mpScoreEnsureBot(b._mpBotId, b._mpName, b._color); }catch(_){} } }catch(_){}
+  }
+}
+window._mpSyncBots=_mpSyncBots; window._mpSpawnFillBots=_mpSpawnFillBots; window._mpBotBroadcastList=_mpBotBroadcastList;
 // ── SUMMON (ally) NETWORKING — display-only puppets. Each player broadcasts their own GS.allies; the others render
 //    the matching creature at the reported spot (right dragon/dog/droid/drone, not nothing). Puppets are NOT added to
 //    any GS list, so they're pure visuals — they don't fight, get hit, or double-simulate. ──
@@ -35003,6 +35082,10 @@ function mpHandleMessage(msg){
 
     case 'event':
       mpHandleRemoteEvent(msg);
+      break;
+
+    case 'bots':
+      if(!MP.isHost) _mpSyncBots(msg.list);   // host owns the roster; clients mirror it
       break;
 
     case 'start':
@@ -35290,6 +35373,10 @@ function mpHandleRemoteEvent(msg){
     case 'surv_round':
       if(!MP.isHost && GS.zone===-5 && _transState && d.phase==='build'){ _transStage=d.stage||(_transStage+1); _transState=_makeBuildState(); }
       break;
+    case 'bot_hit':
+      // client hit a MIRROR bot -> host (authority) applies the damage to the real bot
+      if(MP.isHost && typeof GS_bots!=='undefined' && GS_bots){ const rb=GS_bots.find(x=>x&&!x._netMirror&&x._mpBotId===d.id); if(rb&&rb.hit){ rb._lastAttacker=msg.id; try{ rb.hit(d.dmg||1); }catch(_){} } }
+      break;
     case 'died':
       ps.ring(rp.mesh.position.x,rp.mesh.position.z,[1,0.3,0.1],30,100);
       addTrauma(0.1);
@@ -35323,21 +35410,23 @@ function mpHandleRemoteEvent(msg){
 //    and every client credits the same kill+death from that single event, so all scoreboards converge without a host authority.
 function _mpNameColorFor(id){
   if(id===MP.myId) return {name:(MP.myName||'YOU'), color:(MP.myColor||0), you:true};
+  if(MP.botRoster&&MP.botRoster[id]){ const b=MP.botRoster[id]; return {name:b.name, color:0, hex:b.color, bot:true, you:false}; }   // AI pilot: color is a full hex, not a palette index
   const rp=MP.players&&MP.players[id];
   return {name:(rp&&rp.name)||(''+id).slice(0,6), color:(rp&&rp.color)||0, you:false};
 }
 function _mpScoreEnsure(id){
   if(!MP.scores) MP.scores={};
   let s=MP.scores[id]; if(!s){ s=MP.scores[id]={k:0,d:0}; }
-  const nc=_mpNameColorFor(id); s.name=nc.name; s.color=nc.color; s.you=nc.you; return s;
+  const nc=_mpNameColorFor(id); s.name=nc.name; s.color=nc.color; s.you=nc.you; s.hex=(nc.hex!=null?nc.hex:null); s.bot=!!nc.bot; return s;
 }
+function _mpScoreEnsureBot(id,name,color){ if(!MP.botRoster)MP.botRoster={}; MP.botRoster[id]={name:name||id, color:(color!=null?color:0xff5555)}; const s=_mpScoreEnsure(id); _mpScoreRender(); return s; }
 function _mpScoreCredit(victimId, killerId){
   if(!victimId) return;
   const v=_mpScoreEnsure(victimId); v.d++;
   if(killerId && killerId!==victimId){ const k=_mpScoreEnsure(killerId); k.k++; }
   _mpScoreRender();
 }
-function _mpScoreReset(){ MP.scores={}; if(MP.myId)_mpScoreEnsure(MP.myId); for(const id in (MP.players||{}))_mpScoreEnsure(id); _mpScoreRender(); }
+function _mpScoreReset(){ MP.scores={}; MP.botRoster={}; if(MP.myId)_mpScoreEnsure(MP.myId); for(const id in (MP.players||{}))_mpScoreEnsure(id); _mpScoreRender(); }
 function _mpScoreRender(){
   let el=document.getElementById('mp-scoreboard');
   if(!(MP.versus && MP.active)){ if(el)el.style.display='none'; return; }
@@ -35348,9 +35437,9 @@ function _mpScoreRender(){
   const ids=Object.keys(MP.scores||{});
   if(!ids.length){ el.style.display='none'; return; }
   const rows=ids.map(id=>MP.scores[id]).sort((a,b)=>(b.k-a.k)||(a.d-b.d));
-  const hex=(ci)=>'#'+('000000'+((MP.PLAYER_COLORS[ci]||0xffffff).toString(16))).slice(-6);
+  const hex=(s)=>'#'+('000000'+(((s.hex!=null?s.hex:(MP.PLAYER_COLORS[s.color]||0xffffff)))>>>0).toString(16)).slice(-6);
   el.innerHTML='<div style="color:#ff5577;font-size:8px;margin-bottom:5px;letter-spacing:2px">FRAGS</div>'+
-    rows.map(s=>`<div style="color:${hex(s.color)}">${(s.name||'?').slice(0,10)}${s.you?'<span style="color:#00ffc8">*</span>':''} <span style="color:#fff">${s.k}</span><span style="color:#ff8899">/${s.d}</span></div>`).join('');
+    rows.map(s=>`<div style="color:${hex(s)}">${(s.name||'?').slice(0,10)}${s.you?'<span style="color:#00ffc8">*</span>':(s.bot?'<span style="color:#ffaa44">▸</span>':'')} <span style="color:#fff">${s.k}</span><span style="color:#ff8899">/${s.d}</span></div>`).join('');
   el.style.display='block';
 }
 window._mpScoreReset=_mpScoreReset; window._mpScoreCredit=_mpScoreCredit;
@@ -35389,6 +35478,8 @@ function mpBeginGame(){
       x:player.wx, z:player.wz, y:player.py, aim:player.aim
     });
   }, 500);
+  // Host rounds out the lobby with AI fill-ins (visible to + fightable by everyone via the bot-sync above)
+  if(MP.isHost && MP.versus && window._MP_FILL_BOTS!==0){ setTimeout(()=>{ try{ _mpSpawnFillBots(); }catch(_){} }, 1400); }
   announce(`${MP.cube?'BALL ARENA':(MP.freeCity?'FREE CITY':(MP.coopSurvival?'CO-OP SURVIVAL':(MP.versus?'VERSUS BATTLE':'CO-OP')))} · ${Object.keys(MP.players).length+1} PILOTS`, MP.cube?'#4cf0ff':(MP.freeCity?'#33ddff':(MP.coopSurvival?'#ff2a6d':(MP.versus?'#ff4466':'#aa44ff'))));
 }
 
@@ -35479,6 +35570,11 @@ function mpTick(){
     const items=[]; const A=window._itemPU||[]; for(const p of A){ if(p&&p._sid&&!p._mirror) items.push({s:p._sid,f:p._fn||'pu',t:p.type||null,x:Math.round(p.x),y:Math.round(p.y||9),z:Math.round(p.z)}); }
     const C=window._crates||[]; for(const c of C){ if(c&&c._sid&&!c._mirror) items.push({s:c._sid,f:'crate',t:null,x:Math.round(c.x),y:0,z:Math.round(c.z)}); }
     if(items.length || player._hadItems){ mpSend('event',{event:'items',data:{list:items}}); player._hadItems=items.length>0; }
+  }
+  // Host broadcasts its AI-bot roster every 5 frames (so mirrors track smoothly + everyone sees/fights them)
+  if(MP.isHost && MP.versus && _mpTick%5===0 && typeof GS_bots!=='undefined' && GS_bots){
+    const bl=_mpBotBroadcastList();
+    if(bl.length || MP._hadBots){ mpSend('bots',{list:bl}); MP._hadBots=bl.length>0; }
   }
   // Host broadcasts enemy positions every 12 frames
   if(MP.isHost&&_mpTick%12===0&&GS.enemies.length){
