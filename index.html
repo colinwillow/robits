@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB455</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB456</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -4201,7 +4201,7 @@ window._spawnThreeHeadedDog=function(n=1){
 // A lightweight "foe" wrapper for a remote MP player so your summoned creatures can hunt + hit the ENEMY player in versus.
 // hit() broadcasts player_hit (rate-limited) the same way _mpVersusHit does; knock() is a no-op (remote owns its own knock).
 function _mpFoeProxy(rp,id){ let p=rp._foeProxy; if(!p){ p=rp._foeProxy={_mpFoe:true, id, alive:true, size:15, py:9,
-    hit:function(dmg){ const now=(typeof performance!=='undefined'?performance.now():0); if(now-(this._lastHit||0) < (window._MP_ALLY_HIT_CD||250))return 0; this._lastHit=now; try{ if(typeof mpSend==='function')mpSend('event',{event:'player_hit',data:{target:this.id,dmg:dmg||1}}); }catch(_){} return 0; },
+    hit:function(dmg,by){ const now=(typeof performance!=='undefined'?performance.now():0); if(now-(this._lastHit||0) < (window._MP_ALLY_HIT_CD||250))return 0; this._lastHit=now; try{ if(typeof mpSend==='function')mpSend('event',{event:'player_hit',data:{target:this.id,dmg:dmg||1,by:by||null}}); }catch(_){} return 0; },
     knock:function(){} }; }
   p.wx=rp.mesh.position.x; p.wz=rp.mesh.position.z; p.py=rp.mesh.position.y; p.alive=!(rp.state&&rp.state.dead); return p;
 }
@@ -14018,6 +14018,8 @@ class BotPilot{
     if(typeof player!=='undefined'&&player&&player.alive){ const d=Math.hypot(player.wx-this.wx,player.wz-this.wz); best=player; bd=d*(window._BOT_PLAYER_BIAS||1); }
     if(window._BOT_VS_BOT!==false && typeof GS_bots!=='undefined'&&GS_bots){ for(const b of GS_bots){ if(!b||b===this||!b.alive)continue; const d=Math.hypot(b.wx-this.wx,b.wz-this.wz); if(d<bd){ bd=d; best=b; } } }
     if(window._BOT_HIT_ALLIES!==false && typeof GS!=='undefined'&&GS.allies){ for(const a of GS.allies){ if(!a||a.alive===false||(a.hp!=null&&a.hp<=0))continue; const d=Math.hypot(a.wx-this.wx,a.wz-this.wz)*(window._BOT_ALLY_BIAS||1.4); if(d<bd){ bd=d; best=a; } } }   // it'll turn on your summoned creatures when they're the closest threat
+    // VERSUS: the REMOTE human pilots are valid rivals too — the AI hunts + shoots the secondary player, not just the host.
+    if(typeof MP!=='undefined'&&MP.active&&MP.versus&&MP.players&&typeof _mpFoeProxy==='function'){ for(const id in MP.players){ const rp=MP.players[id]; if(!rp||!rp.mesh||(rp.state&&rp.state.dead))continue; const d=Math.hypot(rp.mesh.position.x-this.wx,rp.mesh.position.z-this.wz)*(window._BOT_MP_BIAS||1); if(d<bd){ bd=d; best=_mpFoeProxy(rp,id); } } }
     return best;
   }
 
@@ -14459,7 +14461,7 @@ class BotPilot{
       this._botRocketT=(this._botRocketT||0)-dt;
       if(canFire && dist<(window._BOT_ROCKET_R||460) && _foe && _foe.alive!==false && this._botRocketT<=0){
         this._botRocketT=(window._BOT_ROCKET_CD||1.6);
-        try{ const rdx=_foe.wx-this.wx, rdz=_foe.wz-this.wz, rd=Math.hypot(rdx,rdz)||1, _rs=(window._BOT_ROCKET_SPD||64); GS.enemyMissiles.push(new EnemyMissile(this.wx,this.wz,(this.py||0)+14,(rdx/rd)*_rs,(rdz/rd)*_rs)); }catch(_){}
+        try{ const rdx=_foe.wx-this.wx, rdz=_foe.wz-this.wz, rd=Math.hypot(rdx,rdz)||1, _rs=(window._BOT_ROCKET_SPD||64); const _rk=new EnemyMissile(this.wx,this.wz,(this.py||0)+14,(rdx/rd)*_rs,(rdz/rd)*_rs); _rk._ownerBot=this; GS.enemyMissiles.push(_rk); }catch(_){}
         if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(150,0.14,'sawtooth',0.16,60);}catch(_){}
         if(typeof ps!=='undefined')ps.burst(this.wx,(this.py||0)+12,[1,0.5,0.15],5,80);
       }
@@ -35018,7 +35020,25 @@ function _mpSpawnFillBots(){
       const b=GS_bots[GS_bots.length-1]; if(b){ MP._botSeq=(MP._botSeq||0)+1; b._mpBotId='bot'+MP._botSeq; b._mpFill=true; b._mpName='AI '+((b._colorIdx||0)+1); try{ _mpScoreEnsureBot(b._mpBotId, b._mpName, b._color); }catch(_){} } }catch(_){}
   }
 }
-window._mpSyncBots=_mpSyncBots; window._mpSpawnFillBots=_mpSpawnFillBots; window._mpBotBroadcastList=_mpBotBroadcastList;
+// Host: route AI-bot attacks that land on a REMOTE pilot into player_hit (bots are host-simulated; the remote pilot is
+// just a synced mesh here, so the host detects the connection and tells that client to take the damage). Covers bot
+// bullets, bot rockets, and adjacent melee swings. The proxy's hit() is rate-limited so it can't spam.
+function _mpBotDamageRemotes(){
+  if(!MP.isHost || !MP.versus || !MP.players || typeof _mpFoeProxy!=='function') return;
+  const prox=[]; for(const id in MP.players){ const rp=MP.players[id]; if(!rp||!rp.mesh||(rp.state&&rp.state.dead))continue; prox.push({rp,id,x:rp.mesh.position.x,z:rp.mesh.position.z,y:rp.mesh.position.y}); }
+  if(!prox.length) return;
+  const R=(window._MP_BOT_HIT_R||20);
+  const botId=(o)=>(o&&o._mpBotId)||null;
+  const land=(x,z,y,dmg,by)=>{ for(const p of prox){ if(Math.hypot(p.x-x,p.z-z)<R && Math.abs((p.y||9)-(y||9))<44){ const pr=_mpFoeProxy(p.rp,p.id); if(pr&&pr.hit)pr.hit(dmg||1, by); return true; } } return false; };
+  // bot bullets (EnemyBullet, ground plane y≈9) — only ones fired BY a real bot (have _ownerBot)
+  if(typeof GS!=='undefined'&&GS.enemyBullets){ for(let i=GS.enemyBullets.length-1;i>=0;i--){ const b=GS.enemyBullets[i]; if(!b||!b._ownerBot||b._ownerBot._netMirror)continue; if(b.wx==null)continue; if(land(b.wx,b.wz,9,(b.dmg||1),botId(b._ownerBot))){ b.life=0; } } }
+  // bot rockets (EnemyMissile)
+  if(typeof GS!=='undefined'&&GS.enemyMissiles){ for(let i=GS.enemyMissiles.length-1;i>=0;i--){ const m=GS.enemyMissiles[i]; if(!m||!m._ownerBot)continue; const mx=(m.wx!=null?m.wx:m.x),mz=(m.wz!=null?m.wz:m.z); if(mx==null)continue; if(land(mx,mz,(m.y!=null?m.y:9),(m.dmg||3),botId(m._ownerBot))){ if(m.remove)m.remove(); GS.enemyMissiles.splice(i,1); } } }
+  // adjacent melee: a real bot mid-swing next to a remote pilot connects (rate-limit handles the multi-frame window)
+  if(typeof GS_bots!=='undefined'&&GS_bots){ for(const bt of GS_bots){ if(!bt||bt._netMirror||!bt.alive||!bt._botMeleeWeapon||(bt._botMeleeAnimT||0)<=0)continue;
+    for(const p of prox){ if(Math.hypot(p.x-bt.wx,p.z-bt.wz)<(window._MP_BOT_MELEE_R||30) && Math.abs((p.y||9)-(bt.py||0))<50){ const pr=_mpFoeProxy(p.rp,p.id); if(pr&&pr.hit)pr.hit(window._MP_BOT_MELEE_DMG||5, botId(bt)); } } } }
+}
+window._mpSyncBots=_mpSyncBots; window._mpSpawnFillBots=_mpSpawnFillBots; window._mpBotBroadcastList=_mpBotBroadcastList; window._mpBotDamageRemotes=_mpBotDamageRemotes;
 // ── SUMMON (ally) NETWORKING — display-only puppets. Each player broadcasts their own GS.allies; the others render
 //    the matching creature at the reported spot (right dragon/dog/droid/drone, not nothing). Puppets are NOT added to
 //    any GS list, so they're pure visuals — they don't fight, get hit, or double-simulate. ──
@@ -35327,7 +35347,7 @@ function mpHandleRemoteEvent(msg){
       }
       break;
     case 'player_hit':
-      if(d.target===MP.myId){ mpTakeDamage(d.dmg||1, msg.id);
+      if(d.target===MP.myId){ mpTakeDamage(d.dmg||1, d.by||msg.id);   // d.by = an AI bot that landed the hit (via the host) -> the frag credits the bot, not the host
         if((d.zap||d.knock)&&player){ const _newly=d.zap?!(player._zapT>0):true; if(d.zap)player._zapT=Math.max(player._zapT||0,1.0);
           if(_newly){ player.pvy=Math.max(player.pvy||0, d.knock?190:165); if(d.px!==undefined){ const f=d.knock?300:150; player.vx=(d.px||0)*f; player.vz=(d.pz||0)*f; } } }
         else if(player){ player._zapT=Math.max(player._zapT||0,(window._BULLET_STUN||0.16)); }   // plain bullet: weak, but a slight stun you can dash / hard-push out of (Smash-style)
@@ -35542,6 +35562,7 @@ function mpTick(){
     player._mpPrevPvy=player.pvy||0; player._mpPrevDash=player._dashRamp||0;
   }
   if(MP.versus) _mpVersusHit();
+  if(MP.isHost && MP.versus){ try{ _mpBotDamageRemotes(); }catch(_){} }   // AI-bot attacks that connect on a remote pilot -> player_hit
   if(_mpTick%4!==0) return;
   mpSend('state', {
     x:player.wx, z:player.wz, y:player.py,
