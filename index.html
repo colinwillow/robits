@@ -15,6 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Barlow+Condensed:wght@400;600;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:'Rajdhani','Barlow Condensed','Arial Narrow',sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
@@ -271,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB431</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB432</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -20651,10 +20652,15 @@ function _deathSeqTick(dt){
     if(S.t>=(window._DEATH_SETTLE_T||0.6)){ S.t=0; S.phase='beam'; try{ S.beam=_deathBeamIn(S.sx,S.sz,S.sy); }catch(_){} }
   } else if(S.phase==='beam'){
     S.camX=S.sx; S.camZ=S.sz; S.camY=S.sy;
-    const T=(window._DEATH_BEAM_T||1.2), mIn=(window._DEATH_MODEL_IN||0.4);
+    const T=(window._DEATH_BEAM_T||1.7), mIn=(window._DEATH_MODEL_IN||0.28);
     if(player.model)player.model.visible=(S.t>=mIn);
+    if(player.model && S.t>=mIn){   // BEAM IN: model rides down the light column onto the pad
+      const dp=Math.min(1,(S.t-mIn)/Math.max(0.05,(window._DEATH_DROP_T||0.85)));
+      const drop=(1-dp*dp)*(window._DEATH_BEAM_DROP||150);
+      player.py=S.sy+drop; player.pvy=0; player._onPlatform=(drop<=1);
+    }
     if(S.beam)try{_deathBeamStep(S.beam,dt,Math.min(1,S.t/T));}catch(_){}
-    if(S.t>=T){ _deathFinish(S); return; }
+    if(S.t>=T){ player.py=S.sy; player.pvy=0; _deathFinish(S); return; }
   }
   try{ if(typeof CAM!=='undefined' && CAM.tfocus){ CAM.tfocus.set(S.camX, (S.camY||0)+CY, S.camZ); } }catch(_){}   // redirect the camera onto the cinematic target (overrides the player-follow set in draw)
 }
@@ -20713,13 +20719,35 @@ function _deathBeamStep(g,dt,k){
 function _deathBeamRemove(g){ if(!g)return; try{ scene.remove(g); g.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); }catch(_){} }
 function _deathLivesBanner(before, after){
   let el=document.getElementById('death-banner');
-  if(!el){ el=document.createElement('div'); el.id='death-banner'; el.style.cssText='position:fixed;top:34%;left:50%;transform:translate(-50%,-50%);z-index:60;pointer-events:none;text-align:center;font-family:Orbitron,Rajdhani,sans-serif;perspective:600px'; document.body.appendChild(el); }
-  el.innerHTML='<div style="font-size:clamp(10px,2.4vw,15px);letter-spacing:7px;color:#8affc0;text-shadow:0 0 14px #35ffa0;opacity:0.92">LIFE LOST</div><div id="death-lives-n" style="font-size:clamp(42px,12vw,96px);font-weight:900;letter-spacing:4px;color:#8affc0;text-shadow:0 0 26px #35ffa0,0 0 60px #17c07a;line-height:1;transform-style:preserve-3d">'+before+'</div><div style="font-size:clamp(9px,1.8vw,12px);letter-spacing:9px;color:#8affc0cc">LIVES</div>';
-  el.style.opacity='1'; el.style.transition='none'; el.style.transform='translate(-50%,-50%) scale(1.14)';
-  requestAnimationFrame(()=>{ el.style.transition='transform 0.26s ease-out'; el.style.transform='translate(-50%,-50%) scale(1)'; });
-  setTimeout(()=>{ const n=document.getElementById('death-lives-n'); if(n){ n.style.transition='transform 0.32s ease-in, opacity 0.32s'; n.style.transform='rotateX(90deg)'; n.style.opacity='0.15';   // peel the old count away...
-    setTimeout(()=>{ if(n){ n.textContent=after; n.style.transition='none'; n.style.transform='rotateX(-90deg)'; n.style.opacity='0.15'; requestAnimationFrame(()=>{ n.style.transition='transform 0.3s ease-out, opacity 0.3s'; n.style.transform='rotateX(0deg)'; n.style.opacity='1'; }); } },200); } }, (window._DEATH_PEEL_AT||750));   // ...rotate the new count in
-  setTimeout(()=>{ if(el){ el.style.transition='opacity 0.5s'; el.style.opacity='0'; } }, (window._DEATH_BANNER_HIDE||2700));
+  if(!el){ el=document.createElement('div'); el.id='death-banner'; el.style.cssText='position:fixed;top:33%;left:50%;transform:translate(-50%,-50%);z-index:60;pointer-events:none;text-align:center'; document.body.appendChild(el); }
+  if(!document.getElementById('death-banner-kf')){ const st=document.createElement('style'); st.id='death-banner-kf'; st.textContent=
+    '@keyframes dbSlam{0%{transform:translate(-50%,-50%) translate(120px,-90px) scale(3) rotate(16deg);opacity:0}'+
+      '55%{transform:translate(-50%,-50%) translate(0,0) scale(1) rotate(-5deg);opacity:1}'+
+      '70%{transform:translate(-50%,-50%) scale(1.16) rotate(3deg)}'+
+      '100%{transform:translate(-50%,-50%) scale(1) rotate(0deg);opacity:1}}'+
+    '@keyframes dbEject{0%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) translate(0,-150%) scale(0.55) rotate(-20deg)}}'+
+    '@keyframes dbShake{0%,100%{transform:translate(0,0)}15%{transform:translate(-9px,4px)}30%{transform:translate(8px,-4px)}45%{transform:translate(-6px,3px)}60%{transform:translate(5px,-2px)}80%{transform:translate(-3px,1px)}}'+
+    '@keyframes dbWipe{0%{clip-path:inset(0 0 0 0)}44%{clip-path:inset(0 0 0 100%)}56%{clip-path:inset(0 100% 0 0)}100%{clip-path:inset(0 0 0 0)}}';
+    document.head.appendChild(st); }
+  const F="'Press Start 2P',monospace";
+  el.innerHTML='<div style="font-family:'+F+';font-size:clamp(8px,1.7vw,13px);letter-spacing:5px;color:#7dffb0;text-shadow:0 2px 0 #0a5f3a,0 0 14px #35ffa0;margin-bottom:20px">LIVES</div>'+
+    '<div id="db-row" style="position:relative;display:inline-block;line-height:1">'+
+      '<span id="db-n" style="font-family:'+F+';font-size:clamp(38px,10vw,84px);color:#7dffb0;text-shadow:0 4px 0 #085232,0 6px 0 #063d26,0 0 30px #35ffa0,0 0 66px #17c07a;display:inline-block">+'+before+'</span>'+
+      '<span id="db-minus" style="position:absolute;left:50%;top:46%;font-family:'+F+';font-size:clamp(30px,8vw,62px);color:#ff3355;text-shadow:0 4px 0 #7a0018,0 0 26px #ff2244;opacity:0;transform:translate(-50%,-50%)">-1</span>'+
+    '</div>';
+  el.style.opacity='1'; el.style.transition='none'; el.style.transform='translate(-50%,-50%) scale(1.12)';
+  requestAnimationFrame(()=>{ el.style.transition='transform 0.22s ease-out'; el.style.transform='translate(-50%,-50%) scale(1)'; });
+  const HIT=(window._DEATH_HIT_AT||820);
+  setTimeout(()=>{ const m=document.getElementById('db-minus'), n=document.getElementById('db-n'), row=document.getElementById('db-row');
+    if(m) m.style.animation='dbSlam 0.5s cubic-bezier(.18,1.5,.4,1) forwards';   // red -1 flies in and slams the count
+    setTimeout(()=>{   // on impact: shake, wipe the number to the new value, eject the -1
+      if(row) row.style.animation='dbShake 0.42s ease-out';
+      if(typeof addTrauma==='function')try{addTrauma(0.14);}catch(_){}
+      if(typeof Audio!=='undefined'&&Audio.blip)try{ Audio.blip(140,0.16,'square',0.22,90); Audio.blip(520,0.12,'triangle',0.12,260); }catch(_){}
+      if(n){ n.style.animation='dbWipe 0.46s ease-in-out forwards'; setTimeout(()=>{ if(n)n.textContent='+'+after; },205); }   // swap mid-wipe (hidden)
+      setTimeout(()=>{ if(m) m.style.animation='dbEject 0.42s ease-in forwards'; }, 380);
+    }, 300); }, HIT);
+  setTimeout(()=>{ if(el){ el.style.transition='opacity 0.5s'; el.style.opacity='0'; } }, (window._DEATH_BANNER_HIDE||3000));
 }
 window._startDeathSeq=_startDeathSeq; window._deathSeqTick=_deathSeqTick;
 
