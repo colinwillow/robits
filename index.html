@@ -271,7 +271,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB407</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB408</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -3132,6 +3132,70 @@ class Enemy{
   }
 }
 
+// ── NEUTRALIZE / STUN-TO-CONVERT (small enemies only: spider + ball droid) ──
+// You can't just scoop any enemy and flip it — that'd make fighting pointless. Instead you have to
+// SHOOT a small enemy all the way down: the killing blow doesn't kill it, it drops into a brief
+// NEUTRALIZED state — greyed out, disabled, jittering under a ring of spinning stars for a few seconds.
+// In that window you can slide-tackle/scoop it and THROW it to convert it to your team. Shoot a
+// neutralized one again and it's destroyed for good (out with a bang). If nobody grabs it in time it
+// expires. Only the little guys qualify (Crawler spider + DroidekaBot ball droid).
+// Tunables: window._STUN_CONVERT=false (off), _STUN_WINDOW (grace seconds).
+if(window._STUN_CONVERT===undefined) window._STUN_CONVERT=true;
+if(window._STUN_WINDOW===undefined)  window._STUN_WINDOW=5.0;
+function _canNeutralize(e){ return !!(e && window._STUN_CONVERT!==false && e._faction!=='ally' && !e._captured && !e._neutralized && (e._isCrawler || e._robitId==='droideka')); }
+function _makeStunHalo(){
+  const g=new THREE.Group(), N=5;
+  for(let i=0;i<N;i++){ const a=(i/N)*Math.PI*2;
+    const star=new THREE.Mesh(new THREE.TetrahedronGeometry(2.4,0), new THREE.MeshBasicMaterial({color:0xfff2a0,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+    star.position.set(Math.cos(a)*8,0,Math.sin(a)*8); g.add(star);
+  }
+  return g;
+}
+function _stunHaloTick(e,dt){ const h=e&&e._stunHalo; if(!h)return;
+  const mx=(e.mesh?e.mesh.position.x:e.wx), my=(e.mesh?e.mesh.position.y:(e._climbY||9)), mz=(e.mesh?e.mesh.position.z:e.wz);
+  h.position.set(mx, my+16+Math.sin((e._neutralT||0)*6)*1.4, mz); h.rotation.y+=dt*4;
+  for(const s of h.children){ s.rotation.x+=dt*6; s.rotation.y+=dt*5; }
+}
+function _clearStunHalo(e){ if(e&&e._stunHalo){ try{ if(typeof scene!=='undefined')scene.remove(e._stunHalo); e._stunHalo.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); }catch(_){} e._stunHalo=null; } }
+function _enterNeutralized(e){
+  if(!e || e._neutralized) return;
+  e._neutralized=true; e._neutralT=(window._STUN_WINDOW||5.0); e.hp=Math.max(1,e.hp); e.alive=true;
+  e._ball=false; e._dkBall=false; e._climbing=false; e._cubeCrawl=false;      // drop out of any roll/shield/wall-crawl -> it just slumps there
+  e._acidCD=1e9; e._shotT=1e9; e._noKnock=true;                               // disabled: stops attacking + won't get knocked around while stunned
+  // grey it out (remember the originals so a convert/tint can repaint later)
+  try{ if(!e._ntlOrig){ e._ntlOrig=[]; e.mesh&&e.mesh.traverse(o=>{ if(!o.material)return; const ms=Array.isArray(o.material)?o.material:[o.material]; for(const m of ms){ if(m&&m.color&&m.color.isColor)e._ntlOrig.push({m,c:m.color.clone(),em:(m.emissive&&m.emissive.isColor)?m.emissive.clone():null}); } }); }
+    const grey=new THREE.Color(0x9aa0a6); for(const r of e._ntlOrig){ r.m.color.copy(grey); if(r.m.emissive&&r.m.emissive.isColor)r.m.emissive.copy(grey).multiplyScalar(0.45); r.m.needsUpdate=true; }
+  }catch(_){}
+  try{ e._stunHalo=_makeStunHalo(); if(e._stunHalo&&typeof scene!=='undefined')scene.add(e._stunHalo); }catch(_){}
+  if(typeof ps!=='undefined'){ const yy=(e._climbY||9); ps.ring(e.wx,e.wz,[1,1,1],18,120); ps.burst(e.wx,e.wz,[0.82,0.86,0.92],14,90,yy); ps.smoke&&ps.smoke(e.wx,e.wz,yy); }
+  if(typeof Audio!=='undefined'&&Audio.blip)try{ Audio.blip(300,0.1,'sine',0.14,150); Audio.blip(190,0.16,'sine',0.12,90); }catch(_){}
+  if(typeof announce==='function')announce('NEUTRALIZED — scoop & throw it!','#e8e8e8');
+}
+// intercept a hit on a small enemy. returns a score (>0) to FINISH IT OFF if it was already neutralized,
+// or null to let the caller run its normal damage path (which may itself trip _enterNeutralized on a lethal blow).
+function _smallEnemyHitGate(self,dmg){
+  if(self && self._neutralized){
+    self._neutralized=false; _clearStunHalo(self); self.hp=0; self.alive=false;
+    if(typeof ps!=='undefined'){ const yy=(self._climbY||9); ps.burst(self.wx,self.wz,[1,0.9,0.5],26,160,yy); ps.ring(self.wx,self.wz,[1,0.8,0.4],22,170); }
+    if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(90,0.18,'sawtooth',0.2,55);}catch(_){}
+    if(self.die)try{self.die();}catch(_){}
+    return self.score||1;
+  }
+  return null;
+}
+// per-frame update for a neutralized small enemy: slump + jitter in place under its stars, count the
+// window down, and when it lapses flag it for removal (nobody grabbed it in time).
+function _neutralUpdate(e,dt){
+  e._neutralT-=dt; if(e.hitFlash>0)e.hitFlash--;
+  const yy=(e._climbY!=null?e._climbY:(e.mesh?e.mesh.position.y:9));
+  if(e.mesh)e.mesh.position.set(e.wx+rand(-1.2,1.2), yy, e.wz+rand(-1.2,1.2));
+  if(e.mesh)e.mesh.rotation.z=Math.sin((e._neutralT||0)*7)*0.12;   // limp little wobble
+  _stunHaloTick(e,dt);
+  if(typeof ps!=='undefined'&&Math.random()<0.4)ps.spark(e.wx+rand(-6,6),e.wz+rand(-6,6),[0.7,0.72,0.8],yy+rand(2,12));
+  if(e._neutralT<=0){ e._neutralized=false; _clearStunHalo(e); e.alive=false; if(e.die)try{e.die();}catch(_){} e._expireDead=true; }   // lapsed -> sweep removes it
+}
+window._enterNeutralized=_enterNeutralized; window._canNeutralize=_canNeutralize; window._clearStunHalo=_clearStunHalo;
+
 // ── PROCEDURAL ROBOTIC SPIDER (idle + walk gait) ──
 function _makeSpider(glowHex=0x00ff88){
   const g=new THREE.Group(); const dark=0x0a1f16;
@@ -3437,6 +3501,7 @@ class DroidekaBot extends Enemy{
     }catch(_){}
   }
   hit(dmg=1){
+    if(this._neutralized){ const fin=_smallEnemyHitGate(this,dmg); if(fin!=null)return fin; }   // finishing shot on a stunned ball droid
     if(this._open<0.5){   // shielded ball — bullets ping off, but sustained fire forces it open
       _autoStir(this);   // still provokes it + marks the spot even while shielded
       ps.spark(this.wx,this.wz,[1,0.8,0.3]); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(520+rand(180),0.04,'square',0.05,200);
@@ -3444,9 +3509,11 @@ class DroidekaBot extends Enemy{
       if(this._stagger>8 && this._state==='roll'){ this._state='unfold'; this._stateT=0; this._stagger=0; }
       return 0;
     }
+    if(_canNeutralize(this) && (this.hp-dmg)<=0){ try{this._applyOpen(1);}catch(_){} _enterNeutralized(this); return 0; }   // open + lethal -> NEUTRALIZE (splayed open, scoopable) instead of dying
     this.hitFlash=6; return super.hit(dmg);
   }
   update(p,dt){
+    if(this._neutralized){ _neutralUpdate(this,dt); return; }
     this.baseUpdate(); this.t+=dt; if(this.hitFlash>0)this.hitFlash--;
     const _ally=(this._faction==='ally');
     if((this._puntCD||0)>0)this._puntCD-=dt;
@@ -4115,7 +4182,7 @@ function _pickHostileFoe(self){
 window._pickHostileFoe=_pickHostileFoe;
 function _allyAcquireFoe(){
   let best=null, bd=(this._aggroR||720);
-  if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._invulnerable)continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<bd){ bd=d; best=e; } }
+  if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._invulnerable||e._neutralized)continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<bd){ bd=d; best=e; } }
   if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false)continue; const d=Math.hypot(b.wx-this.wx,b.wz-this.wz); if(d<bd){ bd=d; best=b; } }
   if(window._ALLY_TARGET_DUMMY!==false && typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.alive!==false){ const dm=GS_trainingDummy; const d=Math.hypot(dm.wx-this.wx,dm.wz-this.wz); if(d<bd){ bd=d; best=dm; } }   // TARGET THE TRAINING DUMMY like any foe so you can always test your summons' fire/tracking/effects
   // VERSUS/cube MP: the enemy PLAYER is a valid foe for your summons too (co-op leaves the partner alone).
@@ -4228,7 +4295,7 @@ function _nearestClimbBox(x,z,R){ const L=_climbBoxList(); if(!L)return null; le
 window._enemyPOI = window._enemyPOI || {x:0,z:0,y:9,str:0};
 window._setEnemyPOI = function(x,z,y,str){ const P=window._enemyPOI; if((str||1) < P.str) return; P.x=x; P.z=z; P.y=(y!=null?y:9); P.str=(str!=null?str:1); };
 function _autoStir(e){ if(!e || typeof GS==='undefined' || GS.zone!==-19 || window._AUTO_ON===false) return; try{ if(e._faction!=='ally') e._provoke=(window._AUTO_PROVOKE_T||4.5); window._setEnemyPOI(e.wx,e.wz,(e.mesh?e.mesh.position.y:9),1); }catch(_){} }
-function _isHostileSmall(e){ return !!(e && e.alive!==false && e._faction!=='ally' && !e._captured && !e._dying && (e._isCrawler || e._robitId==='droideka')); }
+function _isHostileSmall(e){ return !!(e && e.alive!==false && e._faction!=='ally' && !e._captured && !e._dying && !e._neutralized && (e._isCrawler || e._robitId==='droideka')); }
 function _smallEnemyBrain(self, dt){
   const P=(typeof player!=='undefined'&&player&&player.alive!==false)?player:null;
   const sx=self.wx, sz=self.wz;
@@ -4736,6 +4803,11 @@ class Crawler extends Enemy{
     else { const k=Math.min(1,dt*11); this._rx+=gx*k; this._ry+=gy*k; this._rz+=gz*k; }
     this.mesh.position.set(this._rx,this._ry,this._rz);
   }
+  hit(dmg=1){   // small enemy: a lethal shot NEUTRALIZES it (scoopable) instead of killing; a shot to an already-neutralized one finishes it
+    const fin=_smallEnemyHitGate(this,dmg); if(fin!=null)return fin;
+    if(_canNeutralize(this) && (this.hp-dmg)<=0){ _enterNeutralized(this); return 0; }
+    return super.hit(dmg);
+  }
   enterBall(dx,dz,sp,vy){
     if(this._ball) return;
     const d=Math.hypot(dx,dz)||1;
@@ -4769,7 +4841,7 @@ class Crawler extends Enemy{
       if(typeof ps!=='undefined'&&ps.ring) ps.ring(this.wx,this.wz,this.glow||[0.5,1,0.3],10,60);
     }
   }
-  update(p,dt){ if(this._ball){ this._ballUpdate(dt); if(this.hitFlash>0)this.hitFlash--; return; } this.baseUpdate(); if(this._stunT>0){ if(this.mesh)this.mesh.position.set(this.wx+rand(-1.5,1.5),(this._climbY||(this.mesh?this.mesh.position.y:9)),this.wz+rand(-1.5,1.5)); if(this.hitFlash>0)this.hitFlash--; return; } this.t+=dt; const OFF=9; if(this._attachCD>0)this._attachCD-=dt;
+  update(p,dt){ if(this._neutralized){ _neutralUpdate(this,dt); return; } if(this._ball){ this._ballUpdate(dt); if(this.hitFlash>0)this.hitFlash--; return; } this.baseUpdate(); if(this._stunT>0){ if(this.mesh)this.mesh.position.set(this.wx+rand(-1.5,1.5),(this._climbY||(this.mesh?this.mesh.position.y:9)),this.wz+rand(-1.5,1.5)); if(this.hitFlash>0)this.hitFlash--; return; } this.t+=dt; const OFF=9; if(this._attachCD>0)this._attachCD-=dt;
     this._acidCD=((this._acidCD!==undefined)?this._acidCD:0.7+Math.random())-dt;
     if(this._acidCD<=0 && p && p.alive && (this.spawn===undefined||this.spawn>=0.8)){ const dd=Math.hypot(p.wx-this.wx,p.wz-this.wz); if(dd<130 && dd>10){ _spiderSpitAcid(this, p.wx, (p.py||9), p.wz, false); this._acidCD=1.2+Math.random()*0.9; } else { this._acidCD=0.4; } }
     if(this._cstate==='climb'){
@@ -15338,7 +15410,8 @@ function _nearestGrab(){
   // scoop up your own BALLED droideka like a bomb (tap to grab + throw; melee still punts it)
   if(typeof GS!=='undefined'&&GS.allies){ let nd=null,ndd=(window._DROID_GRAB_R||48); for(const a of GS.allies){ if(!a||a.alive===false||!a._isDroidekaAlly)continue; if(!(a._open!=null&&a._open<0.5))continue; const d=Math.hypot(player.wx-a.wx,player.wz-a.wz); if(d<ndd){ndd=d;nd=a;} } if(nd){ window._nearDroid=nd; cands.push({kind:'droid',ref:nd,d:ndd}); } else window._nearDroid=null; }
   // scoop up a BALLED spider (it curled up from a melee/bomb) like the droid — grab + throw; meleeing it still bats it around
-  if(typeof GS!=='undefined'&&GS.enemies){ let ns=null,nsd=(window._SPIDER_GRAB_R||46); for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||!e._isCrawler||!e._ball)continue; const d=Math.hypot(player.wx-e.wx,player.wz-e.wz); if(d<nsd){nsd=d;ns=e;} } if(ns){ window._nearSpider=ns; cands.push({kind:'spider',ref:ns,d:nsd}); } else window._nearSpider=null; }
+  // scoop a NEUTRALIZED small enemy (spider OR ball droid) — only grabbable once you've shot it into its stunned window
+  if(typeof GS!=='undefined'&&GS.enemies){ let ns=null,nsd=(window._SPIDER_GRAB_R||46); for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||!e._neutralized||!(e._isCrawler||e._robitId==='droideka'))continue; const d=Math.hypot(player.wx-e.wx,player.wz-e.wz); if(d<nsd){nsd=d;ns=e;} } if(ns){ window._nearSpider=ns; cands.push({kind:'spider',ref:ns,d:nsd}); } else window._nearSpider=null; }
   if(!cands.length) return null;
   cands.sort((a,b)=>a.d-b.d);
   return cands[0];
@@ -15353,7 +15426,7 @@ function _grabItem(fromSlide){
   if(g.kind==='meleepad'){ const st=g.ref; if(typeof _collectHammer==='function'&&_collectHammer(st)){ if(typeof _padConsume==='function')_padConsume(st); } window._nearHammer=null; return true; }   // grab a melee station -> equip the melee weapon
   if(g.kind==='boots'){ if(typeof _collectBoots==='function')_collectBoots(); window._nearBoots=null; return true; }   // grab the boot station -> bone-attach the wall boots
   if(g.kind==='droid'){ const a=g.ref; const ai=(GS.allies?GS.allies.indexOf(a):-1); if(ai>=0)GS.allies.splice(ai,1); if(a._grabRing){try{scene.remove(a._grabRing); if(a._grabRing.geometry)a._grabRing.geometry.dispose();}catch(_){}} if(a.mesh){try{scene.remove(a.mesh); a.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});}catch(_){}} player._carryPayload={kind:'item',type:'droid'}; window._nearDroid=null; if(typeof player._armBomb==='function')player._armBomb('item'); if(typeof announce==='function')announce('DROID SCOOPED — AIM & THROW','#ffb066'); if(typeof Audio!=='undefined'){try{Audio.blip(420,0.1,'square',0.16,300);}catch(_){}} return true; }   // scoop the balled droid -> carry it like a bomb; throwing redeploys it
-  if(g.kind==='spider'){ const e=g.ref; const ei=(GS.enemies?GS.enemies.indexOf(e):-1); if(ei>=0)GS.enemies.splice(ei,1); if(e.mesh){try{scene.remove(e.mesh); e.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});}catch(_){}} player._carryPayload={kind:'item',type:'spider'}; window._nearSpider=null; if(typeof player._armBomb==='function')player._armBomb('item'); if(typeof announce==='function')announce('SPIDER SCOOPED — AIM & THROW','#8fff8f'); if(typeof Audio!=='undefined'){try{Audio.blip(360,0.1,'square',0.16,260);}catch(_){}} return true; }   // scoop a balled spider -> carry + throw it like the droid; on landing it re-enters as a hostile spider you can bat / kill
+  if(g.kind==='spider'){ const e=g.ref; if(typeof _clearStunHalo==='function')_clearStunHalo(e); const _isDk=(e._robitId==='droideka'); const ei=(GS.enemies?GS.enemies.indexOf(e):-1); if(ei>=0)GS.enemies.splice(ei,1); if(e.mesh){try{scene.remove(e.mesh); e.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});}catch(_){}} player._carryPayload={kind:'item',type:(_isDk?'droid':'spider')}; window._nearSpider=null; if(typeof player._armBomb==='function')player._armBomb('item'); if(typeof announce==='function')announce((_isDk?'BALL DROID':'SPIDER')+' SCOOPED — AIM & THROW','#8fff8f'); if(typeof Audio!=='undefined'){try{Audio.blip(360,0.1,'square',0.16,260);}catch(_){}} return true; }   // scoop a NEUTRALIZED small enemy -> carry + throw it; on landing it CONVERTS to your team
   if(g.kind==='item'){ const p=g.ref;
     if(fromSlide && p.type==='barrel'){ if(p._sid)_mpBroadcastTaken(p._sid); const i=window._itemPU.indexOf(p); if(i>=0)window._itemPU.splice(i,1); if(p.grp){scene.remove(p.grp);p.grp.traverse(c=>{if(c.geometry)c.geometry.dispose();});} if(typeof _detonateItem==='function')_detonateItem('barrel',p.x,p.z,false); window._nearOrb=null; return true; }   // SLIDE through a barrel -> BUST it open (don't carry)
     // BOMB is now a PHYSICAL grab-&-throw object (like the nuke): it falls through to the generic carry path below
@@ -19190,7 +19263,7 @@ function _alliesDamageEnemies(dt){   // symmetric to _enemiesDamageAllies: YOUR 
   for(const a of GS.allies){ if(!a||a.alive===false)continue; if(a._open!=null && a._open<0.5)continue;
     a._enemyBiteCD=(a._enemyBiteCD||0)-dt; if(a._enemyBiteCD>0)continue;
     const ar=(a.size||14)*0.5+(window._ALLY_BITE_REACH||16);
-    for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._invulnerable)continue;
+    for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._invulnerable||e._neutralized)continue;
       if(Math.hypot(a.wx-e.wx,a.wz-e.wz) < ar+(e.size||14)*0.4){
         if(_isBallDroid(e) && _creatureTier(a)>=(window._DROID_BAT_TIER||2)){ if(e.knock)try{e.knock(e.wx-a.wx,e.wz-a.wz,(window._DROID_BAT_MAG||5));}catch(_){} if(typeof ps!=='undefined')ps.ring(e.wx,e.wz,[0.5,0.9,1],14,90,(e.py||9)); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(200,0.1,'square',0.16,140);}catch(_){} }   // your dog/dragon BATS the enemy ball droid flying (it's small -> travels)
         else { if(e.hit)try{e.hit(_creatureBiteDmg(a), e.wx, e.wz);}catch(_){} if(e.knock)try{e.knock(e.wx-a.wx,e.wz-a.wz,(window._ALLY_BITE_KB||2)*_creatureTier(a),1,6);}catch(_){} if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(e.wx,e.wz,[0.5,0.9,1],(e.py||9)+10); }
@@ -23006,6 +23079,7 @@ function loop(ts){ requestAnimationFrame(loop);
       for(const e of GS.enemies){
         if(e._ro){ _skyEnemyRingFall(e,dt); continue; }
         if(e._burn){ _colEnemyBurn(e,dt); continue; }
+        if(e._neutralized && !_mpPuppet){ try{ e.update(player,dt); }catch(_){} continue; }   // stunned: slumps in place under its stars, immune to void-fall/obstacle push until grabbed or it lapses
         if(_mpPuppet){   // host-authoritative: client enemies are puppets — animate but track host position, drop local AI drift
           if(e._netTX!==undefined){ e.wx+=(e._netTX-e.wx)*Math.min(1,dt*9); e.wz+=(e._netTZ-e.wz)*Math.min(1,dt*9); }
           const _hx=e.wx,_hz=e.wz;
@@ -23035,12 +23109,14 @@ function loop(ts){ requestAnimationFrame(loop);
         if(e._kbYOff>0 && e.mesh) e.mesh.position.y+=e._kbYOff;
         if(typeof _arenaEnemyHazard==='function') _arenaEnemyHazard(e);
       }
+      // sweep out neutralized enemies whose grace window lapsed (nobody scooped them)
+      for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(e&&e._expireDead){ if(typeof _clearStunHalo==='function')_clearStunHalo(e); if(e.remove)try{e.remove();}catch(_){} GS.enemies.splice(i,1); if(typeof registerKill==='function')try{registerKill(e);}catch(_){} } }
       // ── enemy separation: push overlapping enemies apart so they never stack ──
       // Now MASS-WEIGHTED and covers big creatures (dragons/dogs) + ball-mode droids too — a heavy boss barely
       // budges while a small spider gets shoved; vertically-separated (airborne) pairs are left alone. Only
       // dying / ring-fall / burning / wall-climbing enemies opt out (they own their own position paths).
       if(window._ENEMY_SEP!==false){ const E=GS.enemies, n=E.length;
-        const _sepOK=(o)=> o && o.alive && !o._dying && !o._ro && !o._burn && !o._climbing && !o._cubeCrawl && !o._captured;
+        const _sepOK=(o)=> o && o.alive && !o._dying && !o._ro && !o._burn && !o._climbing && !o._cubeCrawl && !o._captured && !o._neutralized;
         const _mass=(o)=> o.isBoss ? (window._SEP_BOSS_MASS||6) : (1 + (o.size||12)/26);   // bosses ~fixed; bigger = heavier
         for(let a=0;a<n;a++){ const A=E[a]; if(!_sepOK(A)) continue; const ra=(A.size||12)*0.5+6, ma=_mass(A), ay=(A.mesh?A.mesh.position.y:9);
           for(let b=a+1;b<n;b++){ const B=E[b]; if(!_sepOK(B)) continue; const rb=(B.size||12)*0.5+6, mn=ra+rb;
@@ -26935,7 +27011,7 @@ function _sentryTick(dt){
     if(s.life>0){ s.life-=dt; if(s.life<=0){ _removeSentry(s); A.splice(i,1); continue; } }
     // ACQUIRE: nearest hostile enemy in range
     let tgt=null,tD=s.range*s.range;
-    if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._faction==='ally')continue; const dx=e.wx-s.x,dz=e.wz-s.z,d2=dx*dx+dz*dz; if(d2<tD){ tD=d2; tgt=e; } }
+    if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false||e._captured||e._dying||e._neutralized||e._faction==='ally')continue; const dx=e.wx-s.x,dz=e.wz-s.z,d2=dx*dx+dz*dz; if(d2<tD){ tD=d2; tgt=e; } }
     s.target=tgt; const P=s.P;
     // TAKE DAMAGE from enemy fire -> destructible
     if(s.grow>=1 && typeof GS!=='undefined'&&GS.enemyBullets)for(let bi=GS.enemyBullets.length-1;bi>=0;bi--){ const b=GS.enemyBullets[bi]; if(!b)continue; const bx=(b.wx!=null?b.wx:b.x), bz=(b.wz!=null?b.wz:b.z); if(bx==null)continue; const dxb=bx-s.x, dzb=bz-s.z; if(dxb*dxb+dzb*dzb<(window._SENTRY_HITR||22)*(window._SENTRY_HITR||22)){ s.hp-=(b.dmg||1); s.hitFlash=0.12; try{ if(b.remove)b.remove(); }catch(_){} GS.enemyBullets.splice(bi,1); if(typeof ps!=='undefined')try{ps.spark(s.x,s.z,[1,0.4,0.5]);}catch(_){} } }
