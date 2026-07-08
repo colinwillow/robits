@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB474</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB475</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -23001,6 +23001,9 @@ function _updateFpsBadge(){
   if(el._col!==col){ el._col=col; el.style.color=col; el.style.boxShadow='0 0 0 1px '+col+'2e'; }
   const txt=f+' FPS';
   if(el.textContent!==txt) el.textContent=txt;
+  // live FPS inside the sticky PERF A/B banner so each mode's number is right there to compare
+  const ab=document.getElementById('perf-ab');
+  if(ab&&ab.style.display!=='none'&&ab._base){ ab.innerHTML=ab._base+'  <span style="color:'+col+'">'+f+' FPS</span>'; }
 }
 // ── ADAPTIVE GRAPHICS: if the framerate sits low for a few seconds, auto-drop the bloom composer (the heaviest GPU
 //    pass) to claw back fps. Only ever downgrades; the player can force HIGH back on in the pause menu (which pins it).
@@ -36591,10 +36594,20 @@ window._perfCycle=function(){
   const M=window._perfMode, base=window._perfBaseDPR;
   const bloomOff=(M===1||M===3), halfRes=(M===2||M===3);
   window._gfxPerf=bloomOff; window._gfxUserSet=true;
-  window._setDPR(halfRes? Math.max(0.5,base*(window._PERF_HALF||0.6)) : base);
+  const dpr=halfRes? Math.max(0.4,base*(window._PERF_HALF||0.5)) : base;
+  window._setDPR(dpr);
   const gb=document.getElementById('gfx-btn'); if(gb) gb.textContent=window._gfxPerf?'GFX: FAST':'GFX: HIGH';
-  const names=['A · FULL (bloom + full res)','B · NO BLOOM','C · HALF-RES','D · NO BLOOM + HALF-RES'];
-  if(typeof announce==='function') announce('PERF '+names[M]+' — watch the FPS pill (top-left)','#7ddcff');
+  const names=['A · FULL','B · NO BLOOM','C · HALF-RES','D · NO BLOOM + HALF-RES'];
+  const desc=['bloom ON · full res','bloom OFF · full res','bloom ON · '+dpr.toFixed(2)+'× res','bloom OFF · '+dpr.toFixed(2)+'× res'];
+  window._perfLabel=names[M]; window._perfDesc=desc[M];
+  // sticky banner so you always know which of A/B/C/D you're on (announce() flashes away too fast to compare)
+  let ab=document.getElementById('perf-ab');
+  if(!ab){ ab=document.createElement('div'); ab.id='perf-ab';
+    ab.style.cssText='position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:97;font:700 12px/1.4 monospace;color:#7ddcff;background:rgba(0,10,20,0.82);border:1px solid #7ddcff66;padding:5px 12px;border-radius:8px;pointer-events:none;text-align:center;letter-spacing:0.5px;white-space:nowrap';
+    document.body.appendChild(ab); }
+  ab.style.display='block';
+  ab._base='PERF '+names[M]+'<br><span style="font-weight:400;color:#9fd0e8;font-size:10px">'+desc[M]+'</span>';
+  if(typeof announce==='function') announce('PERF '+names[M]+' — '+desc[M],'#7ddcff');
 };
 window._toggleLightMode=function(){
   window.LIGHT_MODE=!window.LIGHT_MODE;
