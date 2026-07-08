@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB490</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB491</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -1363,7 +1363,8 @@ window._spawnBot=function(diff){
   diff=diff||window._botDiff||'soldier';
   try{
     let bx,bz,_pad=null;
-    if(typeof GS!=='undefined'&&GS.zone===-19 && window._SPAWN_ON_PLATS!==false && typeof window._cubeRandomSpawn==='function'){ _pad=window._cubeRandomSpawn((player&&player._spawnPadIdx!=null)?player._spawnPadIdx:null); if(_pad){ bx=_pad.x; bz=_pad.z; } }
+    if(diff==='dummy'){ const a=(player.aim!=null?player.aim:0), r=(window._DUMMY_SPAWN_R||110); bx=(player.wx||0)+Math.cos(a)*r; bz=(player.wz||0)+Math.sin(a)*r; }   // DUMMY: drop it in front of you at arm's length (a test target), not up on a spawn pad
+    if(bx==null && typeof GS!=='undefined'&&GS.zone===-19 && window._SPAWN_ON_PLATS!==false && typeof window._cubeRandomSpawn==='function'){ _pad=window._cubeRandomSpawn((player&&player._spawnPadIdx!=null)?player._spawnPadIdx:null); if(_pad){ bx=_pad.x; bz=_pad.z; } }
     if(bx==null){ const a=Math.random()*Math.PI*2, r=120; bx=(player.wx||0)+Math.cos(a)*r; bz=(player.wz||0)+Math.sin(a)*r; }
     const bot=new BotPilot(bx,bz,{difficulty:diff,round:1});
     if(_pad){ try{ bot.py=_pad.y; bot._onPlatform=true; if(bot.model)bot.model.position.y=_pad.y; }catch(_){} }   // spawn standing ON the elevated deck (the spawn-pad tick keeps bots/dummy from falling through)
@@ -21713,6 +21714,11 @@ function showGameOver(){ Audio.stopMusic();
   ['joystick-left','joystick-right','boss-bar'].forEach(id=>{ const el=document.getElementById(id); if(el)el.style.display='none'; });
 }
 
+// IMPACT SFX — plays hit_01.mp3 when YOUR attack connects (bullets/melee/mace). Cooldown-gated so rapid fire/spins don't spam it.
+// Falls back to a short blip until audio/hit_01.mp3 is added to the repo, so the feedback works immediately either way.
+function _hitSfx(vol){ if(typeof Audio==='undefined'||!Audio.on)return; const _now=(typeof performance!=='undefined'?performance.now():0); if(_now-(window._hitSfxT||0) < (window._HIT_SFX_CD||45))return; window._hitSfxT=_now;
+  try{ if(Audio.samples&&Audio.samples['hit_01']&&Audio.samples['hit_01']!=='pending'&&Audio.playSample) Audio.playSample('hit_01',(vol!=null?vol:(window._HIT_SFX_VOL!=null?window._HIT_SFX_VOL:0.5))); else if(Audio.blip) Audio.blip(300,0.05,'square',0.11,170); }catch(_){} }
+window._hitSfx=_hitSfx;
 function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
   // In multiplayer, only host processes enemy hits
   const mpNonHost=MP.active&&!MP.isHost;
@@ -21735,7 +21741,7 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
           continue;
         }
         kt+=0.015; const pts=e.hit(b.dmg, b.wx, b.wz, b.y); e.knock(b.vx,b.vz,b.dmg,0.1); if(b.pierce>0){b.pierce--;b.hitSet.add(e);}else b.life=0;
-        if(!b._fromBot && !b._enemy && typeof Audio!=='undefined' && Audio.samples && Audio.samples['hit_01'] && Audio.playSample){ const _nowH=(typeof performance!=='undefined'?performance.now():0); if(_nowH-(window._hitSfxT||0) >= (window._HIT_SFX_CD||45)){ window._hitSfxT=_nowH; try{ Audio.playSample('hit_01',(window._HIT_SFX_VOL!=null?window._HIT_SFX_VOL:0.5)); }catch(_){} } }   // impact SFX when YOUR shot connects (cooldown-gated so rapid fire doesn't spam it)
+        if(!b._fromBot && !b._enemy) _hitSfx();   // impact SFX when YOUR shot connects
         if(e._isCrawler && e.alive){ const _kl=Math.hypot(b.vx||0,b.vz||0)||1; e._shoveVx=(b.vx/_kl)*(window._SPIDER_SHOVE||95); e._shoveVz=(b.vz/_kl)*(window._SPIDER_SHOVE||95); e._shoveT=(window._SPIDER_SHOVE_T||0.16); e.hitFlash=Math.max(e.hitFlash||0,(window._SPIDER_HIT_FLASH||12)); if(typeof ps!=='undefined'){ const _my=(e.mesh?e.mesh.position.y:9)+(e.size||14)*0.4; ps.spark(b.wx,b.wz,e.glow||[0.6,1,0.7]); } }   // SHOOT feedback: subtle knockback shove + flash so hitting a spider READS (melee still sends them flying)
         if(typeof player!=='undefined'&&player&&player._super>0 && !b._fromBot && !b._ally){   // SUPERCHARGE: every round is a rocket -> big knockback (enemies fly), a detonation, grid ripple + voxel burst
           const _bl=Math.hypot(b.vx||0,b.vz||0)||1, _by=(b.y!=null?b.y:enemyY);
@@ -21790,7 +21796,7 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
       if(dx*dx+dz*dz<rr*rr){ const dmy=(dm.mesh?dm.mesh.position.y:(dm.py||9)), by=(b.y!=null?b.y:9);
         if(by>dmy-(window._BULLET_VERT_DOWN||30) && by<dmy+Math.max((window._BULLET_VERT_UP||48),(dm._tall||0))){
           if(dm.hit)try{dm.hit(b.dmg, b.wx, b.wz, b.y);}catch(_){}   // the dummy's hit() already imparts the sway-shove, so no separate knock() (would double it)
-          if(!b._fromBot && !b._enemy && typeof Audio!=='undefined' && Audio.samples && Audio.samples['hit_01'] && Audio.playSample){ const _nowH=(typeof performance!=='undefined'?performance.now():0); if(_nowH-(window._hitSfxT||0) >= (window._HIT_SFX_CD||45)){ window._hitSfxT=_nowH; try{ Audio.playSample('hit_01',(window._HIT_SFX_VOL!=null?window._HIT_SFX_VOL:0.5)); }catch(_){} } }
+          if(!b._fromBot && !b._enemy) _hitSfx();
           if(typeof _hitMark==='function')_hitMark(b.wx, by, b.wz, (window._HITMARK_COL||0x9fd8ff), ((dm.size||16)>=24));
           if(b.pierce>0){b.pierce--;b.hitSet.add(dm);}else b.life=0; } } }
   }
@@ -23574,6 +23580,7 @@ function loop(ts){ requestAnimationFrame(loop);
               if(!_inR)return false;
               const ey=_eBase+Math.max(10,_etall*0.5);
               ud._meleeHitSet.add(e);
+              if(kind!=='ally') _hitSfx();   // impact SFX on a melee connect (same hit_01 as bullets)
               const _hitDmg=(kind==='bot')?Math.max(1,dmg*(window._MELEE_BOT_DMG_K!=null?window._MELEE_BOT_DMG_K:1)):dmg;   // bots + dummy take the same melee damage (compressed by _combatDmg at the receiver)
               if(e.hit && (kind!=='ally' || window._FRIENDLY_FIRE===true))e.hit(_hitDmg, player.wx, player.wz);                                    // FF OFF: meleeing your own summon LAUNCHES it (below) but doesn't hurt it
               if(kind!=='ally' && e.alive!==false && (e.isBoss || e._tall || (e.size||0)>=24) && typeof _spawnSlashDecal==='function'){ try{ _spawnSlashDecal(e, bx, by, bz, Math.atan2((kvz||0),(kvx||0))*0.4+0.5); }catch(_){} }   // gash that sticks on the dragon / big enemies briefly
