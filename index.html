@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB507</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB508</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -4861,8 +4861,12 @@ class EnemyBullet{
         }
         this.life=0;
         if(this._ownerBot)window._lastPlayerHitBy=this._ownerBot;   // remember the shooter -> killcam
-        spawnDmgNum(player.wx, player.py+20, player.wz, 1, '#ff4444');
-        playerDie();
+        // RIVAL BOTS deal reduced per-bullet damage so time-to-kill is ~symmetric: the player needs many bolts to drop a
+        // 100hp bot (damage is compressed by _combatDmg), so a bot bolt shouldn't erase a third of your health. Other
+        // enemies (turrets/sentries) still hit for the full unit. Tune with window._BOT_BULLET_PLAYER_DMG.
+        const _pdmg=this._ownerBot?(window._BOT_BULLET_PLAYER_DMG!=null?window._BOT_BULLET_PLAYER_DMG:0.5):1;
+        spawnDmgNum(player.wx, player.py+20, player.wz, _pdmg, '#ff4444');
+        playerDie(_pdmg);
       }
     }
   }
@@ -14190,7 +14194,7 @@ class BotPilot{
     this.aimError   ={dummy:1.0, rookie:0.55, soldier:0.22, elite:0.06}[diff];
     this.reactionMs ={dummy:9999,rookie:600,  soldier:320,  elite:120 }[diff];
     this.speedMult  ={dummy:0,   rookie:0.6,  soldier:0.85, elite:1.1 }[diff];
-    this.aggression ={dummy:0,   rookie:0.3,  soldier:0.6,  elite:0.9 }[diff];
+    this.aggression =(window._BOT_AGGRO&&window._BOT_AGGRO[diff])||{dummy:0, rookie:0.45, soldier:0.75, elite:0.95}[diff];   // more aggressive by default -> picks strafe/engage (fire) far more than reposition, and melees more
     this.isDummy=(diff==='dummy');
 
     // State machine
@@ -14881,7 +14885,9 @@ class BotPilot{
     if(this._botWeaponT<=0 && !this._botWeaponLocked){ const pool=(window._BOT_WEAPONS||['rapid','spread','plasma','heavy','rapid']); this._botWeapon=pool[(Math.random()*pool.length)|0]; this._botWeaponT=(window._BOT_WEAPON_SWITCH||7)+Math.random()*5; if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL: '+this._botWeapon.toUpperCase(),'#ff7a7a');}catch(_){} }   // locked once it grabs a real pad weapon (keeps it until it fetches another)
     // ── FIRE — only when strafing or chasing, not while evading/repositioning ──
     this.fireT++;
-    const canFire=this.state==='strafe'||this.state==='chase';
+    // FIRE in every state except a full evade (and never mid-special) — the old chase/strafe-only gate left the rival barely
+    // shooting because it spent so much time repositioning. Now it unloads like the player does whenever it has a bead on you.
+    const canFire=(this.state!=='evade') && !this._botBall && !((this._botSlideT||0)>0) && !((this._botRollT||0)>0);
     const _frBase=(window._BOT_FIRE_BASE&&window._BOT_FIRE_BASE[this.diff])||{rookie:12, soldier:9, elite:6}[this.diff];   // frames between shots WITHIN a burst — tighter now so it reads as an automatic weapon (you hold + unload, so should they)
     const fireRate=Math.round(_frBase*({rapid:1, spread:2.4, plasma:2.0, heavy:2.8}[this._botWeapon||'rapid']||1));   // heavier guns fire slower
     // Automatic-weapon burst: unload a long string of rounds, then a SHORT breath (not the old 2-shots-then-1.5s-pause that read as single fire)
@@ -14970,7 +14976,7 @@ class BotPilot{
       const _specBusy=(this._botSlideT||0)>0||(this._botRollT||0)>0||!!this._botBall;
       this._botSpecCD=Math.max(0,(this._botSpecCD||0)-dt);
       const _bc=(name,loop)=>{ if(!this._clips)return null; const c=this._clips[name]; if(!c)return null; Object.values(this._clips).forEach(a=>{ if(a&&a.fadeOut&&a!==c)a.fadeOut(0.08); }); c.reset(); if(loop){ c.setLoop(THREE.LoopRepeat,Infinity); } else { c.setLoop(THREE.LoopOnce,1); c.clampWhenFinished=true; } c.setEffectiveWeight(1).fadeIn(0.06).play(); this._clips._cur='_spec'; return c; };
-      const _specContact=(mag,lift,stun,dmg)=>{ const _tf=this._foe; if(!_tf||_tf.alive===false||typeof _tf.knock!=='function')return false; const ddx=_tf.wx-this.wx, ddz=_tf.wz-this.wz, ddl=Math.hypot(ddx,ddz)||1; if(ddl<(window._BOT_SPEC_HIT_R||60) && !_tf._launched){ if(_tf===player){ if(typeof playerDie==='function')playerDie(window._BOT_SPEC_PLAYER_DMG||1,'#ff5566','melee'); } else if(_tf.hit)try{_tf.hit(dmg);}catch(_){} _tf.knock(ddx/ddl,ddz/ddl,mag,lift,stun); if(_tf===player&&typeof addTrauma==='function')addTrauma(0.18); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.4,0.9,1],16,120); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(90,0.12,'square',0.2,520);}catch(_){} return true; } return false; };
+      const _specContact=(mag,lift,stun,dmg)=>{ const _tf=this._foe; if(!_tf||_tf.alive===false||typeof _tf.knock!=='function')return false; const ddx=_tf.wx-this.wx, ddz=_tf.wz-this.wz, ddl=Math.hypot(ddx,ddz)||1; if(ddl<(window._BOT_SPEC_HIT_R||36) && !_tf._launched){ if(_tf===player){ if(typeof playerDie==='function')playerDie(window._BOT_SPEC_PLAYER_DMG||1,'#ff5566','melee'); } else if(_tf.hit)try{_tf.hit(dmg);}catch(_){} _tf.knock(ddx/ddl,ddz/ddl,mag,lift,stun); if(_tf===player&&typeof addTrauma==='function')addTrauma(0.18); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.4,0.9,1],16,120); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(90,0.12,'square',0.2,520);}catch(_){} return true; } return false; };   // hit radius tightened 60 -> 36 so it reads as ACTUAL contact (was flinging the player before the ball/slide visibly touched)
       // active special ticks
       if((this._botSlideT||0)>0){ this._botSlideT-=dt; if(!this._botSlideHitDone && _specContact((window._BOT_SLIDE_MAG||14),(window._BOT_SLIDE_LIFT||120),(window._BOT_SLIDE_STUN||24),(window._BOT_SLIDE_DMG||3))) this._botSlideHitDone=true; }
       else if((this._botRollT||0)>0){ this._botRollT-=dt; }
@@ -14990,8 +14996,8 @@ class BotPilot{
         } else if(this.state==='evade' && _r<(window._BOT_ROLL_P||0.03)){
           const rc=this._clips&&(this._clips['dive_roll']||this._clips['roll']||this._clips['dash']||this._clips['slide']);
           if(rc){ const rn=Object.keys(this._clips).find(k=>this._clips[k]===rc)||'roll'; this._botRollT=(rc._clip&&rc._clip.duration)||0.5; this._botSpecCD=(window._BOT_ROLL_CD||2.0); this._dashCD=0; this._dash(-dirX,-dirZ); _bc(rn,false); }
-        } else if(dist>(window._BOT_BALL_RANGE||130) && _r<(window._BOT_BALL_P||0.012) && this._clips&&this._clips['ball']){
-          this._botBall=true; this._botBallInv=true; this._botBallHitDone=false; this._botBallT=(window._BOT_BALL_T||1.4); this._botSpecCD=(window._BOT_BALL_CD||4.0); this._dashCD=0; this._dash(dirX,dirZ); _bc('ball',true);
+        } else if(dist>(window._BOT_BALL_RANGE||150) && _r<(window._BOT_BALL_P||0.006) && this._clips&&this._clips['ball']){   // ball-charge RARER + only from farther out — it was over-relying on the body-check instead of shooting/meleeing
+          this._botBall=true; this._botBallInv=true; this._botBallHitDone=false; this._botBallT=(window._BOT_BALL_T||1.4); this._botSpecCD=(window._BOT_BALL_CD||6.0); this._dashCD=0; this._dash(dirX,dirZ); _bc('ball',true);
           if(typeof announce==='function'&&_foe===player)announce('RIVAL BALL!','#39d6ff');
         }
       }
