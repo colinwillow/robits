@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB482</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB483</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -3561,12 +3561,16 @@ class DroidekaBot extends Enemy{
   }
   hit(dmg=1){
     if(this._neutralized){ const fin=_smallEnemyHitGate(this,dmg); if(fin!=null)return fin; }   // finishing shot on a stunned ball droid
-    if(this._open<0.5){   // shielded ball — bullets ping off, but sustained fire forces it open
-      _autoStir(this);   // still provokes it + marks the spot even while shielded
+    if(this._open<0.5 && window._DROID_BALL_INVULN===true){   // (opt-in) old behaviour: shielded ball pings off, sustained fire forces it open
+      _autoStir(this);
       ps.spark(this.wx,this.wz,[1,0.8,0.3]); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(520+rand(180),0.04,'square',0.05,200);
       this._stagger+=dmg;
       if(this._stagger>8 && this._state==='roll'){ this._state='unfold'; this._stateT=0; this._stagger=0; }
       return 0;
+    }
+    if(this._open<0.5){   // NOW: damage goes through even in ball mode (a spark + a nudge toward unfolding), instead of pinging off
+      _autoStir(this); ps.spark(this.wx,this.wz,[1,0.8,0.3]);
+      this._stagger+=dmg; if(this._stagger>6 && this._state==='roll'){ this._state='unfold'; this._stateT=0; this._stagger=0; }
     }
     if(_canNeutralize(this) && (this.hp-dmg)<=0){ try{this._applyOpen(1);}catch(_){} _enterNeutralized(this); return 0; }   // open + lethal -> NEUTRALIZE (splayed open, scoopable) instead of dying
     this.hitFlash=6; return super.hit(dmg);
@@ -9258,7 +9262,7 @@ class AllyBot{
     }
   }
   hit(dmg){   // the enemy side (rival bots / enemy fire) can wound + kill a summoned ally
-    if(this._isDroideka && this._dkBall){ if(typeof ps!=='undefined')ps.spark(this.wx,this.wz,[0.5,0.9,1],(this._dkY||0)+12); return 0; }   // BALL MODE = shield: no damage (knock() sends it flying instead)
+    if(this._isDroideka && this._dkBall){ if(typeof ps!=='undefined')ps.spark(this.wx,this.wz,[0.5,0.9,1],(this._dkY||0)+12); if(window._DROID_BALL_INVULN===true) return 0; }   // ball mode still takes damage now (set _DROID_BALL_INVULN=true to restore the old shield)
     if(this.hp==null)this.hp=this.maxHp||5;
     this.hp-=(dmg||1); this._hitFlash=6;
     if(typeof ps!=='undefined')ps.spark(this.wx,this.wz,[1,0.55,0.2],(this.py||this._cy||9)+10);
@@ -11100,6 +11104,14 @@ window._hideBowReticle=_hideBowReticle;
 // ── DOM FX ──
 const flashEl=document.getElementById('flash');
 function flashScreen(a){ flashEl.style.transition='none';flashEl.style.opacity=a; requestAnimationFrame(()=>{flashEl.style.transition='opacity .25s';flashEl.style.opacity='0';}); }
+// ── RED HURT VIGNETTE — a red edge-flash pulse for taking damage (esp. multiplayer, so getting shot reads instantly) ──
+let _hurtEl=null;
+function _hurtFlash(a){
+  if(!_hurtEl){ _hurtEl=document.createElement('div'); _hurtEl.id='hurt-flash'; _hurtEl.style.cssText='position:fixed;inset:0;z-index:95;pointer-events:none;opacity:0;background:radial-gradient(ellipse at 50% 50%,transparent 42%,rgba(255,24,24,0.8) 118%)'; document.body.appendChild(_hurtEl); }
+  _hurtEl.style.transition='none'; _hurtEl.style.opacity=Math.min(1,a);
+  requestAnimationFrame(()=>{ _hurtEl.style.transition='opacity .4s ease-out'; _hurtEl.style.opacity='0'; });
+}
+window._hurtFlash=_hurtFlash;
 const dmgVig=document.getElementById('dmg-vig');
 function dmgFlash(){ dmgVig.style.opacity='1';setTimeout(()=>dmgVig.style.opacity='0',240); }
 const annEl=document.getElementById('announce');let annT=null;
@@ -12310,6 +12322,10 @@ class Player{
     }
     if(typeof _platDbgHUD==='function') _platDbgHUD(this);   // boots surface-state readout (default ON while debugging; window._PLAT_DBG=false to hide)
     if(this.inv>0)this.inv--; if(this.shieldT>0)this.shieldT--;
+    // ── MINIGUN OVERHEAT — sustained fire builds heat; at 100% it jams + smokes and locks out until it cools past the resume line ──
+    if((this._mgHeat||0)>0){ this._mgHeat=Math.max(0,(this._mgHeat||0)-(window._MG_COOL||0.55)*dt);
+      if(this._mgOver){ if(this.primaryWeapon==='minigun'&&Math.random()<0.6&&typeof ps!=='undefined'&&ps._spawn){ const hx=this.wx+Math.cos(this.aim)*16, hz=this.wz+Math.sin(this.aim)*16, hy=(this.py||0)+20; ps._spawn(hx,hy,hz,rand(-6,6),12+rand(10),rand(-6,6),0.6,0.6,0.62,0.6); }
+        if(this._mgHeat<(window._MG_RESUME||0.3)){ this._mgOver=false; if(typeof announce==='function')announce('MINIGUN READY','#7fe8ff'); } } }
     if(this.dashCD>0){this.dashCD--;if(this.dashCD<=0)this.dash=1;}
 
     if(this.dashing>0){ this.dashing--; const ds=420;
@@ -12365,13 +12381,15 @@ class Player{
         else if(isGridQuake){ this._handleQuake(firing,od); }
         else if(isNuke){ this._handleNuke(firing,od); }
         else if(isBow){ this._handleBow(firing,od,dt); }
-        else if(firing&&!this._flickPending&&this.fireT>=fireRate){
+        else if(firing&&!this._flickPending&&this.fireT>=fireRate && !(isMinigun&&this._mgOver)){
           this.fireT=0;
           if(isPlasma||isFlame){ /* sustained beam/flame handled per-frame */ }
           else if(isGrenade){ this._fireGrenade(od); this._consumeAmmo('grenade',1); }
           else if(isBoomerang){ this._fireBoomerang(od); this._consumeAmmo('boomerang',1); }
           else if(isRockets){ this._fireRocket(od); this._consumeAmmo('rockets',1); }
           else this._shoot(od);   // bullets — unlimited
+          if(isMinigun){ this._mgHeat=Math.min(1.2,(this._mgHeat||0)+(window._MG_HEAT_PER||0.045));   // sustained fire heats the barrel -> overheat lockout
+            if(!this._mgOver && this._mgHeat>=1){ this._mgOver=true; if(typeof ps!=='undefined'&&ps.burst)ps.burst(this.wx+Math.cos(this.aim)*16,this.wz+Math.sin(this.aim)*16,[0.5,0.5,0.55],10,60,(this.py||0)+20); if(typeof announce==='function')announce('OVERHEATED!','#ff7744'); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(150,0.2,'sawtooth',0.16,80);}catch(_){} } }
         }
         return;
       }
@@ -27257,7 +27275,7 @@ function buildCubeArena(){
         const disc=new THREE.Mesh(new THREE.CircleGeometry((window._PU_BASE_R||13),24), _cm(0.2)); disc.rotation.x=-Math.PI/2; disc.position.set(s.x,_itY-(window._PU_BASE_DROP||12)+0.6,s.z);
         if(_cubeGroup){_cubeGroup.add(col);_cubeGroup.add(baseR);_cubeGroup.add(disc);} else {scene.add(col);scene.add(baseR);scene.add(disc);}
       }
-      if(window._PADBEACON_ON!==false && typeof _makePadBeacon==='function'){ const _bc=_makePadBeacon(s.c); _bc.position.set(s.x,0,s.z); if(_cubeGroup)_cubeGroup.add(_bc); else scene.add(_bc); }   // floor "go up here" arrow under EVERY pad, same marker the big spawn pads use
+      if(window._PADBEACON_ON===true && typeof _makePadBeacon==='function'){ const _bc=_makePadBeacon(s.c); _bc.position.set(s.x,0,s.z); if(_cubeGroup)_cubeGroup.add(_bc); else scene.add(_bc); }   // floor "go up here" arrow under EVERY pad, same marker the big spawn pads use
       if(window._PAD_BEAM===true){   // the solid tractor cone is OFF by default now (didn't like the look); a throbbing up-arrow shows when you're under it instead. Opt back in with window._PAD_BEAM=true.
         const _brt=(window._PAD_BEAM_RT||16), _brb=(window._PAD_BEAM_RB||30);
         const beam=new THREE.Mesh(new THREE.CylinderGeometry(_brt,_brb,s.y*2,24,1,true), new THREE.MeshBasicMaterial({color:s.c,transparent:true,opacity:(window._PAD_BEAM_OP||0.16),blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); beam.position.set(s.x,s.y*0.5,s.z); if(_cubeGroup)_cubeGroup.add(beam); else scene.add(beam); s._beam=beam;
@@ -27294,7 +27312,7 @@ function buildCubeArena(){
     const _spawnAnchors=[];
     _pos.forEach((p,i)=>{ try{ const col=_cols[i%_cols.length]; const g=_makePowerPad(p.x,p.z,col); g.scale.setScalar(_spSc); g.position.set(p.x,_spY-(window._SPAWN_PLAT_DECK_DROP||8),p.z); if(_cubeGroup)_cubeGroup.add(g); else scene.add(g);
       window._cubePlatforms.push({x:p.x,z:p.z,hw:_hw,hd:_hw,top:_spY});   // standable deck
-      let _beacon=null; try{ if(window._PADBEACON_ON!==false && typeof _makePadBeacon==='function'){ _beacon=_makePadBeacon(col); _beacon.position.set(p.x,0,p.z); if(_cubeGroup)_cubeGroup.add(_beacon); else scene.add(_beacon); } }catch(_){}   // floor "stand here" marker under the pad
+      let _beacon=null; try{ if(window._PADBEACON_ON===true && typeof _makePadBeacon==='function'){ _beacon=_makePadBeacon(col); _beacon.position.set(p.x,0,p.z); if(_cubeGroup)_cubeGroup.add(_beacon); else scene.add(_beacon); } }catch(_){}   // floor "stand here" marker under the pad
       _spawnAnchors.push({x:p.x,z:p.z,y:_spY,r:(window._SPAWN_PAD_TRACTOR_R||70),t:0,beam:null});   // stand under it -> the SAME spiral tractor-lift as the small pads eases you up onto the deck
       window._cubeSpawnPads.push({x:p.x,z:p.z,y:_spY,col,g,beacon:_beacon}); }catch(_){} });
     window._PAD_TUBE_K=1;
@@ -36192,9 +36210,9 @@ function mpTakeDamage(dmg, byId){
   if(typeof MP!=='undefined')MP._hitsRecv=(MP._hitsRecv||0)+1;   // debug overlay: counts EVERY incoming hit (even during i-frames)
   if(!player||!player.alive||player.inv>0||GS.state!=='playing') return;
   const _md=_combatDmg(dmg);   // MP player is a unit too — tanky, tactical TTK (not 3-hit)
-  if((GS.hp-_md)<=0){ mpSend('event',{event:'died', data:{by:byId||null}}); if(MP.versus)_mpScoreCredit(MP.myId, byId||null); ps.ring(player.wx,player.wz,[1,0.3,0.1],30,120); flashScreen&&flashScreen(0.7); addTrauma(0.2); if(Audio.bigDie)Audio.bigDie(); mpRespawn(); return; }
+  if((GS.hp-_md)<=0){ mpSend('event',{event:'died', data:{by:byId||null}}); if(MP.versus)_mpScoreCredit(MP.myId, byId||null); ps.ring(player.wx,player.wz,[1,0.3,0.1],30,120); _hurtFlash(1); addTrauma(0.28); if(Audio.bigDie)Audio.bigDie(); mpRespawn(); return; }
   GS.hp-=_md; updateUI&&updateUI();
-  player.inv=Math.max(player.inv,18); flashScreen&&flashScreen(0.35); addTrauma(0.12);
+  player.inv=Math.max(player.inv,18); _hurtFlash(0.72); addTrauma(0.16);
   if(Audio.blip)Audio.blip(90,0.12,'sawtooth',0.2,50); ps.burst(player.wx,player.wz,[1,0.3,0.2],10,90);
 }
 function mpRespawn(){
