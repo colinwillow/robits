@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB505</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB506</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -11135,12 +11135,34 @@ function _hideBowReticle(){ if(_bowReticle)_bowReticle.visible=false; }
 window._hideBowReticle=_hideBowReticle;
 
 // ── DOM FX ──
-// ── AUDIO RESUME ── browsers SUSPEND the AudioContext when the tab/app is backgrounded and DON'T auto-resume on return, so
-//    every SFX goes dead until reload. Resume it whenever we regain visibility/focus or on the first input after coming back. ──
+// ── AUDIO RESUME ── mobile browsers SUSPEND (iOS "interrupt") the AudioContext when the tab/app is backgrounded and DON'T
+//    auto-resume on return; worse, iOS silently KILLS looping buffer sources, so even once the ctx resumes the MUSIC stays
+//    dead (MusicPlayer._playing is still true, so play() no-ops). So on return we resume from ANY non-running state and, only
+//    if we actually came back from the background, respawn the music loop. A normal in-game tap must NOT restart the song. ──
+function _afterAudioResume(){
+  if(!window._audioWasBackgrounded) return;   // only rebuild when we truly returned from background/interruption
+  window._audioWasBackgrounded=false;
+  try{
+    if(typeof MusicPlayer!=='undefined' && !MusicPlayer.muted){
+      if(MusicPlayer._buf){ let off=0; try{ off=(Audio.ctx.currentTime-(MusicPlayer._startT||0)); if(MusicPlayer._buf.duration) off=((off%MusicPlayer._buf.duration)+MusicPlayer._buf.duration)%MusicPlayer._buf.duration; }catch(_){ off=0; } if(!isFinite(off)||off<0)off=0; MusicPlayer._playing=false; try{ MusicPlayer._playBuf(off); }catch(_){} }   // respawn a fresh looping source (iOS killed the old one) from roughly where we left off
+      else if(MusicPlayer.play){ try{ MusicPlayer.play(); }catch(_){} }
+    }
+    if(window._usingProceduralMusic && typeof Audio!=='undefined' && Audio.startMusic){ try{ Audio.startMusic(); }catch(_){} }
+  }catch(_){}
+}
+window._wakeAudio=function(){
+  try{
+    if(typeof Audio==='undefined'||!Audio.ctx) return;
+    const ctx=Audio.ctx;
+    if(!ctx._wakeHooked){ ctx._wakeHooked=true; try{ ctx.onstatechange=()=>{ if(ctx.state!=='running')window._audioWasBackgrounded=true; else _afterAudioResume(); }; }catch(_){} }   // OS interruption ending auto-restarts everything
+    if(ctx.state!=='running'){ window._audioWasBackgrounded=true; const p=ctx.resume(); if(p&&p.then)p.then(_afterAudioResume).catch(()=>{}); }   // resume from suspended OR iOS 'interrupted'; resume() only sticks inside a user gesture on iOS, hence the touch hooks below
+    else _afterAudioResume();
+  }catch(_){}
+};
 (function(){ if(typeof document==='undefined')return;
-  const _res=()=>{ try{ if(typeof Audio!=='undefined'&&Audio.ctx&&Audio.ctx.state==='suspended')Audio.ctx.resume(); }catch(_){} };
-  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible')_res(); });
-  window.addEventListener('focus',_res); window.addEventListener('pageshow',_res);
+  const _res=()=>{ try{ window._wakeAudio(); }catch(_){} };
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible')_res(); else window._audioWasBackgrounded=true; });
+  window.addEventListener('focus',_res); window.addEventListener('pageshow',_res); window.addEventListener('blur',()=>{ window._audioWasBackgrounded=true; });
   window.addEventListener('pointerdown',_res,true); window.addEventListener('touchstart',_res,true); window.addEventListener('touchend',_res,true);
 })();
 const flashEl=document.getElementById('flash');
@@ -36640,8 +36662,10 @@ function _initPauseMenu(){
 }
 try{ _initPauseMenu(); }catch(e){ console.warn('pause menu',e); }
 
-// Auto-resume when page visible or user touches screen
+// Auto-resume when page visible or user touches screen — delegate to _wakeAudio (resumes from suspended/interrupted AND
+// respawns the iOS-killed music loop when returning from background); fall back to the old path if it isn't defined yet.
 function _resumeAll(){
+  if(typeof window._wakeAudio==='function'){ window._wakeAudio(); return; }
   Audio.resume();
   if(!MusicPlayer.muted) MusicPlayer.play();
 }
