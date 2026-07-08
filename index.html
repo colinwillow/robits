@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB493</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB494</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -21716,16 +21716,23 @@ function showGameOver(){ Audio.stopMusic();
 
 // IMPACT SFX — plays hit_01.mp3 when YOUR attack connects (bullets/melee/mace). Cooldown-gated so rapid fire/spins don't spam it.
 // Falls back to a short blip until audio/hit_01.mp3 is added to the repo, so the feedback works immediately either way.
-function _hitSfx(vol){ if(typeof Audio==='undefined'||!Audio.on)return; const _now=(typeof performance!=='undefined'?performance.now():0); if(_now-(window._hitSfxT||0) < (window._HIT_SFX_CD||45))return; window._hitSfxT=_now;
+// base pitch (playbackRate) by target size class -> big=deep+slow thud, small=high+quick tink, everything else=normal
+function _hitPitch(t){ if(!t) return (window._HIT_PITCH_MED||1.0);
+  if(t.isBoss || t._tall || (t.size||14)>=(window._HIT_BIG_SIZE||24)) return (window._HIT_PITCH_BIG||0.72);        // dragon / dog / bosses
+  if(t._isCrawler || t._robitId==='droideka' || (t.size||14)<=(window._HIT_SMALL_SIZE||12)) return (window._HIT_PITCH_SMALL||1.45);   // spider / ball-droid
+  return (window._HIT_PITCH_MED||1.0);   // players / bots / dummy / mid enemies
+}
+function _hitSfx(vol,tgt){ if(typeof Audio==='undefined'||!Audio.on)return; const _now=(typeof performance!=='undefined'?performance.now():0); if(_now-(window._hitSfxT||0) < (window._HIT_SFX_CD||45))return; window._hitSfxT=_now;
   try{ const S=Audio.samples||{}, g=(vol!=null?vol:(window._HIT_SFX_VOL!=null?window._HIT_SFX_VOL:0.7));
+    const base=_hitPitch(tgt), rate=base*(window._HIT_SFX_PITCH!==false?(0.94+Math.random()*0.12):1);   // size-based pitch + a touch of random variety
     if(Audio.playSample){
-      const pool=[]; for(let i=1;i<=4;i++){ const nm='metal_clang_0'+i; if(S[nm]&&S[nm]!=='pending')pool.push(nm); }   // random clang from the 4-clip pool -> variety per hit
-      if(pool.length){ const nm=pool[(Math.random()*pool.length)|0], rate=(window._HIT_SFX_PITCH!==false?(0.94+Math.random()*0.12):1); Audio.playSample(nm,g,rate); return; }
-      if(S['hit_01']&&S['hit_01']!=='pending'){ Audio.playSample('hit_01',g); return; }
+      const pool=[]; for(let i=1;i<=4;i++){ const nm='metal_clang_0'+i; if(S[nm]&&S[nm]!=='pending')pool.push(nm); }   // random clang from the 4-clip pool
+      if(pool.length){ Audio.playSample(pool[(Math.random()*pool.length)|0],g,rate); return; }
+      if(S['hit_01']&&S['hit_01']!=='pending'){ Audio.playSample('hit_01',g,rate); return; }
     }
-    if(Audio.blip){ Audio.blip(240,0.09,'square',(window._HIT_BLIP_VOL||0.34),90); Audio.blip(520,0.05,'square',(window._HIT_BLIP_VOL||0.34)*0.6,180); }   // fallback thunk until the mp3s are committed
+    if(Audio.blip){ Audio.blip(240*base,0.09,'square',(window._HIT_BLIP_VOL||0.34),90*base); Audio.blip(520*base,0.05,'square',(window._HIT_BLIP_VOL||0.34)*0.6,180*base); }   // fallback thunk (pitch scales too) until the mp3s are committed
   }catch(_){} }
-window._hitSfx=_hitSfx;
+window._hitSfx=_hitSfx; window._hitPitch=_hitPitch;
 function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
   // In multiplayer, only host processes enemy hits
   const mpNonHost=MP.active&&!MP.isHost;
@@ -21748,7 +21755,7 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
           continue;
         }
         kt+=0.015; const pts=e.hit(b.dmg, b.wx, b.wz, b.y); e.knock(b.vx,b.vz,b.dmg,0.1); if(b.pierce>0){b.pierce--;b.hitSet.add(e);}else b.life=0;
-        if(!b._fromBot && !b._enemy) _hitSfx();   // impact SFX when YOUR shot connects
+        if(!b._fromBot && !b._enemy) _hitSfx(null,e);   // impact SFX when YOUR shot connects (pitch by enemy size)
         if(e._isCrawler && e.alive){ const _kl=Math.hypot(b.vx||0,b.vz||0)||1; e._shoveVx=(b.vx/_kl)*(window._SPIDER_SHOVE||95); e._shoveVz=(b.vz/_kl)*(window._SPIDER_SHOVE||95); e._shoveT=(window._SPIDER_SHOVE_T||0.16); e.hitFlash=Math.max(e.hitFlash||0,(window._SPIDER_HIT_FLASH||12)); if(typeof ps!=='undefined'){ const _my=(e.mesh?e.mesh.position.y:9)+(e.size||14)*0.4; ps.spark(b.wx,b.wz,e.glow||[0.6,1,0.7]); } }   // SHOOT feedback: subtle knockback shove + flash so hitting a spider READS (melee still sends them flying)
         if(typeof player!=='undefined'&&player&&player._super>0 && !b._fromBot && !b._ally){   // SUPERCHARGE: every round is a rocket -> big knockback (enemies fly), a detonation, grid ripple + voxel burst
           const _bl=Math.hypot(b.vx||0,b.vz||0)||1, _by=(b.y!=null?b.y:enemyY);
@@ -21803,7 +21810,7 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
       if(dx*dx+dz*dz<rr*rr){ const dmy=(dm.mesh?dm.mesh.position.y:(dm.py||9)), by=(b.y!=null?b.y:9);
         if(by>dmy-(window._BULLET_VERT_DOWN||30) && by<dmy+Math.max((window._BULLET_VERT_UP||48),(dm._tall||0))){
           if(dm.hit)try{dm.hit(b.dmg, b.wx, b.wz, b.y);}catch(_){}   // the dummy's hit() already imparts the sway-shove, so no separate knock() (would double it)
-          if(!b._fromBot && !b._enemy) _hitSfx();
+          if(!b._fromBot && !b._enemy) _hitSfx(null,dm);
           if(typeof _hitMark==='function')_hitMark(b.wx, by, b.wz, (window._HITMARK_COL||0x9fd8ff), ((dm.size||16)>=24));
           if(b.pierce>0){b.pierce--;b.hitSet.add(dm);}else b.life=0; } } }
   }
@@ -23002,7 +23009,7 @@ function _swordRelease(){
 }
 function _swordDamageAt(x,z,dirx,dirz){
   const reach=(window._SWORD_HIT_REACH||44), dmg=(window._SWORD_DMG||6);
-  const hit=(e)=>{ if(!e||e.alive===false||e._captured||e._dying)return; if(e._swHitDone)return; const d=Math.hypot(e.wx-x,e.wz-z); if(d<reach+(e.size||14)*0.5){ e._swHitDone=true; if(e.hit)try{e.hit(dmg, e.wx, e.wz);}catch(_){} if(e.knock)try{e.knock(dirx,dirz,(window._SWORD_KB||9),(window._SWORD_LIFT||240),26);}catch(_){} if(typeof ps!=='undefined')ps.burst(e.wx,e.wz,[0.6,0.9,1],16,150,(e.py||9)+10); if(typeof _hitMark==='function')try{_hitMark(e.wx,(e.py||9)+16,e.wz,0x9fe8ff,true);}catch(_){} if(typeof _hitSfx==='function')_hitSfx(); if(typeof addTrauma==='function')addTrauma(0.05); } };
+  const hit=(e)=>{ if(!e||e.alive===false||e._captured||e._dying)return; if(e._swHitDone)return; const d=Math.hypot(e.wx-x,e.wz-z); if(d<reach+(e.size||14)*0.5){ e._swHitDone=true; if(e.hit)try{e.hit(dmg, e.wx, e.wz);}catch(_){} if(e.knock)try{e.knock(dirx,dirz,(window._SWORD_KB||9),(window._SWORD_LIFT||240),26);}catch(_){} if(typeof ps!=='undefined')ps.burst(e.wx,e.wz,[0.6,0.9,1],16,150,(e.py||9)+10); if(typeof _hitMark==='function')try{_hitMark(e.wx,(e.py||9)+16,e.wz,0x9fe8ff,true);}catch(_){} if(typeof _hitSfx==='function')_hitSfx(null,e); if(typeof addTrauma==='function')addTrauma(0.05); } };
   if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies)hit(e);
   if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)hit(b);
 }
@@ -23587,7 +23594,7 @@ function loop(ts){ requestAnimationFrame(loop);
               if(!_inR)return false;
               const ey=_eBase+Math.max(10,_etall*0.5);
               ud._meleeHitSet.add(e);
-              if(kind!=='ally') _hitSfx();   // impact SFX on a melee connect (same hit_01 as bullets)
+              if(kind!=='ally') _hitSfx(null,e);   // impact SFX on a melee connect (pitch by target size)
               const _hitDmg=(kind==='bot')?Math.max(1,dmg*(window._MELEE_BOT_DMG_K!=null?window._MELEE_BOT_DMG_K:1)):dmg;   // bots + dummy take the same melee damage (compressed by _combatDmg at the receiver)
               if(e.hit && (kind!=='ally' || window._FRIENDLY_FIRE===true))e.hit(_hitDmg, player.wx, player.wz);                                    // FF OFF: meleeing your own summon LAUNCHES it (below) but doesn't hurt it
               if(kind!=='ally' && e.alive!==false && (e.isBoss || e._tall || (e.size||0)>=24) && typeof _spawnSlashDecal==='function'){ try{ _spawnSlashDecal(e, bx, by, bz, Math.atan2((kvz||0),(kvx||0))*0.4+0.5); }catch(_){} }   // gash that sticks on the dragon / big enemies briefly
@@ -25033,7 +25040,7 @@ function loop(ts){ requestAnimationFrame(loop);
         // Check player bullets hitting bot
         for(let j=GS.bullets.length-1;j>=0;j--){
           const b=GS.bullets[j];
-          if(!b._fromBot&&bot.checkBulletHit(b)){ if(!b._enemy)_hitSfx(); b.remove&&b.remove(); GS.bullets.splice(j,1); }   // impact SFX when your shot connects with a bot (the +DUMMY is a bot -> this is the path that was silent)
+          if(!b._fromBot&&bot.checkBulletHit(b)){ if(!b._enemy)_hitSfx(null,bot); b.remove&&b.remove(); GS.bullets.splice(j,1); }   // impact SFX when your shot connects with a bot (the +DUMMY is a bot -> this is the path that was silent)
         }
       }
       // YOUR OWN summons are killable by your fire too (friendly fire). Balled droidekas are shielded (their shell) -> the punt handles those bullets.
