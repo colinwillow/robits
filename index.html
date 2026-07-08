@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB472</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB473</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -1424,7 +1424,7 @@ const Audio={
     // Reverb for atmosphere
     this._makeReverb();
     // preload sample SFX (laser bullet sounds) — decoded once, then played polyphonically
-    try{ this.loadSample('laser_01','audio/laser_01.mp3'); this.loadSample('laser_02','audio/laser_02.mp3'); this.loadSample('powerup_01','audio/powerup_01.mp3'); }catch(_){}
+    try{ this.loadSample('laser_01','audio/laser_01.mp3'); this.loadSample('laser_02','audio/laser_02.mp3'); this.loadSample('powerup_01','audio/powerup_01.mp3'); this.loadSample('mmm',(window._SODA_SFX_FILE||'audio/mmm.mp3')); }catch(_){}   // "mmm" slurp for soda pickups (drop the file in; silently no-ops until then)
   },
 
   _makeReverb(){
@@ -8213,36 +8213,42 @@ class Gem3D{
     this.t=rand(TAU); this.collected=false; this.rewarded=false;
     this.magnet=false; this.grab=false; this.grabAnim=0;
 
-    // Gem = small clean glowing ORB with ring — obviously a pickup not an enemy
-    // Enemies are always angular/spiky/dark. Gems are round, bright, friendly-looking.
     const cols={mult:0x00ffc8, bomb:0xff3366, life:0xffe600};
     const col=cols[kind]||0xffffff;
     this.col=col;
     this.group=new THREE.Group();
-
-    // Main orb — smooth sphere, soft glow
-    const orbMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
-    this.orb=new THREE.Mesh(new THREE.SphereGeometry(5,10,8),orbMat);
-    this.group.add(this.orb);
-
-    // Bright white core spark
-    const coreMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
-    this.core=new THREE.Mesh(new THREE.SphereGeometry(2,6,6),coreMat);
-    this.group.add(this.core);
-
-    // Spinning flat ring around equator — gem signature
-    const ringMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.7,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false});
-    this.ring=new THREE.Mesh(new THREE.TorusGeometry(7,0.8,4,16),ringMat);
-    this.group.add(this.ring);
-
-    // Soft glow halo below
-    const beamMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.18,blending:THREE.AdditiveBlending,depthWrite:false});
-    this.beam=new THREE.Mesh(new THREE.SphereGeometry(9,8,6),beamMat);
-    this.beam.position.y=-6; this.group.add(this.beam);
-
+    if(window._SODA_MODE!==false){ this._buildSoda(kind); }
+    else {
+      // Gem = small clean glowing ORB with ring
+      const orbMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+      this.orb=new THREE.Mesh(new THREE.SphereGeometry(5,10,8),orbMat); this.group.add(this.orb);
+      const coreMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+      this.core=new THREE.Mesh(new THREE.SphereGeometry(2,6,6),coreMat); this.group.add(this.core);
+      const ringMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.7,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false});
+      this.ring=new THREE.Mesh(new THREE.TorusGeometry(7,0.8,4,16),ringMat); this.group.add(this.ring);
+      const beamMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.18,blending:THREE.AdditiveBlending,depthWrite:false});
+      this.beam=new THREE.Mesh(new THREE.SphereGeometry(9,8,6),beamMat); this.beam.position.y=-6; this.group.add(this.beam);
+      this._orbMat=orbMat; this._coreMat=coreMat; this._ringMat=ringMat; this._beamMat=beamMat;
+    }
     this.group.position.set(wx,14,wz);
     scene.add(this.group);
-    this._orbMat=orbMat; this._coreMat=coreMat; this._ringMat=ringMat; this._beamMat=beamMat;
+  }
+  // ── BIG GULP soda cup: tapered white cup + red band, domed lid + straw, glowing juice inside (green by default; kind tints it) ──
+  _buildSoda(kind){
+    const juiceCol=(kind==='bomb')?0xff3a6e:(kind==='life')?0xffcf33:(window._SODA_JUICE_COL!=null?window._SODA_JUICE_COL:0x39ff6e);
+    const g=this.group, S=(window._SODA_SCALE||1);
+    const cup=new THREE.Group(); g.add(cup); this._cup=cup;
+    const cupMat=new THREE.MeshStandardMaterial({color:0xf2f5f8,metalness:0.1,roughness:0.5,emissive:0x223035,emissiveIntensity:0.25,transparent:true,opacity:0.9,toneMapped:false});
+    const body=new THREE.Mesh(new THREE.CylinderGeometry(5.4,3.6,12,16,1,true),cupMat); body.position.y=0; cup.add(body);
+    const juiceMat=new THREE.MeshBasicMaterial({color:juiceCol,transparent:true,opacity:0.82,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false});
+    const juice=new THREE.Mesh(new THREE.CylinderGeometry(4.7,3.1,10,14),juiceMat); juice.position.y=-0.4; cup.add(juice); this._juiceMat=juiceMat;
+    const surf=new THREE.Mesh(new THREE.CircleGeometry(4.7,14), new THREE.MeshBasicMaterial({color:juiceCol,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false})); surf.rotation.x=-Math.PI/2; surf.position.y=4.7; cup.add(surf);
+    const band=new THREE.Mesh(new THREE.CylinderGeometry(5.5,5.1,2.6,16,1,true), new THREE.MeshBasicMaterial({color:0xff3b3b,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); band.position.y=1.2; cup.add(band);
+    const lid=new THREE.Mesh(new THREE.CylinderGeometry(5.9,5.5,1.4,16), cupMat); lid.position.y=6.1; cup.add(lid);
+    const dome=new THREE.Mesh(new THREE.SphereGeometry(4.8,12,8,0,TAU,0,Math.PI*0.5), new THREE.MeshStandardMaterial({color:0xdfeef5,metalness:0.1,roughness:0.4,transparent:true,opacity:0.5,toneMapped:false})); dome.position.y=6.6; cup.add(dome);
+    const straw=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,16,8), new THREE.MeshBasicMaterial({color:0xff4455,toneMapped:false})); straw.position.set(1.6,10,0); straw.rotation.z=-0.32; cup.add(straw);
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(10,8,6), new THREE.MeshBasicMaterial({color:juiceCol,transparent:true,opacity:0.12,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})));   // glow halo
+    cup.scale.setScalar(S);
   }
   update(player,dt){
     this.t+=dt*5;
@@ -8250,7 +8256,8 @@ class Gem3D{
       this.grabAnim+=dt*7;
       this.wx=lerp(this.wx,player.wx,0.5); this.wz=lerp(this.wz,player.wz,0.5);
       const fade=Math.max(0,1-this.grabAnim);
-      this._orbMat.opacity=fade*0.95; this._coreMat.opacity=fade; this._ringMat.opacity=fade*0.7; this._beamMat.opacity=fade*0.18;
+      if(this._orbMat){ this._orbMat.opacity=fade*0.95; this._coreMat.opacity=fade; this._ringMat.opacity=fade*0.7; this._beamMat.opacity=fade*0.18; }
+      if(this._juiceMat) this._juiceMat.opacity=fade*0.82;
       this.group.scale.setScalar(1+this.grabAnim*2);
       if(this.grabAnim>=1) this.collected=true;
     } else {
@@ -8271,19 +8278,19 @@ class Gem3D{
     }
     const floatY=12+Math.sin(this.t)*4;
     this.group.position.set(this.wx,floatY,this.wz);
-    // Orb pulses in size — friendly, alive-looking
-    const pulse=0.85+0.2*Math.sin(this.t*3.5);
-    this.orb.scale.setScalar(pulse);
-    this.core.scale.setScalar(1+0.4*Math.sin(this.t*7));
-    // Ring spins independently — gem signature
-    this.ring.rotation.x+=dt*2.8;
-    this.ring.rotation.y+=dt*1.6;
-    // Halo pulses
-    this._beamMat.opacity=0.1+0.12*Math.abs(Math.sin(this.t*2.5));
+    if(this.orb){   // gem look
+      const pulse=0.85+0.2*Math.sin(this.t*3.5);
+      this.orb.scale.setScalar(pulse); this.core.scale.setScalar(1+0.4*Math.sin(this.t*7));
+      this.ring.rotation.x+=dt*2.8; this.ring.rotation.y+=dt*1.6;
+      this._beamMat.opacity=0.1+0.12*Math.abs(Math.sin(this.t*2.5));
+    } else if(this._cup){   // soda cup: gentle spin + juice glow bob so it reads as a fizzy pickup
+      this._cup.rotation.y+=dt*1.6;
+      if(this._juiceMat && !this.grab) this._juiceMat.opacity=0.7+0.18*Math.abs(Math.sin(this.t*2.2));
+    }
   }
   remove(){
     scene.remove(this.group);
-    this._orbMat.dispose(); this._coreMat.dispose(); this._ringMat.dispose(); this._beamMat.dispose();
+    try{ this.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ const a=Array.isArray(o.material)?o.material:[o.material]; a.forEach(m=>m&&m.dispose&&m.dispose()); } }); }catch(_){}
   }
 }
 
@@ -24460,12 +24467,20 @@ function loop(ts){ requestAnimationFrame(loop);
         const g=GS.gems[i]; g.update(player,dt);
         if(g.grab&&!g.rewarded){
           g.rewarded=true; gemUiDirty=true;
-          const col=({mult:[0,1,0.78],bomb:[1,0.2,0.4],life:[1,0.9,0]})[g.kind]||[1,1,1];
+          const _soda=(window._SODA_MODE!==false);
+          const col=_soda?[0.22,1,0.43]:(({mult:[0,1,0.78],bomb:[1,0.2,0.4],life:[1,0.9,0]})[g.kind]||[1,1,1]);
           ps.ring(g.wx,g.wz,col,10,80);
           if(g.kind==='mult'){ GS.multT=GS.multMax;if(GS.mult<25)GS.mult++;GS.score+=10*GS.mult; }
           else if(g.kind==='bomb'){ player.bombs=Math.min(5,player.bombs+1);announce('+1 BOMB','#ff3366'); }
           else if(g.kind==='life'){ GS.lives=Math.min(9,GS.lives+1);announce('+1 LIFE','#00ffc8'); }
-          if(gemSfx<2){ Audio.pickup&&Audio.pickup(g.kind==='mult'?GS.mult:0); gemSfx++; }
+          if(_soda){
+            // ── SODA (Sonic-ring style): count them up; milestones = spray/faster guns + extra lives ──
+            GS.soda=(GS.soda||0)+1;
+            const wepEvery=(window._SODA_WEP_EVERY||15), lifeEvery=(window._SODA_LIFE_EVERY||75);
+            if(GS.soda % wepEvery === 0){ player._wepBonus=Math.min(5,(player._wepBonus||0)+1); clearTimeout(player._wepBonusT); player._wepBonusT=setTimeout(()=>{if(player)player._wepBonus=0;},(window._SODA_WEP_DUR||15000)); announce('SUGAR RUSH! GUNS ×'+player._wepBonus,'#39ff6e'); }
+            if(GS.soda % lifeEvery === 0){ GS.lives=Math.min(9,GS.lives+1); announce('BRAIN FREEZE! +1 LIFE','#39ff6e'); }
+            if(gemSfx<2){ try{ if(typeof Audio!=='undefined'){ if(Audio.samples&&Audio.samples['mmm']&&Audio.playSample)Audio.playSample('mmm',(window._SODA_SFX_VOL||0.7)); else if(Audio.blip)Audio.blip(620+Math.min(220,(GS.soda%wepEvery)*14),0.07,'sine',0.13,860); } }catch(_){} gemSfx++; }
+          } else if(gemSfx<2){ Audio.pickup&&Audio.pickup(g.kind==='mult'?GS.mult:0); gemSfx++; }
         }
         if(g.collected){ g.remove(); GS.gems.splice(i,1); }
       }
