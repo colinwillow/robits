@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB486</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB487</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -1278,7 +1278,10 @@ function updateCamera(dt){
   const _fk=(k)=>(window._CAM_DT_SMOOTH===false)?k:(1-Math.pow(1-k, Math.max(1e-4,Math.min(dt,0.05))*60));
   // SHORTEST-PATH yaw ease: a linear lerp between two angles can swing the LONG way (>180°, even multiple turns if tyaw has
   // accumulated from free-look) to settle — very visible when jumping onto the dragon. Ease along the WRAPPED delta instead.
-  if(window._CAM_YAW_SHORTEST!==false){ let _dy=CAM.tyaw-CAM.yaw; _dy=Math.atan2(Math.sin(_dy),Math.cos(_dy)); CAM.yaw+=_dy*_fk(_yawK); }
+  if(window._CAM_YAW_SHORTEST!==false){ let _dy=CAM.tyaw-CAM.yaw; _dy=Math.atan2(Math.sin(_dy),Math.cos(_dy)); CAM.yaw+=_dy*_fk(_yawK);
+    // CAP THE LAG: the slow ease lets yaw fall far behind tyaw during a sustained turn; that stored backlog is what "unwinds"
+    // (a residual leftover turn) when you stop or reverse. Clamp yaw to stay within _CAM_YAW_MAXLAG of tyaw so reversals feel instant.
+    const _ml=(window._CAM_YAW_MAXLAG!=null?window._CAM_YAW_MAXLAG:0.3); let _r=CAM.tyaw-CAM.yaw; _r=Math.atan2(Math.sin(_r),Math.cos(_r)); if(Math.abs(_r)>_ml) CAM.yaw=CAM.tyaw-(_r<0?-_ml:_ml); }
   else CAM.yaw=lerp(CAM.yaw,CAM.tyaw,_fk(_yawK));
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,_fk(0.18)); CAM.tzoom=lerp(CAM.tzoom,0,_fk(0.06));
   CAM.focus.lerp(CAM.tfocus,_fk(0.18));
@@ -24080,7 +24083,9 @@ function loop(ts){ requestAnimationFrame(loop);
         // CAMERA + FACING orient the INSTANT the stick moves — not gated on the fire latch or the flick window. The camera was
         // waiting until firing engaged (past the deadzone), so a slow push felt laggy/dead until it "caught". Now any real push
         // eases the view + facing that way immediately; FIRING still waits for the latch below.
-        if(held && !player._swordCharging && stickMag > (window._AIM_ORIENT_DEAD!=null?window._AIM_ORIENT_DEAD:0.1)){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; aiming=true; }
+        if(held && !player._swordCharging && stickMag > (window._AIM_ORIENT_DEAD!=null?window._AIM_ORIENT_DEAD:0.1)){ let _ox=shootIn.x, _oy=shootIn.y;
+          if(typeof _swordEquipped==='function' && _swordEquipped() && _oy>0) _oy=0;   // SWORD: down = the charge gesture, NOT a facing turn -> stay pointed the way you're going while you charge (up/left/right still aim)
+          if(Math.hypot(_ox,_oy) > (window._AIM_ORIENT_DEAD!=null?window._AIM_ORIENT_DEAD:0.1)){ const ws=rotInput(_ox,_oy); avx=ws.x; avz=ws.z; aiming=true; } }
         else if(player._fireLatched){ avx=Math.cos(player.aim)*0.04; avz=Math.sin(player.aim)*0.04; aiming=true; }   // latched but stick back at center -> keep facing, minimal mag = steepest dive at your feet
         if(player._fireLatched){
           firing=!flickActive&&!nearWallStick&&!player._wallClimb&&!_flickGuard&&!player._swordCharging&&!(player._swordLungeT>0);   // charging/lunging the sword suppresses fire (so aiming the lunge doesn't shoot)
