@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB501</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB502</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -10832,8 +10832,9 @@ let _lastRocketFX=0;
 class Missile{
   constructor(wx,wz,aimX,aimZ,y0,aimY){
     this.wx=wx; this.wz=wz; this.y=y0||12;
-    this.vx=aimX*180; this.vz=aimZ*180; this.vy=(aimY||0)*180; // start slow, accelerates
-    this.speed=180; this.maxSpeed=400;
+    const _RM=(window._ROCKET_SPEED_MULT||1.3);   // faster rockets (still slow enough to melee away, just punchier)
+    this.vx=aimX*180*_RM; this.vz=aimZ*180*_RM; this.vy=(aimY||0)*180*_RM; // start slow, accelerates
+    this.speed=180*_RM; this.maxSpeed=400*_RM;
     this.life=1; this.t=0; this.target=null; this.dmg=4;
     this.turnRate=3.5; // radians/sec homing turn rate
     // Body along Z axis (not Y) so lookAt works directly
@@ -10971,12 +10972,15 @@ class Missile{
     if(this._launchSrc){ try{ this._launchSrc.stop(); }catch(_){} this._launchSrc=null; }   // cut the flight sound the instant it detonates
     if(typeof _boomSfx==='function')_boomSfx(window._ROCKET_EXPL_SIZE||'medium',(window._ROCKET_EXPL_PITCH||1.35));   // rocket impact explosion, pitched UP so it reads snappy not overwhelming
     if(window._blastBall)window._blastBall(this.wx,this.y,this.wz,BLAST*1.4,(window._ROCKET_BALL_PW||720));   // rocket knocks the ball
-    ps.burst(this.wx,this.wz,[1,0.5,0.1],10,BLAST*0.5,this.y);
-    ps.ring(this.wx,this.wz,[1,0.8,0.2],10,BLAST,this.y);
-    grid.shock(this.wx,this.wz,8); grid.push(this.wx,this.wz,-6,120); grid.pulse(0.5);
-    if(GRID_SHEETS.length) gridSheetsBlast(this.wx,this.y,this.wz,8,BLAST);
-    addTrauma(0.045); _physTextBlast(this.wx,this.wz,BLAST*0.5);
-    Audio.blip(80,0.5,'sawtooth',0.4,30); Audio.blip(440,0.2,'sine',0.2,60);
+    // ── VISUAL EXPLOSION (cheap): fuller fireball + a bright flash ring + one shaded expanding shockwave mesh ──
+    ps.burst(this.wx,this.wz,[1,0.55,0.15],(window._ROCKET_BURST_N||26),BLAST*0.95,this.y);
+    ps.ring(this.wx,this.wz,[1,0.8,0.3],12,BLAST*1.1,this.y);
+    ps.ring(this.wx,this.wz,[1,1,1],10,BLAST*0.7,this.y+2);   // bright inner flash
+    if(typeof _spawnBlastShock==='function')try{ _spawnBlastShock(this.wx,this.y,this.wz, BLAST*(window._ROCKET_SHOCK_R||1.4), 0xff8a2a); }catch(_){}   // shaded shockwave (single mesh)
+    // deeper + wider grid dent -> stacks/accumulates when you spam rockets (Geometry-Wars style)
+    grid.shock(this.wx,this.wz,(window._ROCKET_GRID_SHOCK||14)); grid.push(this.wx,this.wz,-(window._ROCKET_GRID_PUSH||14),(window._ROCKET_GRID_R||210)); grid.pulse(0.6);
+    if(GRID_SHEETS.length) gridSheetsBlast(this.wx,this.y,this.wz,(window._ROCKET_SHEET_PW||12),BLAST*1.3);
+    addTrauma(0.06); _physTextBlast(this.wx,this.wz,BLAST*0.5);
     // Damage enemies — award score and register kills
     for(const e of GS.enemies){
       if(e._invulnerable) continue;
@@ -11109,6 +11113,14 @@ function _hideBowReticle(){ if(_bowReticle)_bowReticle.visible=false; }
 window._hideBowReticle=_hideBowReticle;
 
 // ── DOM FX ──
+// ── AUDIO RESUME ── browsers SUSPEND the AudioContext when the tab/app is backgrounded and DON'T auto-resume on return, so
+//    every SFX goes dead until reload. Resume it whenever we regain visibility/focus or on the first input after coming back. ──
+(function(){ if(typeof document==='undefined')return;
+  const _res=()=>{ try{ if(typeof Audio!=='undefined'&&Audio.ctx&&Audio.ctx.state==='suspended')Audio.ctx.resume(); }catch(_){} };
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible')_res(); });
+  window.addEventListener('focus',_res); window.addEventListener('pageshow',_res);
+  window.addEventListener('pointerdown',_res,true); window.addEventListener('touchstart',_res,true); window.addEventListener('touchend',_res,true);
+})();
 const flashEl=document.getElementById('flash');
 function flashScreen(a){ flashEl.style.transition='none';flashEl.style.opacity=a; requestAnimationFrame(()=>{flashEl.style.transition='opacity .25s';flashEl.style.opacity='0';}); }
 // ── RED HURT VIGNETTE — a red edge-flash pulse for taking damage (esp. multiplayer, so getting shot reads instantly) ──
@@ -12714,8 +12726,9 @@ class Player{
           const bvx=-Math.cos(this.aim), bvz=-Math.sin(this.aim);   // backward (opposite aim) bias for the plume
           const perpX=Math.cos(this.aim+Math.PI/2)*2.5, perpZ=Math.sin(this.aim+Math.PI/2)*2.5;
           const bx=this.wx-Math.cos(this.aim)*8, bz=this.wz-Math.sin(this.aim)*8, jetY=this.py+38;
+          const _jvs=(window._JET_PART_SPD||2.2), _jdec=(window._JET_PART_DECAY||0.075);   // faster downward jet + shorter life = a punchy plume, not a slow candle wick
           const _emit=(bone,fx,fz)=>{ let ex,ey,ez; if(bone){ bone.getWorldPosition(_wp); ex=_wp.x; ey=_wp.y; ez=_wp.z; } else { ex=fx; ey=jetY; ez=fz; }
-            for(let i=0;i<2;i++){ ps._spawn(ex+rand(-1,1),ey+rand(-1,1),ez+rand(-1,1), bvx*rand(10,38)+rand(-8,8),(_gflip?1:-1)*rand(50,120),bvz*rand(10,38)+rand(-8,8), 1,0.4+Math.random()*0.4,0,0.04+rand(0.03)); } };
+            for(let i=0;i<2;i++){ ps._spawn(ex+rand(-1,1),ey+rand(-1,1),ez+rand(-1,1), bvx*rand(10,38)+rand(-8,8),(_gflip?1:-1)*rand(50,120)*_jvs,bvz*rand(10,38)+rand(-8,8), 1,0.4+Math.random()*0.4,0,_jdec+rand(0.03)); } };
           _emit(this._jetBoneL, bx-perpX, bz-perpZ); _emit(this._jetBoneR, bx+perpX, bz+perpZ);
         } else {
           // Saucer: single stream from directly below ship center
@@ -14474,7 +14487,7 @@ class BotPilot{
     if(this._clips){
       const _lp=(window._BOT_LAUNCH_POSE||'flying');   // dedicated knocked-flying clip ('flying' = floating + spin, mass centred on the root so it rotates cleanly). Override with window._BOT_LAUNCH_POSE.
       const _airWant=this._clips[_lp]?_lp:(this._clips['flying']?'flying':(this._clips['floating']?'floating':'idle'));
-      const _fn=this._clips?(this._clips['hit']?'hit':this._clips['flinch']?'flinch':this._clips['hit_react']?'hit_react':null):null;   // play a flinch clip while stunned if the rig has one (you can add 'hit'/'flinch')
+      const _fn=(window._BOT_HIT_CLIP===true && this._clips)?(this._clips['hit']?'hit':this._clips['flinch']?'flinch':this._clips['hit_react']?'hit_react':null):null;   // flinch clip on stun — MUTED for now (looked like an arm-spin); re-enable with window._BOT_HIT_CLIP=true once a proper "electrocuted" pose exists
       const want=this._launched?_airWant:(((this._downT||0)>0)?(this._clips['get_up']?'get_up':(this._clips['landing']?'landing':'idle')):((this._stun>0)?(_fn||this._clips._cur||'idle'):'idle'));   // stun w/ no hit clip -> KEEP the current clip playing (don't snap to idle)
       if(want!==this._clips._cur && this._clips[want]){
         Object.values(this._clips).forEach(a=>{ if(typeof a.fadeOut==='function') a.fadeOut(0.12); });
@@ -14484,7 +14497,7 @@ class BotPilot{
       // ── HIT REACTION: EASE the arms up toward ~45° while shot-stunned (so their shots angle up/away instead of straight
       //    at you), then smoothly ease them back down. NOT a spin, NOT a teleport — a damped raise. window._BOT_HIT_ARMS=false
       //    to disable entirely; _BOT_ARM_RAISE is the peak angle (rad, ~0.8≈45°); _BOT_ARM_EASE is the ease speed.
-      { const _canRaise=(!this._launched && (this._downT||0)<=0 && window._BOT_HIT_ARMS!==false);
+      { const _canRaise=(!this._launched && (this._downT||0)<=0 && window._BOT_HIT_ARMS===true);   // arm-raise flinch MUTED for now (the "arm spin thing"); kickback + hit-flash + sound still fire. Re-enable with window._BOT_HIT_ARMS=true
         const _tgt=(_canRaise && this._stun>0)?1:0;
         this._hitArm=(this._hitArm||0); this._hitArm += (_tgt-this._hitArm)*Math.min(1, dt*(window._BOT_ARM_EASE||9));   // eased raise/lower -> fluid, no snap
         if(this._hitArm>0.006){
@@ -21752,9 +21765,9 @@ window._jetSfxTick=function(){
   const now=(typeof performance!=='undefined'?performance.now():0), active=((window._jetThrustUntil||0)>now);
   if(active && !_jetPlaying){
     const buf=Audio.samples&&Audio.samples[(window._JET_SFX_NAME||'jetpack_fwd')];
-    if(buf&&buf!=='pending'){ try{ _jetLoopSrc=Audio.ctx.createBufferSource(); _jetLoopSrc.buffer=buf; _jetLoopSrc.loop=true; _jetLoopSrc.playbackRate.value=(window._JET_SFX_RATE!=null?window._JET_SFX_RATE:0.72); _jetLoopGain=Audio.ctx.createGain(); _jetLoopGain.gain.value=(window._JET_SFX_VOL!=null?window._JET_SFX_VOL:0.5); _jetLoopSrc.connect(_jetLoopGain); _jetLoopGain.connect(Audio.sfxGain||Audio.master); _jetLoopSrc.start(); _jetPlaying=true; }catch(_){ _jetLoopSrc=null; _jetLoopGain=null; } }   // deeper via _JET_SFX_RATE (<1); latch only once it starts so a late buffer retries
+    if(buf&&buf!=='pending'){ try{ _jetLoopSrc=Audio.ctx.createBufferSource(); _jetLoopSrc.buffer=buf; _jetLoopSrc.loop=true; _jetLoopSrc.playbackRate.value=(window._JET_SFX_RATE!=null?window._JET_SFX_RATE:0.72); _jetLoopGain=Audio.ctx.createGain(); const _jv=(window._JET_SFX_VOL!=null?window._JET_SFX_VOL:0.5), _jt=Audio.ctx.currentTime, _jfi=(window._JET_FADE_IN!=null?window._JET_FADE_IN:0.18); _jetLoopGain.gain.setValueAtTime(0.0001,_jt); _jetLoopGain.gain.linearRampToValueAtTime(_jv,_jt+_jfi); _jetLoopSrc.connect(_jetLoopGain); _jetLoopGain.connect(Audio.sfxGain||Audio.master); _jetLoopSrc.start(); _jetPlaying=true; }catch(_){ _jetLoopSrc=null; _jetLoopGain=null; } }   // deeper via _JET_SFX_RATE (<1); fade IN over _JET_FADE_IN so it doesn't pop; latch only once it starts so a late buffer retries
   } else if(!active && _jetPlaying){
-    if(_jetLoopSrc){ try{ const t=Audio.ctx.currentTime, fd=(window._JET_FADE||0.08); if(_jetLoopGain){ _jetLoopGain.gain.setValueAtTime(_jetLoopGain.gain.value||0.5,t); _jetLoopGain.gain.exponentialRampToValueAtTime(0.0001,t+fd); } _jetLoopSrc.stop(t+fd+0.03); }catch(_){} }
+    if(_jetLoopSrc){ try{ const t=Audio.ctx.currentTime, fd=(window._JET_FADE!=null?window._JET_FADE:0.14); if(_jetLoopGain){ const cur=Math.max(_jetLoopGain.gain.value||0.0001,0.0001); _jetLoopGain.gain.cancelScheduledValues(t); _jetLoopGain.gain.setValueAtTime(cur,t); _jetLoopGain.gain.exponentialRampToValueAtTime(0.0001,t+fd); } _jetLoopSrc.stop(t+fd+0.03); }catch(_){} }
     _jetLoopSrc=null; _jetLoopGain=null; _jetPlaying=false;   // just stop — no release sound
   }
 };
