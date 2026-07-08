@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB481</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB482</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -3411,16 +3411,25 @@ class Diamond extends Enemy{
   update(p,dt){ if(this._ball){ this._ballUpdate(dt); if(this.hitFlash>0)this.hitFlash--; return; } this.baseUpdate(); if(this._stunT>0){ if(this.mesh){this.mesh.position.x=this.wx+rand(-1.5,1.5); this.mesh.position.z=this.wz+rand(-1.5,1.5);} if(this.hitFlash>0)this.hitFlash--; return; } this.t+=dt*3; if(this.hitFlash>0)this.hitFlash--;
     if(window._CREATURE_VS_ALLY!==false && typeof _pickHostileFoe==='function'){ const ht=_pickHostileFoe(this); if(ht)p=ht; }   // enemy spiders hunt the nearest of {player, your allies} -> spider-vs-spider; contact damage via _enemiesDamageAllies/_alliesDamageEnemies
     const dx=p.wx-this.wx,dz=p.wz-this.wz,d=Math.hypot(dx,dz)||1;
+    // ── WANDER / AGGRO ── idle-wander (move, pause, look around) until you come near AND are vertically reachable, then hunt;
+    //    drop back to wander when you leave the area. 3D-aware: won't frantically chase your XZ when you're way above/below.
+    const _wanderOn=(window._SPIDER_WANDER!==false) && !this._captured && this._faction!=='ally' && !this._neutralized;
+    if(_wanderOn){
+      const myY=9+(this._climbH||0), dy=Math.abs((p.py!=null?p.py:9)-myY);
+      if(!this._aggro){ if(d<(window._SPIDER_NOTICE_R||190) && dy<(window._SPIDER_NOTICE_DY||70)){ this._aggro=true; this._wState=null; if(typeof ps!=='undefined'&&ps.spark)ps.spark(this.wx,this.wz,[1,0.9,0.2]); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(680,0.05,'square',0.08,880);}catch(_){} } }
+      else if(d>(window._SPIDER_LOSE_R||320) || dy>(window._SPIDER_LOSE_DY||130)){ this._aggro=false; this._wState=null; }
+    } else this._aggro=true;
     if(this._evadeT>0){ this._evadeT-=dt; const px=-dz/d*this._evadeSide, pz=dx/d*this._evadeSide; this.vx+=px*460*dt-(dx/d)*100*dt; this.vz+=pz*460*dt-(dz/d)*100*dt; }
-    else { this.vx+=(dx/d)*140*dt; this.vz+=(dz/d)*140*dt; }
-    const cap=this._evadeT>0?this.spd*2.4:this.spd, s=Math.hypot(this.vx,this.vz); if(s>cap){this.vx=this.vx/s*cap;this.vz=this.vz/s*cap;}
+    else if(this._aggro){ this.vx+=(dx/d)*140*dt; this.vz+=(dz/d)*140*dt; }
+    else { this._wanderStep(dt); }
+    const cap=this._evadeT>0?this.spd*2.4:(this._aggro?this.spd:this.spd*(window._SPIDER_WANDER_SPD||0.4)), s=Math.hypot(this.vx,this.vz); if(s>cap){this.vx=this.vx/s*cap;this.vz=this.vz/s*cap;}
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this._clamp();
     const sp=Math.hypot(this.vx,this.vz), moveAmt=Math.min(1, sp/this.spd);
     if(sp>2){ const tgt=Math.atan2(this.vx,this.vz); let dd=tgt-this._face; while(dd>Math.PI)dd-=TAU; while(dd<-Math.PI)dd+=TAU; this._face+=dd*Math.min(1,dt*8); }   // face travel direction
     this._spider.group.rotation.y=this._face;
     _updateSpider(this._spider, dt, moveAmt);
     this._acidCD=((this._acidCD!==undefined)?this._acidCD:0.6+Math.random())-dt;
-    if(this._acidCD<=0 && p && p.alive && (this.spawn===undefined||this.spawn>=0.8)){ const dd=Math.hypot(p.wx-this.wx,p.wz-this.wz); if(dd<120 && dd>10){ _spiderSpitAcid(this, p.wx, (p.py||9), p.wz, false); this._acidCD=1.1+Math.random()*0.9; } else { this._acidCD=0.4; } }
+    if(this._acidCD<=0 && this._aggro && p && p.alive && (this.spawn===undefined||this.spawn>=0.8)){ const dd=Math.hypot(p.wx-this.wx,p.wz-this.wz); if(dd<120 && dd>10){ _spiderSpitAcid(this, p.wx, (p.py||9), p.wz, false); this._acidCD=1.1+Math.random()*0.9; } else { this._acidCD=0.4; } }
     this._spider.coreMat.color.setHex(this.hitFlash>0?0xffffff:0x00ff88);
     const sc=(this.spawn<1?(0.2+this.spawn*0.8):1);
     // CLIMB: rise onto platforms to chase an elevated player (capped at player height)
@@ -3428,6 +3437,20 @@ class Diamond extends Enemy{
     this._climbH=(this._climbH||0)+(_surf-(this._climbH||0))*Math.min(1,dt*5);
     if(Math.abs(this._climbH)<0.05)this._climbH=0;
     this.mesh.scale.setScalar(sc); this.mesh.position.set(this.wx,9+this._climbH,this.wz);}
+  _wanderStep(dt){   // idle roam: creep to a nearby goal, pause, swivel to "look around", repeat
+    if(this._wState==null){ this._wState='pause'; this._wTimer=0.3+Math.random()*0.7; this._wLook=(Math.random()-0.5)*2.4; this.vx*=0.3; this.vz*=0.3; }
+    this._wTimer-=dt;
+    if(this._wState==='pause'){
+      this.vx*=Math.pow(0.015,dt); this.vz*=Math.pow(0.015,dt);   // ease to a stop
+      this._face+=(this._wLook||0)*dt;                            // swivel and look around
+      if(Math.random()<0.015) this._wLook=(Math.random()-0.5)*3.0;
+      if(this._wTimer<=0){ const ang=Math.random()*TAU, dist=(window._SPIDER_WANDER_R||70)*(0.4+Math.random()*0.9); this._wGX=this.wx+Math.cos(ang)*dist; this._wGZ=this.wz+Math.sin(ang)*dist; this._wState='move'; this._wTimer=0.8+Math.random()*1.6; }
+    } else {   // amble toward the wander goal
+      const gx=(this._wGX!=null?this._wGX:this.wx)-this.wx, gz=(this._wGZ!=null?this._wGZ:this.wz)-this.wz, gd=Math.hypot(gx,gz)||1;
+      this.vx+=(gx/gd)*120*dt; this.vz+=(gz/gd)*120*dt;
+      if(gd<14 || this._wTimer<=0){ this._wState='pause'; this._wTimer=0.5+Math.random()*1.6; this._wLook=(Math.random()-0.5)*2.6; }
+    }
+  }
   enterBall(dx,dz,sp,vy){
     if(this._ball) return;
     const d=Math.hypot(dx,dz)||1;
@@ -8238,7 +8261,7 @@ class Gem3D{
   }
   // ── BIG GULP soda cup: tapered white cup + red band, domed lid + straw, glowing juice inside (green by default; kind tints it) ──
   _buildSoda(kind){
-    const juiceCol=(kind==='bomb')?0xff3a6e:(kind==='life')?0xffcf33:(window._SODA_JUICE_COL!=null?window._SODA_JUICE_COL:0x39ff6e);
+    const juiceCol=(kind==='bomb')?0xff3a6e:(kind==='life')?0xffcf33:(window._SODA_JUICE_COL!=null?window._SODA_JUICE_COL:0x1cffa6);   // glowing neon green/turquoise — "robot motor-oil juice"
     const g=this.group, S=(window._SODA_SCALE||1);
     const cup=new THREE.Group(); g.add(cup); this._cup=cup;
     const cupMat=new THREE.MeshStandardMaterial({color:0xf2f5f8,metalness:0.1,roughness:0.5,emissive:0x223035,emissiveIntensity:0.25,transparent:true,opacity:0.9,toneMapped:false});
@@ -8250,7 +8273,7 @@ class Gem3D{
     const lid=new THREE.Mesh(new THREE.CylinderGeometry(5.9,5.5,1.4,16), cupMat); lid.position.y=6.1; cup.add(lid);
     const dome=new THREE.Mesh(new THREE.SphereGeometry(4.8,12,8,0,TAU,0,Math.PI*0.5), new THREE.MeshStandardMaterial({color:0xdfeef5,metalness:0.1,roughness:0.4,transparent:true,opacity:0.5,toneMapped:false})); dome.position.y=6.6; cup.add(dome);
     const straw=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,16,8), new THREE.MeshBasicMaterial({color:0xff4455,toneMapped:false})); straw.position.set(1.6,10,0); straw.rotation.z=-0.32; cup.add(straw);
-    g.add(new THREE.Mesh(new THREE.SphereGeometry(10,8,6), new THREE.MeshBasicMaterial({color:juiceCol,transparent:true,opacity:0.12,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})));   // glow halo
+    const halo=new THREE.Mesh(new THREE.SphereGeometry(11,10,8), new THREE.MeshBasicMaterial({color:juiceCol,transparent:true,opacity:(window._SODA_HALO_OP||0.2),blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); g.add(halo); this._halo=halo;   // stronger glow so the juice reads as neon/glowing
     cup.scale.setScalar(S);
   }
   update(player,dt){
@@ -8265,18 +8288,25 @@ class Gem3D{
       if(this.grabAnim>=1) this.collected=true;
     } else {
       const dx=player.wx-this.wx, dz=player.wz-this.wz, d=Math.hypot(dx,dz)||1;
-      if(d<180) this.magnet=true;
-      if(this.magnet){
-        if(d<35){ this.grab=true; }
-        else {
-          // Pull toward player but kill tangential velocity (prevents orbit)
-          const pull=Math.min(2800,1800*(100/d));
-          this.vx+=(dx/d)*pull*dt; this.vz+=(dz/d)*pull*dt;
-          // Project velocity onto radial direction only — kills sideways drift
-          const dot=this.vx*(dx/d)+this.vz*(dz/d);
-          this.vx=(dx/d)*Math.max(0,dot); this.vz=(dz/d)*Math.max(0,dot);
-        }
-      } else { this.vx*=0.88; this.vz*=0.88; }
+      if(this._cup && window._SODA_MAGNET!==true){
+        // JUICE: NO tractor beam — you must run over it. Require XZ proximity AND matching height (can't vacuum from a high pad).
+        const py=(player.py||0), myY=this.group.position.y;
+        if(d<(window._SODA_GRAB_R||30) && Math.abs(py-myY)<(window._SODA_GRAB_Y||46)) this.grab=true;
+        this.vx*=0.85; this.vz*=0.85;   // just settle any spawn toss, then sit still
+      } else {
+        if(d<180) this.magnet=true;
+        if(this.magnet){
+          if(d<35){ this.grab=true; }
+          else {
+            // Pull toward player but kill tangential velocity (prevents orbit)
+            const pull=Math.min(2800,1800*(100/d));
+            this.vx+=(dx/d)*pull*dt; this.vz+=(dz/d)*pull*dt;
+            // Project velocity onto radial direction only — kills sideways drift
+            const dot=this.vx*(dx/d)+this.vz*(dz/d);
+            this.vx=(dx/d)*Math.max(0,dot); this.vz=(dz/d)*Math.max(0,dot);
+          }
+        } else { this.vx*=0.88; this.vz*=0.88; }
+      }
       if(!this.grab){ this.wx+=this.vx*dt; this.wz+=this.vz*dt; }
     }
     const floatY=12+Math.sin(this.t)*4;
@@ -12397,7 +12427,7 @@ class Player{
       //    faster than the normal jog, like a run button. Touch: hold the right joystick near center. Gamepad: hold R3.
       //    Desktop: hold Shift. Eases in via the normal velocity smoothing. Toggle off with window._RUN_BTN=false. ──
       let _runMod=1;
-      if(window._RUN_BTN!==false && !this._ballActive && !this._wallRun && !this._wallClimb && !this._hang && !this._crestSeq && !this._mount){
+      if(window._RUN_BTN===true && !this._ballActive && !this._wallRun && !this._wallClimb && !this._hang && !this._crestSeq && !this._mount){   // right-stick-hold run REMOVED by default (felt bad); opt back in with window._RUN_BTN=true
         const _rin=Math.hypot(rawX||0,rawZ||0), _rCtr=(typeof shootIn!=='undefined')?Math.hypot(shootIn.x||0,shootIn.y||0):1;
         // TRIGGER = the run is engaged (R3 / Shift / right-joystick still touched). The right stick also aims, so on TOUCH a run
         // must START from a CENTERED hold; but once running it CARRIES while you push the stick to shoot (latch), until you let go.
@@ -17810,7 +17840,7 @@ function _platPUInit(){
   const _superNode=(window._SUPER_PU!==false)?(window._SUPER_PU_NODE||'powerup_middle'):null;
   for(let i=0;i<names.length;i++){ const node=root.getObjectByName(names[i]); if(!node)continue;
     const slot={node, type:types[i%types.length], item:null, cd:0, pad:null, isSuper:(names[i]===_superNode)};   // the middle joint hosts the supercharge sun, not a regular item
-    if(window._PLAT_PU_PAD!==false && typeof _makePowerPad==='function'){ try{ const def=(typeof _ITEMDEF!=='undefined'&&_ITEMDEF[slot.type])||null; const col=(def&&def.glow!=null)?def.glow:0x33e0ff; const pad=_makePowerPad(0,0,col); pad.scale.setScalar(window._PLAT_PAD_SIZE||18); pad._isPlatformAsset=true; pad.renderOrder=2; scene.add(pad); slot.pad=pad; }catch(_){} }   // an actual glowing pad under each powerup
+    if(window._PLAT_PU_PAD!==false && !slot.isSuper && typeof _makePowerPad==='function'){ try{ const def=(typeof _ITEMDEF!=='undefined'&&_ITEMDEF[slot.type])||null; const col=(def&&def.glow!=null)?def.glow:0x33e0ff; const pad=_makePowerPad(0,0,col); pad.scale.setScalar(window._PLAT_PAD_SIZE||18); pad._isPlatformAsset=true; pad.renderOrder=2; scene.add(pad); slot.pad=pad; }catch(_){} }   // an actual glowing pad under each powerup — NOT under the supercharge star (it floats on its own)
     A.push(slot); }
   if(!A.length)return false;
   window._platPU=A;
