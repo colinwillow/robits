@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB479</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB480</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
 </div>
@@ -27284,11 +27284,54 @@ function buildCubeArena(){
 // ── POWER PAD — the STYLIZED hover deck from the title screen (_buildTitlePad: spinning UFO ring, electronic bays, struts +
 //    downward hover-jets with flame), scaled up to game size and colour-keyed by category. Returns a group; the caller parents
 //    it (to _cubeGroup) for cleanup. _stepPowerPad animates the spinner + jet flames from updateCubeArena. ──
+// ── PAD MERGE (draw-call killer) — a title pad is ~60 tiny meshes; the arena spawns ~20 of them = the #1 draw-call hog
+//    (the draw audit's 1161-mesh group). Each piece has its OWN material instance, so bucket by material *properties* and
+//    bake-merge same-look pieces into one geometry — respecting the static core vs the spinning ring so the UFO still spins,
+//    and leaving the flame sprites/points alone. ~60 draw calls/pad -> ~15, identical look. Disable: window._MERGE_PADS=false. ──
+function _matSig(m){ if(!m)return 'none';
+  const c=m.color?m.color.getHexString():'x', e=m.emissive?m.emissive.getHexString():'x';
+  return m.type+'|'+c+'|'+e+'|'+(m.opacity!=null?m.opacity.toFixed(2):'1')+'|'+(m.transparent?1:0)+'|'+(m.blending!=null?m.blending:1)+'|'+(m.metalness!=null?m.metalness:'x')+'|'+(m.roughness!=null?m.roughness:'x')+'|'+(m.emissiveIntensity!=null?m.emissiveIntensity:'x')+'|'+(m.depthWrite?1:0)+'|'+(m.side||0); }
+const _pmNM=new THREE.Matrix3();
+function _mergeGeoItems(items, isLine){
+  let vTotal=0,iTotal=0; const parts=[];
+  for(const it of items){ let g=it.geo; const pos=g&&g.attributes&&g.attributes.position; if(!pos)continue;
+    let nrm=null; if(!isLine){ if(!g.attributes.normal){ g=g.clone(); g.computeVertexNormals(); } nrm=g.attributes.normal; }
+    const vc=pos.count, idx=(!isLine&&g.index)?g.index.array:null, ic=idx?idx.length:vc;
+    _pmNM.getNormalMatrix(it.m);
+    parts.push({pos,nrm,idx,vc,ic,m:it.m,nm:_pmNM.clone()}); vTotal+=vc; iTotal+=ic; }
+  if(!vTotal)return null;
+  const P=new Float32Array(vTotal*3), N=isLine?null:new Float32Array(vTotal*3);
+  const useIdx=!isLine, I=useIdx?((vTotal>65535)?new Uint32Array(iTotal):new Uint16Array(iTotal)):null;
+  let vo=0,io=0; const _v=new THREE.Vector3();
+  for(const pt of parts){
+    for(let i=0;i<pt.vc;i++){ _v.set(pt.pos.getX(i),pt.pos.getY(i),pt.pos.getZ(i)).applyMatrix4(pt.m); P[(vo+i)*3]=_v.x;P[(vo+i)*3+1]=_v.y;P[(vo+i)*3+2]=_v.z;
+      if(N){ _v.set(pt.nrm.getX(i),pt.nrm.getY(i),pt.nrm.getZ(i)).applyMatrix3(pt.nm); const l=_v.length()||1; N[(vo+i)*3]=_v.x/l;N[(vo+i)*3+1]=_v.y/l;N[(vo+i)*3+2]=_v.z/l; } }
+    if(useIdx){ if(pt.idx){ for(let i=0;i<pt.ic;i++) I[io+i]=pt.idx[i]+vo; } else { for(let i=0;i<pt.ic;i++) I[io+i]=vo+i; } io+=pt.ic; }
+    vo+=pt.vc; }
+  const mg=new THREE.BufferGeometry(); mg.setAttribute('position',new THREE.BufferAttribute(P,3));
+  if(N)mg.setAttribute('normal',new THREE.BufferAttribute(N,3));
+  if(useIdx)mg.setIndex(new THREE.BufferAttribute(I,1));
+  return mg;
+}
+function _mergePadGroup(g){ try{
+  const spin=g.userData&&g.userData.spinner; const buckets=new Map();
+  const harvest=(container,tag)=>{ container.updateMatrixWorld(true); const inv=new THREE.Matrix4().copy(container.matrixWorld).invert();
+    for(const o of container.children.slice()){ if(o===spin)continue; if(o.isSprite||o.isPoints)continue;   // leave flames untouched
+      if((o.isMesh||o.isLineSegments)&&o.geometry){ o.updateMatrixWorld(true); const rel=new THREE.Matrix4().multiplyMatrices(inv,o.matrixWorld);
+        const isLine=!!o.isLineSegments, mat=Array.isArray(o.material)?o.material[0]:o.material;
+        const key=tag+'|'+(isLine?'L':'M')+'|'+_matSig(mat);
+        let b=buckets.get(key); if(!b){ b={container,isLine,material:mat,items:[]}; buckets.set(key,b); }
+        b.items.push({geo:o.geometry,m:rel}); container.remove(o); } } };
+  harvest(g,'G'); if(spin)harvest(spin,'S');
+  for(const b of buckets.values()){ const mg=_mergeGeoItems(b.items,b.isLine); if(!mg)continue;
+    const obj=b.isLine?new THREE.LineSegments(mg,b.material):new THREE.Mesh(mg,b.material); b.container.add(obj); }   // keep frustumCulled default(true): a merged mesh spans one pad, so off-screen pads cull as a unit
+}catch(e){ console.warn('[pad merge]',e); } }
 function _makePowerPad(x, z, col){
   const _pc=window._PAD_COL, _fp=window._PAD_FLAME_PARTS, _fs=window._PAD_FLAME_SIZE;
   window._PAD_COL=col; window._PAD_FLAME_PARTS=(window._POWERPAD_FLAME_PARTS||(IS_TOUCH?4:8));   // fewer jet particles than the single title pad — there are ~20 of these
   window._PAD_FLAME_SIZE=(window._POWERPAD_FLAME_SIZE||3.0);   // Points size is world-space (NOT scaled by the group), so bump it to read on the 20x-scaled pad
   let g; try{ g=_buildTitlePad(); } finally { window._PAD_COL=_pc; window._PAD_FLAME_PARTS=_fp; window._PAD_FLAME_SIZE=_fs; }
+  if(window._MERGE_PADS!==false){ try{ _mergePadGroup(g); }catch(_){} }   // ~60 meshes -> ~15, same look; the big in-game draw-call win
   g.scale.setScalar(window._POWERPAD_SCALE||20);
   g.position.set(x,(window._POWERPAD_Y!=null?window._POWERPAD_Y:13),z);
   return g;
