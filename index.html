@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB484</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB485</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -36824,10 +36824,22 @@ function _grapSurfaceHit(hand,dx,dz){
   return null;
 }
 function _grapEnsureRope(){ if(!_grap||_grap.rope)return; const col=(window._GRAP_COL!=null?window._GRAP_COL:0x39e0ff);
-  const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(6),3));
+  const SEG=(window._GRAP_ROPE_SEG||10); _grap.seg=SEG;
+  const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array((SEG+1)*3),3));
   const rope=new THREE.Line(geo,new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.92,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); rope.frustumCulled=false; rope.renderOrder=6; scene.add(rope);
   const hook=new THREE.Mesh(new THREE.ConeGeometry(3.4,10,6),new THREE.MeshBasicMaterial({color:col,toneMapped:false})); hook.frustumCulled=false; hook.renderOrder=6; scene.add(hook);
   _grap.rope=rope; _grap.hook=hook; }
+// draw the rope as a drooping curve hand->hook: sag = how much slack (rope length minus straight distance), peaking mid-span
+function _grapDrawRope(hand){
+  if(!_grap||!_grap.rope)return; const SEG=_grap.seg||10, p=_grap.rope.geometry.attributes.position;
+  const hx=hand.x,hy=hand.y,hz=hand.z, tx=_grap.hx,ty=_grap.hy,tz=_grap.hz;
+  const straight=Math.hypot(tx-hx,ty-hy,tz-hz)||1;
+  const restLen=(_grap.swing?_grap.swing.len:straight)*(window._GRAP_ROPE_SLACK||1.02);
+  const sag=Math.max(0, restLen-straight)*(window._GRAP_ROPE_SAGK||0.9) + (window._GRAP_ROPE_MINSAG||2);
+  for(let i=0;i<=SEG;i++){ const t=i/SEG; const x=hx+(tx-hx)*t, y=hy+(ty-hy)*t, z=hz+(tz-hz)*t;
+    p.setXYZ(i, x, y - sag*4*t*(1-t), z); }
+  p.needsUpdate=true; _grap.rope.geometry.computeBoundingSphere();
+}
 function _grapRelease(){ if(!_grap)return; if(typeof player!=='undefined'&&player)player._grappling=false;
   try{ if(_grap.rope){scene.remove(_grap.rope);_grap.rope.geometry.dispose();_grap.rope.material.dispose();} if(_grap.hook){scene.remove(_grap.hook);_grap.hook.geometry.dispose();_grap.hook.material.dispose();} }catch(_){}
   _grap=null; }
@@ -36867,15 +36879,29 @@ window._grappleTick=function(dt){
         if(toD<(window._GRAP_DETACH||40)) _grapRelease();
       } else { const spd=(window._GRAP_PULL_SPD||9); e._kbVx=(toX/toD)*spd; e._kbVz=(toZ/toD)*spd;   // ride the enemy knockback channel so its own update moves it toward you
         if(toD<(window._GRAP_DETACH||34)){ if(typeof ps!=='undefined')ps.burst(tx,tz,[0.3,0.9,1],10,90,ty); if(typeof addTrauma==='function')addTrauma(0.05); e._kbVx=0;e._kbVz=0; _grapRelease(); } }
-    } else { _grap.hx=_grap.ax;_grap.hy=_grap.ay;_grap.hz=_grap.az;   // SURFACE: kinematically reel the player to the anchor
-      player._grappling=true; player.airborne=true; player._launched=false; player.pvy=0;
-      const sx=_grap.ax-player.wx, sy=_grap.ay-(player.py||0), sz=_grap.az-player.wz, sd=Math.hypot(sx,sy,sz)||1, k=Math.min(1,(window._GRAP_REEL||7)*dt);
-      player.wx+=sx*k; player.py=(player.py||0)+sy*k; player.wz+=sz*k;
-      if(sd<(window._GRAP_DETACH||30)||_grap.t>(window._GRAP_MAXT||2.4)){ player.pvy=Math.max(0,(window._GRAP_ARRIVE_POP||55)); _grapRelease(); }
+    } else { _grap.hx=_grap.ax;_grap.hy=_grap.ay;_grap.hz=_grap.az;   // SURFACE = SWING: hang from the anchor and pendulum (gravity + stick pump)
+      if(!_grap.swing){ let l=Math.hypot(_grap.ax-player.wx,_grap.ay-(player.py||0),_grap.az-player.wz); l=Math.max(40,Math.min(l,(window._GRAP_MAXLEN||460)));
+        _grap.swing={ len:l, vel:new THREE.Vector3(player.vx||0, player.pvy||0, player.vz||0) }; }
+      const S=_grap.swing, v=S.vel;
+      player._grappling=true; player.airborne=true; player._launched=false;
+      v.y-=(window._SWING_GRAV||900)*dt;
+      let mvx=moveIn.x||0, mvz=moveIn.y||0; if(typeof rotInput==='function'){ const r=rotInput(mvx,mvz); mvx=r.x; mvz=r.z; }
+      v.x+=mvx*(window._SWING_PUMP||900)*dt; v.z+=mvz*(window._SWING_PUMP||900)*dt;   // left stick pumps the swing / steers
+      const drag=Math.pow((window._SWING_DRAG||0.9975),dt*60); v.x*=drag; v.y*=drag; v.z*=drag;
+      // reel the rope shorter/longer with a HELD jump (climb up) — optional; default just swing
+      if(window._SWING_REEL_IN===true) S.len=Math.max(36,S.len-(window._SWING_REEL_SPD||120)*dt);
+      let px=player.wx+v.x*dt, py=(player.py||0)+v.y*dt, pz=player.wz+v.z*dt;
+      const rx=px-_grap.ax, ry=py-_grap.ay, rz=pz-_grap.az, rd=Math.hypot(rx,ry,rz)||1;
+      if(rd>S.len){ const k=S.len/rd; px=_grap.ax+rx*k; py=_grap.ay+ry*k; pz=_grap.az+rz*k;   // rope constraint -> swing on the circle
+        const nx=rx/rd,ny=ry/rd,nz=rz/rd, radial=v.x*nx+v.y*ny+v.z*nz; if(radial>0){ v.x-=nx*radial; v.y-=ny*radial; v.z-=nz*radial; } }
+      player.wx=px; player.py=Math.max(0,py); player.wz=pz; player.vx=v.x; player.vz=v.z; player.pvy=v.y;
+      // RELEASE: tap jump to let go (flings you with the swing's momentum), or you hit the ground, or time out
+      if(player._jumpTapped){ player._jumpTapped=false; player.pvy=Math.max(player.pvy||0,(window._SWING_JUMP_POP||150)); if(typeof ps!=='undefined')ps.spark(player.wx,player.wz,[0.5,0.95,1],(player.py||0)+8); _grapRelease(); return; }
+      if((py<=2 && v.y<=0) || _grap.t>(window._SWING_MAXT||7)){ _grapRelease(); return; }
     }
   } else if(_grap.phase==='retract'){ const sx=hand.x-_grap.hx, sy=hand.y-_grap.hy, sz=hand.z-_grap.hz, sd=Math.hypot(sx,sy,sz)||1, step=(window._GRAP_OUT_SPEED||1700)*dt;
     if(step>=sd){ _grapRelease(); return; } _grap.hx+=sx/sd*step; _grap.hy+=sy/sd*step; _grap.hz+=sz/sd*step; }
-  if(_grap&&_grap.rope){ const p=_grap.rope.geometry.attributes.position; p.setXYZ(0,hand.x,hand.y,hand.z); p.setXYZ(1,_grap.hx,_grap.hy,_grap.hz); p.needsUpdate=true; _grap.rope.geometry.computeBoundingSphere(); }
+  _grapDrawRope(hand);
   if(_grap&&_grap.hook){ _grap.hook.position.set(_grap.hx,_grap.hy,_grap.hz); }
 };
 window._toggleLightMode=function(){
