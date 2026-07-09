@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB557</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB558</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -5087,7 +5087,10 @@ class Crawler extends Enemy{
     // stop-turn-go pauses. Shipped zones keep the original relentless boid-seek.
     this._climbing=false; this._cubeCrawl=false;
     const dx=p.wx-this.wx, dz=p.wz-this.wz, d=Math.hypot(dx,dz)||1;
-    const CITY=(GS.zone===-16), AGGRO=CITY?460:1e9, aware=Math.hypot(dx,dz,p.py-9)<AGGRO;   // 3D: your height counts -> get high enough and they lose you
+    const CITY=(GS.zone===-16), CUBE=(GS.zone===-19);
+    const AGGRO=CITY?460:(CUBE?(window._SPIDER_AGGRO_R||300):1e9);   // 3-D SPHERE OF INFLUENCE in the cube: finite range so a player far away OR high on a platform falls outside it (other zones keep the old always-track)
+    const _dy=((p.py||9)-(this._climbY||9))*((CUBE&&!CITY)?(window._SPIDER_AGGRO_YW||2.0):1);   // weight height MORE in the cube -> getting up ~150 units breaks the track even while overlapping on XZ
+    const aware=Math.hypot(dx,dz,_dy)<AGGRO;
     let sx=0,sz=0, cx=0,cz=0, ax=0,az=0, nn=0;
     for(const o of GS.enemies){ if(o===this||!o._isCrawler||o._climbing) continue;
       const ox=o.wx-this.wx, oz=o.wz-this.wz, q2=ox*ox+oz*oz;
@@ -5115,15 +5118,26 @@ class Crawler extends Enemy{
       if(this._mood!==2){ mvx+=sx*2.6; mvz+=sz*2.6;
         if(!aware && nn>0){ cx=cx/nn-this.wx; cz=cz/nn-this.wz; const cl=Math.hypot(cx,cz)||1; mvx+=(cx/cl)*0.12; mvz+=(cz/cl)*0.12;
           const al=Math.hypot(ax,az)||1; mvx+=(ax/al)*0.10; mvz+=(az/al)*0.10; } }                // gentle swarm only when idle
-    } else {
+    } else if(aware){
       mvx=dx/d; mvz=dz/d;
       if(nn>0){ cx=cx/nn-this.wx; cz=cz/nn-this.wz; const cl=Math.hypot(cx,cz)||1; mvx+=(cx/cl)*0.16; mvz+=(cz/cl)*0.16;
         const al=Math.hypot(ax,az)||1; mvx+=(ax/al)*0.14; mvz+=(az/al)*0.14; }
+      mvx+=sx*2.0; mvz+=sz*2.0;
+    } else {
+      // OUTSIDE the sphere of influence (player far / high on a platform) -> WANDER, don't beeline at their ground shadow
+      if(this._hdg===undefined)this._hdg=Math.random()*TAU;
+      this._wanderT=(this._wanderT||0)-dt;
+      if(this._wanderT<=0){ this._hdg+=(Math.random()*2-1)*1.9; this._wanderT=0.7+Math.random()*1.7; }
+      mvx=Math.cos(this._hdg); mvz=Math.sin(this._hdg); _spd=this.spd*(window._SPIDER_WANDER_SPD||0.5);
       mvx+=sx*2.0; mvz+=sz*2.0;
     }
     const ml=Math.hypot(mvx,mvz);
     if(ml>0.01){ this._vx2=(mvx/ml)*_spd; this._vz2=(mvz/ml)*_spd; } else { this._vx2*=0.7; this._vz2*=0.7; }
     this.wx+=this._vx2*dt; this.wz+=this._vz2*dt;
+    // CUBE CONTAINMENT: keep the spider inside the arena's height-aware walls instead of letting it stroll out the side. Hitting the wall flags _atWall (the climb block below rides it UP the shell when it's chasing a player who's up high); a wanderer just turns away.
+    if(CUBE && typeof _cubeClampXZ==='function'){ const _cc=_cubeClampXZ(this.wx,this.wz,(this._climbY||9),(window._SPIDER_CUBE_SKIN||14));
+      if(_cc){ this.wx=_cc.x; this.wz=_cc.z; this._atWall=true; if(!aware){ this._hdg=(this._hdg||0)+Math.PI*0.5+(Math.random()-0.5); this._wanderT=Math.min(this._wanderT||0,0.4); } }
+      else this._atWall=false; }
     if(CITY) for(const box of _cityBoxes){ if(Math.abs(this.wx-box.x)<box.hw && Math.abs(this.wz-box.z)<box.hd){ const dxr=this.wx-box.x, dzr=this.wz-box.z; if(box.hw-Math.abs(dxr) < box.hd-Math.abs(dzr)) this.wx=box.x+(dxr>=0?1:-1)*(box.hw+2); else this.wz=box.z+(dzr>=0?1:-1)*(box.hd+2); break; } }   // never walk THROUGH a building on the ground
     if(this._attachCD<=0 && (!CITY || (p.py>30 && aware))){
       if(CITY){
@@ -5134,7 +5148,7 @@ class Crawler extends Enemy{
         if(!_onDeck && !this._deckLocked){   // LANDLOCKED to the floating deck -> NEVER climb off to the shell/ground/wall (no teleporting). A deck spider just patrols the deck.
           const _abox=_nearestClimbBox(this.wx,this.wz,(window._SPIDER_ASSET_ATTACH_R||30));
           if(_abox){ this._cgBox=_abox; this._cubeCrawl=false; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // near a deform-asset box (cube.glb) -> crawl up it like a building
-          else if(p._cubeCamAuth || (p.py||0)>40){ this._cubeCrawl=true; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // else, player up a wall/ceiling -> ride the inner shell toward them
+          else if(p._cubeCamAuth || (p.py||0)>40 || (this._atWall && aware && (p.py||0)>(window._SPIDER_WALL_CLIMB_Y||22))){ this._cubeCrawl=true; this._cy=this._climbY||9; this._cstate='climb'; this._climbT=0; this._stuckT=0; }   // player up a wall/ceiling -> ride the inner shell toward them; OR the spider is pinned against the wall still chasing a player who's off the floor -> climb UP the side after them instead of grinding the base
         }
       } else {
         const near=_nearestSheetSurface(this.wx,9,this.wz,28,null);
