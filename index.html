@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB558</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB559</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -1894,6 +1894,25 @@ class Grid3D{
   suck(wx,wz,strength,radius){ this.push(wx,wz,-strength*0.5,radius); }
   shock(wx,wz,strength){ this.shocks.push({wx,wz,r:0,str:strength,life:1}); }
   pulse(a){ this.beat=Math.min(1,this.beat+a); }
+  // ── SWIRL AROUND A TRAVEL AXIS — a "tornado turned 90°" whose axis points along (dirX,dirZ). Bypasses the energy cap so it
+  //    reads as DRAMATIC (nuke-scale) churn, and lays a rotating helical ridge: the up/down tilt rolls along the travel line
+  //    and spins with `phase`, so the wake corkscrews around the flight direction. Used by Big Bill. O(n) — call a few times/frame.
+  swirlAxis(wx,wz,dirX,dirZ,strength,radius,phase){
+    const r2=radius*radius, nl=Math.hypot(dirX,dirZ)||1, fx=dirX/nl, fz=dirZ/nl, ppx=-fz, ppz=fx;
+    const pitch=(window._BILL_TW_PITCH||0.05), roll=(window._BILL_TW_ROLL||0.06), tilt=(window._BILL_TW_TILT||1.3), churn=(window._BILL_TW_CHURN||0.05);   // churn kept LOW: big horizontal impulses flung grid nodes across the whole arena (chaos, not a swirl). The vertical (vy) tilt is what reads as the laid-down tornado.
+    for(let i=0;i<this.n;i++){
+      const dx=this.rx[i]-(wx-this._gx), dz=this.rz[i]-(wz-this._gz), d2=dx*dx+dz*dz;
+      if(d2>=r2) continue;
+      const d=Math.sqrt(d2)||0.01, fall=(1-d/radius), fall2=fall*fall;
+      const t=dx*fx+dz*fz, s=dx*ppx+dz*ppz;                                  // along-travel + perpendicular offset
+      const ph=phase + t*pitch;                                             // helix phase advances down the travel line
+      this.vy[i] += Math.cos(ph) * (s/radius) * strength * fall2 * tilt;    // rolling side-to-side tilt = tornado laid on its side, spinning around the axis
+      this.vy[i] += Math.sin(ph*1.7 - s*roll) * strength * fall2 * 0.55;    // rolling ridges along the lane -> extra churn
+      const tangx=-dz/d, tangz=dx/d;                                        // horizontal vortex swirl around the point
+      this.vx[i] += tangx * strength * churn * fall2;
+      this.vz[i] += tangz * strength * churn * fall2;
+    }
+  }
   dimple(wx,wz,amt){            // O(1) — pokes only the 4 nodes around the point (bullet wake)
     const fc=(wx-this._gx+HALF_W)/G_CELL, fr=(wz-this._gz+HALF_D)/G_CELL;
     const c0=Math.floor(fc), r0=Math.floor(fr);
@@ -9142,10 +9161,10 @@ class BigBill{
     this.vx=ax/m*spd; this.vz=az/m*spd; this.vy=(ay||0)*spd*0.4; this.speed=spd;
     this.dead=false; this.t=0; this.life=(window._BILL_LIFE||5.0);
     this.dmg=(window._BILL_DMG||(od?26:18)); this.R=(window._BILL_R||9)*(od?1.3:1);
-    const col=(typeof _WPN_COLORS!=='undefined'&&_WPN_COLORS['bigbill'])||0x5b6ee8;
+    const col=(window._BILL_COLOR!=null?window._BILL_COLOR:0x33e0ff);   // BRIGHT NEON — the old body was near-black (0x151a24) and vanished against the arena; now it glows
     this._col=col; this._rgb=[((col>>16)&255)/255,((col>>8)&255)/255,(col&255)/255];
     const g=new THREE.Group(); const sc=this.R/9;
-    const bodyMat=new THREE.MeshStandardMaterial({color:0x151a24,metalness:0.72,roughness:0.34,emissive:0x0a0e16,emissiveIntensity:0.35});
+    const bodyMat=new THREE.MeshStandardMaterial({color:col,metalness:0.2,roughness:0.3,emissive:col,emissiveIntensity:(window._BILL_GLOW||2.4),toneMapped:false});   // self-illuminating neon shell
     const body=new THREE.Mesh(_BILL_BODY_GEO,bodyMat); body.scale.set(sc*1.35,sc,sc); g.add(body);   // fat bullet, elongated along +X (travel)
     const nose=new THREE.Mesh(new THREE.SphereGeometry(6.4,16,12,0,Math.PI*2,0,Math.PI*0.62),bodyMat); nose.rotation.z=-Math.PI/2; nose.position.x=8.4*sc; nose.scale.setScalar(sc); g.add(nose);
     const eyeMat=new THREE.MeshBasicMaterial({color:0xffe23a,transparent:true,opacity:0.98,blending:THREE.AdditiveBlending,depthWrite:false});
@@ -9179,20 +9198,17 @@ class BigBill{
     if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)_pullE(b);
     if(typeof GS!=='undefined'&&GS.gems)for(const gm of GS.gems){ if(!gm)continue; const gx=(gm.wx!=null?gm.wx:gm.x),gz=(gm.wz!=null?gm.wz:gm.z); if(gx==null)continue; const dx=this.wx-gx,dz=this.wz-gz,d=Math.hypot(dx,dz); if(d>3&&d<PR){ const f=(1-d/PR)*PF*1.4*dt; if(gm.wx!=null){gm.wx+=dx/d*f;gm.wz+=dz/d*f;}else{gm.x+=dx/d*f;gm.z+=dz/d*f;} } }
     if(window._ballPull)try{ window._ballPull(this.wx,this.wz,PR,PF); }catch(_){}
-    // ── TORNADO WAKE (turned 90°) — a violent corkscrew that winds around the flight axis and carves a HUGE swirling trail
-    //    into the grid: a deep central intake, spinning up/down vortex arms, and a twisting trail that follows the path. ──
-    if(typeof grid!=='undefined' && grid.push){
-      const rot=this.t*(window._BILL_SWIRL_SPD||13);
-      const arms=(window._BILL_SWIRL_ARMS||5), orb=(window._BILL_SWIRL_R||60), amp=(window._BILL_SWIRL_AMP||15), pr=(window._BILL_SWIRL_PUSH_R||66);
-      try{ grid.push(this.wx,this.wz,-(window._BILL_GRID||15),(window._BILL_GRID_R||205)); }catch(_){}   // deep intake at the eye
-      for(let k=0;k<arms;k++){ const a=rot + k*(6.2832/arms); const rr=orb*(0.7+0.3*Math.sin(this.t*4+k));   // spinning vortex arms, alternating up/down -> reads as a rotating funnel
-        try{ grid.push(this.wx+Math.cos(a)*rr, this.wz+Math.sin(a)*rr, (k&1?amp:-amp), pr); }catch(_){} }
-      // winding corkscrew TRAIL: rake recent path positions at a rotating offset so the wake twists behind it like a laid-down tornado
-      this._trail=this._trail||[]; this._trail.push({x:this.wx,z:this.wz}); if(this._trail.length>(window._BILL_TRAIL_N||16))this._trail.shift();
-      for(let i=0;i<this._trail.length;i+=2){ const p=this._trail[i], a=rot - i*(window._BILL_TRAIL_TWIST||0.85), rr=orb*(0.45+i*0.035);
-        try{ grid.push(p.x+Math.cos(a)*rr, p.z+Math.sin(a)*rr, ((i&3)<2?amp*0.7:-amp*0.7), pr*0.8); }catch(_){} }
-      if(grid.dimple){ for(let k=0;k<6;k++){ const a=rot*1.4+k*1.047; grid.dimple(this.wx+Math.cos(a)*orb*0.85, this.wz+Math.sin(a)*orb*0.85, 2.4); } }
-      if(grid.shock && (this.t%(window._BILL_SHOCK_EVERY||0.35))<dt)try{ grid.shock(this.wx,this.wz,(window._BILL_SHOCK||2.2)); }catch(_){}   // periodic ripple so the whole floor churns
+    // ── TORNADO WAKE (turned 90°) — a DRAMATIC, nuke-scale swirl whose axis is the direction of travel: grid.swirlAxis lays a
+    //    rotating helical ridge that corkscrews around the flight line (bypasses the energy cap, unlike the old push spam that
+    //    throttled itself into mildness). Laid down at the nose + along the recent path so the twister trails behind it. ──
+    if(typeof grid!=='undefined' && grid.swirlAxis){
+      const _vn=Math.hypot(this.vx,this.vz)||1, fx=this.vx/_vn, fz=this.vz/_vn;
+      const ph=this.t*(window._BILL_SWIRL_SPD||10), STR=(window._BILL_SWIRL_STR||3.5), RAD=(window._BILL_SWIRL_R||165);
+      try{ grid.swirlAxis(this.wx,this.wz,fx,fz,STR,RAD,ph); }catch(_){}                                   // main vortex at the nose
+      this._trail=this._trail||[]; this._trail.push({x:this.wx,z:this.wz,fx,fz}); if(this._trail.length>(window._BILL_TRAIL_N||8))this._trail.shift();
+      for(let i=0;i<this._trail.length;i+=2){ const p=this._trail[i]; try{ grid.swirlAxis(p.x,p.z,p.fx,p.fz,STR*(window._BILL_TRAIL_FALLOFF||0.7),RAD*0.9,ph-i*(window._BILL_TRAIL_TWIST||0.8)); }catch(_){} }   // trailing coils -> a long laid-down twister
+      try{ if(grid.push)grid.push(this.wx,this.wz,-(window._BILL_GRID||10),(window._BILL_GRID_R||150)); }catch(_){}   // + a suck at the eye so the funnel dips
+      if(grid.shock && (this.t%(window._BILL_SHOCK_EVERY||0.28))<dt)try{ grid.shock(this.wx,this.wz,(window._BILL_SHOCK||4)); }catch(_){}   // periodic shock ring so the whole floor keeps churning
     }
     if(typeof gridSheetsBlast==='function'&&typeof GRID_SHEETS!=='undefined'&&GRID_SHEETS.length&&(this.t%0.5)<dt){ try{ gridSheetsBlast(this.wx,this.y,this.wz,1.7,150); }catch(_){} }
     if(typeof ps!=='undefined'&&ps._spawn){ for(let k=0;k<2;k++)ps._spawn(this.wx+rand(-5,5),this.y+rand(-5,5),this.wz+rand(-5,5), -this.vx*0.05+rand(-8,8),rand(-6,10),-this.vz*0.05+rand(-8,8), this._rgb[0],this._rgb[1],this._rgb[2], 0.05+rand(0.03)); }
