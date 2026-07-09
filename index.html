@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB516</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB517</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -14580,6 +14580,7 @@ class BotPilot{
     ps.ring(this.wx,this.wz,[1,0.4,0.1],30,120);
     ps.burst(this.wx,this.wz,[1,0.6,0.2],20,100);
     addTrauma(0.2); Audio.blip(120,0.3,'sine',0.5,80);
+    if(window._KILL_BOOM!==false && typeof _boomSfx==='function')try{ _boomSfx((window._KILL_BOOM_SIZE||'small'),(window._KILL_BOOM_PITCH||1),this.wx,this.wz); }catch(_){}   // small explosion on a kill (placeholder until a custom "shatter into shards" sound); _KILL_BOOM=false to mute
     announce(`ROUND ${this.round} — RIVAL DOWN!`,'#00ff88');
     GS.score+=800*this.round*(GS.zone+1);
     GS.mult=Math.min(GS.mult+2,16);
@@ -23108,6 +23109,7 @@ function _swordPickTarget(){
   try{ if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)consider(b); }catch(_){}
   return best;
 }
+const _swScratchV=new THREE.Vector3();
 function _swordRelease(){
   if(!player||!player._swordCharging)return;
   player._swordCharging=false;
@@ -23124,6 +23126,14 @@ function _swordRelease(){
   try{ const ud=player.model&&player.model.userData; if(ud&&ud.clips){ const sl=ud.clips['sword_slash_'+(1+((Math.random()*2)|0))]||ud.clips['sword_slash_1']||ud.clips['sword_slash_2']; if(sl){ Object.values(ud.clips).forEach(a=>{ if(a&&a.fadeOut&&a!==sl)a.fadeOut(0.06); }); sl.reset().setLoop(THREE.LoopOnce,1); sl.clampWhenFinished=true; sl.setEffectiveWeight(1).fadeIn(0.04).play(); ud.currentClip='sword_slash'; } } }catch(_){}
   if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(900,0.09,'square',0.16,1300); Audio.blip(380,0.12,'sawtooth',0.1,170);}catch(_){}
   if(typeof addTrauma==='function')addTrauma(0.08);
+  // ── SWING FX — a spray of blade particles + a CRAZIER charged slash arc (double, high-tier) that fades fast ──
+  if(window._SWORD_SWING_FX!==false){
+    const _bp=_swordBladePos(_swScratchV);
+    if(typeof ps!=='undefined'){ ps.burst(_bp.x,_bp.z,[0.55,0.9,1],(window._SWORD_SWING_PARTS||26),200,_bp.y);
+      if(ps._spawn)for(let i=0;i<(window._SWORD_SWING_PARTS||26);i++){ const a=Math.random()*TAU; ps._spawn(_bp.x,_bp.y+rand(-4,16),_bp.z, nx*rand(40,150)+Math.cos(a)*rand(20,60), rand(-10,70), nz*rand(40,150)+Math.sin(a)*rand(20,60), 0.6,0.95,1, 0.08+rand(0.06)); } }
+    if(typeof _spawnSlashArc==='function'){ try{ _spawnSlashArc(3); _spawnSlashArc(3); }catch(_){} }   // crazier: two big arcs on the charge release
+    player._swordSwingTrailT=(window._SWORD_TRAIL_T||0.32);   // emit a fast-fading blade trail through the lunge
+  }
   player._swordTarget=null;
 }
 function _swordDamageAt(x,z,dirx,dirz){
@@ -23136,8 +23146,13 @@ function _swordSetGlow(f){
   const h=player&&player._hammer; if(!h)return;
   if(!h._swGlow){ h._swGlow=[]; try{ h.traverse(o=>{ if(o.material){ const ms=Array.isArray(o.material)?o.material:[o.material]; for(const m of ms){ if(m&&m.emissive&&m.emissive.isColor)h._swGlow.push({m,e0:(m.emissiveIntensity!=null?m.emissiveIntensity:1),c0:m.emissive.clone()}); } } }); }catch(_){} }
   const gc=new THREE.Color(window._SWORD_GLOW_COL!=null?window._SWORD_GLOW_COL:0x8fe8ff), fc=Math.min(1,f);
-  for(const g of h._swGlow){ try{ g.m.emissive.copy(g.c0).lerp(gc,fc); g.m.emissiveIntensity=g.e0+fc*(window._SWORD_GLOW_INT||3.5)*(0.6+0.4*Math.sin((player._swordChargeT||0)*20)); g.m.needsUpdate=true; }catch(_){} }
+  const pulse=0.55+0.45*Math.sin((player._swordChargeT||0)*(window._SWORD_GLOW_PULSE_SPD||18));   // stronger, more obvious pulse
+  for(const g of h._swGlow){ try{ g.m.emissive.copy(g.c0).lerp(gc,fc); g.m.emissiveIntensity=g.e0+fc*(window._SWORD_GLOW_INT!=null?window._SWORD_GLOW_INT:7)*pulse; g.m.needsUpdate=true; }catch(_){} }
 }
+// world position of the blade (hilt bone + a bit up the blade) for charge/swing FX
+function _swordBladePos(out){ out=out||new THREE.Vector3(); const h=player&&player._hammer;
+  if(h){ try{ h.updateWorldMatrix(true,false); h.getWorldPosition(out); out.y+=(window._SWORD_FX_RISE||10); return out; }catch(_){} }
+  out.set(player.wx,(player.py||0)+22,player.wz); return out; }
 function _swordShowIndicator(tgt){
   if(!tgt){ if(window._swordInd)window._swordInd.visible=false; return; }
   if(!window._swordInd){ try{ const g=new THREE.Group();
@@ -23159,8 +23174,16 @@ function _swordTick(dt){
     player._swordChargeT=(player._swordChargeT||0)+dt;
     player.vx*=0.4; player.vz*=0.4;   // locked-ish in place
     player._swordTarget=_swordPickTarget();
-    _swordSetGlow(Math.min(1,(player._swordChargeT||0)/(window._SWORD_CHARGE_FULL||0.55)));
+    const _cf=Math.min(1,(player._swordChargeT||0)/(window._SWORD_CHARGE_FULL||0.55));
+    _swordSetGlow(_cf);
     _swordShowIndicator(player._swordTarget);
+    // CHARGING FX — energy sparks stream UP the blade (Zelda fire-sword vibe) + a faint aura swirls the robot
+    if(typeof ps!=='undefined'&&ps._spawn && window._SWORD_CHARGE_FX!==false){
+      const _bp=_swordBladePos(_swScratchV);
+      const _n=Math.ceil(1+_cf*(window._SWORD_CHARGE_PARTS||3));
+      for(let i=0;i<_n;i++){ const a=Math.random()*TAU, r=Math.random()*(window._SWORD_CHARGE_R||3.2); ps._spawn(_bp.x+Math.cos(a)*r, _bp.y+rand(-6,14), _bp.z+Math.sin(a)*r, Math.cos(a)*rand(4,16), rand(30,90)*_cf, Math.sin(a)*rand(4,16), 0.45,0.85,1, 0.06+rand(0.04)); }
+      if(Math.random()<0.4*_cf){ const a=Math.random()*TAU; ps._spawn(player.wx+Math.cos(a)*11, (player.py||0)+rand(4,26), player.wz+Math.sin(a)*11, -Math.cos(a)*30, rand(10,50), -Math.sin(a)*30, 0.4,0.9,1, 0.05+rand(0.03)); }   // robot aura pulled inward
+    }
     return;
   }
   _swordShowIndicator(null);
@@ -23169,6 +23192,7 @@ function _swordTick(dt){
     if(L){ const step=Math.min(L.remaining, (window._SWORD_LUNGE_SPD||1000)*dt);
       if(step>0){ player.wx+=L.nx*step; player.wz+=L.nz*step; L.remaining-=step; }
       player.vx=0; player.vz=0;   // the tick owns the lunge position; keep player.update from double-integrating velocity
+      if(typeof ps!=='undefined'&&ps._spawn && (player._swordSwingTrailT||0)>0){ player._swordSwingTrailT-=dt; const _bp=_swordBladePos(_swScratchV); for(let i=0;i<2;i++)ps._spawn(_bp.x+rand(-3,3),_bp.y+rand(-4,14),_bp.z+rand(-3,3), rand(-18,18),rand(-8,26),rand(-18,18), 0.55,0.92,1, 0.1+rand(0.05)); }   // blade trail streaming behind the lunge, fades fast
       _swordDamageAt(player.wx+L.nx*22, player.wz+L.nz*22, L.nx, L.nz);
       if(L.remaining<=0){ player._swordLungeT=Math.min(player._swordLungeT,0.05); }
     }
