@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB532</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB533</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -10843,18 +10843,21 @@ class Bullet{
     let _cf = (GS.zone===-16) ? _cityProjOrbit(this, 12, 34, dt) : (GS.zone===-19 ? _cubeProjStick(this, window._CUBE_PROJ_R||12, window._CUBE_PROJ_SOI||90, dt) : false);   // building field / cube inner shell owns vertical motion (climb); switch OFF ground gravity so it can't drag the climb back down at the corner
     if(!_cf && typeof _assetProjStick==='function' && window._arenaAssetCols && window._arenaAssetCols.length) _cf = _assetProjStick(this, window._ASSET_PROJ_R||12, window._ASSET_PROJ_SOI||70, dt);   // + smart-asset boxes (cube.glb): shots climb their walls too
     if(!_cf && GS.zone===-19 && typeof _platProjSurf==='function') _cf = _platProjSurf(this, dt);   // + animated platform: shots skimming the deck follow its (deforming) top surface
-    if(this._mountArc){                                                        // MOUNTED shot: level out, clear the creature, then dip DOWN and SKIM the ground (rakes the whole lane -> forgiving on moving enemies)
+    if(this._mountArc){                                                        // MOUNTED / GRAVITY shot: level out, clear the creature, then dip DOWN and SKIM the ground (rakes the whole lane -> forgiving on moving enemies)
       const _hsp=Math.hypot(this.vx,this.vz)||1; this._mtTrav=(this._mtTrav||0)+_hsp*dt;
-      const _fy=(this._mtSkimY!=null?this._mtSkimY:(window._MOUNT_ARC_SKIM_Y||9));   // GRAVITY-BULLET ground plane: the deck the shooter was standing on (per-shot), so a shot fired from a platform skims LEVEL across it instead of diving to the true floor
-      if(this._mtTrav > (this._mtClear||55)){
-        // HOME the descent onto the target when it's a CLOSE dive (_mtDive) or an AIRBORNE foe; otherwise just dive fast to
-        // the deck and skim (a skimming round rakes the lane, so a moving ground bot connects even if it drifted).
-        if(this._mtTargT!=null && this._mtTrav<this._mtTargT && (this._mtDive || this._mtTargY>_fy+(window._MOUNT_ARC_AIR||26))){
-          const _remT=Math.max((this._mtTargT-this._mtTrav)/_hsp,1e-3); this.vy=(this._mtTargY-this.y)/_remT;
-        } else this.vy -= (window._MOUNT_ARC_G||1200)*dt;                       // steeper dive so it reaches the ground promptly, then skims
+      if(_cf){ this.y+=this.vy*dt; }                                            // RIDING a cube / smart-asset box / animated-platform surface -> the stick owns vertical climb: the gravity bolt goes UP and AROUND the geometry (then resumes the ground skim once it clears the surface, exactly like it climbs a wall and falls back)
+      else {
+        const _fy=(this._mtSkimY!=null?this._mtSkimY:(window._MOUNT_ARC_SKIM_Y||9));   // GRAVITY-BULLET ground plane: the deck the shooter was standing on (per-shot), so a shot fired from a platform skims LEVEL across it instead of diving to the true floor
+        if(this._mtTrav > (this._mtClear||55)){
+          // HOME the descent onto the target when it's a CLOSE dive (_mtDive) or an AIRBORNE foe; otherwise just dive fast to
+          // the deck and skim (a skimming round rakes the lane, so a moving ground bot connects even if it drifted).
+          if(this._mtTargT!=null && this._mtTrav<this._mtTargT && (this._mtDive || this._mtTargY>_fy+(window._MOUNT_ARC_AIR||26))){
+            const _remT=Math.max((this._mtTargT-this._mtTrav)/_hsp,1e-3); this.vy=(this._mtTargY-this.y)/_remT;
+          } else this.vy -= (window._MOUNT_ARC_G||1200)*dt;                     // steeper dive so it reaches the ground promptly, then skims
+        }
+        this.y+=this.vy*dt;
+        if(this.y<=_fy){ this.y=_fy; if(this.vy<0)this.vy=0; }                  // reached the floor -> skim along it (level)
       }
-      this.y+=this.vy*dt;
-      if(this.y<=_fy){ this.y=_fy; if(this.vy<0)this.vy=0; }                    // reached the floor -> skim along it (level)
     }
     else if(this._g3){ this.y+=this.vy*dt; }                                   // straight-line 3D flight (galaxy)
     else if(this._straightAim){ this.y+=this.vy*dt; if(this.y<2)this.y=2; }     // ASSISTED shot: fly a straight line to the locked target's height (no gravity arc) so the trajectory physically goes down into it
@@ -13249,7 +13252,7 @@ class Player{
       if(lockE && window._SPIDER_LOCK!==false){ const _ly=(lockE.mesh?lockE.mesh.position.y:9)+(window._SPIDER_LOCK_YOFF||3); let ddx=lockE.wx-spawnX, ddy=_ly-y0, ddz=lockE.wz-spawnZ; const _L=Math.hypot(ddx,ddy,ddz)||1; _assistDir3={x:ddx/_L,y:ddy/_L,z:ddz/_L}; }   // exact 3D dir onto the spider's body -> the bullet visibly ANGLES DOWN and connects
     }
     const fire=(ang,kind)=>{
-      if((this._mount || window._BULLET_ARC===true) && window._MOUNT_SHOOT_ARC!==false){   // GRAVITY BULLETS: same arc-and-skim as the mounted dragon shot — homes onto the enemy you're aiming at (direct hit), only arcs to the ground when there's NO target
+      if((this._mount || window._BULLET_ARC!==false) && window._MOUNT_SHOOT_ARC!==false){   // GRAVITY BULLETS (now the DEFAULT — set window._BULLET_ARC=false to restore the old flat bullets): same arc-and-skim as the mounted dragon shot — homes onto the enemy you're aiming at (direct hit), lays of the land / climbs cube+asset geometry, only arcs to the ground plane when there's NO target
         // CLOSE ENEMY (the dragon reared up right over it): the level-then-dip arc sails over a point-blank foe's head. Instead
         // fire a DIRECT steep line straight along the vertical-aim vector so the bolt actually angles sharply DOWN onto it
         // (this is the "shoot at a sharp downward angle" case — the arms already point down in the ride-idle pose, now the bolt does too).
