@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB547</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB548</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -38313,9 +38313,10 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
     const mk=(label,key)=>{ const b=document.createElement('button'); b.textContent=label; b.style.cssText='background:#00ffc822;border:1px solid #00ffc866;color:#00ffc8;font:11px Orbitron,monospace;padding:7px 11px;border-radius:7px;white-space:nowrap;'; b.addEventListener('click',()=>playClip(key)); row.appendChild(b); };
     if(window._DRESS_MODE){   // player-facing DRESSING ROOM — just a shippable few, not the whole animation dump
       const ck=Object.keys(S.clips), find=(re)=>ck.find(k=>re.test(k));
-      const idle=find(/idle/i)||find(/float/i); if(idle)mk('IDLE',idle);
+      const idle=find(/^floating$/i)||find(/float/i)||find(/^idle$/i)||find(/idle/i);   // the game's resting pose is the floating hover, not the raw 'idle' clip (that reads as a limp hang)
+      if(idle){ mk('IDLE',idle); try{ if(typeof playClip==='function')playClip(idle); }catch(_){} }   // default the room to the good resting pose
       mk('T-POSE','__bind');
-      const act=find(/melee|slash|run_forward|floating|throw/i); if(act&&act!==idle)mk((act.replace(/_/g,' ').toUpperCase()),act);
+      const act=find(/melee|slash|throw/i)||find(/run_forward/i); if(act&&act!==idle)mk((act.replace(/_/g,' ').toUpperCase()),act);
       return;
     }
     mk('T-POSE','__bind'); Object.keys(S.clips).forEach(k=>mk(k.toUpperCase(),k));
@@ -38505,21 +38506,55 @@ function _dressSetHue(hx){
   try{ window._applyPlayerHue(); }catch(_){}   // + the live player if it's already spawned
   if(typeof Audio!=='undefined'&&Audio.blip)try{ Audio.blip(520,0.05,'sine',0.1,720); }catch(_){}
 }
+function _dressPreviewCosmetics(){   // apply the current loadout onto the PREVIEW model (mirrors _applyCosmetics, but on S.model)
+  const S=window._ws; if(!S||!S.model||typeof COSMO_SLOTS==='undefined')return;
+  const model=S.model; let bones=model.userData&&model.userData.bones; if(!bones){ bones={}; model.traverse(o=>{ if(o.isBone)bones[o.name]=o; }); }
+  S._cosmoObjs=S._cosmoObjs||{};
+  const loadout=(typeof player!=='undefined'&&player&&player._loadout)||{};
+  for(const slot of COSMO_SLOTS){
+    const cur=S._cosmoObjs[slot]; if(cur){ try{ if(cur.parent)cur.parent.remove(cur); }catch(_){} S._cosmoObjs[slot]=null; }
+    const id=loadout[slot]; if(!id)continue; const def=COSMETICS_BY_ID[id]; if(!def||def.slot!==slot)continue;
+    const bone=_cosFindBone(bones,def.bone); if(!bone)continue;
+    let obj; try{ obj=def.build(def.col); }catch(_){ obj=null; } if(!obj)continue;
+    try{ model.updateWorldMatrix(true,true); const bs=new THREE.Vector3(); bone.getWorldScale(bs); const inv=1/(Math.abs(bs.x)||1);
+      const ov=window['_COSMO_'+id.toUpperCase()]||{}; obj.scale.setScalar(inv*((ov.scale!=null?ov.scale:def.scale)||1));
+      const p=ov.pos||def.pos||{}, r=ov.rot||def.rot||{}; obj.position.set(p.x||0,p.y||0,p.z||0); obj.rotation.set(r.x||0,r.y||0,r.z||0);
+      bone.add(obj); S._cosmoObjs[slot]=obj;
+      if(window._PLAYER_HUE!=null&&typeof _tintAllyApply==='function')_tintAllyApply(obj,new THREE.Color(window._PLAYER_HUE));
+    }catch(_){}
+  }
+}
+window._dressPreviewCosmetics=_dressPreviewCosmetics;
 function _ensureDressHue(){
   const ov=document.getElementById('workshop-overlay'); if(!ov)return;
   let bar=document.getElementById('ws-hue');
   if(!bar){ bar=document.createElement('div'); bar.id='ws-hue';
-    bar.style.cssText='position:absolute;left:0;right:0;bottom:62px;padding:8px 12px;display:flex;flex-direction:column;gap:7px;align-items:center;z-index:4;pointer-events:none;';
-    const lbl=document.createElement('div'); lbl.textContent='◈ COLOR'; lbl.style.cssText='color:#9fe8ff;font:10px Orbitron,monospace;letter-spacing:3px;'; bar.appendChild(lbl);
-    const row=document.createElement('div'); row.style.cssText='display:flex;gap:9px;flex-wrap:wrap;justify-content:center;max-width:520px;pointer-events:auto;';
+    bar.style.cssText='position:absolute;left:0;right:0;bottom:56px;padding:8px 12px;display:flex;flex-direction:column;gap:6px;align-items:center;z-index:4;pointer-events:none;max-height:56vh;overflow-y:auto;';
+    // ── EQUIP rows (head/mask, arms, jetpack) — reuse the cosmetics cycle + mirror onto the preview ──
+    const eq=document.createElement('div'); eq.style.cssText='display:flex;flex-direction:column;gap:5px;width:min(94vw,360px);pointer-events:auto;background:rgba(4,10,18,0.72);border:1px solid #c24aff44;border-radius:12px;padding:8px 10px;';
+    const rows=[['head','HEAD'],['face','MASK'],['shoulderL','L ARM'],['shoulderR','R ARM'],['back','JETPACK']];
+    for(const [slot,label] of rows){ const row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;gap:6px;';
+      const nm=document.createElement('span'); nm.textContent=label; nm.style.cssText='width:58px;color:#8fddaa;font:9px Orbitron,monospace;letter-spacing:1px;';
+      const bs='background:#c24aff22;border:1px solid #c24aff66;color:#c499ff;font:12px monospace;padding:4px 11px;border-radius:6px;cursor:pointer;';
+      const prev=document.createElement('button'); prev.textContent='◄'; prev.style.cssText=bs;
+      const lbl=document.createElement('span'); lbl.className='dress-lbl'; lbl.dataset.slot=slot; lbl.style.cssText='flex:1;text-align:center;color:#fff;font:9px monospace;'; lbl.textContent=(window._cosLabel?window._cosLabel(slot):'—');
+      const next=document.createElement('button'); next.textContent='►'; next.style.cssText=bs;
+      const cyc=(d)=>{ if(window._cosCycle)lbl.textContent=window._cosCycle(slot,d); try{ _dressPreviewCosmetics(); }catch(_){} };
+      prev.addEventListener('click',()=>cyc(-1)); next.addEventListener('click',()=>cyc(1));
+      row.append(nm,prev,lbl,next); eq.appendChild(row);
+    }
+    bar.appendChild(eq);
+    const clbl=document.createElement('div'); clbl.textContent='◈ COLOR'; clbl.style.cssText='color:#9fe8ff;font:10px Orbitron,monospace;letter-spacing:3px;margin-top:2px;'; bar.appendChild(clbl);
+    const row=document.createElement('div'); row.style.cssText='display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:520px;pointer-events:auto;';
     for(const hx of window._DRESS_HUES){ const cs='#'+('000000'+hx.toString(16)).slice(-6); const sw=document.createElement('button');
-      sw.style.cssText='width:34px;height:34px;border-radius:50%;border:2px solid '+cs+';background:radial-gradient(circle at 40% 35%,'+cs+'cc,'+cs+'44);box-shadow:0 0 12px '+cs+'99;cursor:pointer;-webkit-tap-highlight-color:transparent;';
+      sw.style.cssText='width:30px;height:30px;border-radius:50%;border:2px solid '+cs+';background:radial-gradient(circle at 40% 35%,'+cs+'cc,'+cs+'44);box-shadow:0 0 12px '+cs+'99;cursor:pointer;-webkit-tap-highlight-color:transparent;';
       sw.addEventListener('click',()=>_dressSetHue(hx)); row.appendChild(sw); }
     bar.appendChild(row);
     const done=document.createElement('button'); done.textContent='DONE'; done.style.cssText='margin-top:2px;background:#00ffc822;border:1px solid #00ffc888;color:#00ffc8;font:12px Orbitron,monospace;letter-spacing:2px;padding:9px 30px;border-radius:9px;cursor:pointer;pointer-events:auto;';
     done.addEventListener('click',()=>{ if(window.closeWorkshop)window.closeWorkshop(); }); bar.appendChild(done);
     ov.appendChild(bar);
   }
+  try{ bar.querySelectorAll('.dress-lbl').forEach(el=>{ el.textContent=window._cosLabel?window._cosLabel(el.dataset.slot):'—'; }); }catch(_){}   // refresh labels to the current loadout
   bar.style.display='flex';
 }
 window._wsSetDebugPanels=function(show){ ['ws-pivot','ws-joint','ws-rot','ws-collapse','ws-boots'].forEach(id=>{ const e=document.getElementById(id); if(e)e.style.display=show?'':'none'; }); const hb=document.getElementById('ws-hue'); if(hb)hb.style.display=show?'none':'flex'; const t=document.getElementById('ws-title'); if(t)t.textContent=show?'⚙ WORKSHOP':'✦ DRESSING ROOM'; };
@@ -38528,7 +38563,8 @@ window._openDressRoom=function(){
   window._wsSetDebugPanels(false);   // hide the debug tuning + retitle
   _ensureDressHue();
   try{ if(window._wsPoseButtons)window._wsPoseButtons(); }catch(_){}   // curate the pose row now (in case the model was already built)
-  setTimeout(()=>{ try{ if(window._DRESS_MODE&&window._wsPoseButtons)window._wsPoseButtons(); }catch(_){} },400);   // and again after an async skin build
+  try{ _dressPreviewCosmetics(); }catch(_){}
+  setTimeout(()=>{ try{ if(window._DRESS_MODE){ if(window._wsPoseButtons)window._wsPoseButtons(); _dressPreviewCosmetics(); _ensureDressHue(); } }catch(_){} },450);   // re-run after an async skin/model build
   try{ const h=localStorage.getItem('robits_hue'); if(h)_dressSetHue(parseInt(h,10)); }catch(_){}
 };
 
