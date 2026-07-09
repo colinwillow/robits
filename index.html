@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB529</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB530</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -4870,6 +4870,9 @@ class EnemyBullet{
         const _pdmg=this._ownerBot?(window._BOT_BULLET_PLAYER_DMG!=null?window._BOT_BULLET_PLAYER_DMG:0.5):1;
         spawnDmgNum(player.wx, player.py+20, player.wz, _pdmg, '#ff4444');
         playerDie(_pdmg);
+        // subtle KICKBACK along the shot (away from the shooter) + impact sparks at the hit — mirror the reaction enemies get from YOUR fire
+        if(player&&player.knock&&(player._super||0)<=0&&(player.dashing||0)<=0)try{ player.knock(this.vx,this.vz,1,(window._PLAYER_HIT_KB!=null?window._PLAYER_HIT_KB:0.5),0); }catch(_){}
+        if(typeof ps!=='undefined'&&ps.spark)for(let _k=0;_k<5;_k++)ps.spark(this.wx+rand(-6,6),this.wz+rand(-6,6),[1,0.5,0.3],(player.py||0)+12);
       }
     }
   }
@@ -15338,6 +15341,7 @@ class TrainingDummy{
 
   die(){
     if(this._dead) return; this._dead=true; this.alive=false;
+    if(window._KILL_BOOM!==false && typeof _boomSfx==='function')try{ _boomSfx((window._KILL_BOOM_SIZE||'small'),(window._KILL_BOOM_PITCH||1),this.wx,this.wz); }catch(_){}   // same shatter-explosion sound the bots play on a kill
     try{ if(typeof _explodeRobit==='function' && this._group){ this._group.position.y=0; _explodeRobit(this._group, window._DUMMY_EXPLODE_COL!=null?window._DUMMY_EXPLODE_COL:0xff8800, 0); } }catch(_){}
     try{ if(this._group&&this._group.parent)scene.remove(this._group); }catch(_){}
     try{ if(this._labelEl&&this._labelEl.parentNode)this._labelEl.parentNode.removeChild(this._labelEl); }catch(_){}
@@ -21515,6 +21519,9 @@ function playerDie(dmg=1, col='#ff4444', kind){
   spawnDmgNum(player.wx, player.py+25, player.wz, dmg, col);
   ps.ring(player.wx,player.wz,[0,1,1],40,120);ps.burst(player.wx,player.wz,[1,1,1],30,120);
   grid.shock(player.wx,player.wz,20);addTrauma(0.24);slowmo(0.3,40);dmgFlash();Audio.hurt();
+  // RED hurt vignette + impact sparks on YOUR body — the same read enemies get when you damage them, so getting hit lands hard on-screen
+  if(typeof _hurtFlash==='function')try{ _hurtFlash(window._HURT_FLASH_A!=null?window._HURT_FLASH_A:0.6); }catch(_){}
+  if(typeof ps!=='undefined'&&ps.spark)for(let _hs=0;_hs<6;_hs++)ps.spark(player.wx+rand(-9,9),player.wz+rand(-9,9),[1,0.45,0.35],(player.py||0)+12);
   if(navigator.vibrate){ try{ navigator.vibrate(45); }catch(e){} }
   GS.hp-=_unitDmg(dmg);
   if(GS.hp<=0){
@@ -21522,6 +21529,7 @@ function playerDie(dmg=1, col='#ff4444', kind){
     ps.ring(player.wx,player.wz,[1,0,0.4],60,150);ps.burst(player.wx,player.wz,[1,1,1],50,150);
     grid.push(player.wx,player.wz,45,150);grid.suck(player.wx,player.wz,14,120);
     flashScreen(0.7);addTrauma(0.16);
+    if(window._KILL_BOOM!==false && typeof _boomSfx==='function')try{ _boomSfx((window._PLAYER_DEATH_BOOM_SIZE||window._KILL_BOOM_SIZE||'small'),(window._KILL_BOOM_PITCH||1),player.wx,player.wz); }catch(_){}   // YOU explode into shards too -> play the same kill explosion sound
     try{ if(window._EXPLODE_DEATH!==false && typeof _explodeRobit==='function') _explodeRobit(player.model, window._PLAYER_EXPLODE_COL!=null?window._PLAYER_EXPLODE_COL:0x3a7bff, player.py); }catch(_){}   // shatter into neon shards on death
     if(navigator.vibrate){ try{ navigator.vibrate([0,70,45,95]); }catch(e){} }
     GS.lives--;GS.hp=GS.maxHp;GS.mult=1;GS.multT=0;GS.streak=0;player.weaponLevel=1;GS.od=Math.max(0,GS.od-30);
@@ -32625,7 +32633,7 @@ let _MELEE_SPEED=1.5;        // master swing-speed multiplier. per-weapon speed 
 // ── per-weapon melee balance — keyed by player._meleeType. melee hits MUCH harder than bullets so it's worth closing in. ──
 window._MELEE_STATS = window._MELEE_STATS || {
   //        dmg  reach  speed   eForce eLift eAir eStun   bMag bLift bStn   + impact: hitStop(frames) trauma(shake) thud(sfx pitch) slow/slowH/zoom (heavy only)
-  sword:  { dmg:6,  reach:27, speed:1.25, eForce:4,  eLift:0.9, eAir:6,  eStun:34, bMag:9,  bLift:130, bStn:24, hitStop:2, trauma:0.05, thud:150 },                                   // light + FAST, snappy
+  sword:  { dmg:6,  reach:27, speed:1.25, eForce:4,  eLift:0.9, eAir:6,  eStun:34, bMag:9,  bLift:130, bStn:24, hitStop:2, trauma:0.05, thud:150, hands:2 },                          // light + FAST, snappy — TWO-HANDED: both hand cannons park on the shoulders (and fire from there) while it's out, then fly back to the wrists on stow
   hammer: { dmg:20, reach:33, speed:0.72, eForce:11, eLift:1.7, eAir:16, eStun:60, bMag:22, bLift:300, bStn:50, hitStop:7, trauma:0.38, thud:58,  slow:0.35, slowH:16, zoom:0.9 },     // SLEDGEHAMMER: freeze + heavy shake + camera punch + slow-mo
   axe:    { dmg:12, reach:30, speed:0.88, eForce:7,  eLift:1.2, eAir:11, eStun:46, bMag:15, bLift:210, bStn:38, hitStop:5, trauma:0.18, thud:90,  slow:0.6,  slowH:8,  zoom:0.5 },     // heavy cleave, brief slow
   spear:  { dmg:7,  reach:42, speed:1.10, eForce:5,  eLift:0.7, eAir:5,  eStun:30, bMag:8,  bLift:110, bStn:22, hitStop:2, trauma:0.05, thud:140 },                                   // long poke, light
