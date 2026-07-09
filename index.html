@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB519</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB520</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -33651,17 +33651,30 @@ function _orientHammer(){
   const h=player&&player._hammer; if(!h||!player.model||!h._hand) return;
   player.model.updateWorldMatrix(true,true);
   const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
+  const bq=new THREE.Quaternion(); h._hand.getWorldQuaternion(bq);
+  const bs=new THREE.Vector3(); h._hand.getWorldScale(bs);
+  h.scale.setScalar((1/(Math.abs(bs.x)||1))*_HAMMER_SCALE);
+  // ── SWORD by its WEAPON BONES: hilt sits AT weapon_1, blade axis (+Y) points toward weapon_2. Both bones ride the rig, so
+  //    the blade rotates WITH the character (this is the rig's intended placement). window._SWORD_WBONES=false to opt out. ──
+  if(player._meleeType==='sword' && h._dirBone && h._dirBone2 && window._SWORD_WBONES!==false){
+    const W1=h._dirBone.getWorldPosition(new THREE.Vector3());
+    const W2=h._dirBone2.getWorldPosition(new THREE.Vector3());
+    let dir=W2.clone().sub(W1); if(dir.lengthSq()<1e-8)dir.set(0,1,0); dir.normalize();
+    const desired=new THREE.Quaternion().setFromUnitVectors(_HAMMER_AXIS, dir);
+    const _sf=window._SWORD_FIX; if(_sf) desired.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(_sf.x||0,_sf.y||0,_sf.z||0)));   // optional roll around the blade axis (the 2 points don't define it)
+    h.quaternion.copy(bq.clone().invert().multiply(desired));
+    const seat=(window._SWORD_SEAT||0); if(seat)W1.addScaledVector(dir,seat);   // nudge the grip along the blade if the mesh origin isn't at the hilt base
+    h.position.copy(h._hand.worldToLocal(W1));
+    return;
+  }
+  // ── OTHER MELEE: handle (+Y) along the hand->weapon_1 line, seated at a hand offset ──
   let desired;
-  // SWORD grips to the BODY facing (model forward), NOT the hand->weapon_1 line — that bone line doesn't track body yaw, so
-  // the blade stayed world-fixed while the character turned. window._SWORD_BODY_ORIENT=false restores the old dir-bone grip.
-  const _bodyGrip=(player._meleeType==='sword' && window._SWORD_BODY_ORIENT!==false);
-  if(h._dirBone && !_bodyGrip){
-    // orient the handle (+Y) along the world line from the hand bone to the weapon_direction bone
+  if(h._dirBone){
     const P0=h._hand.getWorldPosition(new THREE.Vector3());
     const P1=h._dirBone.getWorldPosition(new THREE.Vector3());
     let dir=P1.sub(P0); if(dir.lengthSq()<1e-8) dir.set(0,1,0); dir.normalize();
     desired=new THREE.Quaternion().setFromUnitVectors(_HAMMER_AXIS, dir);
-    desired.multiply(new THREE.Quaternion().setFromEuler(_HAMMER_FIX));   // optional roll/tilt around the handle
+    desired.multiply(new THREE.Quaternion().setFromEuler(_HAMMER_FIX));
   } else {
     let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
     const up=new THREE.Vector3(0,1,0);
@@ -33670,12 +33683,9 @@ function _orientHammer(){
     desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
     desired.multiply(new THREE.Quaternion().setFromEuler(_HAMMER_FIX));
   }
-  const bq=new THREE.Quaternion(); h._hand.getWorldQuaternion(bq);
   h.quaternion.copy(bq.clone().invert().multiply(desired));
-  const bs=new THREE.Vector3(); h._hand.getWorldScale(bs);
-  const inv=(1/(Math.abs(bs.x)||1))*_HAMMER_SCALE; h.scale.setScalar(inv);
   const Ph=h._hand.getWorldPosition(new THREE.Vector3());
-  const _refS=(window._WPN_REF_HANDSCALE||Math.abs(bs.x)||1);   // use the ROBOT's reference hand scale so the offset is a CONSTANT world distance on every rig (else a big-scale skin like cybergirl flings the weapon thousands of units off-screen)
+  const _refS=(window._WPN_REF_HANDSCALE||Math.abs(bs.x)||1);   // constant world-distance offset on any rig scale
   const wo=_HAMMER_POS.clone().applyQuaternion(mq).multiplyScalar(_refS);
   h.position.copy(h._hand.worldToLocal(Ph.add(wo)));
 }
@@ -34453,7 +34463,8 @@ function _equipMeleeType(type){
   if((player._meleeType==='mace'||player._meleeType==='whip') && type!==player._meleeType && typeof _disposeMaceChain==='function') _disposeMaceChain();   // swapping AWAY from a physics-chain weapon (mace/whip) -> drop its chain
   const hm=_makeMeleeWeapon(type); hm._hand=hand;
   let _db=bones['weapon_1']||bones['mixamorig_weapon_1']||bones['weapon_direction']||bones['mixamorig_weapon_direction']; if(!_db){ for(const k in bones){ if(/weapon_?1\b|weapon.*dir/i.test(k)){ _db=bones[k]; break; } } } if(!_db&&player.model){ player.model.traverse(o=>{ if(!_db && /weapon_?1\b|weapon.*dir/i.test(o.name||'')) _db=o; }); }
-  hm._dirBone=_db||null; window._hammerDirBone=!!_db; hand.add(hm);
+  let _db2=bones['weapon_2']||bones['mixamorig_weapon_2']; if(!_db2){ for(const k in bones){ if(/weapon_?2\b/i.test(k)){ _db2=bones[k]; break; } } } if(!_db2&&player.model){ player.model.traverse(o=>{ if(!_db2 && /weapon_?2\b/i.test(o.name||'')) _db2=o; }); }   // weapon_2 = the blade-TIP bone (weapon_1 is the hilt)
+  hm._dirBone=_db||null; hm._dirBone2=_db2||null; window._hammerDirBone=!!_db; hand.add(hm);
   player._hammer=hm; player._meleeType=type; player._stowedType=type; player._meleeStowed=false; _orientHammer();   // _orientHammer handles scale (1/handscale) + position (ref-scaled offset) so it's correct on any rig
   if(type==='mace'||type==='whip'){ if(typeof _initMaceChain==='function')_initMaceChain(); player._meleeDur=Infinity; if(typeof updateAmmoHUD==='function')updateAmmoHUD(); return true; }   // mace/whip: physics-chain swing, doesn't wear out per-swing
   player._meleeDur=(window._WPN_MELEE_DUR&&window._WPN_MELEE_DUR[type]!=null)?window._WPN_MELEE_DUR[type]:20;   // fresh melee weapon = full durability
