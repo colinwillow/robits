@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB521</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB522</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -1443,7 +1443,7 @@ const Audio={
     this._convolver.connect(this.reverbGain); this.reverbGain.connect(this.musicGain);
   },
 
-  resume(){ if(this.ctx&&this.ctx.state==='suspended')this.ctx.resume(); },
+  resume(){ if(this.ctx&&this.ctx.state!=='running'&&this.ctx.state!=='closed')try{this.ctx.resume();}catch(_){} },   // resume from suspended OR iOS 'interrupted'
 
   // ── PROXIMITY VOLUME ── attenuate a world-positioned SFX by its distance from the listener (the player). Full volume
   //    within _SFX_NEAR, fades linearly to a _SFX_MIN floor by _SFX_FAR, then holds the floor (never fully silent so
@@ -1461,7 +1461,8 @@ const Audio={
 
   // ── SFX ──
   blip(f,d,type='square',v=0.3,slide=null){
-    if(!this.on||!this.ctx)return; const t=this.ctx.currentTime;
+    if(!this.on||!this.ctx)return; if(this.ctx.state!=='running')this.resume();   // self-heal: any sound trigger (usually inside a touch) revives a backgrounded ctx
+    const t=this.ctx.currentTime;
     const o=this.ctx.createOscillator(),g=this.ctx.createGain();
     o.type=type; o.frequency.setValueAtTime(f,t);
     if(slide)o.frequency.exponentialRampToValueAtTime(slide,t+d);
@@ -1485,7 +1486,8 @@ const Audio={
     fetch(url).then(r=>r.arrayBuffer()).then(ab=>this.ctx.decodeAudioData(ab)).then(buf=>{ this.samples[name]=buf; }).catch(e=>{ this.samples[name]=null; try{console.warn('sfx load failed',name,e);}catch(_){} });
   },
   playSample(name,gain=1,rate=1){
-    if(!this.on||!this.ctx)return null; const buf=this.samples[name]; if(!buf||buf==='pending')return null;
+    if(!this.on||!this.ctx)return null; if(this.ctx.state!=='running')this.resume();   // self-heal a backgrounded/interrupted ctx on any SFX
+    const buf=this.samples[name]; if(!buf||buf==='pending')return null;
     const s=this.ctx.createBufferSource(); s.buffer=buf; s.playbackRate.value=rate;
     const g=this.ctx.createGain(); g.gain.value=gain;
     s.connect(g); g.connect(this.sfxGain); try{ s.start(this.ctx.currentTime); }catch(_){}
@@ -11820,6 +11822,7 @@ class Player{
       return;
     }
     const isDrop=(dirX===0&&dirZ===0);
+    if(!isDrop && window._swooshSfx)window._swooshSfx();   // throwing an object gets the same swoosh as a melee swing
     const _isFlick=(power!==undefined);   // a flick supplies power; a press-and-hold release does not
     // LOCK-ON: ONLY on a press-and-hold aim release (the ground ring showed the target). A FLICK throws exactly where you flicked.
     let _lock=(!isDrop && !_isFlick && this._throwLock && this._throwLock.alive!==false)?this._throwLock:null;
