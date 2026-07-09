@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB548</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB549</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -32944,6 +32944,24 @@ function _buildDroneHead(col){
   return g;
 }
 window._buildDroneHead=_buildDroneHead; window._loadHeadDrone=_loadHeadDrone;
+// ── GENERIC GLB COSMETIC — any glb mask/part: lazy-loaded, centred on its bbox (origin -> the bone), neon quad-wire twin over the mesh. Safe if the file is missing (returns empty + retries when it lands). ──
+const _glbCosCache={}, _glbCosLoading={};
+function _loadGlbCos(url){ if(_glbCosCache[url]||_glbCosLoading[url])return; _glbCosLoading[url]=true;
+  try{ const loader=new GLTFLoader(); loader.load(url, gltf=>{ _glbCosCache[url]=gltf; _glbCosLoading[url]=false; try{ if(player)player._cosmoSig=null; }catch(_){} try{ if(window._applyCosmetics)window._applyCosmetics(); }catch(_){} try{ if(window._DRESS_MODE&&window._dressPreviewCosmetics)window._dressPreviewCosmetics(); }catch(_){} console.log('glb cosmetic loaded: '+url); }, undefined, (e)=>{ console.warn('glb cosmetic load failed: '+url,e); _glbCosLoading[url]=false; }); }catch(_){ _glbCosLoading[url]=false; } }
+function _buildGlbCos(url,col,opts){ opts=opts||{}; const g=new THREE.Group();
+  const gltf=_glbCosCache[url]; if(!gltf){ _loadGlbCos(url); return g; }   // not loaded yet -> empty; re-runs when it lands
+  let src; try{ src=gltf.scene.clone(true); }catch(_){ return g; }
+  src.updateWorldMatrix(true,true);
+  const box=new THREE.Box3().setFromObject(src), ctr=new THREE.Vector3(), size=new THREE.Vector3(); box.getCenter(ctr); box.getSize(size);
+  const maxd=Math.max(size.x,size.y,size.z)||1, fit=(opts.fit!=null?opts.fit:10)/maxd;
+  src.position.sub(ctr);
+  const inner=new THREE.Group(); inner.add(src); inner.scale.setScalar(fit); g.add(inner);
+  if(opts.wire!==false){ const wc=(opts.wireCol!=null?opts.wireCol:col), op=(opts.wireOp!=null?opts.wireOp:0.5);
+    const meshes=[]; src.traverse(o=>{ if(o.isMesh&&o.geometry)meshes.push(o); });
+    for(const o of meshes){ try{ if(typeof _quadWireTwin==='function')o.add(_quadWireTwin(o, wc, op)); }catch(_){} if(opts.solid===false)o.visible=false; }
+  }
+  return g; }
+window._buildGlbCos=_buildGlbCos; window._loadGlbCos=_loadGlbCos;
 // ── the catalog. price:0 = free/owned; >0 = store item (locked until "bought"). pos/rot/scale place it on its bone. ──
 const COSMETICS=[
   { id:'head_drone',  slot:'head', name:'Drone Head',  col:0x33e0ff, price:0,   rarity:'epic',   bone:['Head'], pos:{x:0,y:0,z:0}, scale:1, build:(c)=>_buildDroneHead(c) },
@@ -32952,6 +32970,7 @@ const COSMETICS=[
   { id:'horns',       slot:'head', name:'Horns',       col:0xffaa22, price:200, rarity:'rare',   bone:['Head'], pos:{x:0,y:2,z:0},    scale:1, build:(c)=>_cosPart(g=>{ for(const s of [-1,1]){ const geo=new THREE.ConeGeometry(1.1,5,7); const m=new THREE.Mesh(geo,_cosMat(c)); m.position.set(s*2.6,4.4,0); m.rotation.z=-s*0.5; g.add(m); g.add(_cosEdge(geo,c).translateX(s*2.6).translateY(4.4)); } }) },
   { id:'visor',       slot:'face', name:'Visor',       col:0x39ff9e, price:0,   rarity:'common', bone:['Head'], pos:{x:0,y:1.5,z:2.4}, scale:1, build:(c)=>_cosPart(g=>{ _cosBox(g,5.6,1.6,0.8,c,0,0,0); _cosGlowPip(g,0.7,c,-1.8,0,0.5); _cosGlowPip(g,0.7,c,1.8,0,0.5); }) },
   { id:'faceguard',   slot:'face', name:'Faceguard',   col:0xff3a6e, price:150, rarity:'rare',   bone:['Head'], pos:{x:0,y:-0.5,z:2.2},scale:1, build:(c)=>_cosPart(g=>{ _cosBox(g,4.4,3.4,1.2,c,0,0,0); for(let i=-1;i<2;i++)_cosBox(g,0.5,3,0.6,c,i*1.4,0,0.7); }) },
+  { id:'mask_01',     slot:'face', name:'Mask',         col:0x39ff9e, price:0,   rarity:'epic',   bone:['Head'], pos:{x:0,y:0.5,z:1.2}, scale:1, build:(c)=>_buildGlbCos('models/mask_01.glb', c, {fit:(window._MASK01_FIT||9), wireCol:(window._MASK01_WIRE_COL!=null?window._MASK01_WIRE_COL:c), wireOp:(window._MASK01_WIRE_OP!=null?window._MASK01_WIRE_OP:0.5), solid:(window._MASK01_SOLID!==false)}) },
   { id:'jetpack',     slot:'back', name:'Jetpack',     col:0x2fd8ff, price:0,   rarity:'common', bone:['Spine2','Spine1','Spine'], pos:{x:0,y:2,z:-3.4}, scale:1, build:(c)=>_cosPart(g=>{ _cosBox(g,5,7,3,c,0,0,0); for(const s of [-1,1]){ const geo=new THREE.CylinderGeometry(1.2,1.6,3,10); const m=new THREE.Mesh(geo,_cosMat(c)); m.position.set(s*2,-4,0); g.add(m); _cosGlowPip(g,1,0xffffff,s*2,-5.6,0); } }) },
   { id:'wings',       slot:'back', name:'Boost Wings', col:0xc24aff, price:260, rarity:'epic',   bone:['Spine2','Spine1','Spine'], pos:{x:0,y:1,z:-2.6}, scale:1, build:(c)=>_cosPart(g=>{ for(const s of [-1,1]){ const geo=new THREE.BoxGeometry(0.6,6,4); const m=new THREE.Mesh(geo,_cosMat(c)); m.position.set(s*2.5,1,-1); m.rotation.z=-s*0.5; m.rotation.y=s*0.5; g.add(m); const e=_cosEdge(geo,c); e.position.copy(m.position); e.rotation.copy(m.rotation); g.add(e); } }) },
   { id:'pauldron_r',  slot:'shoulderR', name:'R Pauldron', col:0xffd23a, price:0,  rarity:'common', bone:['RightArm','RightShoulder'], pos:{x:0,y:0,z:0}, scale:1, build:(c)=>_cosPart(g=>{ const geo=new THREE.SphereGeometry(3,10,8,0,Math.PI*2,0,Math.PI*0.55); const m=new THREE.Mesh(geo,_cosMat(c)); g.add(m); g.add(_cosEdge(geo,c)); _cosBox(g,3.4,0.8,3.4,c,0,-0.4,0); }) },
@@ -38270,6 +38289,7 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
 (function(){
   let S=null;
   const WS_TH=2.8, WS_BF=4.35*WS_TH/18;   // model display height + boot factor scaled to match (game model is 18 tall, boot=4.35 there)
+  try{ window._WS_TH=WS_TH; }catch(_){}   // bridge to the dressing-room cosmetic sizer (preview robot is WS_TH tall vs 18 in-game -> cosmetics must scale by WS_TH/18)
   const D=v=>Math.round(v*180/Math.PI);
   function fmt(e){ return D(e.x)+'\u00b0, '+D(e.y)+'\u00b0, '+D(e.z)+'\u00b0'; }
   function refresh(){
@@ -38313,7 +38333,7 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
     const mk=(label,key)=>{ const b=document.createElement('button'); b.textContent=label; b.style.cssText='background:#00ffc822;border:1px solid #00ffc866;color:#00ffc8;font:11px Orbitron,monospace;padding:7px 11px;border-radius:7px;white-space:nowrap;'; b.addEventListener('click',()=>playClip(key)); row.appendChild(b); };
     if(window._DRESS_MODE){   // player-facing DRESSING ROOM — just a shippable few, not the whole animation dump
       const ck=Object.keys(S.clips), find=(re)=>ck.find(k=>re.test(k));
-      const idle=find(/^floating$/i)||find(/float/i)||find(/^idle$/i)||find(/idle/i);   // the game's resting pose is the floating hover, not the raw 'idle' clip (that reads as a limp hang)
+      const idle=find(/^idle$/i)||find(/^floating$/i)||find(/^idle_[0-9]/i);   // the true standing rest is the exact 'idle' clip (same as in-game). NEVER a loose /idle/ match — that grabs 'hang_idle' (a limp hanging pose) since it sorts first
       if(idle){ mk('IDLE',idle); try{ if(typeof playClip==='function')playClip(idle); }catch(_){} }   // default the room to the good resting pose
       mk('T-POSE','__bind');
       const act=find(/melee|slash|throw/i)||find(/run_forward/i); if(act&&act!==idle)mk((act.replace(/_/g,' ').toUpperCase()),act);
@@ -38517,7 +38537,8 @@ function _dressPreviewCosmetics(){   // apply the current loadout onto the PREVI
     const bone=_cosFindBone(bones,def.bone); if(!bone)continue;
     let obj; try{ obj=def.build(def.col); }catch(_){ obj=null; } if(!obj)continue;
     try{ model.updateWorldMatrix(true,true); const bs=new THREE.Vector3(); bone.getWorldScale(bs); const inv=1/(Math.abs(bs.x)||1);
-      const ov=window['_COSMO_'+id.toUpperCase()]||{}; obj.scale.setScalar(inv*((ov.scale!=null?ov.scale:def.scale)||1));
+      const ov=window['_COSMO_'+id.toUpperCase()]||{}; const _prevRatio=(window._WS_TH||2.8)/18;   // preview robot is WS_TH tall vs 18 in-game; inv pins the part to a constant WORLD size (calibrated for the big in-game robot), so on the tiny preview robot it reads ~6x oversized -> rescale to match the in-game proportion
+      obj.scale.setScalar(inv*((ov.scale!=null?ov.scale:def.scale)||1)*_prevRatio);
       const p=ov.pos||def.pos||{}, r=ov.rot||def.rot||{}; obj.position.set(p.x||0,p.y||0,p.z||0); obj.rotation.set(r.x||0,r.y||0,r.z||0);
       bone.add(obj); S._cosmoObjs[slot]=obj;
       if(window._PLAYER_HUE!=null&&typeof _tintAllyApply==='function')_tintAllyApply(obj,new THREE.Color(window._PLAYER_HUE));
