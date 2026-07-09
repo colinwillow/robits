@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB560</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB561</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -1409,10 +1409,25 @@ window._botSpawnTap=function(btn){
 window._dummySpawnTap=function(){ window._spawnBot('dummy'); };   // always inserts a fresh dummy, never cycles
 window._killAllEnemies=function(){   // debug: wipe every spawned foe (spiders/ghosts/droids/dragon/dog/MP foes + AI bots & dummies) so you can restart from a clean arena
   let n=0;
-  const zap=(e)=>{ try{ if(typeof ps!=='undefined') ps.burst(e.wx||0, e.wz||0, [1,0.3,0.5], 14, 120, (e.py||0)+12); }catch(_){}
-    try{ if(e.remove) e.remove(); }catch(_){} };
+  const zap=(e)=>{
+    try{ e.alive=false; }catch(_){}
+    const _col=(e._color!=null?e._color:(e.glow?0x66ffcc:0xff5a3c));
+    // DETONATE -> shatter into neon shards (bots/dummies burst via _explodeRobit; spiders use their own die() burst)
+    try{ if(typeof _explodeRobit==='function' && e.model){ _explodeRobit(e.model, _col, e.py||0); } }catch(_){}
+    try{ if(typeof _boomSfx==='function') _boomSfx('small', 1, e.wx||0, e.wz||0); }catch(_){}
+    try{ if(typeof ps!=='undefined'){ ps.burst(e.wx||0,e.wz||0,[1,0.5,0.25],18,150,(e.py||0)+12); if(ps.ring)ps.ring(e.wx||0,e.wz||0,[1,0.5,0.2],16,100); } }catch(_){}
+    try{ if(typeof e.die==='function' && e._isCrawler) e.die(); }catch(_){}
+    // GUARANTEE removal — BotPilot has no remove(), so strip its group/mesh/hp-bar/aura directly or it lingers frozen in the scene
+    try{ if(typeof e.remove==='function') e.remove(); }catch(_){}
+    try{ if(e.model&&e.model.parent) e.model.parent.remove(e.model); }catch(_){}
+    try{ if(e.mesh&&e.mesh.parent) e.mesh.parent.remove(e.mesh); }catch(_){}
+    try{ if(e._hpBar&&e._hpBar.parent) e._hpBar.parent.remove(e._hpBar); }catch(_){}
+    try{ if(e._removeShieldMesh) e._removeShieldMesh(); }catch(_){}
+    try{ if(e._threatGlow&&e._threatGlow.parent) e._threatGlow.parent.remove(e._threatGlow); }catch(_){}
+  };
   if(typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e){ zap(e); n++; } } GS.enemies=[]; }
   if(typeof GS_bots!=='undefined'&&GS_bots){ for(const b of GS_bots){ if(b){ zap(b); n++; } } GS_bots.length=0; }
+  try{ if(GS_trainingDummy){ zap(GS_trainingDummy); GS_trainingDummy=null; n++; } }catch(_){}
   GS.boss=null;
   if(typeof announce==='function') announce(n?('CLEARED '+n+' ENEMIES'):'NO ENEMIES','#ff6688');
   return n;
@@ -14559,7 +14574,7 @@ function _warmBotSkins(){
   const angle=(window._DRAGON_WIRE_ANGLE!=null?window._DRAGON_WIRE_ANGLE:0.30);
   let i=0;
   const warmOne=()=>{ if(i>=pool.length)return; const sk=pool[i++]; const isRobot=(sk==='robot');
-    const load = sk==='alien'?loadAlienGLB() : sk==='interceptor'?loadInterceptorGLB() : sk==='cybergirl'?loadCybergirlGLB() : loadRobotGLB();
+    const load = sk==='alien'?loadPlayerAlienGLB() : sk==='interceptor'?loadInterceptorGLB() : sk==='cybergirl'?loadCybergirlGLB() : loadRobotGLB();
     Promise.all([load, loadRobotGLB()]).then(([skinGltf,robotGltf])=>{
       try{ const gltf=skinGltf||robotGltf, clipSrc=robotGltf||skinGltf;
         if(gltf&&clipSrc){ const clone=SkeletonUtils.clone(gltf.scene);
@@ -14633,7 +14648,7 @@ class BotPilot{
     // bone name). Build it with the SAME glow + neon quad-wireframe the hero gets, then hue-tint the whole thing to this
     // rival's identity colour so you can tell them apart.
     const _sk=this._skinType;
-    const _skinLoad = _sk==='alien'?loadAlienGLB() : _sk==='interceptor'?loadInterceptorGLB() : _sk==='cybergirl'?loadCybergirlGLB() : loadRobotGLB();
+    const _skinLoad = _sk==='alien'?loadPlayerAlienGLB() : _sk==='interceptor'?loadInterceptorGLB() : _sk==='cybergirl'?loadCybergirlGLB() : loadRobotGLB();
     Promise.all([_skinLoad, loadRobotGLB()]).then(([skinGltf, robotGltf])=>{
       const gltf=skinGltf||robotGltf; const clipSrc=robotGltf||skinGltf;
       if(!gltf||!clipSrc||!this.alive) return;
