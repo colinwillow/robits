@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB531</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB532</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -10845,7 +10845,7 @@ class Bullet{
     if(!_cf && GS.zone===-19 && typeof _platProjSurf==='function') _cf = _platProjSurf(this, dt);   // + animated platform: shots skimming the deck follow its (deforming) top surface
     if(this._mountArc){                                                        // MOUNTED shot: level out, clear the creature, then dip DOWN and SKIM the ground (rakes the whole lane -> forgiving on moving enemies)
       const _hsp=Math.hypot(this.vx,this.vz)||1; this._mtTrav=(this._mtTrav||0)+_hsp*dt;
-      const _fy=(window._MOUNT_ARC_SKIM_Y||9);
+      const _fy=(this._mtSkimY!=null?this._mtSkimY:(window._MOUNT_ARC_SKIM_Y||9));   // GRAVITY-BULLET ground plane: the deck the shooter was standing on (per-shot), so a shot fired from a platform skims LEVEL across it instead of diving to the true floor
       if(this._mtTrav > (this._mtClear||55)){
         // HOME the descent onto the target when it's a CLOSE dive (_mtDive) or an AIRBORNE foe; otherwise just dive fast to
         // the deck and skim (a skimming round rakes the lane, so a moving ground bot connects even if it drifted).
@@ -13204,6 +13204,10 @@ class Player{
       return flat.normalize();
     };
     const _roofFire=(GS.zone===-16 && this._onPlatform && !this._inPlanetGravity);
+    // GRAVITY-BULLET "levels": the imaginary ground plane a shot settles onto = the deck you're STANDING on (world floor when grounded, the platform top when on one).
+    // Captured per-shot so shooting across a ring stays level at ring height instead of diving through the deck to the true floor.
+    const _standY=(this._onPlatform && this._platformY!=null) ? this._platformY : 0;
+    const _gravPlane=(window._MOUNT_ARC_SKIM_Y||9) + _standY;
     const _mag=Math.min(1,Math.max(0, this._aimMag!=null?this._aimMag:1));
     const pvy=(this._inPlanetGravity||isGalaxy)?0:-(1-_mag)*380;   // launch pitch: pull toward center = steep dive at your feet, full push = flat/long
     // ── DRONE AIMING: shoot the SELECTED target in full 3D (works no matter where the drone drifted); no target -> converge along the aim ray ──
@@ -13258,7 +13262,7 @@ class Player{
         // MOUNTED (farther targets): shoot straight OUT level, then dip DOWN and home the descent onto the aim-assist target,
         // else clear the creature and skim the deck. Clearance shrinks for a close target so it doesn't sail over a head.
         const _b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0);   // vy defaults 0 -> flat launch
-        _b._mountArc=true;
+        _b._mountArc=true; _b._mtSkimY=_gravPlane;   // settle onto the deck you're standing on, not the true floor
         const _baseClear=(window._MOUNT_ARC_CLEAR||55);
         if(_mtTargT!=null){ _b._mtTargT=_mtTargT; _b._mtTargY=_mtTargY;
           if(_mtTargT < (window._MOUNT_DIVE_NEAR||160)){ _b._mtClear=(window._MOUNT_DIVE_CLEAR||20); _b._mtDive=true; }   // CLOSE enemy (dragon ran up on it): tiny clearance + DIVE straight down onto it (~45°+) instead of sailing flat over its head
@@ -14195,7 +14199,8 @@ function _updateRobitShards(dt){
   const A=window._robitShards; if(!A||!A.length)return;
   for(let i=A.length-1;i>=0;i--){ const s=A[i]; s.life+=dt;
     s.vy-=(window._EXPLODE_GRAV||560)*dt; s.mesh.position.x+=s.vx*dt; s.mesh.position.y+=s.vy*dt; s.mesh.position.z+=s.vz*dt;
-    if(s.mesh.position.y<2){ s.mesh.position.y=2; if(s.vy<0)s.vy*=-0.34; s.vx*=0.62; s.vz*=0.62; }
+    if(s.mesh.position.y<2){ const _hitV=s.vy; s.mesh.position.y=2; if(s.vy<0)s.vy*=-0.34; s.vx*=0.62; s.vz*=0.62;
+      if(_hitV < -(window._SHARD_PING_MINV||70) && (s._pings||0) < (window._SHARD_PING_MAX||2) && window._shardPingSfx){ s._pings=(s._pings||0)+1; window._shardPingSfx(s.mesh.position.x, s.mesh.position.z); } }   // metal ping as each part clatters onto the ground (first couple of real bounces, throttled)
     s.mesh.rotation.x+=s.sx*dt; s.mesh.rotation.y+=s.sy*dt; s.mesh.rotation.z+=s.sz*dt;
     const f=Math.max(0,1-s.life/s.max); if(s.mesh.material){ s.mesh.material.opacity=(s._chunk?1:0.92)*f; } if(s.mesh.children[0]&&s.mesh.children[0].material)s.mesh.children[0].material.opacity=0.9*f; if(!s._chunk)s.mesh.scale.setScalar(0.5+f*0.6);
     if(s.life>=s.max){ scene.remove(s.mesh); try{s.mesh.geometry.dispose();s.mesh.material.dispose();}catch(_){} A.splice(i,1); }
@@ -15838,6 +15843,12 @@ window._pingSfx=function(x,z){ if(typeof Audio==='undefined'||!Audio.on)return; 
   try{ const S=Audio.samples||{}, nm='metal_ping_01';
     if(S[nm]&&S[nm]!=='pending'&&Audio.playSample){ const base=(window._PING_VOL!=null?window._PING_VOL:1.0), g=(Audio.posGain?Audio.posGain(x,z,base):base), rate=(window._PING_PITCH!==false)?(0.95+Math.random()*0.12):1; Audio.playSample(nm,g,rate); return; }
     if(Audio.blip)Audio.blip(950,0.08,'square',0.2,1500);
+  }catch(_){} };
+// lighter, higher-pitched metal ping for little exploded body parts skittering on the ground — own throttle so a burst of shards "pings around" instead of one blast
+window._shardPingSfx=function(x,z){ if(typeof Audio==='undefined'||!Audio.on)return; const now=(typeof performance!=='undefined'?performance.now():0); if(now-(window._shardPingT||0)<(window._SHARD_PING_CD||26))return; window._shardPingT=now;
+  try{ const S=Audio.samples||{}, nm='metal_ping_01';
+    if(S[nm]&&S[nm]!=='pending'&&Audio.playSample){ const base=(window._SHARD_PING_VOL!=null?window._SHARD_PING_VOL:0.4), g=(Audio.posGain?Audio.posGain(x,z,base):base), rate=(1.12+Math.random()*0.45); Audio.playSample(nm,g,rate); return; }
+    if(Audio.blip)Audio.blip(1200,0.05,'square',0.1,1800);
   }catch(_){} };
 function _smashCrateAt(x,z){
   _spawnCrateDebris(x,12,z);
