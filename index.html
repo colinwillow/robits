@@ -272,7 +272,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB513</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB514</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -33754,8 +33754,50 @@ function _orientLargeWeapon(obj,bone){
   const swT=player._handSwapT||0; if(swT>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT/dur))*Math.PI*2)); }   // keep the weapon-swap flip
   return true;
 }
+// ── ROTARY WRIST-CANNON — a gatling barrel cluster on a spinning rotor (like the minigun) sized per weapon. The rotor
+//    (g.userData._rotor, spun on _rotorAxis by _riflePoseTick) whirls when you fire. Business end faces +Z. ──
+function _buildRotaryCannon(o){
+  o=o||{};
+  const NB=o.barrels||5, cR=o.clusterR||1.15, bLen=o.barrelLen||6, bR=o.barrelR||0.4, bStart=(o.barrelStart!=null?o.barrelStart:2.6);
+  const COL=(o.col!=null?o.col:0x00ccff);
+  const METAL=new THREE.MeshStandardMaterial({color:0x33507e,metalness:0.7,roughness:0.32,emissive:COL,emissiveIntensity:0.32});
+  const STEEL=new THREE.MeshStandardMaterial({color:0x8a94a4,metalness:1,roughness:0.28,emissive:COL,emissiveIntensity:0.22});
+  const DARK =new THREE.MeshStandardMaterial({color:0x2a3242,metalness:0.9,roughness:0.4,emissive:0x0d1422,emissiveIntensity:0.5});
+  const GLOW =new THREE.MeshBasicMaterial({color:COL,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  const g=new THREE.Group();
+  // receiver housing behind the barrels + a wrist grip
+  const body=new THREE.Mesh(new THREE.BoxGeometry(cR*2+1.1,cR*2+1.1,3.2),METAL); body.position.z=bStart-1.3; g.add(body);
+  const grip=new THREE.Mesh(new THREE.BoxGeometry(1.7,2.6,1.5),DARK); grip.position.set(0,-cR-1.5,bStart-0.6); g.add(grip);
+  // ROTOR — barrel cluster along +Z, spins about Z
+  const rotor=new THREE.Group();
+  const barGeo=new THREE.CylinderGeometry(bR,bR,bLen,12); barGeo.rotateX(Math.PI/2);   // align cylinder to +Z
+  for(let i=0;i<NB;i++){ const ang=(i/NB)*Math.PI*2, bx=Math.cos(ang)*cR, by=Math.sin(ang)*cR;
+    const bar=new THREE.Mesh(barGeo,STEEL); bar.position.set(bx,by,bStart+bLen/2); rotor.add(bar);
+    const tip=new THREE.Mesh(new THREE.CylinderGeometry(bR*1.18,bR*0.9,1.0,12),DARK); tip.rotation.x=Math.PI/2; tip.position.set(bx,by,bStart+bLen-0.2); rotor.add(tip);
+    const mz=new THREE.Mesh(new THREE.CircleGeometry(bR*0.85,10),GLOW); mz.position.set(bx,by,bStart+bLen+0.15); rotor.add(mz);   // glowing bore per barrel
+  }
+  const hub=new THREE.Mesh(new THREE.CylinderGeometry(cR*0.5,cR*0.5,bLen,14),DARK); hub.rotation.x=Math.PI/2; hub.position.z=bStart+bLen/2; rotor.add(hub);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(cR+0.32,0.16,8,24),GLOW); ring.position.z=bStart+bLen*0.5; rotor.add(ring);   // glowing rotor band
+  g.add(rotor); g.userData._rotor=rotor; g.userData._rotorAxis='z';
+  // static shroud + front charge ring
+  const shroud=new THREE.Mesh(new THREE.TorusGeometry(cR+0.62,0.28,8,26),METAL); shroud.position.z=bStart+bLen-0.6; g.add(shroud);
+  const frontRing=new THREE.Mesh(new THREE.TorusGeometry(cR+0.72,0.34,8,28),GLOW); frontRing.position.z=bStart+bLen+0.25; g.add(frontRing);
+  // muzzle marker — rounds leave the barrel-cluster front center
+  const _mk=new THREE.Object3D(); _mk.position.set(0,0,bStart+bLen+(o.muzzlePad!=null?o.muzzlePad:0.7)); g.add(_mk); g.userData._muzzle=_mk;
+  // neon wire outline on the solid pieces (skip the rotor children so they don't double-outline while spinning)
+  const _eMat=new THREE.LineBasicMaterial({color:COL,transparent:true,opacity:0.9});
+  for(const c of g.children.slice()){ if(c!==rotor && c.geometry){ const e=new THREE.LineSegments(new THREE.EdgesGeometry(c.geometry),_eMat); e.position.copy(c.position); e.rotation.copy(c.rotation); e.scale.copy(c.scale); g.add(e); } }
+  return g;
+}
 // ── per-weapon hand model factory (business end faces +Z, aligned to facing by _orientHandLauncher) ──
 function _makeWeaponHandModel(weapon,side){
+  if(weapon==='bullets' && window._ROTARY_BULLETS!==false){   // SMALL spinning gatling wrist-cannon
+    const _c=(typeof _WPN_COLORS!=='undefined'&&_WPN_COLORS['bullets'])||0x00ccff;
+    return _buildRotaryCannon({barrels:(window._BULLET_CANNON_BARRELS||5), clusterR:(window._BULLET_CANNON_R||1.1), barrelLen:(window._BULLET_CANNON_LEN||6), barrelR:(window._BULLET_CANNON_BR||0.38), col:_c});
+  }
+  if(weapon==='rockets' && window._ROTARY_ROCKETS!==false){   // BIG spinning cannon — fat tubes sized for rockets
+    return _buildRotaryCannon({barrels:(window._ROCKET_CANNON_BARRELS||3), clusterR:(window._ROCKET_CANNON_R||1.75), barrelLen:(window._ROCKET_CANNON_LEN||7), barrelR:(window._ROCKET_CANNON_BR||0.95), col:(window._ROCKET_CANNON_COL!=null?window._ROCKET_CANNON_COL:0xff7a3c), muzzlePad:0.9});
+  }
   if(weapon==='rockets') return _makeHandLauncher(side);
   if(weapon==='minigun'){
     const w=new THREE.Group(); const mg=_buildMinigun();
@@ -34194,7 +34236,9 @@ window._equipRifle=function(name){ name=name||player&&player.primaryWeapon||'bul
 // and write its local rotations straight onto spine→head→arms (everything _MELEE_LOWER_RE doesn't exclude).
 window._riflePoseTick=function(dt){
   if(typeof player==='undefined'||!player||!player.model)return; const ud=player.model.userData; if(!ud||!ud.clips||!ud.bones)return;
-  if(player.primaryWeapon==='minigun'){ const _hm=player._handWpnR||player._handWpnL; const _ro=_hm&&_hm.userData&&_hm.userData._rotor; if(_ro){ player._mgSpin=(player._mgSpin||0)+((player._lastFiring?24:5))*dt; _ro.rotation.x=player._mgSpin; } }
+  // spin ANY rotary-barrel hand cannon (minigun / bullets / rockets wrist-cannons) — whirls up while firing, idles slow.
+  { player._mgSpin=(player._mgSpin||0)+((player._lastFiring?(window._CANNON_SPIN_FIRE||24):(window._CANNON_SPIN_IDLE||5)))*dt;
+    for(const _hm of [player._handWpnR, player._handWpnL]){ const ud2=_hm&&_hm.userData, _ro=ud2&&ud2._rotor; if(_ro){ _ro.rotation[ud2._rotorAxis||'x']=player._mgSpin; } } }
   // retire the old additive layer if it's still around from a previous build/equip (we drive bones directly now)
   if(player._rifleAdd){ try{ player._rifleAdd.stop(); }catch(_){} player._rifleAdd=null; player._rifleAddName=null; }
   const busy=(ud._meleeTimer>0)||ud._slamHold||player._ballActive||player._meleeAdditive||player._wallClimb||player._hang||player._wallRun;   // melee / ball / climb / wall-run own the upper body
