@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB571</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB572</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -24402,35 +24402,28 @@ function loop(ts){ requestAnimationFrame(loop);
             else { const bn=player.model&&player.model.userData&&player.model.userData.bones, hb=bn&&(bn['mixamorig_RightHand']||bn['mixamorig_LeftHand']); if(hb){ const hp=hb.getWorldPosition(new THREE.Vector3()); ax2=hp.x; ay2=hp.y; az2=hp.z; } else { ax2=player.wx; ay2=(player.py||0)+16; az2=player.wz; } bx=ax2+Math.cos(player.aim)*34; by=ay2; bz=az2+Math.sin(player.aim)*34; }
             // blade-tip velocity -> knock direction (send them the way the blade was moving)
             const pv=ud._meleePrevTip; ud._meleePrevTip={x:bx,z:bz};
-            // ── GRID DISTORTION follows the blade sweep — carve at the tip's ground point, deeper for heavy weapons / low sweeps ──
-            if(typeof grid!=='undefined' && (window._MELEE_GRID==null||window._MELEE_GRID>0)){
-              const _gw=(window._MELEE_GRID!=null?window._MELEE_GRID:1);
-              const _gnd=Math.max(0, 1-Math.max(0,by-4)/70);                 // tip near ground carves more; high sweeps barely touch it
-              if(_gnd>0.05){ const _sw=((_MS.bMag||9)/9)*_gnd*_gw;            // heavier weapon (bMag) -> deeper
-                if(grid.push) grid.push(bx,bz, -1.1*_sw, 28*((_MS.reach||26)/26));
-                if(grid.shock && Math.random()<0.6) grid.shock(bx,bz, 0.7*_sw);
-              }
-            }
             let kvx=pv?(bx-pv.x):0, kvz=pv?(bz-pv.z):0;
-            // ── DIRECTIONAL MELEE WAKE — a short bullet-style grid wake punched OUT along the strike direction (like the Big Bill
-            //    travel trail, but a single quick burst per swing). Sweeping swing -> wake follows the blade; stab/slam -> punches
-            //    forward along the aim. Deforms the cube floor (sheets) and the flat grid elsewhere. Tunables: _MELEE_WAKE_* ──
-            if(window._MELEE_WAKE!==false && !ud._meleeWakeDone && _committed>(window._MELEE_WAKE_DELAY||0.05)){
-              ud._meleeWakeDone=true;
-              const _spd=Math.hypot(kvx,kvz); let _wdx,_wdz;
-              if(_spd>(window._MELEE_WAKE_MINSPD||0.6)){ _wdx=kvx/_spd; _wdz=kvz/_spd; } else { const _a=player.aim||0; _wdx=Math.cos(_a); _wdz=Math.sin(_a); }   // stab/slam: shoot the wake forward along aim
-              const _wStr=((_MS.bMag||9)/9)*(window._MELEE_WAKE_STR||4.5);   // heavier weapon (bMag) punches the grid harder
-              const _wR=(window._MELEE_WAKE_R||72), _wN=(window._MELEE_WAKE_LEN||5), _wSp=(window._MELEE_WAKE_SPACING||46);
-              const _wph=(typeof performance!=='undefined'?performance.now()*0.001:0);
-              const _wSheets=(typeof gridSheetsSwirl==='function' && typeof GRID_SHEETS!=='undefined' && GRID_SHEETS.length);
-              const _wFlat=(typeof grid!=='undefined' && grid.swirlAxis && GS.zone!==-19);
-              const _wy=(player.py||0)+9;
-              for(let _wi=0;_wi<_wN;_wi++){ const _fall=1-_wi/_wN, _px=player.wx+_wdx*(_wSp*_wi+18), _pz=player.wz+_wdz*(_wSp*_wi+18);
-                if(_wSheets){ try{ gridSheetsSwirl(_px,_wy,_pz,_wdx,_wdz,_wStr*_fall*(window._MELEE_WAKE_SHEET_MUL||1),_wR,_wph-_wi*0.7); }catch(_){} }
-                if(_wFlat){ try{ grid.swirlAxis(_px,_pz,_wdx,_wdz,_wStr*_fall,_wR,_wph-_wi*0.7); }catch(_){} try{ if(grid.push)grid.push(_px,_pz,-(window._MELEE_WAKE_PUSH||6)*_fall,_wR*0.9); }catch(_){} }
+            // ── GRID DEFORM — carve the grid along the blade sweep EVERY active swing frame (continuous, like the bullet/rocket
+            //    wake — one-shot swirls just spring back invisibly). Deforms the CUBE FLOOR SHEETS via gridSheetsBlast (the same
+            //    lasting-dent deform rockets/bombs use — the OLD code only pushed the flat Grid3D, which is INVISIBLE in the cube,
+            //    so melee did nothing there) plus the flat grid elsewhere. Directional: a short trench along the strike direction. ──
+            if(window._MELEE_GRID!==false){
+              const _spd=Math.hypot(kvx,kvz);
+              let _gdx=_spd>0.4?kvx/_spd:Math.cos(player.aim||0), _gdz=_spd>0.4?kvz/_spd:Math.sin(player.aim||0);
+              const _spdK=Math.min((window._MELEE_GRID_SPDCAP||1.8), 0.6+_spd*(window._MELEE_GRID_SPDK||0.09));   // faster sweep -> carve harder
+              const _pwr=((_MS.bMag||9)/9)*(window._MELEE_GRID_PWR||3.4)*_spdK;   // per-frame; accumulates over the swing into a real trench
+              const _rad=(window._MELEE_GRID_R||64);
+              const _gy=(player.py||0)+(window._MELEE_GRID_Y||6);                  // carve the surface the player stands on (floor or deck)
+              const _gN=(window._MELEE_GRID_LEN||3), _gSp=(window._MELEE_GRID_SPACING||34);
+              const _gSheets=(typeof gridSheetsBlast==='function' && typeof GRID_SHEETS!=='undefined' && GRID_SHEETS.length);
+              const _gFlat=(typeof grid!=='undefined' && GS.zone!==-19);
+              const _gph=(typeof performance!=='undefined'?performance.now()*0.001:0);
+              for(let _gi=0;_gi<_gN;_gi++){ const _gf=1-_gi/(_gN+0.5), _px=bx+_gdx*_gi*_gSp, _pz=bz+_gdz*_gi*_gSp;
+                if(_gSheets){ try{ gridSheetsBlast(_px,_gy,_pz,_pwr*_gf,_rad); }catch(_){} if(typeof gridSheetsSwirl==='function')try{ gridSheetsSwirl(_px,_gy,_pz,_gdx,_gdz,_pwr*_gf*(window._MELEE_GRID_SWIRL||0.8),_rad,_gph); }catch(_){} }
+                if(_gFlat){ try{ if(grid.push)grid.push(_px,_pz,-_pwr*_gf*(window._MELEE_GRID_FLATPUSH||0.5),_rad*0.7); }catch(_){} if(grid.swirlAxis)try{ grid.swirlAxis(_px,_pz,_gdx,_gdz,_pwr*_gf*0.6,_rad,_gph); }catch(_){} }
               }
-              if(_wFlat&&grid.pulse)try{ grid.pulse(0.3); }catch(_){}
-              if(typeof addTrauma==='function')addTrauma(window._MELEE_WAKE_TRAUMA!=null?window._MELEE_WAKE_TRAUMA:0.05);
+              if(_gFlat&&grid.shock&&Math.random()<0.4)try{ grid.shock(bx,bz,_pwr*0.4); }catch(_){}
+              if(!ud._meleeWakeDone){ ud._meleeWakeDone=true; if(typeof addTrauma==='function')addTrauma(window._MELEE_WAKE_TRAUMA!=null?window._MELEE_WAKE_TRAUMA:0.05); }
             }
             const HIT_R=_MS.reach;   // per-weapon reach (spear long, sword short)
             const _seg=(px,py,pz)=>{ const dx=bx-ax2,dy=by-ay2,dz=bz-az2, L2=dx*dx+dy*dy+dz*dz||1; let t=((px-ax2)*dx+(py-ay2)*dy+(pz-az2)*dz)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(px-(ax2+dx*t),py-(ay2+dy*t),pz-(az2+dz*t)); };
@@ -31499,7 +31492,7 @@ function buildAssetRoom(){
   setTimeout(()=>{ try{ announce("ASSET ROOM — shoot the targets, watch them die & respawn","#00ffc8"); }catch(e){} },400);
 }
 let _glV=new THREE.Vector3();
-const GRID_SHEETS=[];                         // every live "grid-material" patch registers here
+const GRID_SHEETS=[]; window._GRID_SHEETS=GRID_SHEETS;                         // every live "grid-material" patch registers here (exposed for debug/measurement)
 let _gsV=new THREE.Vector3(), _gsV2=new THREE.Vector3(), _gsN=new THREE.Vector3(), _gsQ=new THREE.Quaternion();
 // Solid hit-test for a projectile (with anti-tunnelling via previous position).
 function gridSheetHit(wx,wy,wz,px,py,pz){
