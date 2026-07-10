@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB574</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB575</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -3140,6 +3140,19 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
 
 const ENEMY_HP_MULT=10;   // make every enemy take many hits (tunable difficulty knob)
 const _hpTmpQ=new THREE.Quaternion(); const _botAxis=new THREE.Vector3();
+// ── BODY SLAM IMPACT DEFORM — a knocked-up body (enemy / bot / dummy / player) crashing back onto the grid punches a RADIAL
+//    impact into it (a shockwave dent, distinct from the melee directional gash). Scaled by landing speed; small hops do nothing. ──
+function _bodyImpactDeform(wx,wz,wy,impact){
+  if(window._BODY_IMPACT===false) return;
+  const p=Math.max(0,Math.min(1.4, impact/(window._IMPACT_REF||110)));
+  if(p<(window._IMPACT_MIN||0.16)) return;
+  const pw=(window._IMPACT_PWR||6)*p, R=(window._IMPACT_R||95), _y=(wy!=null?wy:9);
+  try{ if(typeof gridSheetsBlast==='function' && typeof GRID_SHEETS!=='undefined' && GRID_SHEETS.length) gridSheetsBlast(wx,_y,wz,pw,R); }catch(_){}
+  try{ if(typeof grid!=='undefined'){ if(grid.shock)grid.shock(wx,wz,pw*0.75); if(grid.push)grid.push(wx,wz,-pw*0.5,R*0.85); } }catch(_){}
+  try{ if(typeof ps!=='undefined'&&ps.ring) ps.ring(wx,wz,[0.7,0.85,1],Math.round(9+p*13),60+p*80,_y); }catch(_){}
+  try{ if(typeof addTrauma==='function')addTrauma(0.02+p*0.06); }catch(_){}
+}
+window._bodyImpactDeform=_bodyImpactDeform;
 class Enemy{
   constructor(wx,wz){ this.wx=wx;this.wz=wz;this.vx=0;this.vz=0;this.alive=true;this.hp=1;this.score=50;this.size=10;this.spawn=0;this.glow=[0,1,0.6];this.isBoss=false; }
   addToScene(){ scene.add(this.mesh); if(this.mesh) this.mesh.visible=false; } // hide until first update positions it
@@ -3179,7 +3192,8 @@ class Enemy{
           this._kbBounce--; this._kbYOff=0.1; this._kbVy=-this._kbVy*0.46;
           this._kbVx=(this._kbVx||0)*0.6; this._kbVz=(this._kbVz||0)*0.6; this._kbSpin=(this._kbSpin||0.3)*0.82;
           if(typeof ps!=='undefined'&&ps.burst) ps.burst(this.wx,this.wz,this.glow||[1,1,1],4,45);
-        } else { this._kbYOff=0; this._kbVy=0; this._kbBounce=0;
+        } else { const _impV=Math.abs(this._kbVy||0); this._kbYOff=0; this._kbVy=0; this._kbBounce=0;
+          if(_impV>2.5)try{ _bodyImpactDeform(this.wx,this.wz,(this.mesh?this.mesh.position.y:9),_impV*(window._IMPACT_ENEMY_K||7)); }catch(_){}   // slammed back to the grid -> radial impact deform
           if(this._kbTumble){ this._kbTumble=false; if(this.mesh){ this.mesh.rotation.x=0; this.mesh.rotation.z=0; } this._kbRotX=0; this._kbRotZ=0; } }   // settle upright
       }
     }
@@ -3520,7 +3534,7 @@ class Diamond extends Enemy{
     this._spider.group.rotation.y=this._face;
     _updateSpider(this._spider, dt, moveAmt);
     this._acidCD=((this._acidCD!==undefined)?this._acidCD:0.6+Math.random())-dt;
-    if(this._acidCD<=0 && this._aggro && p && p.alive && (this.spawn===undefined||this.spawn>=0.8)){ const dd=Math.hypot(p.wx-this.wx,p.wz-this.wz); if(dd<120 && dd>10){ _spiderSpitAcid(this, p.wx, (p.py||9), p.wz, false); this._acidCD=1.1+Math.random()*0.9; } else { this._acidCD=0.4; } }
+    if(this._acidCD<=0 && this._aggro && p && p.alive && (this.spawn===undefined||this.spawn>=0.8)){ const dd=Math.hypot(p.wx-this.wx,p.wz-this.wz); if(dd<120 && dd>(window._SPIDER_SPIT_MIN||64)){ _spiderSpitAcid(this, p.wx, (p.py||9), p.wz, false); this._acidCD=1.1+Math.random()*0.9; } else { this._acidCD=0.4; } }   // no point-blank acid — meleeing in close shouldn't get you spat in the face
     this._spider.coreMat.color.setHex(this.hitFlash>0?0xffffff:0x00ff88);
     const sc=(this.spawn<1?(0.2+this.spawn*0.8):1);
     // CLIMB: rise onto platforms to chase an elevated player (capped at player height)
@@ -5036,7 +5050,7 @@ class Crawler extends Enemy{
   }
   update(p,dt){ if(this._neutralized){ _neutralUpdate(this,dt); return; } if(this._ball){ this._ballUpdate(dt); if(this.hitFlash>0)this.hitFlash--; return; } this.baseUpdate(); if(this._stunT>0){ if(this.mesh)this.mesh.position.set(this.wx+rand(-1.5,1.5),(this._climbY||(this.mesh?this.mesh.position.y:9)),this.wz+rand(-1.5,1.5)); if(this.hitFlash>0)this.hitFlash--; return; } this.t+=dt; const OFF=9; if(this._attachCD>0)this._attachCD-=dt;
     this._acidCD=((this._acidCD!==undefined)?this._acidCD:0.7+Math.random())-dt;
-    if(this._acidCD<=0 && p && p.alive && (this.spawn===undefined||this.spawn>=0.8)){ const dd=Math.hypot(p.wx-this.wx,p.wz-this.wz); if(dd<130 && dd>10){ _spiderSpitAcid(this, p.wx, (p.py||9), p.wz, false); this._acidCD=1.2+Math.random()*0.9; } else { this._acidCD=0.4; } }
+    if(this._acidCD<=0 && p && p.alive && (this.spawn===undefined||this.spawn>=0.8)){ const dd=Math.hypot(p.wx-this.wx,p.wz-this.wz); if(dd<130 && dd>(window._SPIDER_SPIT_MIN||64)){ _spiderSpitAcid(this, p.wx, (p.py||9), p.wz, false); this._acidCD=1.2+Math.random()*0.9; } else { this._acidCD=0.4; } }   // don't spit point-blank -> a spider you've closed to MELEE range can't acid you in the face (that made meleeing them backwards-lethal)
     if(this._cstate==='climb'){
       if(this._cubeCrawl){   // ── CONTINUOUS cube inner-shell crawl via the cube SDF (floor → chamfer → wall → ceiling, no seams) — mirrors the city box crawl but on the rounded room
         if(GS.zone!==-19){ this._cstate='ground'; this._cubeCrawl=false; }
@@ -11748,7 +11762,8 @@ class Player{
       // vertical
       this.pvy-=(typeof GRAV!=='undefined'?GRAV:320)*dt; this.py+=this.pvy*dt;
       if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{h:600}), ceil=(C.h||600)-(window._CUBE_PAD!=null?window._CUBE_PAD:22); if(this.py>ceil){ this.py=ceil; if(this.pvy>0)this.pvy=-this.pvy*(window._PLKB_REST!=null?window._PLKB_REST:0.55); } }
-      if(this.py<=0 && this.pvy<=0){ this.py=0; this.pvy=0; this._launched=false; this._kbVx*=0.3; this._kbVz*=0.3;
+      if(this.py<=0 && this.pvy<=0){ const _plImpV=Math.abs(this.pvy||0); this.py=0; this.pvy=0; this._launched=false; this._kbVx*=0.3; this._kbVz*=0.3;
+        try{ _bodyImpactDeform(this.wx,this.wz,9,_plImpV*(window._IMPACT_PLAYER_K||0.85)); }catch(_){}   // YOU get launched + slam down -> radial impact deform too
         // play the FULL get_up before control returns (sized to the clip, like the AI) — no more snap-to-feet
         const ud=this.model&&this.model.userData, gu=ud&&ud.clips&&ud.clips['get_up'], guDur=(gu&&gu._clip&&gu._clip.duration)?gu._clip.duration*(window._PLKB_GETUP_END||0.45):0, _gspd=(window._PLKB_GETUP_SPD||1.5);   // TRIM the get_up: only count the LIVE portion (the GLB has trailing dead frames that were freezing him on the last frame for way too long)
         this._kbStun=Math.max(this._kbStun||0, Math.min((window._PLKB_GETUP_MAX||42), (guDur>0.1?Math.round(guDur*60/_gspd):(window._PLKB_GETUP||26))+(window._PLKB_DOWN_HOLD||3)));   // _kbStun in FRAMES, sized to the (trimmed) clip at the sped-up rate, HARD-CAPPED so it can never stall control
@@ -15236,7 +15251,7 @@ class BotPilot{
       this._solidify();   // can't be knocked through buildings, walls, or city blocks
     }
     if((this._stun>0)||this._launched||((this._downT||0)>0)){
-      if(this.py>0||this.pvy>0){ this.pvy-=320*dt; this.py=Math.max(0,this.py+this.pvy*dt); if(this.py<=0){this.py=0;this.pvy=0;} }
+      if(this.py>0||this.pvy>0){ this.pvy-=320*dt; this.py=Math.max(0,this.py+this.pvy*dt); if(this.py<=0){ const _bImpV=Math.abs(this.pvy||0); this.py=0; this.pvy=0; if(this._launched&&_bImpV>1.5)try{ _bodyImpactDeform(this.wx,this.wz,9,_bImpV*(window._IMPACT_BOT_K||0.85)); }catch(_){} } }   // rival slams down from a launch -> radial impact deform
       if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{h:600}), ceil=(C.h||600)-(window._CUBE_PAD!=null?window._CUBE_PAD:22); if(this.py>ceil){ this.py=ceil; if(this.pvy>0){ this.pvy=-this.pvy*(window._BOT_KB_REST!=null?window._BOT_KB_REST:0.55); if(typeof addTrauma==='function')addTrauma(0.08); } } }   // bounce off the cage ceiling on a high launch
       if(this._launched && this.py<=0 && (this.pvy||0)<=0){     // landed from a launch -> play the full get_up before fighting again
         const _gu=this._clips&&this._clips['get_up']; const _guDur=(_gu&&_gu._clip&&_gu._clip.duration)||0;
@@ -24463,6 +24478,7 @@ function loop(ts){ requestAnimationFrame(loop);
               if(!_inR)return false;
               const ey=_eBase+Math.max(10,_etall*0.5);
               ud._meleeHitSet.add(e);
+              if(kind==='enemy' && typeof _isHostileSmall==='function' && _isHostileSmall(e) && window._MELEE_MINION_IFRAMES!==false && player){ player.inv=Math.max(player.inv||0,(window._MELEE_MINION_IFR||20)); }   // meleeing a MINION (spider/small) grants a brief i-window so its point-blank retaliation (acid already in flight, contact) can't chip you — meleeing a weakling shouldn't be backwards-lethal
               if(kind!=='ally') _hitSfx(null,e);   // impact SFX on a melee connect (pitch by target size)
               const _hitDmg=(kind==='bot')?Math.max(1,dmg*(window._MELEE_BOT_DMG_K!=null?window._MELEE_BOT_DMG_K:1)):dmg;   // bots + dummy take the same melee damage (compressed by _combatDmg at the receiver)
               if(e.hit && (kind!=='ally' || window._FRIENDLY_FIRE===true))e.hit(_hitDmg, player.wx, player.wz);                                    // FF OFF: meleeing your own summon LAUNCHES it (below) but doesn't hurt it
