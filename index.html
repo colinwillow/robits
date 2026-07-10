@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB576</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB577</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -10959,6 +10959,12 @@ function _heroHueSet(m,c){
   let a=m._hueHSL.h-(m._skinBaseHue||0.33); a=((a%1)+1)%1; if(a>0.5)a-=1;   // shortest rotation from the texture's own hue to the target
   if(m.userData&&m.userData._hueU)m.userData._hueU.value=a*6.2832;
 }
+// The glowing quad-WIREFRAME reads best as a distinct neon EDGE, not a same-colour overlay that blends into the body's forms.
+// So the wire gets a hue OFFSET from the body colour (+ boosted saturation/brightness) -> it pops as a separate glowing outline.
+const _wireTmpHSL={h:0,s:0,l:0};
+function _wireGlowColor(c, out){ out=out||new THREE.Color(); c.getHSL(_wireTmpHSL);
+  out.setHSL((_wireTmpHSL.h+(window._WIRE_HUE_OFFSET!=null?window._WIRE_HUE_OFFSET:0.09)+1)%1, Math.min(1,_wireTmpHSL.s*0.85+0.22), Math.min(0.74, Math.max(_wireTmpHSL.l,0.56))); return out; }
+window._wireGlowColor=_wireGlowColor;
 function _tintAllyApply(root, c){ if(!root||!root.traverse)return 0; let n=0;
   const tint=(o)=>{ if(!o.material)return; const ms=Array.isArray(o.material)?o.material:[o.material];
     for(const m of ms){ if(!m)continue; let did=false;
@@ -10970,7 +10976,10 @@ function _tintAllyApply(root, c){ if(!root||!root.traverse)return 0; let n=0;
         } else { m.emissive.copy(c); if('emissiveIntensity' in m && m.emissiveIntensity<0.5)m.emissiveIntensity=1.4; }
         did=true;
       }   // recolour the GLOW to the owner's colour
-      if(m.color&&m.color.isColor && (m.isLineBasicMaterial||m.isLineDashedMaterial || (m.isMeshBasicMaterial && (m.blending===THREE.AdditiveBlending || m.transparent)))){ m.color.copy(c); if((m.isLineBasicMaterial||m.isLineDashedMaterial) && m.transparent && (m.opacity||0)<(window._ALLY_WIRE_OP||0.95)) m.opacity=(window._ALLY_WIRE_OP||0.95); did=true; }   // recolour only GLOW/accent surfaces: edge/wire lines + additive/transparent basic mats (wire twins, halos). SKIP opaque solid fills (e.g. the spider's dark body). Bump wire opacity so it blooms closer to the player's wireframe.
+      if(m.color&&m.color.isColor && (m.isLineBasicMaterial||m.isLineDashedMaterial || (m.isMeshBasicMaterial && (m.blending===THREE.AdditiveBlending || m.transparent)))){
+        if(m.isLineBasicMaterial||m.isLineDashedMaterial){ _wireGlowColor(c, m.color); if(m.transparent && (m.opacity||0)<(window._ALLY_WIRE_OP||0.95)) m.opacity=(window._ALLY_WIRE_OP||0.95); }   // WIREFRAME edges: hue-offset glow so they stand out from the body instead of blending its forms
+        else m.color.copy(c);
+        did=true; }   // recolour only GLOW/accent surfaces: edge/wire lines + additive/transparent basic mats (wire twins, halos). SKIP opaque solid fills (e.g. the spider's dark body).
       if(did){ m.needsUpdate=true; n++; } } };
   try{ root.traverse(tint); }catch(_){}
   return n; }
@@ -38849,7 +38858,7 @@ function _startCybergirlViewer(canvasId, opts={}){   // spinning preview for the
 // ════════ PLAYER DRESSING ROOM — the workshop, dumbed down: debug tuning hidden, a COLOUR/HUE picker added. The full workshop stays behind the DBG ▸ SHOP button. ════════
 window._DRESS_HUES=window._DRESS_HUES||[0x33e0ff,0x00ffc8,0x39ff9e,0xffe23a,0xff8a3a,0xff5a3c,0xff3df0,0xc24aff,0x7fd4ff,0xffffff];
 try{ const _h=localStorage.getItem('robits_hue'); if(_h){ window._PLAYER_HUE=parseInt(_h,10); window._ROBOT_WIRE_COL=window._PLAYER_HUE; } }catch(_){}   // restore the saved colour on load so it applies on spawn even without opening the dress room
-window._applyPlayerHue=function(){ const hx=window._PLAYER_HUE; if(hx==null)return; try{ const c=new THREE.Color(hx); if(typeof player!=='undefined'&&player&&player.model&&typeof _tintAllyApply==='function')_tintAllyApply(player.model,c); if(window._robotWires)for(const rw of window._robotWires){ if(rw&&rw.w&&rw.w.material&&rw.w.material.color)rw.w.material.color.copy(c); } }catch(_){} };
+window._applyPlayerHue=function(){ const hx=window._PLAYER_HUE; if(hx==null)return; try{ const c=new THREE.Color(hx); if(typeof player!=='undefined'&&player&&player.model&&typeof _tintAllyApply==='function')_tintAllyApply(player.model,c); if(window._robotWires)for(const rw of window._robotWires){ if(rw&&rw.w&&rw.w.material&&rw.w.material.color)_wireGlowColor(c, rw.w.material.color); } }catch(_){} };   // wire = hue-offset glow, distinct from the body
 function _dressSetHue(hx){
   window._PLAYER_HUE=hx; window._ROBOT_WIRE_COL=hx;   // new robot builds pick this up
   try{ localStorage.setItem('robits_hue', String(hx)); }catch(_){}
