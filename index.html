@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB585</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB586</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -10946,43 +10946,47 @@ function _heroHueHook(m){
   if(m._skinBaseHue==null){ const s=_heroHueSampleBase(m); m._skinBaseHue=(s!=null?s:(_HERO_BASE_HUE[window._playerChar]!=null?_HERO_BASE_HUE[window._playerChar]:0.33)); }
   m.userData=m.userData||{};
   m.userData._hueU={value:0};
-  // GRADIENT-MAP (duotone) uniforms — hue ROTATION can't recolour pure black (no hue to spin), so a texture that's mostly
-  // black+one-colour (e.g. the interceptor's yellow/black) stays black under a hue shift. The gradient map instead remaps every
-  // texel by its LUMINANCE through a shadow->highlight colour ramp, so blacks get a real colour. Blended with the hue-rotate
-  // via uGradMix (0=pure hue-rotate, 1=pure gradient map) so both looks stay tunable.
-  m.userData._gMixU={value:0}; m.userData._gLoU={value:new THREE.Color(0x101018)}; m.userData._gHiU={value:new THREE.Color(0xffffff)};
-  m.userData._gConU={value:(window._GRAD_CONTRAST!=null?window._GRAD_CONTRAST:1.15)}; m.userData._gBiasU={value:(window._GRAD_BIAS!=null?window._GRAD_BIAS:0.02)};
+  // HUE ROTATION recolours everything BUT pure black (no hue to spin) — great CONTRAST + texture detail on the mid/bright regions,
+  // but a mostly black+one-colour texture (the interceptor's black/yellow) keeps flat black. A full duotone gradient fixed the
+  // black but collapsed the whole thing to one muddy hue (the "overlay" look). So: keep the vivid hue-rotate everywhere, and
+  // ONLY recolour the near-BLACK regions toward a distinct colour -> blacks become e.g. deep blue while the yellows go green,
+  // preserving the segmented-colour contrast. uBlackLift=strength, uBlackColor=what black maps to, uBlackKnee=how far up the
+  // luminance the recolour reaches (only the darkest bits, so mids/brights keep the hue-rotate).
+  m.userData._blkLiftU={value:0}; m.userData._blkColU={value:new THREE.Color(0x101830)}; m.userData._blkKneeU={value:(window._GRAD_KNEE!=null?window._GRAD_KNEE:0.30)};
   const prev=m.onBeforeCompile;
   m.onBeforeCompile=function(shader){ if(prev)try{ prev(shader); }catch(_){}
     shader.uniforms=shader.uniforms||{}; shader.uniforms.uHueAngle=m.userData._hueU;
-    shader.uniforms.uGradMix=m.userData._gMixU; shader.uniforms.uGradLo=m.userData._gLoU; shader.uniforms.uGradHi=m.userData._gHiU;
-    shader.uniforms.uGradContrast=m.userData._gConU; shader.uniforms.uGradBias=m.userData._gBiasU;
-    shader.fragmentShader='uniform float uHueAngle;\nuniform float uGradMix;\nuniform vec3 uGradLo;\nuniform vec3 uGradHi;\nuniform float uGradContrast;\nuniform float uGradBias;\nvec3 _hrot(vec3 c,float a){ const vec3 k=vec3(0.57735026919); float cs=cos(a),sn=sin(a); return c*cs+cross(k,c)*sn+k*dot(k,c)*(1.0-cs); }\nvec3 _gmap(vec3 c){ float L=dot(c,vec3(0.299,0.587,0.114)); return mix(uGradLo,uGradHi,clamp(L*uGradContrast+uGradBias,0.0,1.0)); }\n'+shader.fragmentShader;
+    shader.uniforms.uBlackLift=m.userData._blkLiftU; shader.uniforms.uBlackColor=m.userData._blkColU; shader.uniforms.uBlackKnee=m.userData._blkKneeU;
+    shader.fragmentShader=
+      'uniform float uHueAngle;\nuniform float uBlackLift;\nuniform vec3 uBlackColor;\nuniform float uBlackKnee;\n'+
+      'vec3 _hrot(vec3 c,float a){ const vec3 k=vec3(0.57735026919); float cs=cos(a),sn=sin(a); return c*cs+cross(k,c)*sn+k*dot(k,c)*(1.0-cs); }\n'+
+      'vec3 _recolor(vec3 c){ vec3 h=clamp(_hrot(c,uHueAngle),0.0,1.0); float L=dot(h,vec3(0.299,0.587,0.114)); float w=uBlackLift*(1.0-smoothstep(0.0, max(uBlackKnee,0.001), L)); return mix(h, uBlackColor, w); }\n'+
+      shader.fragmentShader;
     shader.fragmentShader=shader.fragmentShader
-      .replace('#include <map_fragment>','#include <map_fragment>\n diffuseColor.rgb=mix(clamp(_hrot(diffuseColor.rgb,uHueAngle),0.0,1.0), _gmap(diffuseColor.rgb), uGradMix);')
-      .replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n totalEmissiveRadiance=mix(max(_hrot(totalEmissiveRadiance,uHueAngle),0.0), _gmap(totalEmissiveRadiance), uGradMix);');
+      .replace('#include <map_fragment>','#include <map_fragment>\n diffuseColor.rgb=_recolor(diffuseColor.rgb);')
+      .replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n totalEmissiveRadiance=_recolor(totalEmissiveRadiance);');
   };
   m.needsUpdate=true;
 }
-// Build the shadow/highlight ramp for the gradient map from the identity colour. Highlight = the colour pushed bright; shadow =
-// a darker, slightly hue-OFFSET version (the offset gives the two-tone "blue shadow / yellow highlight" gradient look).
+// The colour that near-BLACK regions map toward: derived from the identity colour but hue-OFFSET so it CONTRASTS with the
+// hue-rotated body (a same-hue dark just reads as a flat overlay). _GRAD_SHADOW_HUE = how different (0.5=complementary), _GRAD_LO_L
+// = how light/dark it is (raise toward white for a "black->white" look), _GRAD_LO_SAT = how vivid.
 const _gradHSL={h:0,s:0,l:0};
-function _heroGradColors(c, lo, hi){
+function _heroBlackColor(c, out){
   c.getHSL(_gradHSL);
-  hi.setHSL(_gradHSL.h, Math.min(1,_gradHSL.s*(window._GRAD_HI_SAT||0.55)+0.12), (window._GRAD_HI_L||0.90));
-  const _so=(window._GRAD_SHADOW_HUE!=null?window._GRAD_SHADOW_HUE:-0.10);
-  lo.setHSL(((_gradHSL.h+_so)%1+1)%1, Math.min(1,_gradHSL.s*(window._GRAD_LO_SAT||0.9)+0.18), (window._GRAD_LO_L||0.15));
+  const off=(window._GRAD_SHADOW_HUE!=null?window._GRAD_SHADOW_HUE:0.45);
+  out.setHSL(((_gradHSL.h+off)%1+1)%1, Math.min(1,_gradHSL.s*(window._GRAD_LO_SAT||0.9)+0.15), (window._GRAD_LO_L!=null?window._GRAD_LO_L:0.42));
 }
 function _heroHueSet(m,c){
   _heroHueHook(m);
   if(!m._hueHSL)m._hueHSL={h:0,s:0,l:0}; c.getHSL(m._hueHSL);
   let a=m._hueHSL.h-(m._skinBaseHue||0.33); a=((a%1)+1)%1; if(a>0.5)a-=1;   // shortest rotation from the texture's own hue to the target
   if(m.userData&&m.userData._hueU)m.userData._hueU.value=a*6.2832;
-  // gradient-map ramp + mix (default ON so black regions always take a colour). Per-skin override via m._gradMix.
-  if(m.userData&&m.userData._gLoU){ _heroGradColors(c, m.userData._gLoU.value, m.userData._gHiU.value);
-    const gm=(m._gradMix!=null?m._gradMix:(window._HERO_GRADMIX!=null?window._HERO_GRADMIX:0.7));
-    m.userData._gMixU.value=(window._HERO_GRADMAP===false?0:gm);
-    m.userData._gConU.value=(window._GRAD_CONTRAST!=null?window._GRAD_CONTRAST:1.15); m.userData._gBiasU.value=(window._GRAD_BIAS!=null?window._GRAD_BIAS:0.02); }
+  // recolour the near-blacks toward a distinct colour (default ON). Per-skin override via m._gradMix; _HERO_GRADMAP=false = pure hue-shift.
+  if(m.userData&&m.userData._blkColU){ _heroBlackColor(c, m.userData._blkColU.value);
+    const lift=(m._gradMix!=null?m._gradMix:(window._HERO_GRADMIX!=null?window._HERO_GRADMIX:0.9));
+    m.userData._blkLiftU.value=(window._HERO_GRADMAP===false?0:lift);
+    m.userData._blkKneeU.value=(window._GRAD_KNEE!=null?window._GRAD_KNEE:0.30); }
 }
 // The glowing quad-WIREFRAME reads best as a distinct neon EDGE, not a same-colour overlay that blends into the body's forms.
 // So the wire gets a hue OFFSET from the body colour (+ boosted saturation/brightness) -> it pops as a separate glowing outline.
