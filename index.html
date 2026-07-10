@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB562</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB563</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -28693,9 +28693,12 @@ function _cubeWalkMove(P,rawX,rawZ,dt){
   else if(tanDir){ v.copy(tanDir).multiplyScalar(TOP*Math.min(1,inMag)); P._cwDashing=false; }   // move straight in the input direction
   else { v.set(0,0,0); P._cwDashing=false; }                            // release -> stop
   P.wx+=v.x*dt; P.py+=v.y*dt; P.wz+=v.z*dt;
-  _cubeGrad(P.wx,P.py,P.wz,_cwN); const d2=_cubeSDF(P.wx,P.py,P.wz), corr=d2+RIDE;   // re-snap to ride height
-  P.wx-=_cwN.x*corr; P.py-=_cwN.y*corr; P.wz-=_cwN.z*corr;
+  // RE-SNAP to ride height — MULTIPLE Newton steps (was ONE). One step doesn't converge on the tightly-curved corner
+  // chamfers, so the player drifted off the surface and STUCK on the curve rounding wall->wall. Iterating rounds the edge
+  // smoothly onto the next wall (matches the spider's multi-step cube crawl). window._CUBE_RESNAP_ITERS to tune.
+  for(let _it=0;_it<(window._CUBE_RESNAP_ITERS||4);_it++){ _cubeGrad(P.wx,P.py,P.wz,_cwN); const _corr=_cubeSDF(P.wx,P.py,P.wz)+RIDE; P.wx-=_cwN.x*_corr; P.py-=_cwN.y*_corr; P.wz-=_cwN.z*_corr; if(Math.abs(_corr)<(window._CUBE_RESNAP_EPS||0.4))break; }
   N=_cwN.clone().multiplyScalar(-1);
+  { const _vn=v.dot(_cwN); if(Math.abs(_vn)>1e-4) v.addScaledVector(_cwN,-_vn); }   // keep the velocity tangent to the (now-rotated) surface so the momentum reads AROUND the corner, not into it
   if(N.y < (window._CUBE_WALK_NY||0.7)) P._cwLeftByAir=false;   // grounded & walking on a wall/upper-chamfer -> this is a WALK exit (flip enabled); only a dislodge-fall keeps the air flag set onto the floor
   P.vx=v.x;P.pvy=v.y;P.vz=v.z; P._galSpeed=v.length(); P._cubeUp=N.clone(); window._cwSpeed=Math.round(v.length());
   _cubeWalkRender(P,N,tanDir,dt,grounded);
