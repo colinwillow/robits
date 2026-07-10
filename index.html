@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB565</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB566</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -10724,7 +10724,7 @@ function _nukePreview(x,z,R,show){
 }
 // Where the aim reticle sits (ground point at push-distance, or a rooftop it lands on). Bullets/rockets aim AT this so the shot visibly converges on the ring.
 function _reticleTarget(pl, ang, w, mag){
-  let D; if(w==='grenade') D=55+mag*180; else if(w==='rockets') D=60+mag*210; else if(w==='singularity') D=70+mag*300; else D=40+mag*340;
+  let D; if(w==='grenade') D=(window._GREN_MIN||50)+mag*(window._GREN_RANGE||340); else if(w==='rockets') D=60+mag*210; else if(w==='singularity') D=70+mag*300; else D=40+mag*340;
   const x=pl.wx+Math.cos(ang)*D, z=pl.wz+Math.sin(ang)*D; let y=9.4;
   if(GS.zone===-16 && typeof _cityBoxes!=='undefined'){ for(const b of _cityBoxes){ if(Math.abs(x-b.x)<b.hw && Math.abs(z-b.z)<b.hd && b.top+1>y) y=b.top+1; } }
   return {x,y,z,D};
@@ -10769,9 +10769,22 @@ function _updateGrenadeAim(pl,dt){
   let col; if(w==='grenade') col=0x9be84a; else if(w==='rockets') col=0xff8a33; else col=0x35d6ff;
   const T=_reticleTarget(pl,a,w,mag);
   pl._gnT=(pl._gnT||0)+dt; const pulse=0.55+0.28*Math.sin(pl._gnT*9), psc=1+0.08*Math.sin(pl._gnT*9);
-  const showLock=(w==='rockets'||w==='grenade');   // rockets + grenade: grace-aim lock ring on the target (no ground crosshair)
+  const showLock=(w==='rockets');   // rockets: grace-aim lock ring on the target (no ground crosshair)
   const hideReticle=(w==='bullets'||showLock);
-  if(hideReticle){
+  if(w==='grenade'){
+    // GRENADE: show the GROUND landing ring (where the lob will actually hit) so you're not firing blind.
+    // Keep the soft-lock: if a target sits in the aim cone, the lob redirects onto it (mirrors _fireGrenade) -> snap the ring onto them.
+    let best=null, bestDa=0.38;
+    const _scan=(arr)=>{ if(!arr)return; for(const e of arr){ if(!e||!e.alive) continue; const dx=e.wx-pl.wx, dz=e.wz-pl.wz, d=Math.hypot(dx,dz); if(d<24||d>640) continue; const da=Math.abs(((Math.atan2(dz,dx)-a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI); if(da<bestDa){ bestDa=da; best=e; } } };
+    _scan(GS.enemies); _scan(typeof GS_bots!=='undefined'?GS_bots:null);
+    mk._air.visible=false; mk._ground.visible=true;
+    let gx,gy,gz;
+    if(best){ gx=best.wx; gz=best.wz; gy=9.4; const ey=(best.mesh?best.mesh.position.y:9); mk._lock.visible=true; mk._lock.position.set(best.wx,ey+0.6,best.wz); const lr=(best.size||14)+11; mk._lock.scale.set(lr,lr,lr); mk._lock.material.color.setHex(col); mk._lock.material.opacity=0.45+0.3*Math.sin(pl._gnT*12); mk._lock.rotation.z=pl._gnT*1.6; pl._lockEnemy=best; }
+    else { gx=T.x; gy=T.y; gz=T.z; mk._lock.visible=false; pl._lockEnemy=null; }
+    mk._ground.position.set(gx,gy,gz);
+    mk._ground._ring.material.color.setHex(col); mk._ground._dot.material.color.setHex(col);
+    mk._ground._ring.material.opacity=pulse; mk._ground.scale.setScalar(psc);
+  } else if(hideReticle){
     mk._ground.visible=false; mk._air.visible=false;
     if(showLock){
       // glow the nearest target (enemy OR bot) inside the aim cone — shows you're aiming at that guy
@@ -19020,17 +19033,27 @@ function _buildRevolver(){ const g=new THREE.Group(); g.name='revolver'; const K
   const fsight=_mb(0.3,0.4,0.3,K.glowA); fsight.position.set(5,1.3,0); g.add(fsight);
   g.scale.setScalar(window._GUN_SCALE||1); return g; }
 
-function _buildGL(){ const g=new THREE.Group(); g.name='grenadelauncher'; const K=_gmat(window._GUN_NEON||0x8aff3a,0xff7a1a);
-  const rec=_mb(4.5,2.6,2.2,K.body); rec.position.set(-1,0,0); g.add(rec);
-  const bar=_mc(1.3,1.3,6,K.dark,'x',18,true); bar.position.set(4,0.4,0); g.add(bar);
-  const bin=_mc(1.0,1.0,6,K.panel,'x',16,true); bin.position.set(4,0.4,0); g.add(bin);
+function _buildGL(){ const g=new THREE.Group(); g.name='grenadelauncher'; const neon=(window._GUN_NEON||0x8aff3a); const K=_gmat(neon,0xff7a1a);
+  // The default gun greys (body 0x232a36, grip 0x161b24) read as pure black in the dark arena -> the GL vanished.
+  // Give it its own brighter, neon-tinted metals + emissive so it stays visible.
+  const env=(typeof scene!=='undefined' && scene.environment)||null;
+  const LM=(col,ei,rough,metal)=>{ const m=new THREE.MeshStandardMaterial({color:col,metalness:(metal!=null?metal:0.88),roughness:(rough!=null?rough:0.4),emissive:neon,emissiveIntensity:(ei!=null?ei:0.34),toneMapped:false}); if(env)m.envMap=env; return m; };
+  const litBody=LM(0x2e3d34,0.36), litDark=LM(0x3d4f47,0.3), litPanel=LM(0x46584f,0.26,0.5,0.82), litGrip=LM(0x26312b,0.22,0.62,0.4);
+  const rec=_mb(4.5,2.6,2.2,litBody); rec.position.set(-1,0,0); g.add(rec);
+  const bar=_mc(1.3,1.3,6,litDark,'x',18,true); bar.position.set(4,0.4,0); g.add(bar);
+  const bin=_mc(1.0,1.0,6,litPanel,'x',16,true); bin.position.set(4,0.4,0); g.add(bin);
   const tipR=_mt(1.25,0.2,K.glowE,24); tipR.position.set(7,0.4,0); g.add(tipR);
-  const drum=_mc(2.2,2.2,2.0,K.dark,'x',24); drum.position.set(0.5,0.2,0); g.add(drum);
+  const drum=_mc(2.2,2.2,2.0,litDark,'x',24); drum.position.set(0.5,0.2,0); g.add(drum);
   for(let i=0;i<6;i++){ const a=(i/6)*Math.PI*2; const gr=_mc(0.5,0.5,1.0,K.glowA,'x',10); gr.position.set(1.6,0.2+Math.sin(a)*1.3,Math.cos(a)*1.3); g.add(gr); }
-  const grip=_mb(1.3,3.2,1.5,K.grip); grip.position.set(-2.4,-2.2,0); grip.rotation.z=0.22; g.add(grip);
-  const fg=_mb(1.0,2.4,1.3,K.grip); fg.position.set(3,-2.0,0); g.add(fg);
-  const t1=_mc(0.2,0.2,3,K.dark,'x',8); t1.position.set(-4,0.6,0); g.add(t1); const buttp=_mb(0.7,2.2,1.4,K.panel); buttp.position.set(-5.6,0.4,0); g.add(buttp);
-  const sb=_mb(1.2,0.8,1.0,K.dark); sb.position.set(-1,2.0,0); g.add(sb); g.add(_gunLens(-0.4,2.0,0,0.5,K.accent,false));
+  const grip=_mb(1.3,3.2,1.5,litGrip); grip.position.set(-2.4,-2.2,0); grip.rotation.z=0.22; g.add(grip);
+  const fg=_mb(1.0,2.4,1.3,litGrip); fg.position.set(3,-2.0,0); g.add(fg);
+  const t1=_mc(0.2,0.2,3,litDark,'x',8); t1.position.set(-4,0.6,0); g.add(t1); const buttp=_mb(0.7,2.2,1.4,litPanel); buttp.position.set(-5.6,0.4,0); g.add(buttp);
+  const sb=_mb(1.2,0.8,1.0,litDark); sb.position.set(-1,2.0,0); g.add(sb); g.add(_gunLens(-0.4,2.0,0,0.5,K.accent,false));
+  // bright neon accents so it never disappears against the black floor: a top rail + energy bands round the drum + a receiver stripe
+  const rail=_mb(5.6,0.34,0.5,K.glowA); rail.position.set(-0.6,1.55,0); g.add(rail);
+  const stripeL=_mb(4.6,0.26,0.12,K.glowA); stripeL.position.set(-1,0.05,1.11); g.add(stripeL);
+  const stripeR=_mb(4.6,0.26,0.12,K.glowA); stripeR.position.set(-1,0.05,-1.11); g.add(stripeR);
+  for(const bx of [-0.55,1.55]){ const band=_mt(2.24,0.16,K.glowE,24); band.position.set(bx,0.2,0); g.add(band); }
   g.scale.setScalar(window._GUN_SCALE||1); return g; }
 
 function _buildLaser(){ const g=new THREE.Group(); g.name='laser'; const K=_gmat(window._GUN_NEON||0x40e0ff,0xffffff);
