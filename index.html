@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB586</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB587</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -9067,6 +9067,7 @@ const _GREN_NOSE=new THREE.ConeGeometry(2.0,3.6,8); _GREN_NOSE.rotateX(Math.PI/2
 const _GREN_FIN=new THREE.BoxGeometry(0.4,3.0,2.6);
 const _GREN_BODYMAT=new THREE.MeshBasicMaterial({color:0xb6ff3a});
 const _GREN_DARKMAT=new THREE.MeshBasicMaterial({color:0x6fd428});
+const _grenAssetN=new THREE.Vector3();
 class Grenade{
   constructor(wx,wz,y,vx,vz,vy){
     this.wx=wx; this.wz=wz; this.y=y; this.vx=vx; this.vz=vz; this.vy=(vy!==undefined?vy:160);
@@ -9094,6 +9095,17 @@ class Grenade{
       } else { this.vy=0; this.vx*=0.85; this.vz*=0.85; }
     }
     if(GS.zone===-16 && typeof _cityBoxes!=='undefined'){ for(const b of _cityBoxes){ if(Math.abs(this.wx-b.x)<b.hw+3 && Math.abs(this.wz-b.z)<b.hd+3 && this.y<b.top){ const dxr=this.wx-b.x,dzr=this.wz-b.z; if(b.hw-Math.abs(dxr)<b.hd-Math.abs(dzr)){ this.wx=b.x+(dxr>=0?1:-1)*(b.hw+3); this.vx=-this.vx*0.5; } else { this.wz=b.z+(dzr>=0?1:-1)*(b.hd+3); this.vz=-this.vz*0.5; } this.bounces++; break; } } }
+    // SMART-ASSET boxes (cube.glb & friends): bounce off their walls / off the top, via the box SDF the asset carries (skip the open-hole rings).
+    if(window._GREN_ASSET_BOUNCE!==false && window._arenaAssetCols && window._arenaAssetCols.length){ const R=(window._GREN_R||10);
+      for(const b of window._arenaAssetCols){ if(!b||b._solid===false||!b.sdf||b.ring)continue;
+        const d=b.sdf(this.wx,this.y,this.wz);
+        if(d<R){ b.grad(this.wx,this.y,this.wz,_grenAssetN); const push=R-d;
+          this.wx+=_grenAssetN.x*push; this.y+=_grenAssetN.y*push; this.wz+=_grenAssetN.z*push;
+          const vn=this.vx*_grenAssetN.x+this.vy*_grenAssetN.y+this.vz*_grenAssetN.z;
+          if(vn<0){ const e=1+(window._GREN_ASSET_REST||0.45); this.vx-=e*vn*_grenAssetN.x; this.vy-=e*vn*_grenAssetN.y; this.vz-=e*vn*_grenAssetN.z; }   // reflect the into-surface velocity, keep ~45%
+          this.bounces++;
+          if(typeof Audio!=='undefined')Audio.blip(190+rand(60),0.05,'square',0.07,130);
+          break; } } }
     if(GS.zone===-19 && typeof _cubeClampXZ==='function'){ const c=_cubeClampXZ(this.wx,this.wz,this.y,(window._GREN_R||10)); if(c){ if(Math.abs(c.x-this.wx)>0.01)this.vx*=-0.5; if(Math.abs(c.z-this.wz)>0.01)this.vz*=-0.5; this.wx=c.x; this.wz=c.z; } }   // CUBE: bounce off the real rectangular walls (was the old circular ARENA_R ghost boundary)
     else { const dd=Math.hypot(this.wx,this.wz); if(typeof ARENA_R!=='undefined'&&dd>ARENA_R-8){ const n=dd||1; this.wx=this.wx/n*(ARENA_R-8); this.wz=this.wz/n*(ARENA_R-8); this.vx*=-0.5; this.vz*=-0.5; } }
     const sp=Math.hypot(this.vx,this.vy,this.vz);
