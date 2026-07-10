@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB569</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB570</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -14761,10 +14761,13 @@ class BotPilot{
                 else { m.emissive=(this._emiDim?this._emiDim.clone():new THREE.Color(0xaa1100)); }     // robot: flat coloured glow (unchanged from before)
                 m.emissiveIntensity=isRobot?2.5:(window._BOT_SKIN_GLOW||0.9);
               }
+              if(!isRobot)m._heroSkin=true;   // textured hero skin -> _tintAllyApply hue-ROTATES its texture to this rival's colour (not a flat overlay), same as the player
               if('toneMapped' in m)m.toneMapped=false; m.needsUpdate=true; return m; });
             c.material=Array.isArray(c.material)?out:out[0];
             (Array.isArray(c.material)?c.material:[c.material]).forEach(m=>this._emiMats.push(m));
-            if(window._BOT_WIRE!==false && typeof _quadWireTwin==='function'){ try{ const w=_quadWireTwin(c, this._emiColor, (window._BOT_WIRE_OP!=null?window._BOT_WIRE_OP:0.55)); w._isWireTwin=true; _wires.push({src:c,w}); }catch(_){} }
+            // wireframe: robot + interceptor keep the clean panel wire; alien + cyber (dense organic mesh-net) default OFF, like the player
+            const _botWireOn = isRobot?(window._BOT_WIRE!==false) : isInterceptor?(window._BOT_WIRE!==false&&window._INTERCEPTOR_WIRE!==false) : isAlien?(window._ALIEN_WIRE===true) : isCyber?(window._CYBER_WIRE===true) : (window._BOT_WIRE!==false);
+            if(_botWireOn && typeof _quadWireTwin==='function'){ try{ const w=_quadWireTwin(c, this._emiColor, (window._BOT_WIRE_OP!=null?window._BOT_WIRE_OP:0.55)); w._isWireTwin=true; _wires.push({src:c,w}); }catch(_){} }
           }
         });
         _wires.forEach(({src,w})=>{ if(src.parent)src.parent.add(w); });   // attach quad-wire twins as siblings (share transform + skeleton)
@@ -27497,7 +27500,11 @@ function _dismount(hop){ if(!player||!player._mount)return; const a=player._moun
   player._remountCD=(window._MOUNT_REMOUNT_CD||1.2);   // block instant re-grab: the generous proximity mount was snapping you right back on, so jump/dash fought you. Cooldown lets you actually get OFF.
   if(hop){ player.pvy=Math.max(player.pvy||0,(window._MOUNT_DISMOUNT_V||300));   // launch up off the creature
     if(a){ const dx=player.wx-a.wx, dz=player.wz-a.wz, dl=Math.hypot(dx,dz)||1; const _ph=(window._MOUNT_DISMOUNT_H||150); player.vx=dx/dl*_ph; player.vz=dz/dl*_ph; } }   // + shove outward so you clear the mount radius
-  if(player.model&&player.model.userData){ const ud=player.model.userData; ud.currentClip=null; ud._rideIdleName=null; ud._rideShootName=null; ud._rideMix=0; ud._spineBaseIdle=null; ud._spineBaseShoot=null; } if(typeof announce==='function')announce('DISMOUNT','#9fe8ff'); }
+  if(player.model&&player.model.userData){ const ud=player.model.userData; ud.currentClip=null; ud._rideIdleName=null; ud._rideShootName=null; ud._rideMix=0; ud._spineBaseIdle=null; ud._spineBaseShoot=null; }
+  // FORCE the held hand-gun to rebuild after dismount — the ride pose/shoulder state could strand it hidden (invisible minigun after riding). Nulling the models makes _updateHandWeapons recreate + re-show them fresh next frame.
+  try{ for(const k of ['_handWpnR','_handWpnL']){ const m=player[k]; if(m){ if(m.parent)m.parent.remove(m); player[k]=null; } } player._lastHandWpn=null; player._muzzleValidR=false; player._muzzleValidL=false; }catch(_){}
+  if(typeof announce==='function')announce('DISMOUNT','#9fe8ff'); }
+window._mount=_mount; window._dismount=_dismount;
 window._mountBones=function(){ const a=player&&player._mount; const m=a&&a._model; if(!m){ console.log('[mount] not mounted — hop on a creature first'); return []; } const names=[]; try{ m.traverse(o=>{ if(o.isBone) names.push(o.name); }); }catch(_){} console.log('[mount] creature bones ('+names.length+'):', names); return names; };   // hop on, run _mountBones() in the console, tell me a neck/head bone name -> set window._MOUNT_BONE to sit there
 function _mountTick(dt){
   if(window._MOUNT_ON===false || !player || player.alive===false) return;
@@ -34834,6 +34841,7 @@ function _stanceMuzzle(pl, slot, out){
   const CH=_chestBone(bones); if(CH){ CH.getWorldPosition(out); out.y+=9; return 'shoulder'; }
   const hb=bones['mixamorig_LeftHand']; if(hb){ hb.getWorldPosition(out); return 'hand'; } return null;
 }
+window._stanceMuzzle=_stanceMuzzle;
 function _updateHandWeapons(dt){
   if(!player||!player.model) return;
   const ud=player.model.userData, bones=ud&&ud.bones; if(!bones) return;
