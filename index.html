@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB581</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB582</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -38365,6 +38365,48 @@ function _framePreviewModel(model, opts){ opts=opts||{};
   const cx=gotHips?hp.x:(mn.x+mx.x)*0.5, cz=gotHips?hp.z:(mn.z+mx.z)*0.5;   // centre the spin axis on the HIPS (the natural pivot) so an asymmetric pose doesn't orbit left/right
   model.position.set(-cx*s, -mn.y*s+(window._CHAR_PREVIEW_GROUND!=null?window._CHAR_PREVIEW_GROUND:-1.7), -cz*s);
 }
+// ── TITLE-SCREEN ROSTER — the other playable characters standing a little behind the hero on the title pad, idling.
+//    Starting point for the posed line-up: for now everyone just plays the shared idle clip (retargeted rotation-only for
+//    the non-robot rigs). Later, swap `idle` for per-character start-screen pose clips (start_screen_pose_1/2/3). ──
+const _TITLE_ROSTER=[
+  { key:'alien',       cache:'_cachedAlienGltf',       url:(typeof ALIEN_PLAYER_GLB!=='undefined'?ALIEN_PLAYER_GLB:'models/alien_robit.glb'), x:-2.9, z:-1.6, rot:0.16 },
+  { key:'interceptor', cache:'_cachedInterceptorGltf', url:'models/interceptor.glb', x:2.9,  z:-1.6, rot:-0.16 },
+  { key:'cybergirl',   cache:'_cachedCybergirlGltf',   url:'models/cybergirl.glb',   x:-1.55, z:-3.4, rot:0.1 },   // offset back-left so she isn't hidden directly behind the hero
+];
+function _titleRosterModel(gltf, key, scl){
+  const model=SkeletonUtils.clone(gltf.scene);
+  if(key==='cybergirl'){ const rx=(window._CYBER_ROT_X!=null?window._CYBER_ROT_X:Math.PI/2); let inner=null,hp=null; model.children.forEach(c=>{ if(inner)return; let sk=false; if(c.traverse)c.traverse(o=>{ if(o.isSkinnedMesh)sk=true; }); if(sk)inner=c; }); model.traverse(o=>{ if(o.name==='mixamorig_Hips')hp=o; }); if(inner&&rx){ inner.rotation.x+=rx; if(hp)hp.rotation.x-=rx; } }   // stand her upright
+  _framePreviewModel(model,{scale:scl});   // feet justified to the pad ground regardless of scale
+  const glow=(window._TITLE_ROSTER_GLOW||0.85);
+  model.traverse(c=>{ if((c.isMesh||c.isSkinnedMesh)&&c.material){ c.frustumCulled=false;
+    const mats=Array.isArray(c.material)?c.material:[c.material];
+    const out=mats.map(mt=>{ if(!mt)return mt; const m=new THREE.MeshStandardMaterial({side:THREE.DoubleSide,roughness:0.5,metalness:0.18,emissiveIntensity:glow,toneMapped:false});
+      if(mt.map){ m.map=mt.map; m.emissiveMap=mt.map; m.emissive=new THREE.Color(0xffffff); } else if(mt.color){ m.color.copy(mt.color); m.emissive=new THREE.Color(0x223344); } return m; });   // self-illuminated texture (matches the in-game hero-skin look)
+    c.material=Array.isArray(c.material)?out:out[0];
+  } });
+  return model;
+}
+function _titleRosterIdle(model){
+  const rg=window._cachedRobotGltf; if(!rg||!rg.animations||!rg.animations.length) return null;
+  const anims=rg.animations, clips={}; anims.forEach(a=>{ const n=a.name.toLowerCase().split('|').pop().split(':').pop(); clips[n]=a; });
+  let idle=clips['idle']||clips['floating']||anims.find(a=>/idle/i.test(a.name))||anims.find(a=>!/flip|roll|dash|dive|skate/i.test(a.name))||anims[0];
+  try{ if(typeof _filterClipToScene==='function') idle=_filterClipToScene(idle,model)||idle; }catch(e){}
+  try{ if(typeof _retargetRotationOnly==='function') idle=_retargetRotationOnly(idle)||idle; }catch(e){}
+  const mixer=new THREE.AnimationMixer(model); try{ mixer.clipAction(idle).play(); }catch(e){} return mixer;
+}
+function _addTitleRoster(sc, backups){
+  const scl=(window._TITLE_ROSTER_SCALE||0.86);   // a touch smaller than the hero so he stays the star
+  for(const r of _TITLE_ROSTER){
+    const place=(gltf)=>{ try{
+      const model=_titleRosterModel(gltf, r.key, scl);
+      const grp=new THREE.Group(); grp.add(model); grp.position.set(r.x,0,r.z); grp.rotation.y=r.rot||0; sc.add(grp);
+      backups.push({ mixer:_titleRosterIdle(model), grp, key:r.key });
+    }catch(_){} };
+    const cached=window[r.cache];
+    if(cached){ place(cached); }
+    else { try{ const ldr=new GLTFLoader(); ldr.load(r.url, g=>{ window[r.cache]=g; place(g); }, null, ()=>{}); }catch(_){} }
+  }
+}
 function _startRobotViewer(canvasId, opts={}){
   const canvas=document.getElementById(canvasId);
   if(!canvas||canvas._robotRunning) return;
@@ -38388,7 +38430,9 @@ function _startRobotViewer(canvasId, opts={}){
   const rl=new THREE.DirectionalLight(0xaa44ff,0.9); rl.position.set(-2,1,-1); sc.add(rl);
 
   let mixer=null, modelRoot=null, pad=null;
+  const backups=[];   // title-screen roster (the other characters idling behind the hero)
   if(opts.pad){ try{ pad=_buildTitlePad(); pad.position.y=(window._CHAR_PREVIEW_GROUND!=null?window._CHAR_PREVIEW_GROUND:-1.7); pad.userData.baseY=pad.position.y; pad.scale.setScalar(window._PAD_SCALE||1.2); sc.add(pad); }catch(_){ pad=null; } }
+  if(opts.pad && window._TITLE_ROSTER_ON!==false){ try{ _addTitleRoster(sc, backups); }catch(_){} }
 
   function onGltf(gltf){
     const model=SkeletonUtils.clone(gltf.scene);
@@ -38433,6 +38477,7 @@ function _startRobotViewer(canvasId, opts={}){
     if(!canvas._robotRunning) return;
     const dt=clock.getDelta();
     if(mixer) mixer.update(Math.min(dt,0.05));   // clamp: a stalled frame (GC/compositor jank) gives a huge dt that would jump the mixer several frames — the subtle "pops to a different frame" glitch
+    for(let i=0;i<backups.length;i++){ if(backups[i].mixer) backups[i].mixer.update(Math.min(dt,0.05)); }   // idle the roster standing behind the hero
     { const _spin=(opts.alwaysRotate||window._playerChar===(opts.charKey||'__none')); if(modelRoot){ if(_spin) modelRoot.rotation.y+=dt*(window._CHAR_SPIN_SPD||0.9); else { let _d=((window._CHAR_FACE_ROT||0)-modelRoot.rotation.y); _d=Math.atan2(Math.sin(_d),Math.cos(_d)); modelRoot.rotation.y+=_d*Math.min(1,dt*6); } } }
     if(pad){ const t=clock.elapsedTime, sdt=Math.min(dt,0.05);
       // FLOATING MOTION: rhythmic wave-like bob + tilt (think surfboard / balance board). Tilt pivots at the FEET so the rig rocks in place.
