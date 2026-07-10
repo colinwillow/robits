@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB566</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB567</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -11402,6 +11402,7 @@ class Missile{
     if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){
       if(_bot.alive){ const _bd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_bd<BLAST){ _bot.hit(Math.max(1,Math.ceil(this.dmg*(1-_bd/BLAST)))); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 3, 0, 26); if(_bot.pvy!=null)_bot.pvy=Math.max(_bot.pvy||0,(window._ROCKET_LIFT||110)*(1-_bd/BLAST)); hitAny=true; } }   // little airborne pop for rivals too (not a full launch)
     }
+    if(window._sentries)for(const s of window._sentries){ if(!s||s._faction==='ally'||s.hp<=0)continue; const sy=(s.grp?s.grp.position.y:(s.y||9)); const _sd=Math.hypot(s.x-this.wx,sy-this.y,s.z-this.wz); if(_sd<BLAST){ s.hp-=Math.max(1,Math.ceil(this.dmg*(1-_sd/BLAST))); s.hitFlash=0.14; hitAny=true; } }   // rocket splash kills rival turrets (they die in _sentryTick when hp<=0)
     if(hitAny && window._explClang)window._explClang(this.wx,this.wz);   // shrapnel clang (delayed) under the rocket's boom when it connects
     // Hit training dummy — rockets do big sway (dmg=18 → force=216)
     // Use dummy position as "from" so push is always away from dummy center
@@ -14893,8 +14894,13 @@ class BotPilot{
         if(typeof _detonateItem==='function')try{ _detonateItem(type, tx, tz, false); }catch(_){}
         if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL THREW '+(''+type).toUpperCase(),'#ff7a7a');}catch(_){}
       } else if(type==='sentry'){   // rival deploys the TURRET on its own side -> it hunts YOU (and rival bots)
-        if(typeof _spawnSentry==='function')try{ _spawnSentry(this.wx, this.wz, {owner:this, ownerBot:this, faction:'bot', y:(this.py>20?this.py:9)}); }catch(_){}
-        if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL DEPLOYED SENTRY','#ff5555');}catch(_){}
+        // rest it on a real SURFACE (deck top under the bot, else the floor) — deploying at the bot's aerial py made turrets float over the pad; and don't stack them
+        let _sy=9;
+        try{ const CS=window._arenaAssetCols; if(CS)for(const c of CS){ if(!c||c.top==null)continue; if(Math.abs(this.wx-c.x)<(c.hw||0)+6 && Math.abs(this.wz-c.z)<(c.hd||0)+6 && c.top<=(this.py||0)+10 && c.top>_sy)_sy=c.top; } }catch(_){}
+        if(_sy>(this.py||0)+10)_sy=9;   // never float above the bot's feet
+        const _stack=(window._sentries||[]).some(s=>s&&s._faction!=='ally'&&s.hp>0&&Math.hypot((s.x||0)-this.wx,(s.z||0)-this.wz)<(window._BOT_SENTRY_SPACING||64));   // don't pile turrets on the same pad
+        if(!_stack && typeof _spawnSentry==='function')try{ _spawnSentry(this.wx, this.wz, {owner:this, ownerBot:this, faction:'bot', y:_sy}); }catch(_){}
+        if(!_stack && window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL DEPLOYED SENTRY','#ff5555');}catch(_){}
       } else if(type==='droid'||type==='dog'||type==='dragon'||type==='spiders'||type==='spiderpack'||type==='drone'){   // SUMMON ball -> the rival UNLEASHES the creature on YOU (spawned as a hostile enemy you can gun down)
         if(typeof _botSummonCreature==='function') _botSummonCreature(type, this.wx, this.wz, this);   // pass the owning bot -> creature wears the bot's colour
         if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL SUMMONED '+(''+type).toUpperCase(),'#ff5555');}catch(_){}
@@ -15288,6 +15294,7 @@ class BotPilot{
     // ── SECOND-LEVEL: ride the lift pads up to the raised decks, then JUMP to grab the floating aerial power-ups ──
     if(window._BOT_PADS!==false && GS.zone===-19 && !this._fetchTarget){
       const _A=window._cubePadAnchors;
+      this._botAerialCD=Math.max(0,(this._botAerialCD||0)-dt);   // throttle deck-powerup grabs so a rival can't vacuum 2-3 pads in a second
       let _ai=null,_aid=1e9; { const IP=window._itemPU; if(IP)for(const p of IP){ if(!p||p._floatY==null||p._loot||p.type==='barrel')continue; if(window._BOT_GRAB_OFFENSIVE!==true&&(p.type==='nuke'||p.type==='singularity'||p.type==='quake'))continue; const d=Math.hypot((p.x||0)-this.wx,(p.z||0)-this.wz); if(d<_aid){_aid=d;_ai=p;} } }   // nearest grabbable floating power-up
       const _elevated=(this._onPad||(this.py||0)>(window._BOT_AERIAL_MINY||90));
       if(_ai && _elevated){   // up on the deck near a floating item -> slide under it, JUMP, and grab it out of the air
@@ -15295,7 +15302,7 @@ class BotPilot{
         if(ihd>5){ mvX=idx/ihd; mvZ=idz/ihd; } else { mvX=0; mvZ=0; }   // slide under it, then HOLD (don't let combat drag us off the pad before the hop)
         this._botJumpCD=Math.max(0,(this._botJumpCD||0)-dt);
         if((this._onPad||(this.pvy||0)<=3) && ihd<(window._BOT_AERIAL_JUMP_R||46) && vgap>16 && this._botJumpCD<=0){ this.pvy=(window._BOT_JUMP_V||190); this._onPad=null; this._botJumpCD=(window._BOT_JUMP_CD||0.9); if(typeof ps!=='undefined'&&Math.random()<0.6)ps.burst(this.wx,this.py+4,[0.5,0.8,1],3,60); }   // hop up for it
-        if(ihd<(window._GRAB_R_ITEM||60) && Math.abs(vgap)<(window._BOT_AERIAL_GRAB_DY||46)){ try{ this._botGrab({kind:'item',ref:_ai}); }catch(_){} }
+        if(ihd<(window._GRAB_R_ITEM||60) && Math.abs(vgap)<(window._BOT_AERIAL_GRAB_DY||46) && (this._botAerialCD||0)<=0){ try{ this._botGrab({kind:'item',ref:_ai}); this._botAerialCD=(window._BOT_PU_GRAB_CD||8); }catch(_){} }
         this._padGoal=null;
       } else {   // on the ground -> pick a lift pad (prefer the one UNDER the target power-up) and ride it up
         if(this._padGoal && (this._onPad||this._padLift||(this.py||0)>20||((this._padGoalT=(this._padGoalT||0)-dt)<=0))) this._padGoal=null;
@@ -18522,7 +18529,7 @@ function _platPUTick(dt){
     if(live){ const gy=_platPUV.y+hov; it.x=_platPUV.x; it.z=_platPUV.z; it.y=gy; it._floatY=gy; it.settled=true; it._noExpire=true;   // pin to the (animating) joint — set the mesh directly since the item loop only bobs .y
       if(it.grp){ const bob=Math.sin((it.t||0)*(window._POWERPAD_BOB_SPD||2.2))*(window._POWERPAD_BOB||7); it.grp.position.set(_platPUV.x, gy+bob, _platPUV.z); }
       slot.cd=0; }
-    else { slot.item=null; slot.cd=(slot.cd||0)+dt; if(slot.cd>=(window._PLAT_PU_RESTOCK||14))_platPUSpawnSlot(slot); }   // grabbed -> restock after a beat
+    else { slot.item=null; slot.cd=(slot.cd||0)+dt; if(slot.cd>=(window._PLAT_PU_RESTOCK||15))_platPUSpawnSlot(slot); }   // grabbed -> restock after a beat (sparse: power stations recharge, they don't pop back instantly)
   }
 }
 window._platPUTick=_platPUTick;
@@ -25296,6 +25303,7 @@ function loop(ts){ requestAnimationFrame(loop);
       for(let i=GS.missiles.length-1;i>=0;i--){
         const targets=[...GS.enemies,...GS_bots.filter(b=>b.alive),...(window._crates||[])];
         if(GS_trainingDummy&&GS.zone===-2) targets.push(GS_trainingDummy);
+        if(window._sentries)for(const s of window._sentries){ if(s&&s._faction!=='ally'&&s.hp>0)targets.push({wx:s.x,wz:s.z,size:(window._SENTRY_HITR||22),mesh:{position:{y:(s.grp?s.grp.position.y:(s.y||9))}},_sentry:s}); }   // rival TURRETS are homing/splash targets too, so rockets actually kill them
         if(!GS.missiles[i].update(dt,targets)){GS.missiles[i].remove();GS.missiles.splice(i,1);}
       }
       for(let i=GS.arrows.length-1;i>=0;i--){
