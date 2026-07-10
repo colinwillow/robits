@@ -294,7 +294,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB570</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB571</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -23042,6 +23042,7 @@ window._doBootsToggle=_doBootsToggle;
 // with the kick-SLIDE + its forward locomotion — _doMeleeTap's auto-target lunge was overriding the slide's dash so it
 // played the animation in place. null dir = keep the running facing (slide goes where you're moving); standing = combo.
 function _padMelee(){ if(!player||GS.state!=='playing')return; const ud=player.model&&player.model.userData; if(ud&&typeof _doMeleeFlick==='function')_doMeleeFlick(ud, null, undefined, 'never'); }   // X = MELEE ONLY (never a slide) -> spammable on the ground like the air combo; slide moved to B-while-running
+window._padMelee=_padMelee;
 function _padSlideOrGrab(){   // gamepad B (not carrying): RUNNING -> slide; otherwise grab/interact
   if(!player||GS.state!=='playing')return;
   const ud=player.model&&player.model.userData;
@@ -24411,6 +24412,26 @@ function loop(ts){ requestAnimationFrame(loop);
               }
             }
             let kvx=pv?(bx-pv.x):0, kvz=pv?(bz-pv.z):0;
+            // ── DIRECTIONAL MELEE WAKE — a short bullet-style grid wake punched OUT along the strike direction (like the Big Bill
+            //    travel trail, but a single quick burst per swing). Sweeping swing -> wake follows the blade; stab/slam -> punches
+            //    forward along the aim. Deforms the cube floor (sheets) and the flat grid elsewhere. Tunables: _MELEE_WAKE_* ──
+            if(window._MELEE_WAKE!==false && !ud._meleeWakeDone && _committed>(window._MELEE_WAKE_DELAY||0.05)){
+              ud._meleeWakeDone=true;
+              const _spd=Math.hypot(kvx,kvz); let _wdx,_wdz;
+              if(_spd>(window._MELEE_WAKE_MINSPD||0.6)){ _wdx=kvx/_spd; _wdz=kvz/_spd; } else { const _a=player.aim||0; _wdx=Math.cos(_a); _wdz=Math.sin(_a); }   // stab/slam: shoot the wake forward along aim
+              const _wStr=((_MS.bMag||9)/9)*(window._MELEE_WAKE_STR||4.5);   // heavier weapon (bMag) punches the grid harder
+              const _wR=(window._MELEE_WAKE_R||72), _wN=(window._MELEE_WAKE_LEN||5), _wSp=(window._MELEE_WAKE_SPACING||46);
+              const _wph=(typeof performance!=='undefined'?performance.now()*0.001:0);
+              const _wSheets=(typeof gridSheetsSwirl==='function' && typeof GRID_SHEETS!=='undefined' && GRID_SHEETS.length);
+              const _wFlat=(typeof grid!=='undefined' && grid.swirlAxis && GS.zone!==-19);
+              const _wy=(player.py||0)+9;
+              for(let _wi=0;_wi<_wN;_wi++){ const _fall=1-_wi/_wN, _px=player.wx+_wdx*(_wSp*_wi+18), _pz=player.wz+_wdz*(_wSp*_wi+18);
+                if(_wSheets){ try{ gridSheetsSwirl(_px,_wy,_pz,_wdx,_wdz,_wStr*_fall*(window._MELEE_WAKE_SHEET_MUL||1),_wR,_wph-_wi*0.7); }catch(_){} }
+                if(_wFlat){ try{ grid.swirlAxis(_px,_pz,_wdx,_wdz,_wStr*_fall,_wR,_wph-_wi*0.7); }catch(_){} try{ if(grid.push)grid.push(_px,_pz,-(window._MELEE_WAKE_PUSH||6)*_fall,_wR*0.9); }catch(_){} }
+              }
+              if(_wFlat&&grid.pulse)try{ grid.pulse(0.3); }catch(_){}
+              if(typeof addTrauma==='function')addTrauma(window._MELEE_WAKE_TRAUMA!=null?window._MELEE_WAKE_TRAUMA:0.05);
+            }
             const HIT_R=_MS.reach;   // per-weapon reach (spear long, sword short)
             const _seg=(px,py,pz)=>{ const dx=bx-ax2,dy=by-ay2,dz=bz-az2, L2=dx*dx+dy*dy+dz*dz||1; let t=((px-ax2)*dx+(py-ay2)*dy+(pz-az2)*dz)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(px-(ax2+dx*t),py-(ay2+dy*t),pz-(az2+dz*t)); };
             // (parry is handled by the armed window in _parryGaugeTick — swing arms it, the projectile entering the zone triggers it)
@@ -34017,7 +34038,7 @@ function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
     Object.values(ud.clips).forEach(a=>{ if(a!==mc && a!==prev) a.fadeOut(0.05); });
     ud.currentClip=mname;
   }
-  ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false; ud._meleeFXdone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; player._parryArmT=(window._PARRY_SWING_WIN!=null?window._PARRY_SWING_WIN:0.34); player._parryAimDir=(player.aim||0);   // arm a parry window + remember the angle you swung at (launch direction)
+  ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false; ud._meleeFXdone=false; ud._meleeWakeDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; player._parryArmT=(window._PARRY_SWING_WIN!=null?window._PARRY_SWING_WIN:0.34); player._parryAimDir=(player.aim||0);   // arm a parry window + remember the angle you swung at (launch direction)
   player._swingAction=usedAdditive?player._meleeAdditive:mc;   // remember the actual playing action so the ball-hit window can follow the FULL swing even if the timer/anim speeds drift
   player._swingSpeed=spd;   // drives the manual time-advance after mixer.update (deterministic speed-up)
   player._meleeComboT=mdur+(window._MELEE_COMBO_GAP!=null?window._MELEE_COMBO_GAP:1.0);   // ~1s grace after the swing to chain; wait longer -> sequence restarts at melee_1
