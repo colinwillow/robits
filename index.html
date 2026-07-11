@@ -299,7 +299,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB615</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB616</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -10985,18 +10985,21 @@ function _heroHueHook(m){
   // preserving the segmented-colour contrast. uBlackLift=strength, uBlackColor=what black maps to, uBlackKnee=how far up the
   // luminance the recolour reaches (only the darkest bits, so mids/brights keep the hue-rotate).
   m.userData._blkLiftU={value:0}; m.userData._blkColU={value:new THREE.Color(0x101830)}; m.userData._blkKneeU={value:(window._GRAD_KNEE!=null?window._GRAD_KNEE:0.30)};
+  // uEmiTintMix>0 -> the emissive GLOW becomes uEmiColor modulated by the texture's LUMINANCE (predictable single-hue glow that keeps the value/form detail). Used to UNIFY the title roster hues; 0 = the old per-skin hue-rotate (in-game default).
+  m.userData._emiColU={value:new THREE.Color(0xffffff)}; m.userData._emiMixU={value:0}; m.userData._emiGainU={value:(window._HERO_EMI_GAIN||1.55)};
   const prev=m.onBeforeCompile;
   m.onBeforeCompile=function(shader){ if(prev)try{ prev(shader); }catch(_){}
     shader.uniforms=shader.uniforms||{}; shader.uniforms.uHueAngle=m.userData._hueU;
     shader.uniforms.uBlackLift=m.userData._blkLiftU; shader.uniforms.uBlackColor=m.userData._blkColU; shader.uniforms.uBlackKnee=m.userData._blkKneeU;
+    shader.uniforms.uEmiColor=m.userData._emiColU; shader.uniforms.uEmiTintMix=m.userData._emiMixU; shader.uniforms.uEmiGain=m.userData._emiGainU;
     shader.fragmentShader=
-      'uniform float uHueAngle;\nuniform float uBlackLift;\nuniform vec3 uBlackColor;\nuniform float uBlackKnee;\n'+
+      'uniform float uHueAngle;\nuniform float uBlackLift;\nuniform vec3 uBlackColor;\nuniform float uBlackKnee;\nuniform vec3 uEmiColor;\nuniform float uEmiTintMix;\nuniform float uEmiGain;\n'+
       'vec3 _hrot(vec3 c,float a){ const vec3 k=vec3(0.57735026919); float cs=cos(a),sn=sin(a); return c*cs+cross(k,c)*sn+k*dot(k,c)*(1.0-cs); }\n'+
       'vec3 _recolor(vec3 c){ vec3 h=clamp(_hrot(c,uHueAngle),0.0,1.0); float L=dot(h,vec3(0.299,0.587,0.114)); float w=uBlackLift*(1.0-smoothstep(0.0, max(uBlackKnee,0.001), L)); return mix(h, uBlackColor, w); }\n'+
       shader.fragmentShader;
     shader.fragmentShader=shader.fragmentShader
       .replace('#include <map_fragment>','#include <map_fragment>\n diffuseColor.rgb=_recolor(diffuseColor.rgb);')
-      .replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n totalEmissiveRadiance=_recolor(totalEmissiveRadiance);');
+      .replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n float _emL=dot(totalEmissiveRadiance,vec3(0.299,0.587,0.114));\n totalEmissiveRadiance=mix(_recolor(totalEmissiveRadiance), uEmiColor*_emL*uEmiGain, uEmiTintMix);');
   };
   m.needsUpdate=true;
 }
@@ -11015,6 +11018,7 @@ function _heroHueSet(m,c){
   let a=m._hueHSL.h-(m._skinBaseHue||0.33); a=((a%1)+1)%1; if(a>0.5)a-=1;   // shortest rotation from the texture's own hue to the target
   if(m.userData&&m.userData._hueU)m.userData._hueU.value=a*6.2832;
   // recolour the near-blacks toward a distinct colour (default ON). Per-skin override via m._gradMix; _HERO_GRADMAP=false = pure hue-shift.
+  if(m.userData&&m.userData._emiColU)m.userData._emiColU.value.copy(c);   // the predictable emissive-glow tint target (used when uEmiTintMix>0)
   if(m.userData&&m.userData._blkColU){ _heroBlackColor(c, m.userData._blkColU.value);
     const lift=(m._gradMix!=null?m._gradMix:(window._HERO_GRADMIX!=null?window._HERO_GRADMIX:0.7));
     m.userData._blkLiftU.value=(window._HERO_GRADMAP===false?0:lift);
@@ -38786,9 +38790,9 @@ function _framePreviewModel(model, opts){ opts=opts||{};
 //    Starting point for the posed line-up: for now everyone just plays the shared idle clip (retargeted rotation-only for
 //    the non-robot rigs). Later, swap `idle` for per-character start-screen pose clips (start_screen_pose_1/2/3). ──
 const _TITLE_ROSTER=[
-  { key:'alien',       cache:'_cachedAlienGltf',       url:(typeof ALIEN_PLAYER_GLB!=='undefined'?ALIEN_PLAYER_GLB:'models/alien_robit.glb'), x:-2.9, z:-1.6, rot:0.16, col:0x2be86a },
-  { key:'interceptor', cache:'_cachedInterceptorGltf', url:'models/interceptor.glb', x:2.9,  z:-1.6, rot:-0.16, col:0x33e0ff },
-  { key:'cybergirl',   cache:'_cachedCybergirlGltf',   url:'models/cybergirl.glb',   x:-1.55, z:-3.4, rot:0.1, col:0xff3df0 },   // offset back-left so she isn't hidden directly behind the hero
+  { key:'alien',       cache:'_cachedAlienGltf',       url:(typeof ALIEN_PLAYER_GLB!=='undefined'?ALIEN_PLAYER_GLB:'models/alien_robit.glb'), x:-2.9, z:-1.6, rot:0.16, col:0x33e8c0 },   // cohesive cool-neon band (teal -> cyan -> violet) so the roster reads unified but keeps variation
+  { key:'interceptor', cache:'_cachedInterceptorGltf', url:'models/interceptor.glb', x:2.9,  z:-1.6, rot:-0.16, col:0x38b6ff },
+  { key:'cybergirl',   cache:'_cachedCybergirlGltf',   url:'models/cybergirl.glb',   x:-1.55, z:-3.4, rot:0.1, col:0xb060ff },   // offset back-left so she isn't hidden directly behind the hero
 ];
 // Apply the EXACT in-game neon treatment to a title-screen model so the home screen matches gameplay: emissive self-illuminated
 // glow + the glowing quad-WIREFRAME (robot only, like in-game) + the hue-shift/black-recolor tint via _tintAllyApply. Robot glows
@@ -38812,6 +38816,8 @@ function _titleNeonize(model, opts){ opts=opts||{};
   });
   wires.forEach(({src,w})=>{ if(src.parent)src.parent.add(w); });   // attach wire twins as siblings (share transform + skeleton)
   try{ if(opts.color!=null && typeof _tintAllyApply==='function') _tintAllyApply(model, opts.color.isColor?opts.color:new THREE.Color(opts.color)); }catch(_){}
+  // TITLE ROSTER: switch hero skins to the predictable luminance-x-target-colour glow so the roster reads as a UNIFIED palette (and no value inversion)
+  if(!isRobot && opts.color!=null){ const _emix=(window._TITLE_SKIN_EMI!=null?window._TITLE_SKIN_EMI:0.85); try{ model.traverse(o=>{ if(!o.material)return; const ms=Array.isArray(o.material)?o.material:[o.material]; for(const m of ms){ if(m&&m._heroSkin&&m.userData&&m.userData._emiMixU)m.userData._emiMixU.value=_emix; } }); }catch(_){} }
 }
 window._titleNeonize=_titleNeonize;
 function _titleRosterModel(gltf, key, scl, col){
@@ -38855,7 +38861,7 @@ function _startRobotViewer(canvasId, opts={}){
   renderer.setClearColor(0x000000,0);
   renderer.outputColorSpace=THREE.SRGBColorSpace; // fix blue rendering
 
-  const sc=new THREE.Scene();
+  const sc=new THREE.Scene(); window._titleSc=sc;
   const cam=new THREE.PerspectiveCamera(45,w/h,0.1,100);
   cam.position.set(0,0.6,opts.camZ||5.5);
   cam.lookAt(0,opts.camLookY||0.1,0);
