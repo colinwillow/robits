@@ -299,7 +299,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB619</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB620</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -11333,6 +11333,7 @@ class Bullet{
     else if(_cf){ this.y+=this.vy*dt; }                                        // riding/approaching a surface -> climb freely, no ground pull
     else if(GS.zone===-19){ this.y+=this.vy*dt; }                              // cube free-flight: keep its 3D motion (straight-out shots cross the room) — the stick handles surfaces
     else if(this.y>9||this.vy>0.5){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){ this.y=9; this.vy=(this.vy<-55)?-this.vy*0.5:0; } }   // arc + bounce off the floor (loses half its energy each hop)
+    if(GS.zone===-19 && window._buildRamps && window._buildRamps.length && window._buildRampBulletHit)try{ window._buildRampBulletHit(this,dt); }catch(_){}   // ricochet UP off a built launch ramp
     this.mesh.position.set(this.wx,this.y,this.wz);
     _bvDir.set(this.vx,this.vy||0,this.vz); if(_bvDir.lengthSq()>1e-4){ _bvDir.normalize(); this.mesh.quaternion.setFromUnitVectors(_BULLET_AXIS,_bvDir); }
     if(!this._g3 && grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,0.7);
@@ -12324,6 +12325,7 @@ class Player{
       const thrown=!!this._stickWasPushed;
       if(this._bombMode==='melee'){ this._launchThrownMelee(sp.x,sp.y,sp.z,v.x+this.vx*0.3,v.y,v.z+this.vz*0.3, power===undefined); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
       if(this._bombMode==='gun'){ this._launchThrownGun(sp.x,sp.y,sp.z,v.x+this.vx*0.3,v.y,v.z+this.vz*0.3, power===undefined); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
+      if(this._bombMode==='item' && this._carryPayload && this._carryPayload.type==='buildramp'){ this._carryPayload=null; this._disarmBomb(); try{ window._placeBuildRampFromGhost&&window._placeBuildRampFromGhost(); }catch(_){} return; }   // BUILD cube -> place the ramp at the ghost instead of a physics throw
       if(this._bombMode==='item'){ const pl=this._carryPayload||{kind:'item',type:'nuke'}; if(!window._itemShots)window._itemShots=[]; window._itemShots.push({x:sp.x,y:sp.y,z:sp.z,vx:v.x,vz:v.z,vy:v.y,type:pl.type,kind:pl.kind}); this._carryPayload=null; this._disarmBomb(); if(typeof announce==='function')announce(pl.kind==='crate'?'CRATE THROWN':((pl.type||'').toUpperCase()+' THROWN'),'#ffd84a'); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'sine',0.2,160); return; }
       const _ally=(this._bombMode==='ally'); const _crate=(this._bombMode==='crate');
       let _sp='crawler'; if(_ally){ let ow=_ownedSpecies(); if(ow.length) _sp=ow[Math.min(this._allySel||0,ow.length-1)]; }
@@ -12376,6 +12378,7 @@ class Player{
     const spawnY=this._bombHandPos?this._bombHandPos.y:launchY;
     if(this._bombMode==='melee'){ this._launchThrownMelee(spawnX,spawnY,spawnZ,vx,launchVY,vz, power===undefined); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
     if(this._bombMode==='gun'){ this._launchThrownGun(spawnX,spawnY,spawnZ,vx,launchVY,vz, power===undefined); this._disarmBomb(); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'square',0.2,150); return; }
+    if(this._bombMode==='item' && this._carryPayload && this._carryPayload.type==='buildramp'){ this._carryPayload=null; this._disarmBomb(); try{ window._placeBuildRampFromGhost&&window._placeBuildRampFromGhost(); }catch(_){} return; }   // BUILD cube -> place the ramp at the ghost
     if(this._bombMode==='item'){ const pl=this._carryPayload||{kind:'item',type:'nuke'}; if(!window._itemShots)window._itemShots=[]; window._itemShots.push({x:spawnX,y:spawnY,z:spawnZ,vx:vx,vz:vz,vy:launchVY,type:pl.type,kind:pl.kind}); this._carryPayload=null; this._disarmBomb(); if(typeof announce==='function')announce(pl.kind==='crate'?(isDrop?'CRATE DROPPED':'CRATE THROWN'):((pl.type||'').toUpperCase()+(isDrop?' DROPPED':' THROWN')),'#ffd84a'); if(typeof Audio!=='undefined')Audio.blip(300,0.12,'sine',0.2,160); return; }
     const _ally=(this._bombMode==='ally'); const _crate=(this._bombMode==='crate');
     let _sp='crawler'; if(_ally){ let ow=_ownedSpecies(); if(ow.length) _sp=ow[Math.min(this._allySel||0,ow.length-1)]; }
@@ -17604,7 +17607,126 @@ function _updateJewelPods(dt){
 window._updateJewelPods=_updateJewelPods;
 function _clearJewelPods(){ const P=window._jewelPods; if(!P)return; for(const pod of P){ try{ if(pod.mdl){ scene.remove(pod.mdl); pod.mdl.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); } if(pod.spr)scene.remove(pod.spr); if(pod.tex)pod.tex.dispose(); }catch(_){} } window._jewelPods=[]; window._nearJewelPod=null; }
 window._clearJewelPods=_clearJewelPods;
-window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateThrownMelee(dt); _updateCarry(dt); _barrelSpawnTick(dt); _updateJewelPods(dt); if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
+// ════════════════════════════════════════════════════════════════════════════════
+//  BUILDABLE RAMPS (#36/#37) — hold a BUILD cube, aim the translucent GHOST where it
+//  should go, then throw: the cube arcs out, POPS, and the ramp UNFOLDS/builds itself
+//  in place. A live launch-ramp collider (colour-coded, teal-green) that KICKS the
+//  ball, bullets, and the player up + off its lip. First piece of a buildable kit.
+//  (Origami-fold refinement to come; v1 unfolds by assembling up from a flat pad.)
+// ════════════════════════════════════════════════════════════════════════════════
+window._buildRamps=window._buildRamps||[];
+window._buildFX=window._buildFX||[];
+window._buildGhost=null;
+const _BUILD_COL={ramp:0x39ffc9};   // colour-coded by piece type (ramp = teal-green); walls/platforms will take their own hues
+function _rampDims(){ return { L:(window._BUILD_RAMP_L||220), W:(window._BUILD_RAMP_W||200), H:(window._BUILD_RAMP_H||115) }; }
+function _rampYaw(dir){ return dir==='+x'?0 : dir==='-x'?Math.PI : dir==='+z'?-Math.PI/2 : Math.PI/2; }
+function _makeRampMesh(L,W,H,col,ghost){
+  const g=new THREE.Group();
+  const sh=new THREE.Shape(); sh.moveTo(-L/2,0); sh.lineTo(L/2,0); sh.lineTo(L/2,H); sh.closePath();   // side profile: low front (-x) -> tall back (+x), hypotenuse = ramp surface
+  const geo=new THREE.ExtrudeGeometry(sh,{depth:W,bevelEnabled:false}); geo.translate(0,0,-W/2);
+  const mat=new THREE.MeshStandardMaterial({color:0x0a1522,metalness:0.5,roughness:0.5,emissive:col,emissiveIntensity:ghost?0.6:0.3,transparent:!!ghost,opacity:ghost?0.3:1,toneMapped:false,side:THREE.DoubleSide});
+  const m=new THREE.Mesh(geo,mat); g.add(m);
+  const edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:ghost?0.6:0.95,blending:THREE.AdditiveBlending,depthWrite:false})); g.add(edge);
+  const gt=new THREE.Mesh(new THREE.PlaneGeometry(L*1.02,W*1.02), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:ghost?0.1:0.14,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); gt.position.y=-0.4; gt.rotation.x=-Math.PI/2; g.add(gt);   // footprint glow
+  g.traverse(o=>{ o.frustumCulled=false; });
+  g.userData={mat,edge,m}; return g;
+}
+function _rampSlopeRef(x,z,dir,L,W,H){   // collider in the _cubePlatforms slope format the player + landing checks already read
+  const p=H/L, half=L/2, ref={x,z,top:H,slope:{y0:0,y1:H,perUnit:p}};
+  if(dir==='+x'){ ref.hw=L/2; ref.hd=W/2; ref.slope.ox=x-half; ref.slope.oz=z; ref.slope.nx=1;  ref.slope.nz=0; }
+  else if(dir==='-x'){ ref.hw=L/2; ref.hd=W/2; ref.slope.ox=x+half; ref.slope.oz=z; ref.slope.nx=-1; ref.slope.nz=0; }
+  else if(dir==='+z'){ ref.hw=W/2; ref.hd=L/2; ref.slope.ox=x; ref.slope.oz=z-half; ref.slope.nx=0; ref.slope.nz=1;  }
+  else               { ref.hw=W/2; ref.hd=L/2; ref.slope.ox=x; ref.slope.oz=z+half; ref.slope.nx=0; ref.slope.nz=-1; }
+  return ref;
+}
+function _rampNormal(s){ const p=s.perUnit; return new THREE.Vector3(-s.nx*p,1,-s.nz*p).normalize(); }   // outward top-surface normal (up + down-slope)
+function _rampSurfY(r,x,z){ const s=r.ref.slope; let y=s.y0+((x-s.ox)*s.nx+(z-s.oz)*s.nz)*s.perUnit; return Math.max(0,Math.min(r.H,y)); }
+window._giveBuildRamp=function(){ if(typeof player==='undefined'||!player)return; if(player._carryPayload){ if(typeof announce==='function')announce('HANDS FULL','#ff9a5c'); return; }
+  player._carryPayload={kind:'item',type:'buildramp'}; if(typeof player._armBomb==='function')try{ player._armBomb('item'); }catch(_){}
+  if(typeof announce==='function')announce('BUILD RAMP — AIM & THROW TO PLACE','#39ffc9'); };
+function _updateBuildGhost(dt){
+  const holding = (typeof player!=='undefined'&&player&&player._carryPayload&&player._carryPayload.type==='buildramp');
+  if(!holding){ if(window._buildGhost){ try{ scene.remove(window._buildGhost.grp); }catch(_){} window._buildGhost=null; } return; }
+  const D=_rampDims(); const a=player.aim||0, fx=Math.cos(a), fz=Math.sin(a);
+  let gx=player.wx+fx*(window._BUILD_PLACE_DIST||175), gz=player.wz+fz*(window._BUILD_PLACE_DIST||175);
+  if(typeof _cubeClampXZ==='function'){ try{ const c=_cubeClampXZ(gx,gz,9,(window._BUILD_EDGE_SKIN||70)); if(c){ gx=c.x; gz=c.z; } }catch(_){} }
+  const dir=Math.abs(fx)>=Math.abs(fz)?(fx>0?'+x':'-x'):(fz>0?'+z':'-z');
+  if(!window._buildGhost){ const grp=_makeRampMesh(D.L,D.W,D.H,_BUILD_COL.ramp,true); scene.add(grp); window._buildGhost={grp,dir,x:gx,z:gz}; }
+  const G=window._buildGhost; G.grp.position.set(gx,0,gz); G.grp.rotation.y=_rampYaw(dir); G.dir=dir; G.x=gx; G.z=gz;
+  const t=performance.now()*0.001; if(G.grp.userData.mat)G.grp.userData.mat.opacity=0.24+0.12*(0.5+0.5*Math.sin(t*4));
+}
+window._placeBuildRampFromGhost=function(){
+  const G=window._buildGhost; if(!G)return false; const gx=G.x, gz=G.z, dir=G.dir;
+  try{ scene.remove(G.grp); }catch(_){} window._buildGhost=null;
+  const D=_rampDims(), col=_BUILD_COL.ramp;
+  const grp=_makeRampMesh(D.L,D.W,D.H,col,false); grp.position.set(gx,0,gz); grp.rotation.y=_rampYaw(dir); grp.scale.set(1,0.02,1); grp.userData.edge.visible=false; scene.add(grp);
+  const piece={x:gx,z:gz,dir,L:D.L,W:D.W,H:D.H,grp,ref:_rampSlopeRef(gx,gz,dir,D.L,D.W,D.H),col,built:false};
+  window._buildRamps.push(piece);
+  const sx=(player?player.wx:gx), sy=(player?(player.py||0)+42:60), sz=(player?player.wz:gz);
+  const cube=new THREE.Mesh(new THREE.BoxGeometry(28,28,28), new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:1.2,metalness:0.4,roughness:0.3,toneMapped:false})); cube.position.set(sx,sy,sz); scene.add(cube);
+  window._buildFX.push({phase:'toss',t:0,dur:(window._BUILD_TOSS_T||0.42),from:{x:sx,y:sy,z:sz},to:{x:gx,y:10,z:gz},cube,piece});
+  if(typeof announce==='function')announce('RAMP PLACED','#39ffc9');
+  return true;
+};
+function _updateBuildPieces(dt){
+  const FX=window._buildFX; if(!FX||!FX.length)return;
+  for(let i=FX.length-1;i>=0;i--){ const f=FX[i]; f.t+=dt;
+    if(f.phase==='toss'){ const k=Math.min(1,f.t/f.dur);
+      f.cube.position.x=f.from.x+(f.to.x-f.from.x)*k; f.cube.position.z=f.from.z+(f.to.z-f.from.z)*k;
+      f.cube.position.y=f.from.y+(f.to.y-f.from.y)*k+Math.sin(k*Math.PI)*(window._BUILD_TOSS_ARC||130);
+      f.cube.rotation.x+=dt*11; f.cube.rotation.y+=dt*8;
+      if(k>=1){ try{ scene.remove(f.cube); if(f.cube.geometry)f.cube.geometry.dispose(); }catch(_){}
+        if(typeof ps!=='undefined'){ try{ ps.ring(f.to.x,f.to.z,[0.3,1,0.8],22,150); ps.burst(f.to.x,f.to.z,[0.4,1,0.7],16,120,12); }catch(_){} }
+        if(typeof Audio!=='undefined')try{ Audio.blip(260,0.09,'square',0.16,120); Audio.blip(440,0.12,'sine',0.14,900); }catch(_){}
+        f.phase='unfold'; f.t=0; f.dur=(window._BUILD_UNFOLD_T||0.5); f.piece.grp.userData.edge.visible=true;
+      }
+    } else if(f.phase==='unfold'){ const k=Math.min(1,f.t/f.dur); const e=1-Math.pow(1-k,3);
+      const oy=e*(1+(window._BUILD_OVERSHOOT||0.1)*Math.sin(k*Math.PI));   // ease-out with a springy overshoot as it snaps up
+      f.piece.grp.scale.set(1,Math.max(0.02,oy),1);
+      if(f.piece.grp.userData.mat)f.piece.grp.userData.mat.emissiveIntensity=0.3+(1-k)*1.4;   // hot flash that cools as it sets
+      if(k>=1){ f.piece.grp.scale.set(1,1,1); f.piece.built=true; if(f.piece.grp.userData.mat)f.piece.grp.userData.mat.emissiveIntensity=0.3;
+        if(!window._cubePlatforms)window._cubePlatforms=[]; window._cubePlatforms.push(f.piece.ref);   // now a real run-up + landing collider
+        if(typeof ps!=='undefined')try{ ps.ring(f.piece.x,f.piece.z,[0.3,1,0.8],26,170); }catch(_){}
+        if(typeof Audio!=='undefined')try{ Audio.blip(600,0.14,'square',0.18,1300); }catch(_){}
+        FX.splice(i,1);
+      }
+    }
+  }
+}
+window._buildRampBallHit=function(b,dt){   // ride + LAUNCH the RL ball off any built ramp
+  const P=window._buildRamps; if(!P||!P.length)return; const R=b.R;
+  for(const r of P){ if(!r.built)continue;
+    if(Math.abs(b.pos.x-r.x)>r.ref.hw+R || Math.abs(b.pos.z-r.z)>r.ref.hd+R)continue;
+    const surfY=_rampSurfY(r,b.pos.x,b.pos.z);
+    if(b.pos.y-R < surfY+(window._BUILD_BALL_CONTACT||12) && b.pos.y > surfY-r.H-R){
+      const n=_rampNormal(r.ref.slope); if((surfY+R)-b.pos.y>0)b.pos.y=surfY+R;
+      const vn=b.vel.dot(n);
+      if(vn<0){ const REST=(window._BUILD_RAMP_REST||0.92); b.vel.addScaledVector(n,-(1+REST)*vn); if(typeof b._hitFlash!=='undefined')b._hitFlash=Math.max(b._hitFlash||0,0.12); }
+    }
+  }
+};
+window._buildRampBulletHit=function(bl,dt){   // ricochet bullets UP off a ramp face
+  const P=window._buildRamps; if(!P||!P.length)return;
+  for(const r of P){ if(!r.built)continue;
+    if(Math.abs(bl.wx-r.x)>r.ref.hw || Math.abs(bl.wz-r.z)>r.ref.hd){ continue; }
+    const surfY=_rampSurfY(r,bl.wx,bl.wz);
+    if(bl.y<=surfY+(window._BUILD_BULLET_CONTACT||9) && bl.y>surfY-60){
+      const n=_rampNormal(r.ref.slope); const vy=(bl.vy||0); const vn=bl.vx*n.x+vy*n.y+bl.vz*n.z;
+      if(vn<0){ const k=(1+(window._BUILD_BULLET_REST||1)); bl.vx-=k*vn*n.x; bl.vy=vy-k*vn*n.y; bl.vz-=k*vn*n.z; bl.y=surfY+3; bl._g3=true;
+        if(typeof ps!=='undefined'&&Math.random()<0.5)try{ ps.spark(bl.wx,bl.wz,[0.3,1,0.8],surfY+3); }catch(_){} }
+    }
+  }
+};
+window._clearBuildRamps=function(){ const P=window._buildRamps||[]; for(const r of P){ try{ scene.remove(r.grp); r.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); }catch(_){} if(window._cubePlatforms){ const i=window._cubePlatforms.indexOf(r.ref); if(i>=0)window._cubePlatforms.splice(i,1); } } window._buildRamps=[]; for(const f of (window._buildFX||[])){ try{ if(f.cube)scene.remove(f.cube); }catch(_){} } window._buildFX=[]; if(window._buildGhost){ try{ scene.remove(window._buildGhost.grp); }catch(_){} window._buildGhost=null; } };
+function _ensureBuildBtn(){
+  if(document.getElementById('dbg-build-btn'))return;
+  const btn=document.createElement('div'); btn.id='dbg-build-btn'; btn.textContent='⛏ BUILD RAMP';
+  btn.style.cssText='position:fixed;left:12px;top:170px;z-index:100000;background:rgba(8,22,18,0.82);border:1px solid #39ffc988;color:#39ffc9;font:bold 10px monospace;letter-spacing:1px;padding:7px 10px;border-radius:7px;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;';
+  btn.onclick=()=>{ try{ window._giveBuildRamp(); }catch(_){} };
+  document.body.appendChild(btn);
+}
+function _showBuildBtn(show){ _ensureBuildBtn(); const b=document.getElementById('dbg-build-btn'); if(b)b.style.display=show?'block':'none'; }
+window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateThrownMelee(dt); _updateCarry(dt); _barrelSpawnTick(dt); _updateJewelPods(dt); if(GS.zone===-19){ _updateBuildGhost(dt); _updateBuildPieces(dt); } if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
 
 // ============================================================
 //  TRAINING CANNON — debug rig. Fires the player's own projectiles AT you when you step inside its dotted circle of influence. Built to develop melee projectile-deflection.
@@ -27104,7 +27226,7 @@ function _projOOB(x,z,y,m){ m=(m!=null?m:40);   // projectile out-of-bounds — 
   return Math.hypot(x,z)>ARENA_R+m; }
 window._projOOB=_projOOB;
 function _disposeCubeSheets(){ if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets){ try{ const idx=GRID_SHEETS.indexOf(s); if(idx>=0)GRID_SHEETS.splice(idx,1); if(s.group){ scene.remove(s.group); s.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){} } } _cubeSheets=[]; _goalCurtains=[]; }
-function _disposeCubeArena(){ if(typeof _disposeSentries==='function')_disposeSentries(); if(typeof _disposeLoop==='function')_disposeLoop(); if(typeof _hideGoalHUD==='function')_hideGoalHUD(); window._goalPhase=null; window._cubeGoals=null; window._cubeGeyser=null; if(player)player._geyserHold=false; if(typeof _disposeMaceChain==='function')_disposeMaceChain(); if(typeof _hideBallEdgeArrow==='function')_hideBallEdgeArrow(); if(typeof _showColliderMenu==='function')_showColliderMenu(false); if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation();
+function _disposeCubeArena(){ if(typeof _disposeSentries==='function')_disposeSentries(); if(typeof _disposeLoop==='function')_disposeLoop(); if(typeof _hideGoalHUD==='function')_hideGoalHUD(); window._goalPhase=null; window._cubeGoals=null; window._cubeGeyser=null; if(player)player._geyserHold=false; if(typeof _disposeMaceChain==='function')_disposeMaceChain(); if(typeof _hideBallEdgeArrow==='function')_hideBallEdgeArrow(); if(typeof _showColliderMenu==='function')_showColliderMenu(false); if(typeof window._clearBuildRamps==='function')window._clearBuildRamps(); if(typeof _disposeCubeBall==='function')_disposeCubeBall(); _disposeCubeSheets(); if(player){ for(const k of ['_mc_wpn','_mc_lh','_mc_rh']){ if(player[k]){ scene.remove(player[k]); if(player[k].geometry)player[k].geometry.dispose(); player[k]=null; } } } if(_cubeGroup){ scene.remove(_cubeGroup); _cubeGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); _cubeGroup=null; } if(typeof _removeBootStation==='function')_removeBootStation(); if(typeof _removeWeaponPads==='function')_removeWeaponPads(); if(typeof _removeHammerStation==='function')_removeHammerStation();
   if(typeof _removeSpiderPackPads==='function')_removeSpiderPackPads(); try{ if(window._itemPU){ for(let i=window._itemPU.length-1;i>=0;i--){ const p=window._itemPU[i]; if(p&&(p.type==='spiders'||p.type==='drone')){ if(p.grp)scene.remove(p.grp); window._itemPU.splice(i,1); } } } }catch(_){} }
 // ════════ ROCKET-LEAGUE BALL — floaty sphere you knock around with the character collider (and melee) ════════
 let _cubeBall=null;
@@ -28033,6 +28155,7 @@ function _updateCubeBall(dt){
     b.vel.set(tx+N.x*vnc, ty+N.y*vnc, tz+N.z*vnc);
   }
   }   // /geyser else (normal physics)
+  if(window._buildRampBallHit)try{ window._buildRampBallHit(b,dtc); }catch(_){}   // ride + launch off any player-built ramp
   // ── BULLETS knock the ball (light push, consumed on hit) ──
   if(GS.bullets&&GS.bullets.length){ for(const bl of GS.bullets){ if(!bl||bl.life<=0)continue;
     const dx=bl.wx-b.pos.x, dy=(bl.y||0)-b.pos.y, dz=bl.wz-b.pos.z, dd=Math.hypot(dx,dy,dz);
@@ -28778,7 +28901,7 @@ function _ensureColliderMenu(){
   btn.onclick=()=>{ pop.style.display=(pop.style.display==='none'?'block':'none'); };
   document.body.appendChild(btn); document.body.appendChild(pop);
 }
-function _showColliderMenu(show){ _ensureColliderMenu(); const b=document.getElementById('dbg-col-btn'); if(b)b.style.display=show?'block':'none'; if(!show){ const p=document.getElementById('dbg-col-pop'); if(p)p.style.display='none'; } }
+function _showColliderMenu(show){ _ensureColliderMenu(); const b=document.getElementById('dbg-col-btn'); if(b)b.style.display=show?'block':'none'; if(!show){ const p=document.getElementById('dbg-col-pop'); if(p)p.style.display='none'; } if(typeof _showBuildBtn==='function')_showBuildBtn(show); }
 // ── GENERAL SEE-THROUGH OCCLUSION — any registered prop between the camera and the player fades out (like the walls/towers
 //    already do). Used for the power pads, spawn/starting pads, centre medallion, weapon pads and the barrel PEZ dispensers
 //    so they can't hide the character. Lazily caches each object's materials; restores them cleanly when unoccluded.
