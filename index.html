@@ -299,7 +299,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB607</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB608</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -17514,7 +17514,82 @@ function _updateThrownMelee(dt){
     }
   }
 }
-window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateThrownMelee(dt); _updateCarry(dt); _barrelSpawnTick(dt); if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
+// ════════════════════════════════════════════════════════════════════════════════
+//  JEWEL POD DISPENSER — a floating UFO-saucer holding a COMPANION ball. Feed it
+//  jewels (◆, earned from kills) to unlock a big copilot companion (dragon/dog/...).
+//  Walk up with enough -> its petals spiral open + the ball floats up; jump into the
+//  risen ball to TAKE it (spends the jewels) and the companion deploys on your side.
+//  Not enough -> the floating label reads "HAVE / COST" in RED. Enough -> green "TAKE".
+// ════════════════════════════════════════════════════════════════════════════════
+window._jewelPods=window._jewelPods||[];
+const _POD_COMPANION_COL={dragon:0x3a8cff, dog:0xff4a4a, droid:0xff7a2a, drone:0x27c8ff, spider:0x66ff55, spiders:0x66ff55};
+function _makeJewelPod(companion){
+  const g=new THREE.Group();
+  const col=_POD_COMPANION_COL[companion]||0x33e0ff;
+  const dark=new THREE.MeshStandardMaterial({color:0x101826,metalness:0.7,roughness:0.4,emissive:0x0a1424,emissiveIntensity:0.5});
+  const neon=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false});
+  const base=new THREE.Mesh(new THREE.CylinderGeometry(15,20,6,20),dark); base.position.y=6; g.add(base);
+  const rim=new THREE.Mesh(new THREE.TorusGeometry(19,1.1,8,28),neon); rim.rotation.x=Math.PI/2; rim.position.y=6; g.add(rim);
+  const under=new THREE.Mesh(new THREE.ConeGeometry(14,12,20,1,true), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false})); under.rotation.x=Math.PI; under.position.y=0; g.add(under);   // UFO hover glow
+  const crown=new THREE.Group(); crown.position.y=9; g.add(crown);
+  const petals=[]; const N=(window._POD_PETALS||6);
+  const petalMat=new THREE.MeshStandardMaterial({color:0x16283e,metalness:0.6,roughness:0.35,emissive:col,emissiveIntensity:0.4,side:THREE.DoubleSide});
+  for(let i=0;i<N;i++){ const a=(i/N)*TAU; const piv=new THREE.Group(); piv.position.set(Math.cos(a)*8,0,Math.sin(a)*8); piv.rotation.y=-a;
+    const sh=new THREE.Shape(); sh.moveTo(0,0); sh.absarc(0,0,12,-0.52,0.52,false); sh.lineTo(0,0);   // half-circle petal
+    const geo=new THREE.ShapeGeometry(sh);
+    const petal=new THREE.Mesh(geo,petalMat); petal.rotation.x=-Math.PI/2;
+    const edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false})); edge.rotation.x=-Math.PI/2;
+    piv.add(petal); piv.add(edge); crown.add(piv); petals.push(piv);
+  }
+  const ball=new THREE.Group(); ball.position.y=11; g.add(ball);
+  ball.add(new THREE.Mesh(new THREE.IcosahedronGeometry(6,1), new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:1.1,metalness:0.5,roughness:0.3,toneMapped:false})));
+  ball.add(new THREE.Mesh(new THREE.SphereGeometry(9,12,10), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})));
+  g.userData={crown,petals,ball,col};
+  g.traverse(o=>{ o.frustumCulled=false; });
+  return g;
+}
+function _spawnJewelPod(x,z,companion,cost){
+  if(typeof scene==='undefined')return null;
+  const mdl=_makeJewelPod(companion); mdl.position.set(x,0,z); scene.add(mdl);
+  const cvs=document.createElement('canvas'); cvs.width=256; cvs.height=80; const ctx=cvs.getContext('2d');
+  const tex=new THREE.CanvasTexture(cvs); const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,depthTest:false,toneMapped:false})); spr.scale.set(48,15,1); spr.position.set(x,44,z); spr.renderOrder=60; scene.add(spr);
+  const pod={x,z,companion,cost:(cost!=null?cost:(window._POD_COST||10)), mdl, ball:mdl.userData.ball, petals:mdl.userData.petals, col:mdl.userData.col, open:0, taken:false, spr, ctx, tex, _lbl:null, _lcol:null, t:0, _despawnT:null};
+  window._jewelPods.push(pod); return pod;
+}
+window._spawnJewelPod=_spawnJewelPod;
+function _updateJewelPods(dt){
+  const P=window._jewelPods; if(!P||!P.length||typeof player==='undefined'||!player)return;
+  const have=(typeof GS!=='undefined'?(GS.jewels||0):0);
+  for(let i=P.length-1;i>=0;i--){ const pod=P[i]; if(!pod.mdl)continue; pod.t+=dt;
+    const near=Math.hypot(player.wx-pod.x, player.wz-pod.z)<(window._POD_NEAR_R||70);
+    const afford=have>=pod.cost;
+    pod.mdl.position.y=Math.sin(pod.t*1.5)*1.5; pod.mdl.rotation.y+=dt*(0.3+pod.open*2.4);   // hover bob + saucer spin (spins faster while opening)
+    const want=(near&&afford&&!pod.taken)?1:0;
+    pod.open += (want-pod.open)*Math.min(1,dt*(window._POD_OPEN_SPD||3.2));
+    for(let k=0;k<pod.petals.length;k++){ const pv=pod.petals[k]; const a=(k/pod.petals.length)*TAU; pv.rotation.x=-1.28 + pod.open*1.95; pv.rotation.y=-a + pod.open*1.7; }   // spiral unfold
+    pod.ball.position.y=11 + pod.open*(window._POD_BALL_RISE||20); pod.ball.rotation.y+=dt*2.2; pod.ball.rotation.x+=dt*1.3;
+    const ballWY=pod.mdl.position.y+pod.ball.position.y;
+    const lbl = pod.taken ? 'CLAIMED' : (afford ? ('TAKE  ◆'+pod.cost) : (have+' / '+pod.cost+' ◆'));
+    const lcol = pod.taken ? '#7fd4ff' : (afford ? '#39ff88' : '#ff5a5a');
+    if(pod._lbl!==lbl || pod._lcol!==lcol){ pod._lbl=lbl; pod._lcol=lcol; const c=pod.ctx; c.clearRect(0,0,256,80); c.font='bold 38px Orbitron, monospace'; c.textAlign='center'; c.textBaseline='middle'; c.fillStyle=lcol; c.shadowColor=lcol; c.shadowBlur=18; c.fillText(lbl,128,42); pod.tex.needsUpdate=true; }
+    pod.spr.position.set(pod.x, 42+Math.sin(pod.t*2)*2, pod.z); pod.spr.material.opacity=near?1:0.7;
+    if(pod.open>0.7 && afford && !pod.taken){ const d=Math.hypot(player.wx-pod.x, player.wz-pod.z);
+      if(d<(window._POD_TAKE_R||26) && (player.py||0) > ballWY-24){   // jumped up into the risen ball -> TAKE it (spends the jewels)
+        pod.taken=true; GS.jewels=Math.max(0,(GS.jewels||0)-pod.cost);
+        try{ if(typeof announce==='function')announce(String(pod.companion).toUpperCase()+' UNLOCKED  −'+pod.cost+'◆','#39ff88'); }catch(_){}
+        try{ if(typeof ps!=='undefined'){ ps.burst(pod.x,pod.z,[0.4,1,0.6],30,190,ballWY); ps.ring(pod.x,pod.z,[0.3,1,0.8],26,170); } }catch(_){}
+        try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(500,0.1,'square',0.2,1100); Audio.blip(900,0.16,'sine',0.16,1600); } }catch(_){}
+        try{ if(typeof _detonateItem==='function')_detonateItem(pod.companion, pod.x, pod.z, false); }catch(_){}   // deploy the companion as your ally
+        pod._despawnT=1.1;
+      }
+    }
+    if(pod._despawnT!=null){ pod._despawnT-=dt; pod.ball.position.y+=dt*36; pod.spr.material.opacity*=0.9; if(pod._despawnT<=0){ try{ scene.remove(pod.mdl); scene.remove(pod.spr); pod.mdl.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); if(pod.tex)pod.tex.dispose(); }catch(_){} P.splice(i,1); } }
+  }
+}
+window._updateJewelPods=_updateJewelPods;
+function _clearJewelPods(){ const P=window._jewelPods; if(!P)return; for(const pod of P){ try{ if(pod.mdl){ scene.remove(pod.mdl); pod.mdl.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); } if(pod.spr)scene.remove(pod.spr); if(pod.tex)pod.tex.dispose(); }catch(_){} } window._jewelPods=[]; }
+window._clearJewelPods=_clearJewelPods;
+window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateThrownMelee(dt); _updateCarry(dt); _barrelSpawnTick(dt); _updateJewelPods(dt); if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
 
 // ============================================================
 //  TRAINING CANNON — debug rig. Fires the player's own projectiles AT you when you step inside its dotted circle of influence. Built to develop melee projectile-deflection.
@@ -22846,7 +22921,7 @@ function updateUI(){
   const lv=document.getElementById('lives-display');
   if(lv.childElementCount!==GS.lives){ lv.innerHTML=''; for(let i=0;i<GS.lives;i++){const d=document.createElement('div');
     d.innerHTML='<svg viewBox="0 0 14 10" width="15" height="11"><polygon points="14,5 0,0 4,5 0,10" fill="none" stroke="#00ffc8" stroke-width="1.3"/></svg>';lv.appendChild(d);} }
-  const jc=document.getElementById('jewel-count'); if(jc){ const per=(window._JEWELS_PER_LIFE||10); jc.textContent='◆ '+(GS.jewels||0)+'/'+per; }
+  const jc=document.getElementById('jewel-count'); if(jc){ jc.textContent=(window._JEWEL_AUTO_LIFE===true)?('◆ '+(GS.jewels||0)+'/'+(window._JEWELS_PER_LIFE||10)):('◆ '+(GS.jewels||0)); }   // spendable jewel bank (total)
   // HP bar
   const hb=document.getElementById('health-bar'); hb.innerHTML='';
   for(let i=0;i<GS.maxHp;i++){
@@ -25668,7 +25743,7 @@ function loop(ts){ requestAnimationFrame(loop);
             ps.ring(g.wx,g.wz,[0.22,1,0.7],9,70);
             GS.jewels=(GS.jewels||0)+1;
             const per=(window._JEWELS_PER_LIFE||10);
-            if(GS.jewels>=per){ GS.jewels-=per; GS.lives=Math.min(9,GS.lives+1); announce('JEWELS FULL — +1 LIFE','#7ef7ff'); try{ if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(900,0.14,'square',0.18,1500); }catch(_){} }
+            if(window._JEWEL_AUTO_LIFE===true && GS.jewels>=per){ GS.jewels-=per; GS.lives=Math.min(9,GS.lives+1); announce('JEWELS FULL — +1 LIFE','#7ef7ff'); try{ if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(900,0.14,'square',0.18,1500); }catch(_){} }   // jewels are now a SPENDABLE currency (feed them to pod dispensers) — set _JEWEL_AUTO_LIFE=true to restore the old auto +1-life-at-10
             if(gemSfx<2){ try{ if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(640+Math.min(240,(GS.jewels)*24),0.06,'sine',0.11,840); }catch(_){} gemSfx++; }
           }
         }
@@ -28350,6 +28425,8 @@ function buildCubeArena(){
   try{ if(typeof _spawnHammerStation==='function'){ const ms=['sword','hammer','axe','spear','scythe','mace','whip','flag','flag1h']; ms.forEach((m,i)=>_spawnHammerStation(-600+i*220, _sideZ, m)); } }catch(e){ console.warn('hammer stations',e); }   // +Z sideline: melee row, evenly spaced (flag=2H banner, flag1h=1H banner)
   try{ if(typeof _spawnWeaponPad==='function'){ const gs=['rockets','plasma','grenade','boomerang','minigun','bouncy','bigbill']; gs.forEach((w,i)=>_spawnWeaponPad(-600+i*240, -_sideZ, w)); } }catch(e){ console.warn('weapon pads',e); }   // -Z sideline: gun row
   try{ if(typeof _spawnBootStation==='function') _spawnBootStation(600, -_sideZ); }catch(e){ console.warn('boot station',e); }   // -Z sideline, end slot next to the guns
+  // ── JEWEL POD DISPENSERS — big copilot companions you unlock by spending jewels (◆ from kills). Walk up with enough -> petals unfold, ball floats up, jump into it to take. ──
+  try{ if(typeof _spawnJewelPod==='function' && (window._POD_DISPENSERS!==false)){ if(typeof _clearJewelPods==='function')_clearJewelPods(); _spawnJewelPod(-260,0,'dragon',(window._POD_COST_DRAGON||10)); _spawnJewelPod(260,0,'dog',(window._POD_COST_DOG||10)); } }catch(e){ console.warn('jewel pods',e); }   // two pods flanking centre for now
   // ── POWER-UPS: a FEW big RAISED jump-up pads (not one per item). Each hosts one powerup hovering above it — jump/boost up to
   //    grab it. Summon balls line the back wall, offensive items the right wall, at alternating heights so some need a boost.
   //    A couple of powerups also sit on the GROUND (no pad). Weapons (left wall) + melee (front wall) stay as ground stations. ──
