@@ -299,7 +299,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB608</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB609</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -17030,6 +17030,7 @@ function _nearestGrab(){
   const cands=[];
   if(window._nearBoard) cands.push({kind:'board',ref:window._nearBoard, d:Math.hypot(player.wx-window._nearBoard.x,player.wz-window._nearBoard.z)});
   if(window._nearPad) cands.push({kind:'weapon',ref:window._nearPad, d:Math.hypot(player.wx-window._nearPad.x,player.wz-window._nearPad.z)});
+  if(window._nearJewelPod && !window._nearJewelPod.taken) cands.push({kind:'jewelpod',ref:window._nearJewelPod, d:Math.hypot(player.wx-window._nearJewelPod.x,player.wz-window._nearJewelPod.z)});   // pod dispenser -> tap to take the companion
   if(window._nearConvGun) cands.push({kind:'convgun',ref:window._nearConvGun, d:Math.hypot(player.wx-window._nearConvGun.x,player.wz-window._nearConvGun.z)});
   if(window._nearHammer) cands.push({kind:'meleepad',ref:window._nearHammer, d:Math.hypot(player.wx-window._nearHammer.x,player.wz-window._nearHammer.z)});
   if(window._nearBoots) cands.push({kind:'boots',ref:window._nearBoots, d:Math.hypot(player.wx-window._nearBoots.x,player.wz-window._nearBoots.z)});
@@ -17044,10 +17045,12 @@ function _nearestGrab(){
   cands.sort((a,b)=>a.d-b.d);
   return cands[0];
 }
+window._nearestGrab=_nearestGrab; window._grabItem=(f)=>_grabItem(f);
 // called by left-stick tap (_doMeleeTap). Grabs nearest -> arms the bomb machinery in 'item' mode.
 function _grabItem(fromSlide){
   if(!player||player._carryPayload) return false;
   const g=_nearestGrab(); if(!g) return false;
+  if(g.kind==='jewelpod'){ if(typeof _takePod==='function')_takePod(g.ref); return true; }   // tap at an open pod dispenser -> spend jewels + unlock the companion
   if(g.kind==='board'){ _mountHoverboard(); return true; }   // walk up to the hoverboard + interact -> ride
   if(g.kind==='weapon'){ const st=g.ref; if(typeof _equipWeapon==='function')_equipWeapon(st.weapon, st.ammo); if(typeof _padConsume==='function')_padConsume(st); window._nearPad=null; return true; }   // grab a weapon pad -> equip the gun (keeps its remaining ammo if it was a drop), no carrying
   if(g.kind==='convgun'){ const st=g.ref; if(typeof _equipWeapon==='function')_equipWeapon(st.weapon); if(window._gunConveyor)window._gunConveyor.grabCd=(window._CONVEYOR_GRAB_CD||0.8); window._nearConvGun=null; if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[1,0.85,0.3],22,150); return true; }   // grab the gun parked at the conveyor station -> equip it (belt restocks; display gun keeps circling)
@@ -17557,6 +17560,16 @@ function _spawnJewelPod(x,z,companion,cost){
   window._jewelPods.push(pod); return pod;
 }
 window._spawnJewelPod=_spawnJewelPod;
+function _takePod(pod){   // spend the jewels, deploy the companion as your ally, and start the pod's despawn
+  if(!pod||pod.taken||typeof GS==='undefined')return false; if((GS.jewels||0)<pod.cost)return false;
+  pod.taken=true; GS.jewels=Math.max(0,(GS.jewels||0)-pod.cost); if(window._nearJewelPod===pod)window._nearJewelPod=null;
+  try{ if(typeof announce==='function')announce(String(pod.companion).toUpperCase()+' UNLOCKED  −'+pod.cost+'◆','#39ff88'); }catch(_){}
+  try{ if(typeof ps!=='undefined'){ const wy=pod.mdl.position.y+pod.ball.position.y; ps.burst(pod.x,pod.z,[0.4,1,0.6],30,190,wy); ps.ring(pod.x,pod.z,[0.3,1,0.8],26,170); } }catch(_){}
+  try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(500,0.1,'square',0.2,1100); Audio.blip(900,0.16,'sine',0.16,1600); } }catch(_){}
+  try{ if(typeof _detonateItem==='function')_detonateItem(pod.companion, pod.x, pod.z, false); }catch(_){}
+  pod._despawnT=1.1; return true;
+}
+window._takePod=_takePod;
 function _updateJewelPods(dt){
   const P=window._jewelPods; if(!P||!P.length||typeof player==='undefined'||!player)return;
   const have=(typeof GS!=='undefined'?(GS.jewels||0):0);
@@ -17573,21 +17586,16 @@ function _updateJewelPods(dt){
     const lcol = pod.taken ? '#7fd4ff' : (afford ? '#39ff88' : '#ff5a5a');
     if(pod._lbl!==lbl || pod._lcol!==lcol){ pod._lbl=lbl; pod._lcol=lcol; const c=pod.ctx; c.clearRect(0,0,256,80); c.font='bold 38px Orbitron, monospace'; c.textAlign='center'; c.textBaseline='middle'; c.fillStyle=lcol; c.shadowColor=lcol; c.shadowBlur=18; c.fillText(lbl,128,42); pod.tex.needsUpdate=true; }
     pod.spr.position.set(pod.x, 42+Math.sin(pod.t*2)*2, pod.z); pod.spr.material.opacity=near?1:0.7;
-    if(pod.open>0.7 && afford && !pod.taken){ const d=Math.hypot(player.wx-pod.x, player.wz-pod.z);
-      if(d<(window._POD_TAKE_R||26) && (player.py||0) > ballWY-24){   // jumped up into the risen ball -> TAKE it (spends the jewels)
-        pod.taken=true; GS.jewels=Math.max(0,(GS.jewels||0)-pod.cost);
-        try{ if(typeof announce==='function')announce(String(pod.companion).toUpperCase()+' UNLOCKED  −'+pod.cost+'◆','#39ff88'); }catch(_){}
-        try{ if(typeof ps!=='undefined'){ ps.burst(pod.x,pod.z,[0.4,1,0.6],30,190,ballWY); ps.ring(pod.x,pod.z,[0.3,1,0.8],26,170); } }catch(_){}
-        try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(500,0.1,'square',0.2,1100); Audio.blip(900,0.16,'sine',0.16,1600); } }catch(_){}
-        try{ if(typeof _detonateItem==='function')_detonateItem(pod.companion, pod.x, pod.z, false); }catch(_){}   // deploy the companion as your ally
-        pod._despawnT=1.1;
-      }
-    }
+    // TAKEABLE when open + affordable + close -> register as the nearby interactable (lights up the tap button); tap OR a jump into the ball takes it
+    const dTake=Math.hypot(player.wx-pod.x, player.wz-pod.z);
+    if(!pod.taken && afford && pod.open>0.6 && dTake<(window._POD_TAKE_R||34)){ window._nearJewelPod=pod;
+      if((player.py||0) > ballWY-24) _takePod(pod);   // jumped up into the risen ball (alt to the tap)
+    } else if(window._nearJewelPod===pod){ window._nearJewelPod=null; }
     if(pod._despawnT!=null){ pod._despawnT-=dt; pod.ball.position.y+=dt*36; pod.spr.material.opacity*=0.9; if(pod._despawnT<=0){ try{ scene.remove(pod.mdl); scene.remove(pod.spr); pod.mdl.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); if(pod.tex)pod.tex.dispose(); }catch(_){} P.splice(i,1); } }
   }
 }
 window._updateJewelPods=_updateJewelPods;
-function _clearJewelPods(){ const P=window._jewelPods; if(!P)return; for(const pod of P){ try{ if(pod.mdl){ scene.remove(pod.mdl); pod.mdl.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); } if(pod.spr)scene.remove(pod.spr); if(pod.tex)pod.tex.dispose(); }catch(_){} } window._jewelPods=[]; }
+function _clearJewelPods(){ const P=window._jewelPods; if(!P)return; for(const pod of P){ try{ if(pod.mdl){ scene.remove(pod.mdl); pod.mdl.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); } if(pod.spr)scene.remove(pod.spr); if(pod.tex)pod.tex.dispose(); }catch(_){} } window._jewelPods=[]; window._nearJewelPod=null; }
 window._clearJewelPods=_clearJewelPods;
 window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateThrownMelee(dt); _updateCarry(dt); _barrelSpawnTick(dt); _updateJewelPods(dt); if(typeof _cannonTick==='function')_cannonTick(dt); }catch(e){ console.warn('crate tick:',e); } };
 
