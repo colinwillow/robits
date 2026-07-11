@@ -299,7 +299,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB616</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB617</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -33675,6 +33675,10 @@ function _applyCosmetics(){
   if(player._cosmoSig===sig) return; player._cosmoSig=sig;
   let bones=model.userData&&model.userData.bones; if(!bones){ bones={}; model.traverse(o=>{ if(o.isBone)bones[o.name]=o; }); }
   if(!player._cosmoObjs)player._cosmoObjs={};
+  // DEFENSIVE SWEEP: strip EVERY cosmetic already on the rig (tracked OR orphaned) before re-applying, so a stale one from a
+  // hot-reload / re-imported asset can't stack a second copy under the new one. We rebuild the whole loadout right below.
+  try{ const orphans=[]; model.traverse(o=>{ if(o.userData&&o.userData._isCosmetic)orphans.push(o); }); for(const o of orphans){ try{ if(o.parent)o.parent.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); }); }catch(_){} } }catch(_){}
+  player._cosmoObjs={};
   for(const slot of COSMO_SLOTS){
     const cur=player._cosmoObjs[slot]; if(cur){ try{ if(cur.parent)cur.parent.remove(cur); cur.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); }catch(_){} player._cosmoObjs[slot]=null; }
     const id=player._loadout[slot]; if(!id) continue;
@@ -33695,6 +33699,7 @@ function _applyCosmetics(){
         obj.scale.setScalar(inv*((ov.scale!=null?ov.scale:def.scale)||1));
         const p=ov.pos||def.pos||{}, r=ov.rot||def.rot||{}; obj.position.set(p.x||0,p.y||0,p.z||0); obj.rotation.set(r.x||0,r.y||0,r.z||0);
       }
+      obj.userData=obj.userData||{}; obj.userData._isCosmetic=true; obj.userData._cosSlot=slot;   // tag so the defensive sweep can find + strip it later
       bone.add(obj); player._cosmoObjs[slot]=obj;
     }catch(_){}
   }
@@ -39386,7 +39391,8 @@ function _dressSetHue(hx){
 function _dressPreviewCosmetics(){   // apply the current loadout onto the PREVIEW model (mirrors _applyCosmetics, but on S.model)
   const S=window._ws; if(!S||!S.model||typeof COSMO_SLOTS==='undefined')return;
   const model=S.model; let bones=model.userData&&model.userData.bones; if(!bones){ bones={}; model.traverse(o=>{ if(o.isBone)bones[o.name]=o; }); }
-  S._cosmoObjs=S._cosmoObjs||{};
+  try{ const orphans=[]; model.traverse(o=>{ if(o.userData&&o.userData._isCosmetic)orphans.push(o); }); for(const o of orphans){ try{ if(o.parent)o.parent.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); }); }catch(_){} } }catch(_){}   // same defensive sweep as the live rig -> no stacked/stale preview cosmetics
+  S._cosmoObjs={};
   const loadout=(typeof player!=='undefined'&&player&&player._loadout)||{};
   for(const slot of COSMO_SLOTS){
     const cur=S._cosmoObjs[slot]; if(cur){ try{ if(cur.parent)cur.parent.remove(cur); }catch(_){} S._cosmoObjs[slot]=null; }
@@ -39407,6 +39413,7 @@ function _dressPreviewCosmetics(){   // apply the current loadout onto the PREVI
         obj.scale.setScalar(inv*((ov.scale!=null?ov.scale:def.scale)||1)*_prevRatio);
         const p=ov.pos||def.pos||{}, r=ov.rot||def.rot||{}; obj.position.set(p.x||0,p.y||0,p.z||0); obj.rotation.set(r.x||0,r.y||0,r.z||0);
       }
+      obj.userData=obj.userData||{}; obj.userData._isCosmetic=true; obj.userData._cosSlot=slot;
       bone.add(obj); S._cosmoObjs[slot]=obj;
       if(window._PLAYER_HUE!=null&&typeof _tintAllyApply==='function')_tintAllyApply(obj,new THREE.Color(window._PLAYER_HUE));
     }catch(_){}
