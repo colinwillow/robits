@@ -299,7 +299,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB628</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB629</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -39352,6 +39352,15 @@ function _startCharWheel(canvasId){
   // soft glowing pad — follows the FRONT pilot's real feet each frame (pilots are centered, not grounded, so feet differ)
   const pad=new THREE.Mesh(new THREE.CircleGeometry(1.45,40), new THREE.MeshBasicMaterial({color:0x00ffc8,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false}));
   pad.rotation.x=-Math.PI/2; pad.position.set(0,CTR-1.4,(window._WHEEL_R||1.85)); sc.add(pad);
+  // ── faint deforming GRID backdrop (the real GridSheet from the game) — an ode to the game style; ripples on each pilot switch ──
+  let bgGrid=null;
+  try{ if(typeof GridSheet!=='undefined' && typeof GRID_SHEETS!=='undefined'){
+    const q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), Math.PI/2);   // stand the (horizontal) sheet UP so it's a back wall facing the camera; ripples push toward/away
+    bgGrid=new GridSheet({cols:(window._WHEEL_GRID_COLS||20), rows:(window._WHEEL_GRID_ROWS||14), cell:(window._WHEEL_GRID_CELL||1.05), position:new THREE.Vector3(0,(window._WHEEL_GRID_Y!=null?window._WHEEL_GRID_Y:0.4),(window._WHEEL_GRID_Z||-6.5)), quaternion:q, palette:(window._WHEEL_GRID_PAL||'cube'), fill:false, subdiv:1, bright:0.9});
+    const gi=GRID_SHEETS.indexOf(bgGrid); if(gi>=0)GRID_SHEETS.splice(gi,1);   // WE own its update (menu scene) — don't let the game's grid loop touch it
+    try{ scene.remove(bgGrid.group); }catch(_){} sc.add(bgGrid.group);
+    const _go=(window._WHEEL_GRID_OP!=null?window._WHEEL_GRID_OP:0.2); if(bgGrid.lines)bgGrid.lines.material.opacity=_go; if(bgGrid.glowLines)bgGrid.glowLines.material.opacity=_go*0.7;
+  } }catch(_){ bgGrid=null; }
   const R=(window._WHEEL_R||1.85), FACE=(window._WHEEL_FACE||0);
   const wheel=new THREE.Group(); sc.add(wheel);
   const slots=[], slotFoot=[], mixers=[];
@@ -39376,7 +39385,8 @@ function _startCharWheel(canvasId){
   for(let i=0;i<4;i++)buildChar(i);
   const step=Math.PI/2;
   function frontIdx(n){ return ((n%4)+4)%4; }
-  function commit(n){ const idx=frontIdx(n); state.target=-n*step; if(idx!==state.idx){ state.idx=idx; _wheelUpdateLabel(idx); const col=_WHEEL_CHARS[idx].col; try{ state.pad.material.color.setHex(col); state.spot.color.setHex(0xffffff); }catch(_){} try{ if(window._selectChar)window._selectChar(idx); }catch(_){} } }
+  function commit(n){ const idx=frontIdx(n); state.target=-n*step; if(idx!==state.idx){ state.idx=idx; _wheelUpdateLabel(idx); const col=_WHEEL_CHARS[idx].col; try{ state.pad.material.color.setHex(col); state.spot.color.setHex(0xffffff); }catch(_){} if(bgGrid)try{ bgGrid.shock(0,0,(window._WHEEL_GRID_SHOCK||3.0), col); }catch(_){}   // half-intensity shockwave ripples the backdrop grid in the new pilot's colour (ode to the game)
+    try{ if(window._selectChar)window._selectChar(idx); }catch(_){} } }
   // start on the currently chosen pilot
   { let s=_WHEEL_CHARS.findIndex(c=>c.key===(window._playerChar||'robot')); if(s<0)s=0; state.idx=s; state.rot=state.target=-s*step; wheel.rotation.y=state.rot; _wheelUpdateLabel(s); try{ state.pad.material.color.setHex(_WHEEL_CHARS[s].col); }catch(_){} }
   const px=e=>e.touches?e.touches[0].clientX:e.clientX;
@@ -39391,6 +39401,7 @@ function _startCharWheel(canvasId){
   const clock=new THREE.Clock();
   function render(){ if(!state.running)return; const dt=clock.getDelta();
     for(let i=0;i<mixers.length;i++)mixers[i].update(Math.min(dt,0.05));
+    if(bgGrid)try{ bgGrid.update(Math.min(dt,0.05)); }catch(_){}
     if(!state.drag) state.rot += (state.target-state.rot)*Math.min(1,dt*(window._WHEEL_EASE||9));
     wheel.rotation.y=state.rot;
     // TURNTABLE depth: the HERO up front is full size; pilots further around the ring shrink (perspective) and lift slightly UP
