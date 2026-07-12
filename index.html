@@ -299,7 +299,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB651</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB652</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -485,7 +485,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB651</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB652</div></div>
       </div>
     </div>
   </div>
@@ -35545,13 +35545,18 @@ function _orientLargeWeapon(obj,bone){
     const desired=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), sd);           // barrel +Z -> span direction (forward)
     const sfx=obj.userData._largeFix||window._LARGE_FIX; if(sfx) desired.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(sfx.x||0,sfx.y||0,sfx.z||0)));   // roll about the barrel (the 2 points don't pin roll)
     obj.quaternion.copy(bqW.clone().invert().multiply(desired));
-    const seat=(obj.userData._spanSeat!=null)?obj.userData._spanSeat:(window._BILL_SEAT!=null?window._BILL_SEAT:0);   // slide the whole gun FORWARD along the span (push it out of the shoulder into the hands)
+    const bs2=new THREE.Vector3(); dir.getWorldScale(bs2);
+    const _ls2=(obj.userData._largeScale!=null)?obj.userData._largeScale:(window._LARGE_SCALE!=null?window._LARGE_SCALE:2.2);
+    const _sc2=(1/(Math.abs(bs2.x)||1))*_ls2;
+    obj.scale.setScalar(_sc2);
+    // CENTERED span: seat the gun so its GEOMETRIC CENTRE (midpoint of tip↔butt, at local +Z=_spanMidZ) lands on the MIDPOINT of
+    // the weapon_1↔weapon_2 line — i.e. the gun spans the two joints and is balanced between them (no more back-heavy shoulder droop).
+    let seat;
+    if(obj.userData._centerSpan){ const D=W1.distanceTo(W2), midZ=(obj.userData._spanMidZ!=null?obj.userData._spanMidZ:0); seat=D*0.5 - midZ*_sc2 + (obj.userData._spanSeatBias||0); }
+    else seat=(obj.userData._spanSeat!=null)?obj.userData._spanSeat:(window._BILL_SEAT!=null?window._BILL_SEAT:0);
     const wp=W1.clone().addScaledVector(sd, seat);
     obj.position.copy(dir.worldToLocal(wp));
     const np2=obj.userData._largePos||window._LARGE_POS; if(np2){ obj.position.x+=(np2.x||0); obj.position.y+=(np2.y||0); obj.position.z+=(np2.z||0); }   // fine nudge in weapon_1-local space
-    const bs2=new THREE.Vector3(); dir.getWorldScale(bs2);
-    const _ls2=(obj.userData._largeScale!=null)?obj.userData._largeScale:(window._LARGE_SCALE!=null?window._LARGE_SCALE:2.2);
-    obj.scale.setScalar((1/(Math.abs(bs2.x)||1))*_ls2);
     const swT2=player._handSwapT||0; if(swT2>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT2/dur))*Math.PI*2)); }
     return true;
   }
@@ -35560,7 +35565,20 @@ function _orientLargeWeapon(obj,bone){
   const np=obj.userData._largePos||window._LARGE_POS; obj.position.set(np?(np.x||0):0, np?(np.y||0):0, np?(np.z||0):0);
   const bs=new THREE.Vector3(); dir.getWorldScale(bs);
   const _ls=(obj.userData._largeScale!=null)?obj.userData._largeScale:(window._LARGE_SCALE!=null?window._LARGE_SCALE:2.2);   // per-weapon size (the RPG is bigger than the grenade launcher) or the shared default
-  obj.scale.setScalar((1/(Math.abs(bs.x)||1))*_ls);
+  const _scL=(1/(Math.abs(bs.x)||1))*_ls;
+  obj.scale.setScalar(_scL);
+  // CENTRE the gun between the two grip joints (POSITION only — keeps weapon_1's correct horizontal aim): slide it along its own
+  // barrel so its geometric centre (local +Z=_spanMidZ) lands on the midpoint of weapon_1<->weapon_2. Fixes the back-heavy droop.
+  if(obj.userData._centerPos){ const bones=player.model.userData&&player.model.userData.bones;
+    const RH=bones&&bones['mixamorig_RightHand'], LH=bones&&bones['mixamorig_LeftHand'];   // the two GRIPS = the hands (weapon_1/weapon_2 are stacked vertically in this stance, so use the hands)
+    if(RH&&LH){ const W1=RH.getWorldPosition(new THREE.Vector3()), W2=LH.getWorldPosition(new THREE.Vector3());
+      const M=W1.clone().add(W2).multiplyScalar(0.5);
+      const gq=dir.getWorldQuaternion(new THREE.Quaternion()).multiply(obj.quaternion);        // gun WORLD orientation
+      const fwd=new THREE.Vector3(0,0,1).applyQuaternion(gq);                                    // barrel dir in world
+      const midZ=(obj.userData._spanMidZ!=null?obj.userData._spanMidZ:0);
+      const origin=M.addScaledVector(fwd, -midZ*_scL + (obj.userData._centerBias||0));           // origin so origin + fwd*midZ*scale == M (centre of tube at the mid-grip)
+      obj.position.copy(dir.worldToLocal(origin));
+      if(np){ obj.position.x+=(np.x||0); obj.position.y+=(np.y||0); obj.position.z+=(np.z||0); } } }
   const swT=player._handSwapT||0; if(swT>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT/dur))*Math.PI*2)); }   // keep the weapon-swap flip
   return true;
 }
@@ -35616,7 +35634,10 @@ function _makeWeaponHandModel(weapon,side){
     const w=new THREE.Group(); const baz=_makeBazooka(side);   // barrel already runs +Z
     baz.position.z=(window._BILL_LARGE_ANCHOR!=null?window._BILL_LARGE_ANCHOR:-3);   // slide the tube FORWARD along the barrel (higher = muzzle further out front). -11 sat back-heavy over the shoulder; -3 thrusts the tube forward so the front sticks out ~2x the rear (tunable)
     w.userData._large=true;
-    w.userData._spanBones=(window._BILL_SPAN===true);   // DEFAULT OFF: use weapon_1's own rotation like the grenade launcher (the weapon_1->weapon_2 span points vertically in the bazooka stance -> barrel aimed straight up). Opt back in with window._BILL_SPAN=true.
+    w.userData._spanBones=(window._BILL_SPAN===true);   // OFF: weapon_1->weapon_2 is VERTICAL in the bazooka stance, so a rotational span aims the barrel up/down. Keep weapon_1's own (correct, horizontal) rotation...
+    w.userData._centerPos=(window._BILL_CENTER_POS!==false);   // ...but TRANSLATE the gun so its geometric centre sits at the MIDPOINT of the weapon_1<->weapon_2 joints -> balanced between the two grips, not back-heavy on the shoulder
+    w.userData._spanMidZ=(window._BILL_SPAN_MIDZ!=null?window._BILL_SPAN_MIDZ:5.5);   // local +Z of the tube's geometric centre (tip 17.6, butt -6.6 -> mid 5.5)
+    if(window._BILL_CENTER_BIAS!=null)w.userData._centerBias=window._BILL_CENTER_BIAS;   // + = slide the whole launcher FORWARD along the barrel, - = back (nudge if it still reads lopsided)
     if(window._BILL_SEAT!=null)w.userData._spanSeat=window._BILL_SEAT;
     w.userData._largeScale=(window._BILL_LARGE_SCALE!=null?window._BILL_LARGE_SCALE:1.5);   // bigger than the grenade launcher but sane on the rig
     if(window._BILL_LARGE_FIX)w.userData._largeFix=window._BILL_LARGE_FIX;
