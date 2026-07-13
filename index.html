@@ -299,7 +299,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB697</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB698</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -485,7 +485,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB697</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB698</div></div>
       </div>
     </div>
   </div>
@@ -40362,6 +40362,25 @@ function _startCharWheel(canvasId){
   };
   window._wheelCineReset=function(){ if(!state.cine)return; const c=state.cine; state.cine=null;
     state.cineBack={t0:performance.now(), dur:(window._CINE_BACK_MS||560), hero:c.hero, bases:c.bases}; };
+  // ── SCREEN-SPACE MATCH — measure the hero's projected silhouette (normalized 0-1 canvas coords) and tween it onto a target
+  //    rect. Both the wheel canvas and the dress-room canvas are full-viewport, so their normalized rects are directly
+  //    comparable: match the wheel hero onto the dress model's exact rect BEFORE the crossfade -> no jump, for any pilot. ──
+  window._wheelHeroRect=function(){ const g=slots[state.idx]; if(!g)return null;
+    let mny=1e9,mxy=-1e9,any=false; const v=_cineTmp;
+    g.traverse(o=>{ if(o.isBone){ o.getWorldPosition(v); v.project(cam); if(v.z<1){ const sy=-v.y*0.5+0.5; if(sy<mny)mny=sy; if(sy>mxy)mxy=sy; any=true; } } });
+    if(!any)return null;
+    g.getWorldPosition(v); v.project(cam);   // horizontal centre from the SLOT ORIGIN (bone-bbox cx skews with pose asymmetry + facing)
+    return {cx:v.x*0.5+0.5, cy:(mny+mxy)/2, h:(mxy-mny)}; };
+  window._wheelHeroMatch=function(tgt,ms){ const C=state.cine; if(!C||!tgt)return false;
+    const cur=window._wheelHeroRect(); if(!cur||cur.h<1e-4||tgt.h<1e-4)return false;
+    const g=slots[C.hero]; if(!g)return false;
+    const k=tgt.h/cur.h;                                                                    // scale ratio to equalize projected heights
+    const wp=g.getWorldPosition(new THREE.Vector3()); const depth=cam.position.distanceTo(wp);
+    const worldPerNdc=2*depth*Math.tan((cam.fov*Math.PI/180)/2);                            // world units per full canvas height at the hero's depth
+    const wdy=-(tgt.cy-cur.cy)*worldPerNdc, wdx=(tgt.cx-cur.cx)*worldPerNdc*cam.aspect;     // screen delta -> world delta (screen +y is down)
+    _cineTmp.set(wdx,wdy,0).add(wp); wheel.worldToLocal(_cineTmp);                          // world offset -> wheel-local
+    C.post={lx:_cineTmp.x-g.position.x, ly:_cineTmp.y-g.position.y, lz:_cineTmp.z-g.position.z, k, t0:performance.now(), ms:(ms||170)};
+    return true; };
   const clock=new THREE.Clock();
   function render(){ if(!state.running)return;
     if(((render._vc=((render._vc||0)+1))&15)===1)render._hid=(canvas.offsetParent===null);   // visibility probed every 16th frame (offsetParent can force layout)
@@ -40380,7 +40399,9 @@ function _startCharWheel(canvasId){
       let k=Math.min(1,(performance.now()-C.t0)/C.dur); const e0=1-Math.pow(1-k,3), e=back?(1-e0):e0;   // back = the same path reversed
       for(let i=0;i<slots.length;i++){ const g=slots[i], B=C.bases[i]; if(!g||!B)continue;
         g.position.set(B.x+B.ox*e, B.y+B.oy*e, B.z+B.oz*e);
-        if(i===C.hero){ const fs=(window._CINE_FWD_SCALE||1.5); g.scale.setScalar(B.s+(fs-B.s)*e); g.rotation.y=B.ry+(back?0:e*Math.PI*2); }
+        if(i===C.hero){ const fs=(window._CINE_FWD_SCALE||1.5); g.scale.setScalar(B.s+(fs-B.s)*e); g.rotation.y=B.ry+(back?0:e*Math.PI*2);
+          if(!back&&C.post){ const P=C.post, pk=Math.min(1,(performance.now()-P.t0)/P.ms), pe=1-Math.pow(1-pk,3);   // FINAL APPROACH: glide the last few % onto the dress model's exact screen rect
+            g.position.x+=P.lx*pe; g.position.y+=P.ly*pe; g.position.z+=P.lz*pe; g.scale.multiplyScalar(1+(P.k-1)*pe); } }
         else g.scale.setScalar(Math.max(0.001,B.s*(1-e*0.92)));
       }
       if(k>=1){ if(back){ state.cineBack=null; } else if(!C.fired){ C.fired=true; if(C.cb)try{C.cb();}catch(_){} } }   // cine HOLDS its end pose (the dress room fades in over it); cineBack hands control back to the ring
@@ -40702,8 +40723,10 @@ function _startCharWheel(canvasId){
         const wsPanels=[ {el:directChild('ws-title'),edge:'top',d:0}, {el:document.getElementById('ws-chars'),edge:'top',d:50}, {el:document.getElementById('ws-poses'),edge:'top',d:90}, {el:directChild('ws-collapse'),edge:'bottom',d:30}, {el:document.getElementById('ws-hue'),edge:'bottom',d:70} ];
         _mechDock(ov,wsPanels,'out','#00ffc8');
       }catch(_){}
+      setTimeout(()=>{ const bgd=document.getElementById('ws-bgfade'); if(bgd){ bgd.style.transition='opacity .4s ease'; bgd.style.opacity='0'; } },80);   // the room's backdrop dissolves FIRST, revealing the select stage behind the still-visible pilot
       setTimeout(()=>{ ov.style.transition='opacity .28s ease'; ov.style.opacity='0'; },330);
       setTimeout(()=>{ ov.style.display='none'; ov.style.transition='none'; ov.style.opacity='1';
+        const bgd=document.getElementById('ws-bgfade'); if(bgd){ bgd.style.transition='none'; bgd.style.opacity='1'; }   // restore for any plain (debug SHOP) open
         try{ ov.querySelectorAll('.mech-wires').forEach(w=>w.remove()); }catch(_){}
         if(S)S.running=false; const hb=document.getElementById('ws-hue'); if(hb)hb.style.display='none';
         try{ if(window._dressResetSelect)window._dressResetSelect(); }catch(_){}
@@ -40995,16 +41018,33 @@ window._dressResetSelect=function(){ const {sc,list}=_DRESS_SEL_PANELS(); if(!sc
   const cv=document.getElementById('char-wheel-canvas'); if(cv){ cv.style.transition=''; cv.style.opacity=''; cv.style.transform=''; }
   setTimeout(()=>{ list.forEach(p=>{ if(p.el){ p.el.style.transition=''; p.el.style.transform=''; p.el.style.opacity=''; } }); },900);
 };
+// normalized (0-1, full-viewport) screen rect of the dress-room model — the match target for the wheel hero's final approach
+function _wsModelRect(){ try{ const S=window._ws; if(!S||!S.model||!S.cam)return null;
+  S.model.updateWorldMatrix(true,true);
+  let mny=1e9,mxy=-1e9,any=false; const v=new THREE.Vector3();
+  S.model.traverse(o=>{ if(o.isBone){ o.getWorldPosition(v); v.project(S.cam); if(v.z<1){ const sy=-v.y*0.5+0.5; if(sy<mny)mny=sy; if(sy>mxy)mxy=sy; any=true; } } });
+  if(!any)return null;
+  (S.turn||S.model).getWorldPosition(v); v.project(S.cam);   // horizontal centre from the TURNTABLE ORIGIN (bone-bbox cx skews with pose asymmetry + facing)
+  return {cx:v.x*0.5+0.5, cy:(mny+mxy)/2, h:(mxy-mny)}; }catch(_){ return null; } }
 function _dressEnterWorkshop(){ const ov=document.getElementById('workshop-overlay'); if(!ov)return;
   const directChild=(id)=>{ let e=document.getElementById(id); while(e&&e.parentElement!==ov)e=e.parentElement; return e; };
   const topBar=directChild('ws-title'), tabs=document.getElementById('ws-chars'), poses=document.getElementById('ws-poses'), bottom=directChild('ws-collapse'), hue=document.getElementById('ws-hue');
-  // hold the overlay INVISIBLE until its model is actually built, then a fast crossfade over the (still-forward) wheel pilot —
-  // two renders of the SAME character in ~the same spot = the pilot never leaves the screen.
+  // BACKGROUND SPLIT: the overlay's radial-gradient bg pops at the crossfade (part of the perceived cut). Move it onto its
+  // own layer that fades in SLOWLY behind the canvas, while the model crossfade stays fast.
+  let bgd=document.getElementById('ws-bgfade');
+  if(!bgd){ bgd=document.createElement('div'); bgd.id='ws-bgfade';
+    bgd.style.cssText='position:absolute;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at 50% 38%,#0a1426 0%,#04060c 68%,#000 100%)';
+    ov.insertBefore(bgd,ov.firstChild); ov.style.background='transparent'; }
+  bgd.style.transition='none'; bgd.style.opacity='0';
+  // hold the overlay INVISIBLE until its model is actually built, then MATCH the wheel hero onto the dress model's exact
+  // projected screen rect (self-calibrating, per pilot) and crossfade during the final glide — the pilot never jumps.
   ov.style.transition='none'; ov.style.opacity='0';
   const t0=(typeof performance!=='undefined'?performance.now():0);
   const tryFade=()=>{ const S=window._ws, ready=!!(S&&S.model);
     if(!ready && (performance.now()-t0)<(window._DRESS_XFADE_WAIT||1100)){ setTimeout(tryFade,60); return; }
-    ov.style.transition='opacity '+((window._DRESS_XFADE_MS||340)/1000)+'s ease'; ov.style.opacity='1';
+    try{ const rect=_wsModelRect(); if(rect&&window._wheelHeroMatch)window._wheelHeroMatch(rect,(window._CINE_MATCH_MS||190)); }catch(_){}   // FINAL APPROACH: glide the wheel hero onto the dress model's silhouette
+    setTimeout(()=>{ bgd.style.transition='opacity '+((window._DRESS_BG_MS||800)/1000)+'s ease'; bgd.style.opacity='1'; },60);
+    ov.style.transition='opacity '+((window._DRESS_XFADE_MS||340)/1000)+'s ease '+((window._CINE_MATCH_LEAD||120)/1000)+'s'; ov.style.opacity='1';
     // MATERIALIZATION FLASH — a fast bloom in the pilot's hue right on the body during the handoff, welding the two renders
     // into one moment (any residual framing difference reads as the flash, not a cut)
     try{ const hue='#'+((window._PLAYER_HUE!=null?window._PLAYER_HUE:0x00ffc8)>>>0&0xffffff).toString(16).padStart(6,'0');
