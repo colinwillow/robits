@@ -299,7 +299,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB673</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB674</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -485,7 +485,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB673</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB674</div></div>
       </div>
     </div>
   </div>
@@ -9221,6 +9221,16 @@ class Grenade{
     else { this.mesh.rotation.x+=this.vx*dt*0.05; this.mesh.rotation.z+=this.vz*dt*0.05; }
     this.mesh.position.set(this.wx,this.y,this.wz);
     const frac=Math.max(0,this.timer/this._maxT); this._tipMat.opacity=(Math.sin(this.t*(9+24*(1-frac)))>0)?1:0.25;
+    // CONTACT DETONATE — explode the instant the lob TOUCHES a foe / bot / training dummy. It was timer-only before, so grenades
+    //  sailed straight THROUGH dummies without going off. Brief arm delay so it doesn't pop on the shooter's own muzzle.
+    if(this.t > (window._GREN_ARM_T!=null?window._GREN_ARM_T:0.06)){ const _R=(window._GREN_HIT_R||16);
+      const _near=(ex,ez,ey,rad,tall)=>{ if(ex==null)return false; return Math.hypot(this.wx-ex,this.wz-ez) < _R+(rad||14) && this.y > (ey||0)-16 && this.y < (ey||0)+(tall||44)+18; };
+      let _hit=false;
+      if(typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(!e||e.alive===false||e._captured)continue; const ey=(e.mesh&&e.mesh.position)?e.mesh.position.y:(e.py||0); if(_near(e.wx,e.wz,ey,(e._hitR||e.size||14),(e._tall||e.size||44))){ _hit=true; break; } } }
+      if(!_hit && typeof GS_bots!=='undefined'){ for(const b of GS_bots){ if(!b||b.alive===false)continue; if(_near(b.wx,b.wz,(b.py||0),16,50)){ _hit=true; break; } } }
+      if(!_hit && typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.alive!==false){ const d=GS_trainingDummy; if(_near(d.wx,d.wz,(d.py||0),(d.size||16),50)) _hit=true; }
+      if(_hit){ this.detonate(); return false; }
+    }
     if(this.timer<=0){ this.detonate(); return false; }
     return true;
   }
@@ -25434,7 +25444,7 @@ function loop(ts){ requestAnimationFrame(loop);
             else { targetClip = _find(want) || _find('up') || _find('push') || 'idle'; }
             if(!ud._skLogged){ ud._skLogged=true; console.warn('SKATE clips found:', _ks.filter(n=>n.toLowerCase().includes('skate'))); }
           }
-          else if(airborne && !player._driveActive) targetClip='floating';   // NO-BOOTS momentum ride up the fillet/wall: you're RUNNING on the surface, so play the run cycle, not the in-air float
+          else if(airborne && !player._driveActive && !(player._driveReCD>0)) targetClip='floating';   // NO-BOOTS momentum ride: you're RUNNING on the surface. And in the ~0.3s AFTER a slide-back/floor detach (_driveReCD>0) DON'T snap to the air-float while you settle the last few units onto the ground — that's the "teleports into an air pose then corrects" stutter. (A real jump off the wall clears reCD, so it still floats.)
           else if(!moving) targetClip=(player._driveActive?'run_forward':'idle');   // coasting the wall still shows a run cycle while the drive owns you
           else if(Math.abs(angleDiff)<Math.PI*0.3) targetClip='run_forward';
           else if(Math.abs(angleDiff)>Math.PI*0.7) targetClip='run_backward';
@@ -29613,7 +29623,9 @@ function _cubeMomentumMove(P,rawX,rawZ,dt){
     //  couldn't get off of. Now, on any non-flat surface, the steering FADES as your speed drops -> a near-standstill can't power up,
     //  so tangential gravity always slides you back DOWN to the flat floor (where the clean !steep detach hands you to walking).
     //  Fast approach (speed above _DRIVE_STEER_SPD) keeps FULL steering, so your carried momentum still runs you up the wall.
-    if(N.y < (window._DRIVE_STICK_NY!=null?window._DRIVE_STICK_NY:0.86)){ const _sp=v.length(), _g=Math.min(1,_sp/(window._DRIVE_STEER_SPD||240)), _fl=(window._DRIVE_WALL_STEER_MIN!=null?window._DRIVE_WALL_STEER_MIN:0.15); _as*=_fl+(1-_fl)*_g; }
+    // Only gate on slopes STEEPER than ~45° (N.y below ~0.7). Shallower than that you can WALK up from a standstill (full steering) —
+    //  it's only the steep upper wall that needs momentum. This makes the low fillet walkable so the exit onto the floor is smooth.
+    if(N.y < (window._DRIVE_WALK_NY!=null?window._DRIVE_WALK_NY:0.7)){ const _sp=v.length(), _g=Math.min(1,_sp/(window._DRIVE_STEER_SPD||240)), _fl=(window._DRIVE_WALL_STEER_MIN!=null?window._DRIVE_WALL_STEER_MIN:0.15); _as*=_fl+(1-_fl)*_g; }
     v.addScaledVector(tanDir,(window._DRIVE_ACC!=null?window._DRIVE_ACC:1500)*Math.min(1,inMag)*_as*dt); }
   v.multiplyScalar(Math.pow((window._DRIVE_FRIC!=null?window._DRIVE_FRIC:0.55),dt));   // per-second friction
   const MAX=(window._DRIVE_MAX||540); if(v.length()>MAX)v.setLength(MAX);
@@ -29631,7 +29643,8 @@ function _cubeMomentumMove(P,rawX,rawZ,dt){
   //  tangential gravity, so you hang there with speed ~0 and the floor-detach below (needs !steep) never fires. If speed stays low
   //  while you're on the fillet/lower wall (ny above ~0.1, i.e. NOT the near-vertical wall where gravity always wins the slide),
   //  hand back to walking so you drop off instead of freezing. Matches the design: slow = climb a little then slide back.
-  if(spd < (window._DRIVE_STALL_SPD!=null?window._DRIVE_STALL_SPD:70) && N.y > (window._DRIVE_STALL_NY!=null?window._DRIVE_STALL_NY:0.1) && (P.py||0) > RIDE+3){ P._driveStallT=(P._driveStallT||0)+dt; } else { P._driveStallT=0; }
+  // Only a STEEP slope (ny below _DRIVE_WALK_NY ~0.7 = steeper than 45°) can pin you; on a shallow walkable slant standing still is fine, so don't detach there.
+  if(spd < (window._DRIVE_STALL_SPD!=null?window._DRIVE_STALL_SPD:70) && N.y > (window._DRIVE_STALL_NY!=null?window._DRIVE_STALL_NY:0.1) && N.y < (window._DRIVE_WALK_NY!=null?window._DRIVE_WALK_NY:0.7) && (P.py||0) > RIDE+3){ P._driveStallT=(P._driveStallT||0)+dt; } else { P._driveStallT=0; }
   if((P._driveStallT||0) > (window._DRIVE_STALL_T!=null?window._DRIVE_STALL_T:0.18)){ P._driveStallT=0; _driveDetach(P); P._driveReCD=(window._DRIVE_RECD!=null?window._DRIVE_RECD:0.3); _cubeWalkRender(P,N,tanDir,dt,true,_skipCam); return; }
   if(N.y < (window._DRIVE_CEIL_NY!=null?window._DRIVE_CEIL_NY:-0.08)){ const vN=v.dot(N); if(vN>0){ v.addScaledVector(N,-vN); P.vx=v.x;P.pvy=v.y;P.vz=v.z; } _driveDetach(P); _cubeWalkRender(P,N,tanDir,dt,true,_skipCam); return; }
   if(window._DRIVE_PEEL===true && steep && spd < (window._DRIVE_MIN||150)){ _driveDetach(P); _cubeWalkRender(P,N,tanDir,dt,true,_skipCam); return; }   // OFF by default: peeling off mid-wall = a free-fall (read as a "jump/flip"). Instead, when you run out of momentum going UP, tangential gravity SLIDES YOU BACK DOWN the surface (still in run mode) until the floor hands you back to walking. Opt into the old peel-off with window._DRIVE_PEEL=true.
