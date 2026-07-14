@@ -304,7 +304,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB713</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB714</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -490,7 +490,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB713</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB714</div></div>
       </div>
     </div>
   </div>
@@ -13355,7 +13355,24 @@ class Player{
       const _coast = (inMag<0.05) && window._COAST_ON!==false && !((this._ejectFlyT||0)>0)
         && !(this.model&&this.model.userData&&(this.model.userData._meleeTimer||0)>0 && !(this._meleeLungeT>0));
       if(_coast){ const _f=Math.pow((window._COAST_FRIC!=null?window._COAST_FRIC:0.055),dt); this.vx*=_f; this.vz*=_f; if(Math.hypot(this.vx,this.vz)<(window._COAST_STOP||7)){ this.vx=0; this.vz=0; } }
-      else { this.vx=lerp(this.vx,tvx,e); this.vz=lerp(this.vz,tvz,e); }
+      else {
+        // OVERSPEED CARRY: if you're moving FASTER than the run target (came off the wall/fillet or a launch with momentum)
+        //  and the stick points roughly ALONG your motion, don't lerp DOWN to run speed — that read exactly backwards at the
+        //  fillet exit: hold the stick and you "hit a wall" (snap-brake to ~200), release it and the coast carried you. Now a
+        //  held stick STEERS the glide while the surplus bleeds off gently toward run speed; stick AGAINST the motion still
+        //  brakes normally (deliberate stops unchanged). Gated off during melee-carry / zap / eject (they own tvx).
+        const _cur=Math.hypot(this.vx,this.vz), _tgt=Math.hypot(tvx,tvz);
+        const _ovOK=window._OVERSPEED_CARRY!==false && inMag>0.05 && _tgt>1 && _cur>_tgt*1.06 && !(this._zapT>0) && !((this._ejectFlyT||0)>0)
+          && !(this.model&&this.model.userData&&(this.model.userData._meleeTimer||0)>0);
+        let _ovDot=0; if(_ovOK){ _ovDot=(this.vx*tvx+this.vz*tvz)/((_cur*_tgt)||1); }
+        if(_ovOK && _ovDot>(window._OVR_DOT||0.35)){
+          const _ang=Math.atan2(this.vz,this.vx), _tang=Math.atan2(tvz,tvx);
+          const _da=Math.atan2(Math.sin(_tang-_ang),Math.cos(_tang-_ang));
+          const _na=_ang+Math.sign(_da)*Math.min(Math.abs(_da),(window._OVR_STEER||3.5)*dt);          // stick steers the glide's heading
+          const _mag=Math.max(_tgt,_cur*Math.pow((window._OVR_FRIC!=null?window._OVR_FRIC:0.25),dt)); // surplus bleeds toward run speed (~0.7s), never below it
+          this.vx=Math.cos(_na)*_mag; this.vz=Math.sin(_na)*_mag;
+        } else { this.vx=lerp(this.vx,tvx,e); this.vz=lerp(this.vz,tvz,e); }
+      }
 
       let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
       if(GS.zone===-19){ const yh=(this.py||0)+(window._CUBE_RIDE||14), c=_cubeClampXZ(nx,nz,yh,(window._CUBE_SKIN||14));   // CUBE: height-aware shell containment (floor stops at the arc base, airborne opens out to the walls)
@@ -39475,6 +39492,17 @@ window._showScreen=function(name){
   if(name==='mode')  _startTitleGrid('mode-grid-canvas');
   try{ if(window._screenEnterFx)window._screenEnterFx(name); }catch(_){}   // EVERY screen animates IN (no more hard pops)
 };
+// ── UI SOUND KIT — the menu FX now use the REAL samples instead of synth blips: metal clangs for things docking/popping
+//    in and out, the melee swooshes as transition washes, phase warps for the big moments. Falls back to the old blip
+//    (call sites keep theirs) until the samples are loaded. window._uiSfx(kind, vol, rate) -> true if a sample played.
+window._uiSfx=function(kind,vol,rate){ try{ if(typeof Audio==='undefined'||!Audio.on||!Audio.playSample)return false; const S=Audio.samples||{};
+  const pick=(ns)=>{ const p=ns.filter(n=>S[n]&&S[n]!=='pending'); return p.length?p[(Math.random()*p.length)|0]:null; };
+  let nm=null;
+  if(kind==='clank') nm=pick(['metal_clang_01','metal_clang_02','metal_clang_03','metal_clang_04']);
+  else if(kind==='ping') nm=pick(['metal_ping_01']);
+  else if(kind==='swoosh') nm=pick(['swoosh_01','swoosh_02','swoosh_03','swoosh_04','swoosh_05','swoosh_06']);
+  else if(kind==='warp') nm=pick(['phase_warp_01','phase_warp_02','phase_warp_03','phase_warp_04','phase_warp_05','phase_warp_06']);
+  if(!nm)return false; Audio.playSample(nm,(vol!=null?vol:0.5),(rate||(0.92+Math.random()*0.16))); return true; }catch(_){ return false; } };
 // ── SCREEN ENTRY FX — nothing just "appears": every screen's pieces rise in staggered from below with a mechanical
 //    overshoot; the character-select gets the full treatment (panels dock with wires + the pilots spiral up from the floor).
 window._screenEnterFx=function(name){
@@ -39495,6 +39523,7 @@ window._screenEnterFx=function(name){
     setTimeout(()=>{ c.style.transition='transform .5s cubic-bezier(.3,1.28,.4,1), opacity .34s ease'; c.style.opacity=''; c.style.transform='';
       setTimeout(()=>{ c.style.transition=''; c.style.transform=''; c.style.opacity=''; },560); }, d);
   });
+  try{ if(kids.length&&window._uiSfx){ window._uiSfx('swoosh',0.3); setTimeout(()=>{ try{window._uiSfx('clank',0.24);}catch(_){} },230); } }catch(_){}   // a soft wash as the pieces rise + a tin clank as they land
 };
 
 window.LIGHT_MODE=false;
@@ -40426,7 +40455,7 @@ function _wheelUpdateLabel(idx){
 // VIEW STATS -> flash the segmented stat strip so it draws the eye (a light, self-contained "detail" cue)
 window._wheelToggleStats=function(btn){ const st=document.getElementById('char-wheel-stats'); if(!st)return;
   st.animate?st.animate([{filter:'brightness(1)'},{filter:'brightness(2.1)'},{filter:'brightness(1)'}],{duration:520,easing:'ease-out'}):0;
-  try{ if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(680,0.06,'square',0.12,900); }catch(_){}
+  try{ if(!(window._uiSfx&&window._uiSfx('ping',0.35,1.15))&&typeof Audio!=='undefined'&&Audio.blip)Audio.blip(680,0.06,'square',0.12,900); }catch(_){}
 };
 function _startCharWheel(canvasId){
   const canvas=document.getElementById(canvasId); if(!canvas) return;
@@ -40521,7 +40550,7 @@ function _startCharWheel(canvasId){
       bases[i]=B; }
     state.cine={t0:performance.now(), dur:(window._CINE_MS||980), hero:state.idx, bases, cb, fired:false};
     try{ if(bgGrid)bgGrid.shock(0,0,(window._CINE_GRID_SHOCK||7), _WHEEL_CHARS[state.idx].col); }catch(_){}
-    try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(190,0.22,'sawtooth',0.15,760); setTimeout(()=>Audio.blip(560,0.09,'square',0.1,980),620); } }catch(_){}
+    try{ if(window._uiSfx&&window._uiSfx('warp',0.6)){ setTimeout(()=>{ try{window._uiSfx('ping',0.35,1.1);}catch(_){} },620); } else if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(190,0.22,'sawtooth',0.15,760); setTimeout(()=>Audio.blip(560,0.09,'square',0.1,980),620); } }catch(_){}
   };
   window._wheelCineReset=function(){ if(!state.cine)return; const c=state.cine; state.cine=null;
     state.cineBack={t0:performance.now(), dur:(window._CINE_BACK_MS||560), hero:c.hero, bases:c.bases}; };
@@ -40562,7 +40591,7 @@ function _startCharWheel(canvasId){
   window._wheelEntryPop=function(){ try{ window._wheelEntryPrime(0); }catch(_){}   // clears any STALE held cine/cineBack first (see prime) — the guard below then only blocks genuinely live animations
     if(state.cine||state.cineBack)return; state.entry={t0:performance.now()};   // SCREEN-ENTRY: the roster spirals up out of the stage floor, staggered
     try{ if(bgGrid)bgGrid.shock(0,0,(window._WHEEL_IN_SHOCK||5),_WHEEL_CHARS[state.idx].col); }catch(_){}
-    try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(300,0.1,'sawtooth',0.1,620); } }catch(_){} };
+    try{ if(!(window._uiSfx&&window._uiSfx('swoosh',0.55))&&typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(300,0.1,'sawtooth',0.1,620); } }catch(_){} };
   const clock=new THREE.Clock();
   function render(){ if(!state.running)return;
     if(((render._vc=((render._vc||0)+1))&15)===1)render._hid=(canvas.offsetParent===null);   // visibility probed every 16th frame (offsetParent can force layout)
@@ -40946,7 +40975,7 @@ function _dressSetHue(hx){
   const c=new THREE.Color(hx);
   try{ const S=window._ws; if(S&&S.model&&typeof _tintAllyApply==='function')_tintAllyApply(S.model,c); }catch(_){}   // recolor the PREVIEW with the SAME treatment the game's AI hues use (glow/wire/emissive)
   try{ window._applyPlayerHue(); }catch(_){}   // + the live player if it's already spawned
-  if(typeof Audio!=='undefined'&&Audio.blip)try{ Audio.blip(520,0.05,'sine',0.1,720); }catch(_){}
+  try{ if(!(window._uiSfx&&window._uiSfx('ping',0.3)))if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(520,0.05,'sine',0.1,720); }catch(_){}
 }
 function _dressPreviewCosmetics(){   // apply the current loadout onto the PREVIEW model (mirrors _applyCosmetics, but on S.model)
   const S=window._ws; if(!S||!S.model||typeof COSMO_SLOTS==='undefined')return;
@@ -41014,7 +41043,7 @@ function _dressCosFlyIn(){
         if(kk<1)requestAnimationFrame(step); else { obj.position.copy(tgt);
           try{ if(ov&&S.cam){ const v=obj.getWorldPosition(new THREE.Vector3()).project(S.cam), rr=ov.getBoundingClientRect();
             _uiSparks(ov,(v.x*0.5+0.5)*rr.width,(-v.y*0.5+0.5)*rr.height,hue,8); } }catch(_){}   // spark burst right where the piece seats
-          try{ if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(700+Math.random()*180,0.05,'square',0.1,940); }catch(_){}
+          try{ if(!(window._uiSfx&&window._uiSfx('clank',0.42)))if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(700+Math.random()*180,0.05,'square',0.1,940); }catch(_){}
         } };
       requestAnimationFrame(step);
     },delay);
@@ -41180,7 +41209,7 @@ function _mechWirePlug(rootEl,el,edge,col){ try{
   const L=path.getTotalLength();
   path.style.strokeDasharray=L; path.style.strokeDashoffset=L; path.getBoundingClientRect();
   path.style.transition='stroke-dashoffset .3s cubic-bezier(.3,0,.4,1)'; path.style.strokeDashoffset='0';   // the cable RACES from the edge to the panel …
-  setTimeout(()=>{ _uiSparks(rootEl,ex,ey,col,9); try{ if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(640,0.045,'square',0.09,900); }catch(_){} },290);   // … and PLUGS IN with a spark
+  setTimeout(()=>{ _uiSparks(rootEl,ex,ey,col,9); try{ if(!(window._uiSfx&&window._uiSfx('ping',0.38,1.18)))if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(640,0.045,'square',0.09,900); }catch(_){} },290);   // … and PLUGS IN with a spark
   if(g.animate)g.animate([{opacity:1},{opacity:0.45},{opacity:1}],{duration:2400,iterations:Infinity});   // live umbilical hum
   el._mechWireG=g; el._mechWireEnd=[ex,ey];
 }catch(_){}}
@@ -41193,7 +41222,7 @@ function _mechWireUnplug(rootEl,el,col,edge){ try{
     return; }
   el._mechWireG=null;
   const end=el._mechWireEnd||[0,0]; _uiSparks(rootEl,end[0],end[1],col,12);
-  try{ if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(240,0.06,'square',0.09,140); }catch(_){}
+  try{ if(!(window._uiSfx&&window._uiSfx('ping',0.3,0.72)))if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(240,0.06,'square',0.09,140); }catch(_){}
   const pp=g.querySelector('path'); if(pp){ const L=pp.getTotalLength(); pp.style.strokeDasharray=L; pp.style.transition='stroke-dashoffset .26s cubic-bezier(.6,0,.85,.4)'; pp.style.strokeDashoffset=L; }   // cable retracts to the edge
   const pl=g.querySelector('circle'); if(pl)pl.setAttribute('opacity','0');
   setTimeout(()=>{ try{g.remove();}catch(_){} },300);
@@ -41206,7 +41235,7 @@ function _mechDock(rootEl, panels, mode, col){ col=col||'#2ff0e0';
     if(mode==='in'){ el.style.transition='none'; el.style.transform=off; el.style.opacity='0';
       setTimeout(()=>{ el.style.transition='transform .5s '+inE+', opacity .3s ease'; el.style.transform='none'; el.style.opacity='1';
         setTimeout(()=>{ _mechWirePlug(rootEl,el,p.edge||'top',col); },440);   // wire plugs in as the panel seats
-        try{ if(typeof Audio!=='undefined'&&Audio.blip)setTimeout(()=>Audio.blip(430+pi*40,0.05,'square',0.08,620),470); }catch(_){}
+        try{ setTimeout(()=>{ try{ if(!(window._uiSfx&&window._uiSfx('clank',0.32)))if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(430+pi*40,0.05,'square',0.08,620); }catch(_){} },470); }catch(_){}
       }, d);
     } else {
       setTimeout(()=>{ _mechWireUnplug(rootEl,el,col,p.edge||'top');
@@ -41276,7 +41305,7 @@ function _dressEnterWorkshop(){ const ov=document.getElementById('workshop-overl
       if(fl.animate)fl.animate([{opacity:0,transform:'translate(-50%,-50%) scale(0.35)'},{opacity:1,transform:'translate(-50%,-50%) scale(1.05)',offset:0.35},{opacity:0,transform:'translate(-50%,-50%) scale(1.6)'}],{duration:(window._DRESS_FLASH_MS||420),easing:'cubic-bezier(.2,.6,.35,1)'});
       _uiSparks(ov,rr.width/2,rr.height*((window._DRESS_FLASH_Y||44)/100),hue,14);
       setTimeout(()=>{ try{fl.remove();}catch(_){} },600);
-      if(typeof Audio!=='undefined'&&Audio.blip)try{ Audio.blip(880,0.1,'sine',0.12,1400); }catch(_){}
+      try{ if(!(window._uiSfx&&window._uiSfx('warp',0.55)))if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(880,0.1,'sine',0.12,1400); }catch(_){}
     }catch(_){}
     const wsPanels=[ {el:topBar,edge:'top',d:60}, {el:tabs,edge:'top',d:130}, {el:poses,edge:'top',d:190}, {el:bottom,edge:'bottom',d:90} ];
     if(hue&&hue.style.display!=='none')wsPanels.push({el:hue,edge:'bottom',d:160});
