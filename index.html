@@ -338,7 +338,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB750</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB751</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -526,7 +526,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB750</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB751</div></div>
       </div>
     </div>
   </div>
@@ -29750,23 +29750,68 @@ window._onSpawnPad=function(ent){ if(!ent||typeof GS==='undefined'||GS.zone!==-1
   const R=(window._PAD_SHIELD_R||70); for(const p of P){ if(Math.abs((ent.wx||0)-p.x)<R && Math.abs((ent.wz||0)-p.z)<R && Math.abs((ent.py||0)-p.y)<40)return true; }
   return false;
 };
+// ── QUAD-WIRE FORCE-FIELD DOME — a lat/long grid hemisphere (reads as QUADS, not tris) that DENTS where a shot hits and springs
+//    back, just like the arena grid sheets. Wire + translucent skin share ONE dynamic position buffer so both deform together. ──
+function _makePadShieldDome(SR, col, sk){
+  const RINGS=(window._SHIELD_RINGS||11), SEGS=(window._SHIELD_SEGS||26), latMax=Math.PI*0.55;
+  const nLat=RINGS+1, nLon=SEGS, vcount=nLat*nLon;
+  const pos=new Float32Array(vcount*3), base=new Float32Array(vcount*3), nrm=new Float32Array(vcount*3);
+  const disp=new Float32Array(vcount), vel=new Float32Array(vcount); let vi=0;
+  for(let i=0;i<nLat;i++){ const lat=(i/(nLat-1))*latMax, st=Math.sin(lat), ct=Math.cos(lat);
+    for(let j=0;j<nLon;j++){ const lon=(j/nLon)*Math.PI*2, x=SR*st*Math.cos(lon), y=SR*ct, z=SR*st*Math.sin(lon);
+      base[vi*3]=x; base[vi*3+1]=y; base[vi*3+2]=z; pos[vi*3]=x; pos[vi*3+1]=y; pos[vi*3+2]=z;
+      const nl=Math.hypot(x,y,z)||1; nrm[vi*3]=x/nl; nrm[vi*3+1]=y/nl; nrm[vi*3+2]=z/nl; vi++; } }
+  const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage);
+  const wIdx=[]; for(let i=0;i<nLat;i++)for(let j=0;j<nLon;j++){ const a=i*nLon+j; wIdx.push(a, i*nLon+((j+1)%nLon)); if(i<nLat-1)wIdx.push(a,(i+1)*nLon+j); }   // lat rings (wrap) + long ribs = quad grid
+  const wGeo=new THREE.BufferGeometry(); wGeo.setAttribute('position',posAttr); wGeo.setIndex(wIdx);
+  const wMat=new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.44,blending:THREE.AdditiveBlending,depthWrite:false}); wMat._op0=0.44;
+  const wire=new THREE.LineSegments(wGeo,wMat); wire.frustumCulled=false;
+  const sIdx=[]; for(let i=0;i<nLat-1;i++)for(let j=0;j<nLon;j++){ const a=i*nLon+j,b=i*nLon+((j+1)%nLon),c=(i+1)*nLon+j,d=(i+1)*nLon+((j+1)%nLon); sIdx.push(a,c,b, b,c,d); }
+  const sGeo=new THREE.BufferGeometry(); sGeo.setAttribute('position',posAttr); sGeo.setIndex(sIdx);   // SAME dynamic buffer -> skin dents with the wire
+  const sMat=new THREE.MeshBasicMaterial({color:sk,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}); sMat._op0=0.10;
+  const skin=new THREE.Mesh(sGeo,sMat); skin.frustumCulled=false;
+  const g=new THREE.Group(); g.add(skin); g.add(wire);
+  g.userData._shield={ pos, base, nrm, disp, vel, posAttr, wMat, sMat }; return g;
+}
+function _padShieldRipple(g, wx,wy,wz, amp){ const S=g&&g.userData&&g.userData._shield; if(!S)return;
+  const lp=new THREE.Vector3(wx,wy,wz); g.worldToLocal(lp); const R=(window._SHIELD_RIPPLE_R||36), R2=R*R;
+  for(let v=0;v<S.disp.length;v++){ const dx=S.base[v*3]-lp.x, dy=S.base[v*3+1]-lp.y, dz=S.base[v*3+2]-lp.z, d2=dx*dx+dy*dy+dz*dz;
+    if(d2<R2){ S.vel[v]-=amp*(1-Math.sqrt(d2)/R); } }   // kick the struck patch INWARD (a dent), then it springs back
+}
+function _shieldDeformStep(g, dt){ const S=g&&g.userData&&g.userData._shield; if(!S)return; const K=(window._SHIELD_SPRING||65), DMP=(window._SHIELD_DAMP||7); let dirty=false; dt=Math.min(dt,0.04);
+  for(let v=0;v<S.disp.length;v++){ let d=S.disp[v], vv=S.vel[v]; vv+=(-K*d-DMP*vv)*dt; d+=vv*dt;
+    if(Math.abs(d)>0.008||Math.abs(vv)>0.02)dirty=true; S.disp[v]=d; S.vel[v]=vv;
+    S.pos[v*3]=S.base[v*3]+S.nrm[v*3]*d; S.pos[v*3+1]=S.base[v*3+1]+S.nrm[v*3+1]*d; S.pos[v*3+2]=S.base[v*3+2]+S.nrm[v*3+2]*d; }
+  if(dirty)S.posAttr.needsUpdate=true;
+}
 function _padShieldHitFX(x,y,z,ent){ try{ if(typeof ps!=='undefined'){ const c=(ent&&ent._team==='ORANGE')?[1,0.55,0.2]:[0.3,0.8,1]; ps.ring(x,z,c,18,120,y); for(let k=0;k<6;k++){ const a=Math.random()*6.28,sp=rand(20,60); ps._spawn(x,y,z,Math.cos(a)*sp,rand(0,40),Math.sin(a)*sp,c[0],c[1],c[2],0.3); } }
+  try{ const P=window._cubeSpawnPads; if(P)for(const p of P){ if(p._shield&&!p._shieldRetracting&&Math.abs(p.x-x)<(window._PAD_SHIELD_R||70)+24&&Math.abs(p.z-z)<(window._PAD_SHIELD_R||70)+24){ _padShieldRipple(p._shield, x,y,z, (window._SHIELD_RIPPLE_AMP||18)); break; } } }catch(_){}   // DENT the dome where the shot fizzled
   if(typeof Audio!=='undefined')Audio.blip(720,0.05,'square',0.10,1300); }catch(_){} }
 window._padShieldHitFX=_padShieldHitFX;
 function _padShieldTick(dt){ if(typeof GS==='undefined'||GS.zone!==-19||window._PAD_SHIELD===false)return; const P=window._cubeSpawnPads; if(!P||!P.length)return; const R=(window._PAD_SHIELD_R||70);
   const occ=(p)=>{ try{ if(typeof player!=='undefined'&&player&&window._onSpawnPad(player)&&Math.abs(player.wx-p.x)<R&&Math.abs(player.wz-p.z)<R)return player; }catch(_){}
     try{ if(typeof GS_bots!=='undefined')for(const b of GS_bots){ if(b&&b.alive!==false&&window._onSpawnPad(b)&&Math.abs(b.wx-p.x)<R&&Math.abs(b.wz-p.z)<R)return b; } }catch(_){} return null; };
+  const RT=(window._SHIELD_RETRACT_T||0.35);
   for(const p of P){ const who=occ(p);
-    if(who && !p._shield){ const SR=R*0.95, col=(who._team==='ORANGE'?0xff8a33:0x33aaff), sk=(who._team==='ORANGE'?0xffb060:0x66c8ff); const g=new THREE.Group();
-      const dome=new THREE.Mesh(new THREE.SphereGeometry(SR,16,10,0,Math.PI*2,0,Math.PI*0.55), new THREE.MeshBasicMaterial({color:col,wireframe:true,transparent:true,opacity:0.3,blending:THREE.AdditiveBlending,depthWrite:false}));
-      const skin=new THREE.Mesh(new THREE.SphereGeometry(SR*0.99,20,12,0,Math.PI*2,0,Math.PI*0.55), new THREE.MeshBasicMaterial({color:sk,transparent:true,opacity:0.08,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
-      g.add(dome); g.add(skin); g.position.set(p.x,p.y,p.z); g.traverse(o=>o.frustumCulled=false); if(typeof _cubeGroup!=='undefined'&&_cubeGroup)_cubeGroup.add(g); else scene.add(g); p._shield=g; p._shieldSkin=skin; }
-    else if(!who && p._shield){ if(p._shield.parent)p._shield.parent.remove(p._shield); p._shield.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); p._shield=null; p._shieldSkin=null; }
-    if(p._shield){ p._shield.rotation.y+=dt*0.5; if(p._shieldSkin)p._shieldSkin.material.opacity=0.06+0.05*Math.abs(Math.sin(performance.now()*0.004)); }
+    if(who && !p._shield){ const SR=R*0.95, col=(who._team==='ORANGE'?0xff8a33:0x33aaff), sk=(who._team==='ORANGE'?0xffb060:0x66c8ff);
+      const g=_makePadShieldDome(SR,col,sk); g.position.set(p.x,p.y,p.z); g.scale.setScalar(0.02); if(typeof _cubeGroup!=='undefined'&&_cubeGroup)_cubeGroup.add(g); else scene.add(g);
+      p._shield=g; p._shieldT=0; p._shieldScale=0; p._shieldRetracting=false;
+      try{ if(typeof Audio!=='undefined'){ Audio.blip(280,0.14,'sine',0.14,760); } }catch(_){}   // power-UP
+    }
+    else if(who && p._shield && p._shieldRetracting){ p._shieldRetracting=false; }   // stepped back on before it finished retracting -> cancel
+    else if(!who && p._shield && !p._shieldRetracting){ p._shieldRetracting=true; try{ if(typeof Audio!=='undefined')Audio.blip(520,0.16,'sine',0.12,150); }catch(_){} }   // left -> retract + power-DOWN, then it's gone (no lingering sound)
+    if(p._shield){ const g=p._shield;
+      _shieldDeformStep(g, dt); g.rotation.y+=dt*(window._SHIELD_SPIN||0.35);
+      const S=g.userData._shield;
+      if(p._shieldRetracting){ p._shieldScale-=dt/RT;
+        if(p._shieldScale<=0.02){ if(g.parent)g.parent.remove(g); g.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); p._shield=null; p._shieldRetracting=false; p._shieldScale=0; continue; }
+        const s=p._shieldScale; g.scale.set(s,s*s,s); if(S){ S.wMat.opacity=(S.wMat._op0)*s; S.sMat.opacity=(S.sMat._op0)*s; } }   // squash-down retract + fade
+      else { if(p._shieldScale<1){ p._shieldScale=Math.min(1,p._shieldScale+dt/(window._SHIELD_OPEN_T||0.22)); } const s=p._shieldScale, e=s<1?(s*(2-s)):1; g.scale.setScalar(e); if(S){ S.wMat.opacity=(S.wMat._op0)*(0.55+0.45*Math.abs(Math.sin(performance.now()*0.004))); S.sMat.opacity=(S.sMat._op0)*(0.7+0.4*Math.abs(Math.sin(performance.now()*0.004))); } }
+    }
   }
 }
 window._padShieldTick=_padShieldTick;
-function _clearPadShields(){ const P=window._cubeSpawnPads; if(P)for(const p of P){ if(p&&p._shield){ try{ if(p._shield.parent)p._shield.parent.remove(p._shield); p._shield.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }catch(_){} p._shield=null; p._shieldSkin=null; } } }
+function _clearPadShields(){ const P=window._cubeSpawnPads; if(P)for(const p of P){ if(p&&p._shield){ try{ if(p._shield.parent)p._shield.parent.remove(p._shield); p._shield.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }catch(_){} p._shield=null; p._shieldRetracting=false; p._shieldScale=0; } } }
 window._clearPadShields=_clearPadShields;
 function _cubeGoalTick(dt){
   if(!window._goalPhase || !_cubeBall) return;
@@ -30362,7 +30407,7 @@ function buildCubeArena(){
   try{ if(window._CUBE_LEVEL_ON===true && typeof _buildCubeLevel==='function') _buildCubeLevel(_cubeGroup); }catch(e){ console.warn('cube level',e); }   // OFF by default — the cube is a bare pitch again. Opt in with window._CUBE_LEVEL_ON=true (and override window._CUBE_LEVEL to hand-build a layout) if you ever want a second level.
   // ── FOUR ELEVATED SPAWN PLATFORMS — the SAME deck visual as the weapon-pad floats, ~2x the size, one high up on each wall, colour-keyed. You + the AI spawn on a random one. Standable (registered as cube platforms). ──
   try{ if(window._SPAWN_PLATS!==false && typeof _makePowerPad==='function'){
-    const _spY=(window._SPAWN_PLAT_Y||180), _spSc=(window._SPAWN_PLAT_SCALE||(window._POWERPAD_BIG||30)*1.75), _hw=(window._SPAWN_PLAT_HW||62);   // 2x the weapon-pad float size; ~2x the highest weapon pad height
+    const _spY=(window._SPAWN_PLAT_Y||380), _spSc=(window._SPAWN_PLAT_SCALE||(window._POWERPAD_BIG||30)*1.75), _hw=(window._SPAWN_PLAT_HW||62);   // LIFTED high (was 180) -> you spawn up in the air and descend (skydive-in feel). window._SPAWN_PLAT_Y to tune.
     const _ex=(window._SPAWN_END_X||880), _ez=(window._SPAWN_SIDE_Z||700);   // 2v2: near the goal ENDS of the two long side walls; each team's two decks flank one end, teams at opposite ends
     const _bt=(window._TEAM_BLUE_COL!=null?window._TEAM_BLUE_COL:0x33aaff), _ot=(window._TEAM_ORANGE_COL!=null?window._TEAM_ORANGE_COL:0xff8a33);   // team colours (swap for red/blue etc. via window._TEAM_BLUE_COL/_TEAM_ORANGE_COL)
     const _cols=(window._SPAWN_PLAT_COLS)||[_bt,_bt, _ot,_ot];   // both -X decks = your team colour, both +X decks = enemy team colour (interchangeable)
