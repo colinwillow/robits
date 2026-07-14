@@ -304,7 +304,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB712</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB713</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -490,7 +490,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB712</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB713</div></div>
       </div>
     </div>
   </div>
@@ -40545,11 +40545,22 @@ function _startCharWheel(canvasId){
     C.post={lx:_cineTmp.x-g.position.x, ly:_cineTmp.y-g.position.y, lz:_cineTmp.z-g.position.z, k, t0:performance.now(), ms:(ms||170)};
     return true; };
   window._wheelHeroRef=function(){ const g=slots[state.idx]; return { model:(g&&g.children&&g.children[0])||null, slot:g||null, cam, canvas }; };   // ONE-MODEL dress mode: the dressing room adopts THIS live pilot instead of building its own clone
-  window._wheelEntryPrime=function(delayMs){ if(state.cine||state.cineBack)return;   // RE-ENTRY DE-GLITCH: called synchronously the moment the screen shows. The loop is stopped between visits, so the canvas still holds LAST visit's settled roster (stale frame), and the pop only fires ~200ms later — you saw: already-there -> poof under the stage -> spiral in. Prime = hold everyone UNDER the stage from t0 (future timestamp) and mask the canvas until the first fresh render replaces the stale frame.
-    state.entry={t0:performance.now()+(delayMs||0)};
+  window._wheelEntryPrime=function(delayMs){
+    // STALE CINEMATIC CLEANUP: DEPLOY runs closeWorkshop -> (+650ms) _dressResetSelect -> _wheelCineReset, which STARTS a 560ms
+    //  cineBack — but the game has already hidden the screen and the loop stops within ~0.26s, so the cineBack freezes mid-flight
+    //  and stays set across the whole play session. The old guard then silently no-op'd this prime on every revisit (the CMB712
+    //  fix only worked when no pilot had been deployed). A cine/cineBack whose timeline is EXPIRED (or a held end pose) is not
+    //  "mid-animation" — finalize it to the ring bases instantly and prime normally.
+    const _now=performance.now();
+    const _settle=(C)=>{ try{ for(let i=0;i<slots.length;i++){ const g=slots[i],B=C.bases&&C.bases[i]; if(g&&B){ g.position.set(B.x,B.y,B.z); g.scale.setScalar(B.s); g.rotation.y=B.ry; } } }catch(_){} };
+    if(state.cineBack && (_now-state.cineBack.t0 > (state.cineBack.dur||560)+80)){ _settle(state.cineBack); state.cineBack=null; }
+    if(state.cine && state.cine.fired){ _settle(state.cine); state.cine=null; }        // held end pose from a deploy that never eased back
+    if(state.cine||state.cineBack)return;                                              // genuinely mid-animation on a live screen -> leave it alone
+    state.entry={t0:_now+(delayMs||0)};
     render._hid=false; render._vc=0;                                                   // wake the visibility probe immediately (it lags up to 16 frames)
     canvas.style.visibility='hidden'; };                                               // render() reveals it right after drawing the primed (under-stage) pose
-  window._wheelEntryPop=function(){ if(state.cine||state.cineBack)return; state.entry={t0:performance.now()};   // SCREEN-ENTRY: the roster spirals up out of the stage floor, staggered
+  window._wheelEntryPop=function(){ try{ window._wheelEntryPrime(0); }catch(_){}   // clears any STALE held cine/cineBack first (see prime) — the guard below then only blocks genuinely live animations
+    if(state.cine||state.cineBack)return; state.entry={t0:performance.now()};   // SCREEN-ENTRY: the roster spirals up out of the stage floor, staggered
     try{ if(bgGrid)bgGrid.shock(0,0,(window._WHEEL_IN_SHOCK||5),_WHEEL_CHARS[state.idx].col); }catch(_){}
     try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(300,0.1,'sawtooth',0.1,620); } }catch(_){} };
   const clock=new THREE.Clock();
