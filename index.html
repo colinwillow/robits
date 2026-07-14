@@ -304,7 +304,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB723</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB724</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -490,7 +490,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB723</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB724</div></div>
       </div>
     </div>
   </div>
@@ -12191,7 +12191,7 @@ class Player{
     if(this._arrowIndicator){ scene.remove(this._arrowIndicator); this._arrowIndicator=null; }
     this.hovering=false;
     this._speedBoost=0; this._flickCooldown=0; this._dashDir=null; this._dashRamp=0; this._dashPeak=0;
-    this._flickPrevMag=0; this._flickArmed=true; this._meleeCombo=0; this._meleeComboT=0;
+    this._flickPrevMag=0; this._flickArmed=true; this._meleeCombo=0; this._meleeComboT=0; this._smashPct=0;   // Smash-% accumulator for modes without an HP pool (ball) — reset on spawn/respawn
     const _keepKit=(!full && window._PERSIST_LOADOUT!==false);   // respawn / round change keeps your weapon, weapon level, and boots
     if(!_keepKit){ this.primaryWeapon='bullets'; this.secWeapon='bullets'; this.secWeapons=['bullets','rockets']; }
     this._disarmBomb();
@@ -12219,8 +12219,13 @@ class Player{
     // SMASH-STYLE, REBASED LOW: fresh you barely budge (a 1-2 unit shove); the launch distance grows steeply with accumulated
     // damage — roughly base 0.15x -> ~2.4x of the raw hit across the health bar (so ~10 hits in, you fly like the old baseline).
     let _kbCap=(window._PLKB_CAP||26);
-    if(window._SMASH_KB!==false && typeof GS!=='undefined' && GS.maxHp && !this._mount){
-      const _dmg=Math.max(0,Math.min(1,1-(GS.hp||0)/GS.maxHp));
+    if(window._SMASH_KB!==false && !this._mount){
+      // UNIFIED Smash-style scaling across EVERY mode: fly distance grows with accumulated damage. Modes with an HP pool
+      // (survival / rumble) read it from GS.hp/maxHp; modes without one (ROBIT BALL) fall back to a per-player hit accumulator
+      // so you don't just rocket off on the first touch — it builds as you take hits, and decays back as you recover.
+      let _dmg;
+      if(typeof GS!=='undefined' && GS.maxHp){ _dmg=Math.max(0,Math.min(1,1-(GS.hp||0)/GS.maxHp)); }
+      else { _dmg=Math.max(0,Math.min(1,(this._smashPct||0)/(window._SMASH_PCT_MAX||9))); this._smashPct=(this._smashPct||0)+(window._SMASH_PCT_GAIN||1); }   // this hit adds to your "damage" for next time
       const _k=(window._PLKB_DMG_BASE!=null?window._PLKB_DMG_BASE:0.15)+Math.pow(_dmg,(window._PLKB_DMG_POW!=null?window._PLKB_DMG_POW:1.6))*(window._PLKB_DMG_SPAN!=null?window._PLKB_DMG_SPAN:2.25);
       mag*=_k; lift*=Math.min(Math.max(_k,(window._PLKB_LIFT_MIN!=null?window._PLKB_LIFT_MIN:0.3)),(window._PLKB_DMG_LIFT_MAX||2.4)); _kbCap*=Math.max(_k,0.6);
     }
@@ -15647,10 +15652,14 @@ class BotPilot{
     } else if(t.kind==='item'){
       const p=t.ref, type=p&&p.type;
       try{ const idx=(window._itemPU||[]).indexOf(p); if(idx>=0)window._itemPU.splice(idx,1); if(p&&p.grp){ scene.remove(p.grp); p.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } }catch(_){}   // he physically takes the ball off the field
+      this._botItemUseCD=(window._BOT_ITEM_USE_CD||8);   // can't chain-grab another ball for a beat -> no more 3-in-a-row spam
       if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[1,0.7,0.2],18,120);
-      if(type==='nuke'||type==='singularity'||type==='quake'){   // OFFENSIVE item -> hurl it at his current foe
-        const foe=this._pickTarget(); const tx=foe?foe.wx:this.wx+Math.cos(this.aim)*220, tz=foe?foe.wz:this.wz+Math.sin(this.aim)*220;
-        if(typeof _detonateItem==='function')try{ _detonateItem(type, tx, tz, false); }catch(_){}
+      if(type==='nuke'||type==='singularity'||type==='quake'||type==='bomb'||type==='snail'||type==='barrel'||type==='proxmine'||type==='tripwire'||type==='mystery'){   // OFFENSIVE item -> physically HURL it at his foe (a real arcing projectile that lands + detonates), NOT an instant teleport-blast
+        const foe=this._pickTarget(); const tx=foe?foe.wx:this.wx+Math.cos(this.aim)*260, tz=foe?foe.wz:this.wz+Math.sin(this.aim)*260;
+        const ddx=tx-this.wx, ddz=tz-this.wz, dl=Math.hypot(ddx,ddz)||1, nx=ddx/dl, nz=ddz/dl;
+        const rng=Math.min(dl,(window._BOT_THROW_RANGE||560)), sp=Math.max(200,rng*(window._BOT_THROW_SPD_K||1.7));
+        if(!window._itemShots)window._itemShots=[];
+        window._itemShots.push({x:this.wx+nx*18, y:(this.py||0)+22, z:this.wz+nz*18, vx:nx*sp, vz:nz*sp, vy:(window._BOT_THROW_LIFT||250), type, kind:'item', _fromBot:true});   // the shared item-shot loop flies + lands + detonates it
         if(window._BOT_WEAPON_ANNOUNCE)try{announce('RIVAL THREW '+(''+type).toUpperCase(),'#ff7a7a');}catch(_){}
       } else if(type==='sentry'){   // rival deploys the TURRET on its own side -> it hunts YOU (and rival bots)
         // rest it on a real SURFACE (deck top under the bot, else the floor) — deploying at the bot's aerial py made turrets float over the pad; and don't stack them
@@ -16009,6 +16018,7 @@ class BotPilot{
 
     // ── WEAPON FETCH — periodically go grab a weapon pad / melee station and actually use it (overrides movement while fetching) ──
     this._botFetchCD=Math.max(0,(this._botFetchCD||0)-1);
+    this._botItemUseCD=Math.max(0,(this._botItemUseCD||0)-dt);   // reliable per-frame cooldown so a bot can't chain-grab balls (no 3-in-a-row)
     if(window._BOT_FETCH!==false){
       if(!this._fetchTarget && this._botFetchCD<=0){
         this._botFetchCD=(window._BOT_FETCH_CD||130);
@@ -16017,7 +16027,7 @@ class BotPilot{
           let best=null,bd=(window._BOT_FETCH_R||620),bk=null;
           const _gp=window._weaponPads, _gb=(window._BOT_GUN_FETCH_BIAS||1); if(_gp)for(const st of _gp){ if(!st||(st.cd||0)>0||(st.grp&&!st.grp.visible))continue; const d=Math.hypot((st.x||0)-this.wx,(st.z||0)-this.wz)*_gb; if(d<bd){ bd=d; best=st; bk='gun'; } }   // guns weighted the SAME as melee/items -> the rival grabs one sometimes (not always)
           const _hs=window._hammerStations; if(_hs)for(const st of _hs){ if(!st||this._botMeleeWeapon===st.type)continue; const d=Math.hypot((st.x||0)-this.wx,(st.z||0)-this.wz); if(d<bd){ bd=d; best=st; bk='melee'; } }
-          if(window._BOT_FETCH_PU!==false && window._itemPU)for(const p of window._itemPU){ if(!p||!p.settled||p._loot||p.type==='barrel')continue; if(window._BOT_GRAB_OFFENSIVE!==true && (p.type==='nuke'||p.type==='singularity'||p.type==='quake'))continue;   /* leave the rare offensive items (esp. nukes) for the player — bots were vacuuming them all up */ const d=Math.hypot((p.x||0)-this.wx,(p.z||0)-this.wz); if(d<bd){ bd=d; best=p; bk='item'; } }   // go grab SUMMON balls (droid/dog/dragon/spiders/drone)
+          if(window._BOT_FETCH_PU!==false && window._itemPU && (this._botItemUseCD||0)<=0)for(const p of window._itemPU){ if(!p||!p.settled||p._loot||p.type==='barrel')continue; if(window._BOT_GRAB_OFFENSIVE!==true && (p.type==='nuke'||p.type==='singularity'||p.type==='quake'))continue;   /* leave the rare offensive items (esp. nukes) for the player — bots were vacuuming them all up */ const d=Math.hypot((p.x||0)-this.wx,(p.z||0)-this.wz); if(d<bd){ bd=d; best=p; bk='item'; } }   // go grab SUMMON balls (droid/dog/dragon/spiders/drone)
           if(best) this._fetchTarget={x:best.x,z:best.z,kind:bk,ref:best};
         }
       }
@@ -16064,7 +16074,7 @@ class BotPilot{
     if(window._BOT_PADS!==false && GS.zone===-19 && !this._fetchTarget){
       const _A=window._cubePadAnchors;
       this._botAerialCD=Math.max(0,(this._botAerialCD||0)-dt);   // throttle deck-powerup grabs so a rival can't vacuum 2-3 pads in a second
-      let _ai=null,_aid=1e9; { const IP=window._itemPU; if(IP)for(const p of IP){ if(!p||p._floatY==null||p._loot||p.type==='barrel')continue; if(window._BOT_GRAB_OFFENSIVE!==true&&(p.type==='nuke'||p.type==='singularity'||p.type==='quake'))continue; const d=Math.hypot((p.x||0)-this.wx,(p.z||0)-this.wz); if(d<_aid){_aid=d;_ai=p;} } }   // nearest grabbable floating power-up
+      let _ai=null,_aid=1e9; if((this._botItemUseCD||0)<=0){ const IP=window._itemPU; if(IP)for(const p of IP){ if(!p||p._floatY==null||p._loot||p.type==='barrel')continue; if(window._BOT_GRAB_OFFENSIVE!==true&&(p.type==='nuke'||p.type==='singularity'||p.type==='quake'))continue; const d=Math.hypot((p.x||0)-this.wx,(p.z||0)-this.wz); if(d<_aid){_aid=d;_ai=p;} } }   // nearest grabbable floating power-up
       const _elevated=(this._onPad||(this.py||0)>(window._BOT_AERIAL_MINY||90));
       if(_ai && _elevated){   // up on the deck near a floating item -> slide under it, JUMP, and grab it out of the air
         const idx=_ai.x-this.wx, idz=_ai.z-this.wz, ihd=Math.hypot(idx,idz)||1, iy=(_ai.y!=null?_ai.y:(_ai._floatY||0)), vgap=iy-(this.py||0);
@@ -16249,7 +16259,7 @@ class BotPilot{
     // ── MELEE — close range: swing and LAUNCH the player (Smash) ──
     this._botMeleeCD=Math.max(0,(this._botMeleeCD||0)-1);
     if((this._botMeleeAnimT||0)>0) this._botMeleeAnimT-=dt;
-    if(window._BOT_MELEE!==false && _foe&&_foe.alive!==false && dist<(window._BOT_MELEE_RANGE||54) && this._botMeleeCD<=0 && (this.aggression||0)>0 && !_foe._launched && !((this._botSlideT||0)>0||(this._botRollT||0)>0||this._botBall)){
+    if(window._BOT_MELEE!==false && _foe&&_foe.alive!==false && dist<(window._BOT_MELEE_RANGE||54) && Math.abs((_foe.py||0)-(this.py||0))<(window._BOT_MELEE_DY||64) && this._botMeleeCD<=0 && (this.aggression||0)>0 && !_foe._launched && !((this._botSlideT||0)>0||(this._botRollT||0)>0||this._botBall)){
       this._botMeleeCD=(window._BOT_MELEE_CD||{rookie:150,soldier:95,elite:58}[this.diff]||95);
       try{ if(this._clips){ const mk=['melee_1','melee_2','melee_3'][Math.floor(Math.random()*3)]; const mc=this._clips[mk]||this._clips['melee_1']; if(mc){ Object.values(this._clips).forEach(a=>{ if(a&&a.fadeOut&&a!==mc)a.fadeOut(0.08); }); mc.reset().setLoop(THREE.LoopOnce,1); mc.clampWhenFinished=true; mc.setEffectiveWeight(1).fadeIn(0.05).play(); this._clips._cur=mk; this._botMeleeAnimT=(mc._clip&&mc._clip.duration)||0.6; } } }catch(_){}
       this._botMeleeHitT=(window._BOT_MELEE_HIT_DELAY||0.16);   // contact lands a few frames into the swing
@@ -16259,7 +16269,7 @@ class BotPilot{
       const _tf=this._foe;
       if(this._botMeleeHitT<=0 && _tf && _tf.alive!==false && typeof _tf.knock==='function'){
         const dx=_tf.wx-this.wx, dz=_tf.wz-this.wz, dl=Math.hypot(dx,dz)||1;
-        if(dl<(window._BOT_MELEE_HIT_R||70) && !_tf._launched){
+        if(dl<(window._BOT_MELEE_HIT_R||70) && Math.abs((_tf.py||0)-(this.py||0))<(window._BOT_MELEE_DY||64) && !_tf._launched){   // Y-GATE: no hitting a target on a platform/in the air well above/below you
           const _ws=this._botMeleeWeapon && window._MELEE_STATS && window._MELEE_STATS[this._botMeleeWeapon], _wk=(window._BOT_MELEE_WK||0.9);
           const _mMag=_ws?_ws.bMag*_wk:(window._BOT_MELEE_MAG||16), _mLift=_ws?_ws.bLift*_wk:(window._BOT_MELEE_LIFT||340);
           if(_tf===player){ if(typeof playerDie==='function')playerDie(window._BOT_MELEE_PLAYER_DMG||1,'#ff5566','melee'); }   // bots hurt YOU too now (was knock-only) — playerDie handles i-frames/shield/ball-shield. 'melee' -> beats your ball mode (pops you out)
@@ -16276,7 +16286,7 @@ class BotPilot{
       const _specBusy=(this._botSlideT||0)>0||(this._botRollT||0)>0||!!this._botBall;
       this._botSpecCD=Math.max(0,(this._botSpecCD||0)-dt);
       const _bc=(name,loop)=>{ if(!this._clips)return null; const c=this._clips[name]; if(!c)return null; Object.values(this._clips).forEach(a=>{ if(a&&a.fadeOut&&a!==c)a.fadeOut(0.08); }); c.reset(); if(loop){ c.setLoop(THREE.LoopRepeat,Infinity); } else { c.setLoop(THREE.LoopOnce,1); c.clampWhenFinished=true; } c.setEffectiveWeight(1).fadeIn(0.06).play(); this._clips._cur='_spec'; return c; };
-      const _specContact=(mag,lift,stun,dmg)=>{ const _tf=this._foe; if(!_tf||_tf.alive===false||typeof _tf.knock!=='function')return false; const ddx=_tf.wx-this.wx, ddz=_tf.wz-this.wz, ddl=Math.hypot(ddx,ddz)||1; if(ddl<(window._BOT_SPEC_HIT_R||36) && !_tf._launched){ if(_tf===player){ if(typeof playerDie==='function')playerDie(window._BOT_SPEC_PLAYER_DMG||1,'#ff5566','melee'); } else if(_tf.hit)try{_tf.hit(dmg);}catch(_){} _tf.knock(ddx/ddl,ddz/ddl,mag,lift,stun); if(_tf===player&&typeof addTrauma==='function')addTrauma(0.18); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.4,0.9,1],16,120); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(90,0.12,'square',0.2,520);}catch(_){} return true; } return false; };   // hit radius tightened 60 -> 36 so it reads as ACTUAL contact (was flinging the player before the ball/slide visibly touched)
+      const _specContact=(mag,lift,stun,dmg)=>{ const _tf=this._foe; if(!_tf||_tf.alive===false||typeof _tf.knock!=='function')return false; const ddx=_tf.wx-this.wx, ddz=_tf.wz-this.wz, ddl=Math.hypot(ddx,ddz)||1; if(ddl<(window._BOT_SPEC_HIT_R||36) && Math.abs((_tf.py||0)-(this.py||0))<(window._BOT_SPEC_HIT_DY||56) && !_tf._launched){ if(_tf===player){ if(typeof playerDie==='function')playerDie(window._BOT_SPEC_PLAYER_DMG||1,'#ff5566','melee'); } else if(_tf.hit)try{_tf.hit(dmg);}catch(_){} _tf.knock(ddx/ddl,ddz/ddl,mag,lift,stun); if(_tf===player&&typeof addTrauma==='function')addTrauma(0.18); if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.4,0.9,1],16,120); if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(90,0.12,'square',0.2,520);}catch(_){} return true; } return false; };   // hit radius tightened 60 -> 36 so it reads as ACTUAL contact (was flinging the player before the ball/slide visibly touched)
       // active special ticks
       if((this._botSlideT||0)>0){ this._botSlideT-=dt; if(!this._botSlideHitDone && _specContact((window._BOT_SLIDE_MAG||14),(window._BOT_SLIDE_LIFT||120),(window._BOT_SLIDE_STUN||24),(window._BOT_SLIDE_DMG||3))) this._botSlideHitDone=true; }
       else if((this._botRollT||0)>0){ this._botRollT-=dt; }
@@ -19579,7 +19589,18 @@ function _rumbleEnd(){ const R=window.RUMBLE; if(R.over)return; R.over=true;
   el.style.display='flex';
 }
 window._rumbleRematch=function(){ try{ window._rumbleReset(); }catch(_){} try{ window._rumbleStart(); }catch(_){ try{ window._rumbleExit(); }catch(__){} } };
-window._rumbleExit=function(){ window._rumbleReset(); try{ if(typeof _showScreen==='function'){ _showScreen('title'); } else if(window._showScreen){ window._showScreen('title'); } else { location.reload(); } }catch(_){ try{location.reload();}catch(__){} } };
+window._rumbleExit=function(){ try{ window._rumbleReset(); }catch(_){} window._exitMatchToMenu('gamemode'); };
+// Clean exit from a finished match -> the in-game canvas + HUD stack ABOVE the opaque menu screens, so just showing a menu
+// leaves the frozen game peeking through. A full reload is the one bulletproof teardown (same as the pause-menu HOME button);
+// we stash the target screen so the boot lands on it (with a shortened splash) instead of the title.
+window._exitMatchToMenu=function(target){
+  try{ if(typeof GS!=='undefined')GS.state='menu'; }catch(_){}
+  try{ window._BALL_MATCH=null; window._BALL_TEAMS=false; window._BOT_VS_BOT=false; }catch(_){}
+  try{ if(window.RUMBLE)window.RUMBLE.active=false; }catch(_){}
+  try{ ['ball-results','rumble-results'].forEach(id=>{ const e=document.getElementById(id); if(e)e.style.display='none'; }); }catch(_){}
+  try{ sessionStorage.setItem('_robitsGoto', target||'gamemode'); }catch(_){}
+  try{ location.reload(); }catch(_){ try{ if(window._showScreen)window._showScreen(target||'gamemode'); }catch(__){} }
+};
 // ── RUMBLE SETUP screen glue: config state + option highlight + launch ──
 window._rumbleCfg=window._rumbleCfg||{rule:'elim', amount:3, stage:-20, bots:3, diff:'soldier'};
 window._rumbleCfgSet=function(k,v){ window._rumbleCfg[k]=v; if(k==='rule'){ /* keep a sensible amount when switching rules */ if(v==='time'&&window._rumbleCfg.amount>5)window._rumbleCfg.amount=2; } window._rumbleCfgRender(); };
@@ -19631,7 +19652,7 @@ window._ballMatchEnd=function(winner){ try{ if(typeof GS!=='undefined')GS.state=
   el.style.display='flex'; try{ el.animate([{opacity:0},{opacity:1}],{duration:340,easing:'ease-out'}); }catch(_){}
   try{ if(window._uiSfx)window._uiSfx(won?'warp':'clank',0.6); }catch(_){} };
 window._ballRematch=function(){ const el=document.getElementById('ball-results'); if(el)el.style.display='none'; window._BALL_MATCH=null; try{ window.startGameAtLevel(-19); }catch(_){} };
-window._ballExitMatch=function(){ const el=document.getElementById('ball-results'); if(el)el.style.display='none'; window._BALL_MATCH=null; window._BALL_TEAMS=false; try{ window._showScreen('gamemode'); }catch(_){ try{location.reload();}catch(__){} } };
+window._ballExitMatch=function(){ window._exitMatchToMenu('gamemode'); };
 window._surfOff=function(){ if(window._surfPlaneRoot){ try{ scene.remove(window._surfPlaneRoot); }catch(_){} for(let i=(window._arenaDeformers||[]).length-1;i>=0;i--){ if(window._arenaDeformers[i]&&window._arenaDeformers[i]._surf)window._arenaDeformers.splice(i,1); } for(let i=(window._arenaAssetCols||[]).length-1;i>=0;i--){ if(window._arenaAssetCols[i]&&window._arenaAssetCols[i]._asset==='surf')window._arenaAssetCols.splice(i,1); } window._surfPlaneRoot=null; if(typeof announce==='function')announce('SURF OFF','#9fd8ff'); } };
 
 // ── VOXEL DISSOLVE (Master-Hand "made of bits") ── each frame, sample points on an animated SKINNED mesh's CURRENT pose and print
@@ -25674,6 +25695,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(_lb&&_lb.style.display!=='none') _lb.style.display='none'; if(_gb&&_gb.style.display!=='none') _gb.style.display='none'; if(_cb&&_cb.style.display!=='none') _cb.style.display='none'; }   // these moved into the pause menu
     let rawDt=Math.min((ts-lastT)/1000,0.033);lastT=ts;frame++;
     updateTime(); const dt=rawDt*TIME.scale;
+    if(typeof player!=='undefined'&&player&&(player._smashPct||0)>0)player._smashPct=Math.max(0,player._smashPct-rawDt*(window._SMASH_PCT_DECAY||0.5));   // Smash-% recovers over time (ball mode) so knockback tracks RECENT damage
     if(typeof player!=='undefined'&&player&&player._deathSeq&&window._deathSeqTick){ try{ window._deathSeqTick(dt); }catch(_dse){ try{ if(typeof _deathFinish==='function')_deathFinish(player._deathSeq); }catch(_){} } }   // run the death cinematic FIRST -> it always advances even if later per-frame code throws
     if(window._menuPaused){ try{ renderer.render(scene,camera); }catch(_){} return; }   // PAUSE: hold the frame under the menu overlay (lastT already advanced -> no dt spike on resume)
     _updateStarfield(dt);
@@ -41100,7 +41122,8 @@ function _startCharWheel(canvasId){
   // loading screen (so the robot is on the pad before we reveal it, instead of popping in late). We keep
   // a minimum display time so the logo/bar animation plays, and a hard cap so a slow/failed load never hangs.
   const _t0=performance.now();
-  const _MIN=(window._SPLASH_MIN!=null?window._SPLASH_MIN:1900);
+  let _MIN=(window._SPLASH_MIN!=null?window._SPLASH_MIN:1900);
+  let _gotoScreen=null; try{ _gotoScreen=sessionStorage.getItem('_robitsGoto'); if(_gotoScreen){ sessionStorage.removeItem('_robitsGoto'); _MIN=Math.min(_MIN,450); } }catch(_){}   // came back from a match EXIT -> skip most of the splash + jump to the stashed menu
   const _MAX=(window._SPLASH_MAX!=null?window._SPLASH_MAX:9000);
   const _toTitle=()=>{
     const bar=document.getElementById('splash-bar'); if(bar) bar.style.width='200px';   // snap to 100% — load complete
@@ -41119,6 +41142,7 @@ function _startCharWheel(canvasId){
         splash.style.opacity='0';
         setTimeout(()=>{ if(splash) splash.style.display='none'; },640);
       }
+      if(_gotoScreen){ try{ window._showScreen(_gotoScreen); }catch(_){} _gotoScreen=null; }   // exited a match -> land on the game-mode select instead of the title
     }));
   };
   (function _gate(){
