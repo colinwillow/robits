@@ -357,7 +357,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB788</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:30px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB789</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -545,7 +545,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB788</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB789</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -19005,6 +19005,39 @@ function _shieldGuardBlock(dmg, attacker, isMelee){
   return 'block';
 }
 window._shieldGuardBlock=_shieldGuardBlock;
+// ═══════ GRAB & SLAM ═══════ while SHIELDING, a melee connect GRABS an adjacent enemy (instead of hitting) — then a stick
+//   FLICK hurls/slams them that direction. Grab beats block; the slam launches hard (scaled) via the bits knockback.
+function _grabbable(e){ return !!(e && e.alive!==false && !e.isBoss && !e._captured && !e._dying && (e._tall||0)<70 && typeof e.knock==='function' && e!==player); }
+function _grabEnemy(e){ if(!player || player._grabbed || !_grabbable(e)) return false;
+  player._grabbed=e; e._grabHeld=true; player._grabT=(window._GRAB_HOLD_T||1.6);
+  try{ e.vx=0;e.vz=0;e._kbVx=0;e._kbVz=0;e._launched=false;e._dashRamp=0;e._dashDir=null; if(e._stunT!=null)e._stunT=Math.max(e._stunT,(window._GRAB_HOLD_T||1.6)); e._kbStun=Math.max(e._kbStun||0,90); }catch(_){}
+  try{ if(typeof announce==='function')announce('GRABBED!','#8fffe0'); if(typeof addTrauma==='function')addTrauma(0.12); if(typeof hitStop==='function')hitStop(5); if(window._pingSfx)window._pingSfx(player.wx,player.wz); }catch(_){}
+  return true;
+}
+function _grabTick(dt){ const e=player&&player._grabbed; if(!e)return;
+  if(e.alive===false || GS.state!=='playing' || player.alive===false || player._launched){ _grabRelease(); return; }
+  player._grabT=(player._grabT||0)-dt;
+  const R=(window._GRAB_HOLD_R||30), fx=Math.cos(player.aim||0), fz=Math.sin(player.aim||0);   // pin it out in front, at chest height
+  try{ e.wx=player.wx+fx*R; e.wz=player.wz+fz*R; e.vx=0; e.vz=0; e._kbVx=0; e._kbVz=0; e._launched=false; e._kbStun=Math.max(e._kbStun||0,20); if(e._stunT!=null)e._stunT=Math.max(e._stunT,0.2);
+    if(e.py!=null){ e.py=(player.py||0)+(window._GRAB_HOLD_UP||8); e.pvy=0; } if(e.mesh){ e.mesh.position.x=e.wx; e.mesh.position.z=e.wz; } }catch(_){}
+  if(typeof ps!=='undefined'&&Math.random()<0.35)ps.spark(e.wx+rand(-8,8),e.wz+rand(-8,8),[0.5,0.95,1],(e.py||0)+12);
+  if(player._grabT<=0) _grabThrow(player.aim||0);   // held too long -> auto-slam forward
+}
+function _grabThrow(dir){ const e=player&&player._grabbed; if(!e)return false;
+  player._grabbed=null; e._grabHeld=false; e._kbStun=0;
+  const fx=Math.cos(dir), fz=Math.sin(dir);
+  try{ if(e.hit)e.hit(window._GRAB_THROW_DMG||4, player.wx, player.wz); }catch(_){}
+  try{ if(e.knock)e.knock(fx,fz,(window._GRAB_THROW_MAG||22),(window._GRAB_THROW_LIFT||430),(window._GRAB_THROW_STUN||36),true); }catch(_){}
+  // GUARANTEED launch — a slam always sends them flying regardless of their HP-clamp, so set the throw velocity directly on top of knock()
+  try{ const V=(window._GRAB_THROW_V||46); e._kbVx=fx*V; e._kbVz=fz*V; e._launched=true; e._launchT=0; e._tumble=0; e._kbStun=Math.max(e._kbStun||0,(window._GRAB_THROW_STUN||36)); if(e.pvy!=null)e.pvy=Math.max(e.pvy||0,(window._GRAB_THROW_LIFT||430)); }catch(_){}
+  try{ if(window.RUMBLE&&window.RUMBLE.active)e._lastHitBy=player; }catch(_){}
+  try{ if(typeof announce==='function')announce('SLAM!','#ffe23c'); if(typeof addTrauma==='function')addTrauma(0.24); if(typeof hitStop==='function')hitStop(8); if(typeof slowmo==='function')slowmo(0.5,10);
+    if(typeof ps!=='undefined'){ ps.ring(e.wx,e.wz,[1,0.9,0.3],26,150,(e.py||0)+10); ps.burst(e.wx,e.wz,[1,0.8,0.3],22,180,(e.py||0)+12); } if(window._pingSfx)window._pingSfx(e.wx,e.wz);
+    if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(120,0.16,'square',0.24,70); }catch(_){}
+  return true;
+}
+function _grabRelease(){ if(player&&player._grabbed){ try{ player._grabbed._grabHeld=false; player._grabbed._kbStun=Math.min(player._grabbed._kbStun||0,10); }catch(_){} player._grabbed=null; } }
+window._grabEnemy=_grabEnemy; window._grabThrow=_grabThrow; window._grabTick=_grabTick; window._grabRelease=_grabRelease;
 function _shieldTick(dt){
   if(!player)return;
   if(player.shieldActive) player.shieldActive=false;                      // keep the old passive bubble off — the held guard is the shield now
@@ -26427,6 +26460,8 @@ function loop(ts){ requestAnimationFrame(loop);
               if(!_inR)return false;
               const ey=_eBase+Math.max(10,_etall*0.5);
               ud._meleeHitSet.add(e);
+              // GRAB: shielding + a melee connect on an adjacent enemy GRABS it (instead of hitting) -> flick to slam it away
+              if((kind==='bot'||kind==='enemy') && player._shieldRaised && !player._shieldBroken && !player._grabbed && window._GRAB_ON!==false && typeof _grabEnemy==='function' && _grabEnemy(e)){ return (e.alive===false); }
               // RPS: MELEE BEATS BALL. A bot rolling in ball mode tanks bullets, but a melee swing SHATTERS it out of the ball
               // (mirrors the player losing ball to a melee) so the hit + knockback below land instead of being absorbed. window._MELEE_BEATS_BALL=false to disable.
               if(kind==='bot' && e._botBall && window._MELEE_BEATS_BALL!==false){ e._botBall=false; e._botBallInv=false; e._botBallT=0; e._botBallHitDone=true; try{ if(e.model&&e.model.children[0])e.model.children[0].rotation.x=0; }catch(_){} if(typeof announce==='function')announce('BALL BROKEN!','#7dffd0'); if(typeof ps!=='undefined')ps.ring(e.wx,e.wz,[0.6,0.9,1],22,140,(e.py||0)+12); if(window._pingSfx)window._pingSfx(e.wx,e.wz); }
@@ -27214,6 +27249,7 @@ function loop(ts){ requestAnimationFrame(loop);
         if(window._perfHudOn){ let _dd=document.getElementById('drop-dbg'); if(!_dd){ _dd=document.createElement('div'); _dd.id='drop-dbg'; _dd.style.cssText='position:fixed;left:8px;top:150px;z-index:99999;font:11px monospace;color:#33ffcc;background:rgba(0,0,0,0.6);padding:4px 7px;border-radius:4px;pointer-events:none;white-space:pre'; document.body.appendChild(_dd); } _dd.style.display='block'; _dd.textContent='py '+player.py.toFixed(1)+'  pvy '+(player.pvy||0).toFixed(1)+'\nmoveY '+moveIn.y.toFixed(2)+'  hold '+(player._downHold||0).toFixed(2)+'\nonPlat '+(player._onPlatform?1:0)+'  dropThru '+(player._dropThru||0).toFixed(2); } else { const _dd=document.getElementById('drop-dbg'); if(_dd)_dd.style.display='none'; } }
       if(player) player.updateShield(dt);
       if(player && typeof _shieldTick==='function'){ try{ _shieldTick(dt); }catch(_ste){} }   // HELD block button: guard drain/break/regen + raised-shield projectile parry
+      if(player && player._grabbed && typeof _grabTick==='function'){ try{ _grabTick(dt); }catch(_gte){} }   // holding a grabbed foe: pin it in front + count down to auto-slam
       if(typeof _parryGaugeTick==='function') _parryGaugeTick(dt);   // parry debug: distance line + number + ! window alert
       if(player) player._lastFiring=firing||player._secFireActive||false;
       if(_versusActive) checkVersusRoundEnd();
@@ -36548,6 +36584,7 @@ function _proceduralMelee(dirAngle){
 }
 function _doMeleeFlick(ud, dirAngle, comboOverride, slideMode){
   if(!player) return;
+  if(player._grabbed && window._GRAB_ON!==false && typeof _grabThrow==='function'){ _grabThrow(typeof dirAngle==='number'?dirAngle:(player.aim||0)); return true; }   // holding a grabbed foe -> this flick SLAMS them that way
   if(player._launched){   // AIR RECOVER: a melee flick mid-launch flips you OUT of the knockback arc (after a brief beat so the launch still reads), then swings. Land/hit a wall first -> forced get-up as before.
     if(typeof dirAngle==='number' && window._LAUNCH_MELEE_CANCEL!==false && (player._launchT||0)>=(window._LAUNCH_INT_MIN||0.3) && player._recoverFromLaunch){ player._recoverFromLaunch(); }
     else return;
