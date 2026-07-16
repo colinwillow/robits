@@ -357,7 +357,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB857</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB858</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -545,7 +545,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB857</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB858</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -40217,6 +40217,7 @@ function buildLevelSelect(){
 }
 
 window.startGameAtLevel=function(levelIdx){
+  try{ if(window._majiaFinish)window._majiaFinish(); }catch(_){}   // FAILSAFE: the settled MAJIA headline was surviving into matches / post-exit screens — kill it on ANY game start
   document.getElementById('overlay').style.display='none';
   try{ if(window._menuVizStop)window._menuVizStop(); }catch(_){}   // drop the menu visualizer once we're in a level
   try{ document.body.classList.remove('synthwave-on'); }catch(_){}   // and the synthwave backdrop
@@ -41980,8 +41981,26 @@ window._deploy=function(){
     null;
   if(!go){ window._showScreen('levelselect'); return; }               // freeroam -> curated level list
   if(window._DEPLOY_FLASH===false){ go(); return; }
-  window._deployFlash((window._LIMBO!==false)?()=>window._limboEnter(go):go);
+  if(window._LIMBO!==false){ window._deployTurn(()=>window._limboEnter(go)); return; }   // CONTINUOUS: 180-turn + camera settle, straight into limbo — no white explosion
+  window._deployFlash(go);
 };
+// DEPLOY TURN — the selected robit spins to face AWAY, the wheel camera dollies down/in toward the in-game chase framing,
+// then we simply ARE in limbo. (Replaces the white explosion out of character select.)
+window._deployTurn=function(next){ try{
+  const cv=document.getElementById('char-wheel-canvas'); const W=cv&&cv._wheel; const cam=cv&&cv._wheelCam;
+  const scr=document.getElementById('screen-character');
+  if(!W||!scr||getComputedStyle(scr).display==='none'){ try{ next(); }catch(_){} return; }
+  const m=Array.isArray(W.slotModel)?(W.slotModel[W.idx]||W.slotModel[0]):W.slotModel;
+  if(!m||!m.rotation){ try{ next(); }catch(_){} return; }
+  try{ scr.querySelectorAll('button').forEach(u=>{ u.style.transition='opacity .35s ease'; u.style.opacity='0'; u.style.pointerEvents='none'; }); }catch(_){}   // the UI bows out while he turns
+  const r0=m.rotation.y, c0=cam?cam.position.clone():null, t0=performance.now(), DUR=(window._DEPLOY_TURN_MS||780);
+  (function step(){ const k=Math.min(1,(performance.now()-t0)/DUR), e=k*k*(3-2*k);
+    try{ m.rotation.y=r0+Math.PI*e; }catch(_){}
+    try{ if(cam&&c0){ cam.position.z=c0.z+((window._DEPLOY_CAM_Z!=null?window._DEPLOY_CAM_Z:7.0)-c0.z)*e;
+      cam.position.y=c0.y+((window._DEPLOY_CAM_Y!=null?window._DEPLOY_CAM_Y:3.1)-c0.y)*e;
+      cam.lookAt(0,(window._WHEEL_LOOK_Y!=null?window._WHEEL_LOOK_Y:0.0)+e*0.6,0); } }catch(_){}
+    if(k<1)requestAnimationFrame(step); else setTimeout(()=>{ try{ next(); }catch(_){} },(window._DEPLOY_TURN_HOLD||200)); })();
+}catch(_){ try{ next(); }catch(__){} } };
 // ── BUILD-IN CINEMATIC — arriving from the liminal room, the cage CONSTRUCTS ITSELF around you: every arena piece
 // (platform stacks, goals, pads — everything but the backdrop) starts high in the sky and falls into place with a
 // bouncy landing, staggered piece by piece; the 3-2-1 waits until the last piece has settled.
@@ -43183,7 +43202,7 @@ function _startCharWheel(canvasId){
   // the pilot at the FRONT of the ring dances (dance_01); everyone else idles. Re-applied on load + on every switch.
   function applyDance(){ if(window._WHEEL_DANCE===false)return; for(let i=0;i<slotModel.length;i++){ if(slotModel[i])_wheelSetDance(slotModel[i], i===state.idx); } }
   state.entry={t0:performance.now()+(window._WHEEL_IN_AT||200)};   // BORN IN THE ENTRY STATE: the very first render already holds the roster UNDER the stage, so there is no 100ms settled flash between the wheel building (+100ms) and the pop arming (+200ms). That window used to be invisible only because the GLBs loaded slowly; with cached models the settled roster (with LAST session's saved colors/cosmetics) flashed first — the "old frame from a previous instance". The pop re-stamps t0 when it fires; if it never does, this t0 spirals them in anyway.
-  canvas._wheel=state;
+  canvas._wheel=state; canvas._wheelCam=cam;   // the deploy 180-turn cinematic drives the camera
   const _cacheKey={alien:'_cachedAlienGltf', interceptor:'_cachedInterceptorGltf', cybergirl:'_cachedCybergirlGltf'};
   const _url={alien:(typeof ALIEN_PLAYER_GLB!=='undefined'?ALIEN_PLAYER_GLB:'models/alien_robit.glb'), interceptor:'models/interceptor.glb', cybergirl:'models/cybergirl.glb'};
   const NCH=_WHEEL_CHARS.length, step=(Math.PI*2)/NCH;   // ring is generalized to N pilots (was hardcoded 4)
