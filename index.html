@@ -373,7 +373,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB877</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB878</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -561,7 +561,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB877</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB878</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -1775,18 +1775,17 @@ function updateCamera(dt){
       // ── CLOSED-LOOP screen-space match: project the hero's BONES through THIS camera every frame and drive the error
       //    against the wheel's recorded projection to ZERO. Size error corrects distance; vertical error corrects the aim
       //    point (exact linear conversion at his depth); the measured select pitch ties camera height to both. ──
-      const S=RIG._srv||(RIG._srv={ D:RIG.distPerH*Hg, aimY:base+RIG.aimPerH*Hg, ok:0, locked:false });
-      const _still=(typeof player!=='undefined'&&player)?(Math.hypot(player.vx||0,player.vz||0)<3&&Math.abs(player.pvy||0)<3):false;
-      if(!S.locked&&_still&&RIG.rect&&RIG.rect.h>0.02&&typeof player!=='undefined'&&player&&player.model){   // converge on the STANDING pose (the pose the wheel recorded), then LOCK — running strides change the bone rect every frame and made the camera pump in/out
+      const S=RIG._srv||(RIG._srv={ D:RIG.distPerH*Hg, aimY:base+RIG.aimPerH*Hg, t0:performance.now() });
+      const _solving=(performance.now()-S.t0)<(window._STAGE_SOLVE_MS!=null?window._STAGE_SOLVE_MS:2500);   // EASE, don't chase: the damped servo runs only during the arrival window (he's standing then), then freezes into a plain chase cam — no pumping against the run stride, no lock-on-a-bad-frame
+      if(_solving&&RIG.rect&&RIG.rect.h>0.02&&typeof player!=='undefined'&&player&&player.model){
         try{ camera.updateMatrixWorld();
           let mn=1e9,mx=-1e9,any=false; const v=_walkTmp;
           player.model.traverse(o=>{ if(o.isBone){ v.setFromMatrixPosition(o.matrixWorld); v.project(camera); if(v.z<1){ const sy=-v.y*0.5+0.5; if(sy<mn)mn=sy; if(sy>mx)mx=sy; any=true; } } });
-          if(any&&(mx-mn)>0.005){ S._got={h:mx-mn,cy:(mn+mx)/2}; const g=(window._STAGE_SRV_G!=null?window._STAGE_SRV_G:0.4), tanH=Math.tan(camera.fov*Math.PI/360);
+          if(any&&(mx-mn)>0.005){ S._got={h:mx-mn,cy:(mn+mx)/2}; const g=(window._STAGE_SRV_G!=null?window._STAGE_SRV_G:0.25), tanH=Math.tan(camera.fov*Math.PI/360);
             const errH=(mx-mn)/RIG.rect.h-1, errC=RIG.rect.cy-(mn+mx)/2;
             S.D=Math.max(20,Math.min(900,S.D*(1+errH*g)));                                 // he projects too big -> back up, too small -> come in
             S.aimY+=errC*(2*S.D*tanH)*g;                                                   // he sits too high -> aim up (content shifts down), and vice versa
-            S.aimY=Math.max(base-Hg*0.5,Math.min(base+Hg*1.6,S.aimY));
-            if(Math.abs(errH)<0.012&&Math.abs(errC)<0.012){ if(++S.ok>18)S.locked=true; } else S.ok=0; }   // ~0.3s inside tolerance -> the rig is solved; hold it steady forever after
+            S.aimY=Math.max(base-Hg*0.5,Math.min(base+Hg*1.6,S.aimY)); }
         }catch(_){}
       }
       const camY=S.aimY+S.D*RIG.tanPitch;                                                  // the select camera's exact pitch, always
@@ -42147,6 +42146,7 @@ window._disposeStageSet=function(){ try{ if(window._stagePad){ if(window._stageP
   window._stagePad.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); window._stagePad=null; }
   try{ if(window._stageHid){ for(const o of window._stageHid)o.visible=true; window._stageHid=null; } }catch(_){}   // world furniture back on
   try{ if(window._stageLightPrev){ for(const li of window._stageLightPrev){ try{ li[0].intensity=li[1]; }catch(_){} } window._stageLightPrev=null; } }catch(_){}   // the game's own lights back to full
+  try{ if(window._stageEmiPrev){ for(const em of window._stageEmiPrev){ try{ em[0].emissiveIntensity=em[1]; }catch(_){} } window._stageEmiPrev=null; } }catch(_){}   // his inner glow back to combat strength
   try{ if(window._stagePrevTone!=null){ renderer.toneMapping=window._stagePrevTone; window._stagePrevTone=null;
     scene.traverse(o=>{ if(o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true); } }); } }catch(_){}   // ACES back on for the real zones
   try{ if(window._stagePrevFov!=null){ camera.fov=window._stagePrevFov; camera.updateProjectionMatrix(); window._stagePrevFov=null; } }catch(_){}   // game FOV back for the real zones
@@ -42225,13 +42225,17 @@ window._stageBuild=function(){ try{
   } else {
     try{ SG.add(new THREE.AmbientLight((window._STAGE_FLAT_COL!=null?window._STAGE_FLAT_COL:0xdde6ff),(window._STAGE_FLAT_AMB!=null?window._STAGE_FLAT_AMB:2.1))); }catch(_){}
   }
-  // ── SELECT-SCREEN SKIN LIGHT: lift the combat shader's dark repaint while he's on the stage (the select pilot never
-  //    wears it). _GRAD_LO_L raises the recoloured shadows' lightness; re-tint applies it live. Restored on the next zone. ──
   try{ if(window._stagePrevGrad==null)window._stagePrevGrad={ lo:window._GRAD_LO_L, mix:window._HERO_GRADMIX, knee:window._GRAD_KNEE };
     window._GRAD_LO_L=(window._STAGE_GRAD_LO!=null?window._STAGE_GRAD_LO:0.52); window._HERO_GRADMIX=(window._STAGE_GRADMIX!=null?window._STAGE_GRADMIX:0.85); window._GRAD_KNEE=(window._STAGE_GRAD_KNEE!=null?window._STAGE_GRAD_KNEE:0.34);
     if(typeof player!=='undefined'&&player&&player.model&&window._tintAllyApply){ const pc=new THREE.Color(window._PLAYER_HUE!=null?window._PLAYER_HUE:col);
       window._tintAllyApply(player.model,pc,(window._PLAYER_WIRE_COL!=null?new THREE.Color(window._PLAYER_WIRE_COL):null)); }
   }catch(_){}
+  // ── SELF-LIT FIX: his combat look is EMISSIVE-driven (the panels glow from inside), so no amount of scene light can
+  //    flatten it — that's why the light experiments read identical. On the stage his emissive drops way down so the flat
+  //    ambient shows the actual texture, self-coloured like the select pilot. Runs AFTER the re-tint (which raises weak
+  //    emissives to 1.4). Original intensities restore on exit. ──
+  try{ window._stageEmiPrev=[]; if(typeof player!=='undefined'&&player&&player.model){ const k=(window._STAGE_EMI!=null?window._STAGE_EMI:0.25);
+    player.model.traverse(o=>{ if(!o.material)return; (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{ if(m&&('emissiveIntensity' in m)&&m.emissiveIntensity>0.01){ window._stageEmiPrev.push([m,m.emissiveIntensity]); m.emissiveIntensity*=k; } }); }); } }catch(_){}
   // ── his SELECTION pad — the wheel's holographic disc/rings/ticks, scaled to world units, in his colour ──
   try{ const pad=new THREE.Group(); const mats=[];
     const pm=(op)=>{ const m=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}); m._baseOp=op; mats.push(m); return m; };
