@@ -42005,7 +42005,7 @@ window._limboEnter=function(go){ window._limboNext=go; window._limboMode=window.
   try{ window._gameMode='limbo'; window._LIMBO_ST=null; startGameAtLevel(-30); }
   catch(e){ try{ console.warn('limbo failed, direct launch',e); }catch(_){} window._gameMode=window._limboMode; try{ go(); }catch(_){} } };
 window._limboBuild=function(){ try{
-  const L=window._LIMBO_ST={pads:[],lock:0,done:false,built:true,_pbg:scene.background,_pfog:scene.fog};
+  const L=window._LIMBO_ST={pads:[],bots:[],lights:[],lock:0,phase:'wait',built:true,_pbg:scene.background,_pfog:scene.fog};
   const LC=(window._LIMBO_COL!=null?window._LIMBO_COL:0x04040c);   // BLACK infinity (white read off-brand) — _LIMBO_COL to experiment
   scene.background=new THREE.Color(LC); scene.fog=new THREE.Fog(LC,(window._LIMBO_FOG_A||160),(window._LIMBO_FOG_B||760));
   const COLS=[0xff3df0,0x2ff0e0,0xff8a3a,0x9a7cff];                    // the synthwave four: magenta / cyan / orange / violet
@@ -42015,46 +42015,94 @@ window._limboBuild=function(){ try{
     [[40,26,0],[30,22,26],[20,18,48]].forEach(s=>{ const b=new THREE.Mesh(new THREE.BoxGeometry(s[0],s[1],s[0]), new THREE.MeshStandardMaterial({color:0x1e1546,metalness:0.5,roughness:0.4,emissive:0x241b52})); b.position.y=s[2]+s[1]/2; CC.add(b); });
     const heart=new THREE.Mesh(new THREE.SphereGeometry(9,18,14), new THREE.MeshBasicMaterial({color:0x7dffe9,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false})); heart.position.y=70; CC.add(heart); L.heart=heart;
     const halo=new THREE.Mesh(new THREE.TorusGeometry(16,0.9,8,40), new THREE.MeshBasicMaterial({color:0x2ff0e0,transparent:true,opacity:0.8})); halo.position.y=70; CC.add(halo); L.halo=halo;
+    for(let i=0;i<4;i++){ const lx=(i%2?14:-14), lz=(i<2?-14:14);      // FOUR STATUS LIGHTS on the core — one per pad, lights when its pad is ridden
+      const lm=new THREE.Mesh(new THREE.SphereGeometry(3.4,12,10), new THREE.MeshBasicMaterial({color:COLS[i],transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
+      lm.position.set(lx,29,lz); lm.material._b=new THREE.Color(COLS[i]); lm.material.color.copy(lm.material._b).multiplyScalar(0.18); CC.add(lm); L.lights.push(lm); }
     const RING_R=(window._LIMBO_RING_R||120);
     const ring=new THREE.Mesh(new THREE.TorusGeometry(RING_R,1.4,8,72), new THREE.MeshBasicMaterial({color:0x2ff0e0,transparent:true,opacity:0.55})); ring.rotation.x=Math.PI/2; ring.position.set(0,0.6,-150); scene.add(ring); L.ring=ring;
-    for(let i=0;i<4;i++){ const a=Math.PI/4+i*Math.PI/2; const sp=new THREE.Mesh(new THREE.BoxGeometry(RING_R-24,0.8,2.4), new THREE.MeshBasicMaterial({color:0x2ff0e0,transparent:true,opacity:0.3}));
-      sp.position.set(Math.cos(a)*(RING_R/2+2),0.5,-150+Math.sin(a)*(RING_R/2+2)); sp.rotation.y=-a; scene.add(sp); L.ring2=L.ring2||[]; L.ring2.push(sp); }   // wires: core -> each pad
+    L.ring2=[]; for(let i=0;i<4;i++){ const a=Math.PI/4+i*Math.PI/2; const sp=new THREE.Mesh(new THREE.BoxGeometry(RING_R-24,0.8,2.4), new THREE.MeshBasicMaterial({color:COLS[i],transparent:true,opacity:0.3}));
+      sp.position.set(Math.cos(a)*(RING_R/2+2),0.5,-150+Math.sin(a)*(RING_R/2+2)); sp.rotation.y=-a; scene.add(sp); L.ring2.push(sp); }   // wires: core -> each pad, pad-coloured
   }catch(_){}
   for(let i=0;i<4;i++){ const RA=(window._LIMBO_RING_R||120), aa=Math.PI/4+i*Math.PI/2; const x=Math.cos(aa)*RA, z=-150+Math.sin(aa)*RA;
     const g=new THREE.Group(); g.position.set(x,0.5,z); scene.add(g);
     const pp=(typeof _makePowerPad==='function')?_makePowerPad(0,0,COLS[i]):null;   // the REAL cage warp pad, per-player colour
     if(pp){ pp.scale.setScalar(window._LIMBO_PAD_SC||30); g.add(pp); }
-    const field=new THREE.Mesh(new THREE.CylinderGeometry(27,27,60,28,1,true), new THREE.MeshBasicMaterial({color:COLS[i],transparent:true,opacity:0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); field.position.y=31; field.visible=false; g.add(field);
-    L.pads.push({g,x,z,pp,field,base:new THREE.Color(COLS[i]),k:0});
+    const box=new THREE.Mesh(new THREE.BoxGeometry(42,34,42), new THREE.MeshBasicMaterial({color:COLS[i],transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+    box.position.y=19; box.visible=false; g.add(box);                                // the CUBE CONTAINER — holds the rider on the risen pad
+    const wire=new THREE.LineSegments(new THREE.EdgesGeometry(box.geometry), new THREE.LineBasicMaterial({color:COLS[i],transparent:true,opacity:0})); wire.position.copy(box.position); wire.visible=false; g.add(wire);
+    L.pads.push({g,x,z,pp,box,wire,base:new THREE.Color(COLS[i]),k:0,riseK:0,occ:0});   // occ: 0 free, 1 player, 2 echo-bot
+  }
+  // ECHO BOTS — three neon stand-ins that run in and take the other pads (test AI for the four-player ready-up)
+  for(let i=0;i<3;i++){ const col=COLS[(i+1)%4]; const g=new THREE.Group();
+    const body=new THREE.Mesh(new THREE.CylinderGeometry(3.6,4.4,11,10), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.85})); body.position.y=8; g.add(body);
+    const head=new THREE.Mesh(new THREE.SphereGeometry(3.4,12,10), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.9})); head.position.y=16.5; g.add(head);
+    const glow=new THREE.Mesh(new THREE.SphereGeometry(7,10,8), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false})); glow.position.y=10; g.add(glow);
+    const a=Math.random()*Math.PI*2, r=230+Math.random()*70; g.position.set(Math.cos(a)*r, 0, -150+Math.sin(a)*r);
+    scene.add(g); L.bots.push({g,st:'wait',delay:1.4+i*1.5,spd:52+i*9,t:0,pad:null});
   }
   try{ player.wx=0; player.wz=90; player.py=0; player.vx=0; player.vz=0; }catch(_){}
 }catch(e){ try{ console.warn('limboBuild',e); }catch(_){} } };
 window._limboTick=function(dt){ try{
-  const L=window._LIMBO_ST; if(!L||!L.built){ window._limboBuild(); return; } if(L.done)return;
+  const L=window._LIMBO_ST; if(!L||!L.built){ window._limboBuild(); return; }
   try{ if(typeof GS!=='undefined'&&GS.bullets&&GS.bullets.length){ for(const b of GS.bullets){ try{ b.remove(); }catch(_){} } GS.bullets.length=0; } }catch(_){}   // RUN-ONLY room: any projectile evaporates the frame it spawns
   try{ if(typeof GS!=='undefined'){ GS.waveT=-1e9; GS.wave=0;                                          // freeze the wave clock — SOMETHING kept scheduling spiders/boss in here
     if(GS.enemies&&GS.enemies.length){ for(const e of GS.enemies){ try{ e.alive=false; if(e.remove)e.remove(); else if(e.mesh)scene.remove(e.mesh); if(e.group)scene.remove(e.group); }catch(_){} } GS.enemies.length=0; } } }catch(_){}   // and EVICT anything that slipped in
-  let on=false;
-  for(const p of L.pads){ const d=Math.hypot(player.wx-p.x,player.wz-p.z); const act=(d<(window._LIMBO_PAD_R||32))&&(player.py<10);
-    p.k+=((act?1:0)-p.k)*Math.min(1,dt*5); if(act)on=true;
-    if(p.pp){ p.pp.rotation.y+=dt*(0.2+p.k*1.4); p.pp.scale.setScalar((window._LIMBO_PAD_SC||30)*(1+0.07*p.k)); }   // the cage pad spins up + swells as you settle on it
-    if(L.halo){ L.halo.rotation.y+=dt*0.9; L.halo.rotation.x=Math.sin(performance.now()/1400)*0.5; } if(L.heart)L.heart.scale.setScalar(1+0.12*Math.sin(performance.now()/300));
-    p.field.visible=p.k>0.02; p.field.material.opacity=0.22*p.k; p.field.scale.set(1,0.25+0.75*p.k,1);   // the force-field rises
+  const now=performance.now();
+  if(L.halo){ L.halo.rotation.y+=dt*0.9; L.halo.rotation.x=Math.sin(now/1400)*0.5; } if(L.heart)L.heart.scale.setScalar(1+0.12*Math.sin(now/300));
+  if(L.phase==='decon'){                                                              // ── DECONSTRUCTION: the room strips away, only YOU + your pad stay ──
+    L.dt2=(L.dt2||0)+dt; const k=Math.min(1,L.dt2/(window._LIMBO_DECON_T||1.5));
+    const sink=(o)=>{ if(!o)return; o.position.y-=dt*95; o.scale.multiplyScalar(Math.max(0.0001,1-dt*1.1)); };
+    sink(L.core); sink(L.ring); if(L.ring2)for(const s of L.ring2)sink(s);
+    for(const b of L.bots)sink(b.g);
+    for(const p of L.pads){ if(p.occ!==1)sink(p.g); }                                  // every pad but YOURS deconstructs
+    const mine=L.pads.find(p=>p.occ===1);
+    if(mine){ player.wx+= (mine.g.position.x-player.wx)*Math.min(1,dt*8); player.wz+=(mine.g.position.z-player.wz)*Math.min(1,dt*8);
+      player.py=mine.g.position.y+1.2; player.pvy=0; player.vx=0; player.vz=0; }      // pinned in the container through the whole transition
+    if(k>=1&&!L._launched){ L._launched=true;
+      try{ const zd=document.getElementById('zone-display'); if(zd)zd.style.display=''; }catch(_){}
+      const go=window._limboNext; window._limboNext=null;
+      window._gameMode=window._limboMode||window._gameMode;                            // restore the real mode BEFORE launching (ball spawn logic keys off it)
+      window._limboArrive=true;                                                       // -> the arena BUILDS ITSELF around you on the other side
+      setTimeout(()=>{ try{                                                            // remove the last props UNDER the white; scene resets for the cage
+        for(const p of L.pads)scene.remove(p.g); if(L.core)scene.remove(L.core); if(L.ring)scene.remove(L.ring); if(L.ring2)for(const s of L.ring2)scene.remove(s); for(const b of L.bots)scene.remove(b.g);
+        scene.background=L._pbg; scene.fog=L._pfog; }catch(_){} },(window._LIMBO_BEAM_MS||500));
+      if(go){ if(window._deployFlash)window._deployFlash(go); else go(); } }
+    return;
   }
-  L.lock=on?(L.lock+dt):Math.max(0,L.lock-dt*2);
-  if(L.lock>=(window._LIMBO_HOLD||1.6)){ L.done=true;                   // THRESHOLD -> lock: beam out, then the match builds under the white
-    try{ if(typeof spawnBeam==='function')spawnBeam(player.wx,player.wz,0xffffff,null,0,0); }catch(_){}
+  // ── ECHO BOTS run in and claim pads ──
+  for(const b of L.bots){ b.t+=dt;
+    if(b.st==='wait'){ if(b.t>=b.delay)b.st='run'; continue; }
+    if(b.st==='run'){ if(!b.pad||b.pad.occ===1){ b.pad=null; for(const p of L.pads){ if(!p.occ&&!L.bots.some(o=>o!==b&&o.pad===p)){ b.pad=p; break; } } }
+      if(!b.pad)continue;
+      const dx=b.pad.x-b.g.position.x, dz=b.pad.z-b.g.position.z, d=Math.hypot(dx,dz);
+      if(d<6){ b.st='on'; b.pad.occ=2; b.g.position.set(b.pad.x,0,b.pad.z); continue; }
+      b.g.position.x+=dx/d*b.spd*dt; b.g.position.z+=dz/d*b.spd*dt;
+      b.g.position.y=Math.abs(Math.sin(b.t*9))*2.4;                                   // run-bob
+      b.g.rotation.y=Math.atan2(dx,dz); continue; }
+    if(b.st==='on'&&b.pad){ b.g.position.x=b.pad.x; b.g.position.z=b.pad.z; b.g.position.y=b.pad.g.position.y+1; }   // riding its risen pad
+  }
+  // ── PADS: claim, light, RISE with their rider, cube container ──
+  let allOn=true;
+  for(let i=0;i<L.pads.length;i++){ const p=L.pads[i];
+    if(p.occ===1){ const d=Math.hypot(player.wx-p.x,player.wz-p.z); if(p.riseK<0.3&&d>(window._LIMBO_PAD_R||32)+8)p.occ=0; }   // can step off only before the pad lifts
+    else if(p.occ===0){ const d=Math.hypot(player.wx-p.x,player.wz-p.z); if(d<(window._LIMBO_PAD_R||32)&&player.py<10)p.occ=1; }
+    const act=!!p.occ;
+    p.k+=((act?1:0)-p.k)*Math.min(1,dt*5); if(!act)allOn=false;
+    p.riseK+=(((act&&p.k>0.5)?1:0)-p.riseK)*Math.min(1,dt*1.7);
+    p.g.position.y=0.5+p.riseK*(window._LIMBO_RISE||24);                               // the pad LIFTS its rider into the air
+    if(p.pp){ p.pp.rotation.y+=dt*(0.2+p.k*1.4); p.pp.scale.setScalar((window._LIMBO_PAD_SC||30)*(1+0.07*p.k)); }
+    const bo=0.2*p.k+0.06*Math.sin(now/260+i); p.box.visible=p.wire.visible=p.k>0.02;
+    p.box.material.opacity=0.10*p.k; p.wire.material.opacity=Math.max(0,bo);          // the cube container glows around the rider
+    if(L.lights[i]){ L.lights[i].material.color.copy(L.lights[i].material._b).multiplyScalar(0.18+0.82*p.k); L.lights[i].scale.setScalar(1+0.5*p.k+0.12*Math.sin(now/180)); }   // the core's status light for THIS pad
+    if(p.occ===1&&p.riseK>0.03){ player.wx+=(p.x-player.wx)*Math.min(1,dt*6); player.wz+=(p.z-player.wz)*Math.min(1,dt*6);
+      player.py=p.g.position.y+1.2; player.pvy=0; }                                    // you RIDE the pad up; the container keeps you aboard
+  }
+  L.lock=allOn?(L.lock+dt):Math.max(0,L.lock-dt*2);
+  if(L.lock>=(window._LIMBO_HOLD||1.2)&&L.phase==='wait'){ L.phase='decon';            // ALL FOUR riders locked -> the room deconstructs around you
     try{ if(window._uiSfx)window._uiSfx('warp',0.6); }catch(_){}
-    setTimeout(()=>{ try{
-      try{ for(const p of L.pads)scene.remove(p.g); if(L.core)scene.remove(L.core); if(L.ring)scene.remove(L.ring); if(L.ring2)for(const s of L.ring2)scene.remove(s); scene.background=L._pbg; scene.fog=L._pfog; }catch(_){}
-      try{ const zd=document.getElementById('zone-display'); if(zd)zd.style.display=''; }catch(_){}   // give the match its zone banner back
-      const go=window._limboNext; window._limboNext=null;               // NOTE: _LIMBO_ST stays (done=true) so a stray -30 tick can't rebuild pads into the loading match; _limboEnter resets it fresh
-      window._gameMode=window._limboMode||window._gameMode;             // restore the real mode BEFORE launching (ball spawn logic keys off it)
-      window._limboArrive=true;                                          // -> the arena BUILDS ITSELF around you on the other side
-      if(go){ if(window._deployFlash)window._deployFlash(go); else go(); } }catch(_){} },(window._LIMBO_BEAM_MS||750));
+    try{ if(typeof spawnBeam==='function')for(const b of L.bots)spawnBeam(b.g.position.x,b.g.position.z,0xffffff,null,0,0); }catch(_){}   // the echoes beam away
   }
 }catch(_){} };
-
 window._playerChar='robot';
 window._selectChar=function(idx){
   // Roster-driven: read the key straight off the wheel array so benching/adding a pilot needs no index bookkeeping here.
