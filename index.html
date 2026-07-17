@@ -373,7 +373,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB923</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB924</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -561,7 +561,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB923</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB924</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -1827,6 +1827,15 @@ window._stageFrameSync=function(dt){ try{
   try{ for(const o of [window._portalMesh, window._portalMembraneMesh, (window._cageBd&&window._cageBd.grp)||null]){   // the portal arch + 3D sunset backdrop spawn ASYNC after the stage builds — sweep them out every frame (restored on exit via _stageHid)
     if(o&&o.visible){ o.visible=false; if(window._stageHid)window._stageHid.push(o); } } }catch(_){}
   try{ const OV=window._stageOv; if(OV){
+    // FIRST-DEPLOY 'old camera' fix: the mirror scale (game height / wheel height) is measured ONCE at arm time. On a cold
+    // first deploy the hero's async skin-swap or spawn settle can land AFTER arming — wrong scale -> the mirrored camera
+    // parks visibly farther out. If the model was hot-swapped, or its measured height drifts >12% within the first 3s,
+    // tear down + re-arm against the real hero (with the intro ease SNAPPED, never replayed mid-stage).
+    let _rearm=(OV.gm&&OV.gm!==pm);
+    if(!_rearm&&OV._smt!=null&&OV._smt<3){ OV._smt+=dt; OV._chkT=(OV._chkT||0)+dt;
+      if(OV._chkT>0.5){ OV._chkT=0; try{ const b2=window._boneSpanY(pm); const gh2=b2&&isFinite(b2.max-b2.min)?(b2.max-b2.min):null;
+        if(gh2&&gh2>2&&OV.gh&&Math.abs(gh2-OV.gh)/OV.gh>0.12)_rearm=true; }catch(_){} } }
+    if(_rearm){ try{ window._stageOvSnap=true; window._stageOverlay(false); window._stageOverlay(true); }finally{ window._stageOvSnap=false; } return; }
     pm.visible=false;
     try{ for(let i=0;i<OV.W.slotModel.length;i++){ const m=OV.W.slotModel[i]; if(m&&i!==OV.W.idx&&m.visible)m.visible=false; } }catch(_){}   // neighbours load ASYNC — keep the roster off the stage every frame
     // EASE, don't snap: bones + yaw ramp from the turn-cinematic pose onto the live game skeleton...
@@ -42540,14 +42549,14 @@ window._stageOverlay=function(on){ try{
     st.legs=null; { let ln=null,rn=null; for(const nn in pb){ if(/leftupleg/i.test(nn)&&gb[nn])ln=nn; if(/rightupleg/i.test(nn)&&gb[nn])rn=nn; }
       if(ln&&rn)st.legs={cl:pb[ln], cr:pb[rn], gl:gb[ln], gr:gb[rn]}; }   // hip-line endpoints, both rigs — facing is derived from GEOMETRY, not bone orientations
     st.cam=cv._wheelCam||null; st.yawOff=null; st.ren=W.renderer||null; st.sc=W.sc||(W.spot&&W.spot.parent)||null;
-    st.camK=0; st.poseK=0;   // ease ramps: cinematic-end -> game mirror (camera) and cinematic pose -> game bones
+    st.camK=(window._stageOvSnap?1:0); st.poseK=(window._stageOvSnap?1:0);   // ease ramps: cinematic-end -> game mirror (camera) and cinematic pose -> game bones. On a RE-ARM (model hot-swap) snap straight to the mirror — never replay the intro ease mid-stage.
     try{ const CC=window._stageCinCam; if(CC&&st.cam){ st.fromPos=CC.pos.clone(); st.fromQuat=CC.quat.clone(); st.fromFov=CC.fov; window._stageCinCam=null; }
       else if(st.cam){ st.fromPos=st.cam.position.clone(); st.fromQuat=st.cam.quaternion.clone(); st.fromFov=st.cam.fov; } }catch(_){}
     W.running=false;   // the GAME loop renders the wheel scene now — the wheel's own rAF (which screen switches pause on device) is out of the picture; returning to the select screen restarts it
     let wh=1.9, gh=14;
     try{ const b1=window._boneSpanY(orig); if(b1&&isFinite(b1.max-b1.min)&&b1.max-b1.min>0.2)wh=b1.max-b1.min; }catch(_){}
     try{ const b2=window._boneSpanY(player.model); if(b2&&isFinite(b2.max-b2.min)&&b2.max-b2.min>2)gh=b2.max-b2.min; }catch(_){}
-    st.s=gh/wh;
+    st.s=gh/wh; st.gm=player.model; st.gh=gh; st._smt=0;   // remember WHICH model + height we measured — a hot-swap or a late-settling spawn re-arms the overlay (see _stageFrameSync)
     window._stageOv=st; player.model.visible=false;
   } else { const st=window._stageOv; if(!st)return; window._stageOv=null;
     try{ if(st.hero&&st.hero.parent)st.hero.parent.remove(st.hero); }catch(_){}
