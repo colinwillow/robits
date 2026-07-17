@@ -373,7 +373,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB907</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB908</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -561,7 +561,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB907</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB908</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -1830,8 +1830,16 @@ window._stageFrameSync=function(dt){ try{
     // EASE, don't snap: bones + yaw ramp from the turn-cinematic pose onto the live game skeleton...
     OV.poseK=Math.min(1,(OV.poseK==null?1:OV.poseK)+dt/(window._STAGE_POSE_EASE||0.45));
     const pk=(OV.poseK>=1)?1:OV.poseK*OV.poseK*(3-2*OV.poseK);
-    if(OV.yawOff==null)OV.yawOff=(OV.hero.rotation.y||0)-(pm.rotation.y||0);
-    { let dY=(pm.rotation.y+OV.yawOff)-OV.hero.rotation.y; dY=Math.atan2(Math.sin(dY),Math.cos(dY)); OV.hero.rotation.y+=dY*pk; }
+    // DERIVED yaw, not captured: both models share the GLB's forward, so in the mirrored camera the clone's WORLD yaw must
+    // equal the game model's rotation.y — subtract whatever yaw his wheel parents contribute. (Capturing an offset at arm
+    // time baked in the game model's unsettled first-frame rotation — that was the "facing left instead of away".)
+    if(!OV._pq){ OV._pq=new THREE.Quaternion(); OV._eul=new THREE.Euler(); }
+    let _py=0; try{ if(OV.hero.parent){ OV.hero.parent.getWorldQuaternion(OV._pq); _py=OV._eul.setFromQuaternion(OV._pq,'YXZ').y; } }catch(_){}
+    // net yaw from QUATERNIONS on both sides, then write a CLEAN (0,yaw,0) — the clone's root arrived as the alternate
+    // euler (-pi, theta, -pi), where writing .y alone lands the model at pi-theta: the 180-off "facing left" bug
+    if(OV.heroYaw==null)OV.heroYaw=OV._eul.setFromQuaternion(OV.hero.quaternion,'YXZ').y;
+    const _pmYaw=OV._eul.setFromQuaternion(pm.quaternion,'YXZ').y;
+    { let dY=(_pmYaw-_py)-OV.heroYaw; dY=Math.atan2(Math.sin(dY),Math.cos(dY)); OV.heroYaw+=dY*pk; OV.hero.rotation.set(0,OV.heroYaw,0); }
     for(const pr of OV.pairs){ if(pk>=1){ pr[0].quaternion.copy(pr[1].quaternion); pr[0].position.copy(pr[1].position); }
       else { pr[0].quaternion.slerp(pr[1].quaternion,pk); pr[0].position.lerp(pr[1].position,pk); } }
     if(OV.hips&&OV.cam){ OV.hero.updateMatrixWorld(true); pm.updateMatrixWorld(true);
@@ -1842,7 +1850,17 @@ window._stageFrameSync=function(dt){ try{
       const ck=(OV.camK>=1)?1:OV.camK*OV.camK*(3-2*OV.camK);
       if(ck>=1||!OV.fromPos){ OV.cam.position.set(tx,ty,tz); OV.cam.quaternion.copy(camera.quaternion);
         if(OV.cam.fov!==camera.fov){ OV.cam.fov=camera.fov; OV.cam.updateProjectionMatrix(); } }
-      else { OV.cam.position.set(OV.fromPos.x+(tx-OV.fromPos.x)*ck, OV.fromPos.y+(ty-OV.fromPos.y)*ck, OV.fromPos.z+(tz-OV.fromPos.z)*ck);
+      else {
+        // TRUE ORBIT around the hero — interpolate azimuth (shortest arc), radius and height about his hips, not a
+        // straight line between endpoints (that read as an offset rotation about some point in space)
+        if(!OV.orb){ const fx=OV.fromPos.x-hw.x, fy=OV.fromPos.y-hw.y, fz=OV.fromPos.z-hw.z;
+          OV.orb={ az0:Math.atan2(fx,fz), r0:Math.hypot(fx,fz), y0:fy };
+          if(OV.fromQuat.dot(camera.quaternion)<0){ OV.fromQuat.x*=-1; OV.fromQuat.y*=-1; OV.fromQuat.z*=-1; OV.fromQuat.w*=-1; } }   // same hemisphere -> the spin takes the short way
+        const gx=tx-hw.x, gy=ty-hw.y, gz=tz-hw.z;
+        const az1=Math.atan2(gx,gz), r1=Math.hypot(gx,gz);
+        let dA=az1-OV.orb.az0; dA=Math.atan2(Math.sin(dA),Math.cos(dA));
+        const az=OV.orb.az0+dA*ck, rr=OV.orb.r0+(r1-OV.orb.r0)*ck, yy=OV.orb.y0+(gy-OV.orb.y0)*ck;
+        OV.cam.position.set(hw.x+Math.sin(az)*rr, hw.y+yy, hw.z+Math.cos(az)*rr);
         OV.cam.quaternion.slerpQuaternions(OV.fromQuat,camera.quaternion,ck);
         const nf=OV.fromFov+(camera.fov-OV.fromFov)*ck; if(OV.cam.fov!==nf){ OV.cam.fov=nf; OV.cam.updateProjectionMatrix(); } } }
     try{ if(OV.ren&&OV.sc&&OV.cam)OV.ren.render(OV.sc,OV.cam); }catch(_){}          // WE render the wheel scene — its own loop pauses on real devices when the select screen hides
