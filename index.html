@@ -373,7 +373,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB934</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB935</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -561,7 +561,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB934</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB935</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -42475,7 +42475,25 @@ window._stagePortalBuild=function(){ try{
           const lineMat=new THREE.LineBasicMaterial({color:(window._STAGE_PORTAL_EDGE_COL!=null?window._STAGE_PORTAL_EDGE_COL:0x9df6ff), transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false});
           line=new THREE.LineLoop(lineGeo,lineMat); line.frustumCulled=false; line.renderOrder=3; memGrp.add(line);
         }
-        window._stagePortal.mem={memGrp, ring, viz, line, lineGeo, linePos, N, mt:0, _v:new THREE.Vector3(), _c:new THREE.Vector3()};
+        // SIX EMITTER-TIP ORBS: additive glow spheres that RIDE the six emitter tips (L1/L2/L3 + R1/R2/R3), so the portal's
+        //  energy looks like it EMANATES from the tips. Built in memGrp (root-local) and repositioned every frame from the live
+        //  tip positions (same worldToLocal the ring uses), sized to the live lens radius so they scale with the opening.
+        let tips=null;
+        try{ if(window._STAGE_PORTAL_TIPLIGHTS!==false){
+          const EMIT={emiter_R_1_tip:1,emiter_R_2_tip:1,emiter_R_3_tip:1,emiter_L_3_tip:1,emiter_L_tip1:1,emiter_L_1_tip:1};
+          const tipIdx=[]; for(let i=0;i<N;i++){ if(EMIT[ring[i].name])tipIdx.push(i); }
+          const orbCol=new THREE.Color(window._STAGE_PORTAL_TIP_COL!=null?window._STAGE_PORTAL_TIP_COL:0x9df6ff);
+          const orbs=[];
+          for(let j=0;j<tipIdx.length;j++){
+            const om=new THREE.MeshBasicMaterial({color:orbCol.clone(), transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false});
+            const orb=new THREE.Mesh(new THREE.SphereGeometry(1,14,12), om); orb.frustumCulled=false; orb.renderOrder=4;
+            const hm=new THREE.MeshBasicMaterial({color:orbCol.clone(), transparent:true, opacity:0.3, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false});
+            const halo=new THREE.Mesh(new THREE.SphereGeometry(2.4,14,12), hm); halo.frustumCulled=false; halo.renderOrder=4; orb.add(halo);
+            memGrp.add(orb); orbs.push({m:orb, mat:om, hmat:hm, ri:tipIdx[j], ph:j*1.04});
+          }
+          tips={orbs};
+        } }catch(_){}
+        window._stagePortal.mem={memGrp, ring, viz, line, lineGeo, linePos, N, tips, mt:0, _v:new THREE.Vector3(), _c:new THREE.Vector3()};
       }
     } }catch(_){}
   }).catch(_=>{});
@@ -42483,9 +42501,12 @@ window._stagePortalBuild=function(){ try{
 // advance the fold-out + the live membrane. Called every frame from _stageFrameSync once the deploy turn's camera settles.
 window._stagePortalTick=function(dt){ try{ const P=window._stagePortal; if(!P)return;
   // 1) the mechanical arm fold-out (stops at open)
-  if(P.unfold&&!P.done){ P.t+=dt; const dur=((window._STAGE_PORTAL_MS!=null?window._STAGE_PORTAL_MS:520)/1000);
-    let u=Math.min(1,P.t/dur); u=u*u*(3-2*u);                 // ease the whole sweep
-    let prog=u*3; const i=Math.min(2,Math.floor(prog)), f=prog-i;   // segment closed(0)->1->2->open(3)
+  if(P.unfold&&!P.done){ P.t+=dt; const dur=((window._STAGE_PORTAL_MS!=null?window._STAGE_PORTAL_MS:760)/1000);
+    let u=Math.min(1,P.t/dur);                                // LINEAR through the sweep — the spring is applied per-segment below
+    let prog=u*3; const i=Math.min(2,Math.floor(prog)); let f=prog-i;   // segment closed(0)->1->2->open(3)
+    // SPRING each of the 3 state transitions: easeOutBack overshoots past the pose then settles back into it, so the arms
+    //  SNAP-and-bounce through closed->1->2->open instead of gliding. Overshoot lets slerp/lerp extrapolate slightly past B.
+    const sb=(window._STAGE_PORTAL_SPRING_BACK!=null?window._STAGE_PORTAL_SPRING_BACK:1.9), c3=sb+1, pf=f-1; f=1+c3*pf*pf*pf+sb*pf*pf;
     const A=P.poses[i], B=P.poses[i+1];
     P.root.traverse(o=>{ if(!o.name)return; const a=A[o.name], b=B[o.name]; if(!a||!b)return;
       o.quaternion.slerpQuaternions(a.q,b.q,f); o.position.lerpVectors(a.p,b.p,f); o.scale.lerpVectors(a.s,b.s,f); });
@@ -42499,6 +42520,10 @@ window._stagePortalTick=function(dt){ try{ const P=window._stagePortal; if(!P)re
     M._c.multiplyScalar(1/N);
     let lr=0; for(let i=0;i<N;i++){ const dx=M.linePos[i*3]-M._c.x, dy=M.linePos[i*3+1]-M._c.y, dz=M.linePos[i*3+2]-M._c.z; lr+=Math.hypot(dx,dy,dz); } lr/=N;
     if(M.line){ M.lineGeo.attributes.position.needsUpdate=true; M.line.material.opacity=0.7+0.3*Math.sin(M.mt*5.0+1.0); }
+    // the six TIP ORBS ride the live emitter-tip positions, pulsing, sized to the lens radius (so they grow as the arms open)
+    if(M.tips){ const base=(lr||1)*(window._STAGE_PORTAL_TIP_R!=null?window._STAGE_PORTAL_TIP_R:0.09);
+      for(const o of M.tips.orbs){ const i=o.ri; o.m.position.set(M.linePos[i*3],M.linePos[i*3+1],M.linePos[i*3+2]);
+        const pu=base*(0.85+0.25*Math.sin(M.mt*4.0+o.ph)); o.m.scale.setScalar(pu); o.mat.opacity=0.8+0.2*Math.sin(M.mt*4.0+o.ph); } }
     // the VISUALIZER: step its geometry from the soundtrack, then centre + scale it into the lens (pulled slightly FORWARD
     // toward the opening plane so it sits IN the portal, not a foot behind it)
     const V=M.viz; if(V){ try{ if(typeof _mandalaStep==='function')_mandalaStep(V); }catch(_){}
@@ -42513,7 +42538,13 @@ window._stagePortalTick=function(dt){ try{ const P=window._stagePortal; if(!P)re
       if(V.dK==null){ V.dK=1; V.dV=0; }                              // (a) whole-tunnel depth, spring toward the proximity target
       const tgtK=1+gate*(window._STAGE_PORTAL_REACT_DEPTH!=null?window._STAGE_PORTAL_REACT_DEPTH:1.7);
       V.dV+=(tgtK-V.dK)*SK*_dt; V.dV-=V.dV*SD*_dt; V.dK+=V.dV*_dt;
-      V.grp.scale.set(baseS,baseS,baseS*Math.max(0.2,V.dK));
+      // (b) BIRTH: the field is a tiny point at the lens centre while the arms fold, then springs 0->1 ONCE they're open, so
+      //     the visualizer is BORN from the middle and grows out to fill the portal (with a little overshoot pop on arrival).
+      if(V.bK==null){ V.bK=0.0001; V.bV=0; }
+      const bTgt=P.done?1:0.0001;
+      V.bV+=(bTgt-V.bK)*(window._STAGE_PORTAL_BIRTH_K||34)*_dt; V.bV-=V.bV*(window._STAGE_PORTAL_BIRTH_D||8)*_dt; V.bK=Math.max(0.0001,V.bK+V.bV*_dt);
+      const bs=baseS*V.bK;
+      V.grp.scale.set(bs,bs,bs*Math.max(0.2,V.dK));
       V.spin+=dt*(window._STAGE_PORTAL_VIZ_SPIN!=null?window._STAGE_PORTAL_VIZ_SPIN:0.25); V.grp.rotation.z=V.spin;   // slow overall drift, like the menu mandala
       try{ if(window._STAGE_PORTAL_ABSORB!==false && typeof player!=='undefined'&&player){
         V.grp.updateMatrixWorld();
