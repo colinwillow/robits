@@ -378,7 +378,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB960</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB961</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -566,7 +566,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB960</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB961</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -26663,6 +26663,16 @@ function loop(ts){ requestAnimationFrame(loop);
     { const _lb=document.getElementById('lightmode-btn'), _gb=document.getElementById('gfx-btn'), _cb=document.getElementById('dbg-col-btn');
       if(_lb&&_lb.style.display!=='none') _lb.style.display='none'; if(_gb&&_gb.style.display!=='none') _gb.style.display='none'; if(_cb&&_cb.style.display!=='none') _cb.style.display='none'; }   // these moved into the pause menu
     let rawDt=Math.min((ts-lastT)/1000,0.033);lastT=ts;frame++;
+    // ── FRAME-TIME SMOOTHING ── the 60fps cap paces the loop, but the MEASURED delta still wobbles frame-to-frame (rAF jitter,
+    //   worst on 120Hz ProMotion where the cap runs the sim every-other-refresh). movement = vel*dt, so a jittery dt makes each
+    //   displayed frame advance by an uneven amount = the "running micro-stutter" that isn't a framerate drop. Low-pass the delta
+    //   so per-frame displacement is consistent; SNAP after a real hitch so a dropped frame isn't smeared into slow-mo.
+    //   window._DT_SMOOTH=false to A/B it off; _DT_SMOOTH_K tunes the follow speed.
+    if(window._DT_SMOOTH!==false){
+      if(!loop._dtS || rawDt>0.028) loop._dtS=rawDt;
+      else loop._dtS += (rawDt-loop._dtS)*(window._DT_SMOOTH_K||0.2);
+      rawDt=loop._dtS;
+    }
     updateTime(); const dt=rawDt*TIME.scale;
     if(typeof player!=='undefined'&&player&&(player._smashPct||0)>0)player._smashPct=Math.max(0,player._smashPct-rawDt*(window._SMASH_PCT_DECAY||0.5));   // Smash-% recovers over time (ball mode) so knockback tracks RECENT damage
     if(typeof player!=='undefined'&&player&&player._deathSeq&&window._deathSeqTick){ try{ window._deathSeqTick(dt); }catch(_dse){ try{ if(typeof _deathFinish==='function')_deathFinish(player._deathSeq); }catch(_){} } }   // run the death cinematic FIRST -> it always advances even if later per-frame code throws
@@ -29458,12 +29468,16 @@ function _cageBackdropBuild(parent,theme){
     //     far = small+faint = fake depth, parallax-free), low sand-dune ridgelines, and two colossal hero pyramids as distant
     //     landmarks. Every ring is ONE merged LineSegments pass, so the whole desert is a handful of draw calls. ═══
     try{ if(scene.fog){ scene.fog._deOld={c:scene.fog.color.clone(),d:scene.fog.density}; scene.fog.color.setHex(0x080512); scene.fog.density=(window._DE_FOG!=null?window._DE_FOG:0.00020); } }catch(_){}   // faint dark haze so the far grid dissolves; pyramids/stars are fog:false so they survive
-    // 1) STARFIELD dome (warm white, twinkles)
-    { const n=(window._DE_STARS||460), pos=new Float32Array(n*3);
-      for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, e=Math.random()*Math.PI*0.5, r=8000; pos[i*3]=Math.cos(a)*Math.cos(e)*r; pos[i*3+1]=Math.sin(e)*r+300; pos[i*3+2]=Math.sin(a)*Math.cos(e)*r; }
-      const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3));
-      const m=new THREE.PointsMaterial({color:0xffe9c2,size:10,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true,fog:false});
-      A(new THREE.Points(g,m)); items.push({k:'twinkle',m}); }
+    // 1) STARFIELD — TWO depth bands so distance actually reads: many small far stars + fewer BIG near ones (sizeAttenuation
+    //    already shrinks the far band in perspective; the near band gives real foreground depth). Bumped bright + dense.
+    { const band=(n,rMin,rMax,size,op,col)=>{ const pos=new Float32Array(n*3);
+        for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, e=Math.random()*Math.PI*0.55, r=rMin+Math.random()*(rMax-rMin); pos[i*3]=Math.cos(a)*Math.cos(e)*r; pos[i*3+1]=Math.sin(e)*r+250; pos[i*3+2]=Math.sin(a)*Math.cos(e)*r; }
+        const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+        const m=new THREE.PointsMaterial({color:col,size,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true,fog:false});
+        A(new THREE.Points(g,m)); return m; };
+      const mFar=band((window._DE_STARS||640), 7000, 9500, 16, 0.85, 0xffe9c2);         // far: many, small, warm
+      const mNear=band((window._DE_STARS_NEAR||150), 3200, 5400, 34, 0.6, 0xbfe0ff);    // near: fewer, BIG, cool -> foreground depth
+      items.push({k:'twinkle',m:mFar}); items.push({k:'twinkle2',m:mNear}); }
     // 2) PYRAMID DEPTH RINGS — merged edge-line pass per ring
     const pyRing=(count,dist,distJit,sMin,sMax,col,op)=>{ const E=[];
       for(let i=0;i<count;i++){ const a=(i/count)*Math.PI*2+(Math.random()-0.5)*0.14, r=dist+(Math.random()-0.5)*distJit;
@@ -29511,7 +29525,8 @@ function _cageBackdropTick(dt){
       it.g.rotation.y=-it.a+(it.w>0?Math.PI:0); it.g.rotation.z=Math.sin(t*0.35)*0.12;   // nose follows the circle tangent, gentle porpoise roll
       if(it.tail)it.tail.rotation.y=Math.sin(t*2.2)*0.38; }
     else if(it.k==='jelly'){ it.g.position.y+=it.vy*dt; if(it.g.position.y>2600)it.g.position.y=200; const s=1+0.12*Math.sin(t*2.4+it.ph); it.g.scale.set(s,1/s,s); }
-    else if(it.k==='twinkle'){ it.m.opacity=0.55+0.2*Math.sin(t*0.9); }   // desert starfield breathes
+    else if(it.k==='twinkle'){ it.m.opacity=0.7+0.18*Math.sin(t*0.9); }   // desert far starfield breathes
+    else if(it.k==='twinkle2'){ it.m.opacity=0.48+0.18*Math.sin(t*1.3+1.7); }   // near stars breathe out of phase
     else if(it.k==='apex'){ it.m.opacity=0.4+0.25*(0.5+0.5*Math.sin(t*1.3)); }   // hero-pyramid apex glow pulses
     else if(it.k==='swfloor'){ const off=((t*(window._SW_FLOOR_SPD||140))%it.step); if(it.cyan)it.cyan.position.z=off; if(it.mag)it.mag.position.z=off;   // the neon rungs roll toward the camera (outrun scroll); modulo the cell so it loops seamlessly
       const pu=0.5+0.5*Math.sin(t*1.6); if(it.mag&&it.mag.material)it.mag.material.opacity=0.34+0.12*pu; }
@@ -31328,6 +31343,7 @@ function buildCubeArena(){
     {P:V(-hx,h,hz), e:V(2*hx,0,0), n1:nY, n2:V(0,0,-1)}, {P:V(-hx,h,-hz),e:V(2*hx,0,0), n1:nY, n2:Zp},
   ];
   const _CHAM_GRID=(window._CUBE_CHAM_GRID!==false);
+  const _seeThruE=!!window._CAGE_THEME && window._CAGE_SEETHRU!==false;   // same see-through test as the faces (that const is scoped to the faces block) — mute the fillets to match
   if(_CHAM_GRID){
     // ── ROUNDED EDGES as LIVE deforming grid: fan each quarter-circle fillet into flat grid facets (galaxy-panel style); each facet is a GridSheet that ripples on bullet/rocket/ball impact, just like the 6 faces ──
     if(!_USE_SHEETS){ try{ _disposeCubeSheets(); }catch(_){} }   // make sure the sheet list is fresh even when the faces are drawn as plain lines
@@ -31352,6 +31368,12 @@ function buildCubeArena(){
         const csub=(IS_MOBILE?1:2);                                               // same subdivision as the faces -> same ripple smoothness
         let sh; try{ sh=new GridSheet({cols,rows,cell:ccell,position:center,quaternion:quat,palette:chamPal,fill:false,subdiv:csub,bright:1.05}); }catch(e){ console.warn('cube chamfer sheet:',e); continue; }
         sh._cubeWall=true; sh._cityWall=true; sh._chamfer=true;                   // deform-don't-die, like the faces
+        // MATCH THE WALL MUTE: the fillets bridge the see-through walls, so they must fade out the same way (they were keeping
+        //   GridSheet's bright 0.46 default -> the lit-up curved ground↔wall lip + wall↔wall corners the walls no longer have).
+        sh._restA = _seeThruE ? (window._CUBE_WALL_REST_A!=null?window._CUBE_WALL_REST_A:0.02) : (window._CUBE_FLOOR_REST_A!=null?window._CUBE_FLOOR_REST_A:0.07);
+        sh._defA=(window._CUBE_GRID_DEF_A!=null?window._CUBE_GRID_DEF_A:0.78);
+        try{ sh._rebuild(); }catch(_){}
+        if(_seeThruE && sh.glowLines){ try{ sh.glowLines.material.opacity=(window._CUBE_WALL_GLOW!=null?window._CUBE_WALL_GLOW:0.0); }catch(_){} }
         _cubeSheets.push(sh);
       }
     }
