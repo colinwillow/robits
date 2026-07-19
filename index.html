@@ -398,7 +398,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1001</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1002</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -586,7 +586,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1001</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1002</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -12832,7 +12832,12 @@ class Player{
       // vertical
       this.pvy-=(typeof GRAV!=='undefined'?GRAV:320)*dt; this.py+=this.pvy*dt;
       if(GS.zone===-19){ const C=window._CUBE||(typeof _CUBE!=='undefined'?_CUBE:{h:600}), ceil=(C.h||600)-(window._CUBE_PAD!=null?window._CUBE_PAD:22); if(this.py>ceil){ this.py=ceil; if(this.pvy>0)this.pvy=-this.pvy*(window._PLKB_REST!=null?window._PLKB_REST:0.55); } }
-      if(_overVoid){ this._wasAirborne=true; if(window._platformArena)this._voidCommit=true;   // knocked off the platform -> committed to the plummet (jetpack dead)
+      if(_overVoid){ this._wasAirborne=true;
+        if(window._platformArena){ this._voidCommit=true;
+          // SMASH-STYLE RECOVERY: after a brief tumble off the edge, hand control BACK (end the launch) so you can jetpack / DI to
+          //   fight your way back onto the deck. The knockback used to run to the ring-out with input locked = "stuck tumbling, jet dead".
+          if(this._launchT > (window._PLATFORM_KB_RECOVER_T||0.4)){ this._launched=false; this._kbStun=0; this._kbVx*=(window._PLATFORM_KB_KEEP||0.4); this._kbVz*=(window._PLATFORM_KB_KEEP||0.4); const ud=this.model&&this.model.userData; if(ud)ud._launchClip=false; }
+        }
         if(this.py<(window._VOID_RINGOUT_Y||-150) && typeof _arenaRingOutPlayer==='function'){ this._launched=false; this._kbStun=0; _arenaRingOutPlayer(); return; } }   // fell past the rim -> lethal ring-out (don't stand up in mid-air)
       else if(this.py<=0 && this.pvy<=0){ const _plImpV=Math.abs(this.pvy||0); this.py=0; this.pvy=0; this._launched=false; this._kbVx*=0.3; this._kbVz*=0.3;
         try{ _bodyImpactDeform(this.wx,this.wz,9,_plImpV*(window._IMPACT_PLAYER_K||0.85)); }catch(_){}   // YOU get launched + slam down -> radial impact deform too
@@ -18501,6 +18506,12 @@ function _updateItemShots(dt){
       if(s.type==='barrel'){ const hsp=Math.hypot(s.vx,s.vz)||1, dirx=s.vx/hsp,dirz=s.vz/hsp,axis=new THREE.Vector3(-dirz,0,dirx); s._rollAng=(s._rollAng||0)+(hsp/BSZ)*dt; const q1=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),axis),q2=new THREE.Quaternion().setFromAxisAngle(axis,s._rollAng); s.mesh.quaternion.copy(q2).multiply(q1); }   // barrel flies lying on its side, already spinning in the throw direction -> lands rolling straight
       else { s.mesh.rotation.x+=s.spin.x*dt; s.mesh.rotation.y+=s.spin.y*dt; s.mesh.rotation.z+=s.spin.z*dt; } }
     if(typeof ps!=='undefined'&&Math.random()<0.5){ const def=_ITEMDEF[s.type]||_ITEMDEF.nuke; const col=(s.kind==='crate')?new THREE.Color(0x9a6a3a):new THREE.Color(def.col); ps._spawn(s.x,s.y,s.z,rand(-6,6),rand(-6,6),rand(-6,6),col.r,col.g,col.b,0.3); }
+    // PLATFORM VOID — a thrown item/pod/barrel sailing off the MAP keeps falling into the void and is then removed; it never
+    //   "lands" on the imaginary ground plane (that was landing the pod + spawning its dragon/minion standing on nothing off the edge).
+    if(window._platformArena && typeof _arenaSolidAt==='function' && !_arenaSolidAt(s.x,s.z)){
+      if(s.y < (window._ITEM_VOID_Y||-900)){ if(s.mesh){ scene.remove(s.mesh); s.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } A.splice(i,1); }
+      continue;   // over the void: skip every ground/deck landing check — just keep plummeting until removed
+    }
     let hit=false;
     if((s.kind==='crate'||s.type==='barrel')&&typeof GS!=='undefined'&&GS.enemies){ for(const e of GS.enemies){ if(e&&e.alive&&Math.abs(s.y-(e.mesh?e.mesh.position.y:(e.py||0)))<40&&Math.hypot(e.wx-s.x,e.wz-s.z)<24){ hit=true; break; } } }
     if(s.type==='barrel'){
