@@ -398,7 +398,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1017</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1018</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -586,7 +586,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1017</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1018</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -2963,6 +2963,7 @@ function loadRobotGLB(){
   return _robotLoadPromise;
 }
 loadRobotGLB(); // preload the hero robot at startup so the splash/loading screen can wait for it (and it's cached for the title viewer)
+try{ new GLTFLoader().load('models/player_shooter_pad.glb', g=>{ window._spadGltf=g; }, undefined, ()=>{}); }catch(_){}   // preload the VOID-PLATFORM shooter pad so it's cached before that level builds (spawns are placed on it -> can't wait on an async load)
 
 const DRONE_GLB='models/drone_01.glb';
 let _droneGltf=null, _droneLoadPromise=null;
@@ -16487,6 +16488,7 @@ class BotPilot{
   }
   update(dt){
     if(!this.alive) return;
+    if(this._padWarp || (this._padPending||0)>0){ if(this._mixer)this._mixer.update(dt); if(this.model)this.model.position.set(this.wx,this.py||0,this.wz); return; }   // riding (or armed to ride) a shooter-pad tube into the arena -> _shooterPadTick owns the transform; freeze the AI/physics so it can't bolt off the perimeter first
     if(this._netMirror){ try{ this._netMirrorTick(dt); }catch(_){} return; }   // non-host: display-only mirror driven by the host's broadcast (no local AI)
     if(this.inv>0) this.inv--;
     this._tickHitFlash();
@@ -20375,7 +20377,9 @@ function _rumbleSpawnBots(){ const R=window.RUMBLE; const pads=(window._cubeSpaw
   for(let i=0;i<R.botCount;i++){ const _n0=(typeof GS_bots!=='undefined'?GS_bots.length:0); try{ window._spawnBot(R.diff); }catch(_){}
     const bot=(typeof GS_bots!=='undefined'&&GS_bots.length>_n0)?GS_bots[GS_bots.length-1]:null; if(!bot)continue;   // _spawnBot doesn't return the bot -> grab the one it just pushed
     const slot=avail.length?avail[i%avail.length]:null, pad=(slot!=null)?pads[slot]:null;
-    if(pad){ const off=Math.floor(i/(avail.length||1))*((window._BALL_PAD_DUP_OFF||90)); bot.wx=pad.x; bot.wz=pad.z+off; bot.py=(pad.y||0); bot._onPlatform=true; bot._platformY=pad.y; bot._spawnPadIdx=slot; if(bot.model)bot.model.position.set(bot.wx,bot.py,bot.wz); }   // >pads-1 rivals: extras nudge along Z so they still don't overlap
+    if(pad){ const off=Math.floor(i/(avail.length||1))*((window._BALL_PAD_DUP_OFF||90)); bot.wx=pad.x; bot.wz=pad.z+off; bot.py=(pad.y||0); bot._onPlatform=true; bot._platformY=pad.y; bot._spawnPadIdx=slot; if(bot.model)bot.model.position.set(bot.wx,bot.py,bot.wz);
+      if(pad._shooter && window._SPAWN_ON_SHOOTER!==false){ bot._padEnterPad=pad._shooter; bot._padPending=(window._BOT_ENTER_MIN||0.5)+Math.random()*(window._BOT_ENTER_STAGGER||2.2); bot._botEnteredIn=false; }   // VOID PLATFORM: armed to ride the tube in (frozen on the pad until the stagger fires post-GO)
+    }   // >pads-1 rivals: extras nudge along Z so they still don't overlap
     bot._rumbleSlot=R.roster.length; bot._kills=0; bot._lastHitBy=null;
     R.roster.push({name:'CPU '+(i+1), col:cols[i%cols.length], kills:0, stocks:R.stocks, out:false, isPlayer:false, ref:bot}); }
 }
@@ -31015,7 +31019,7 @@ function _spawnPadFieldTick(dt){
   // bots + dummy: pin to the deck when they're over a pad footprint near deck height (stand, don't float / don't fall through)
   if(window._SPAWN_PAD_BOTSTAND!==false){
     const _stand=(o)=>{ if(!o||o.alive===false)return;
-      if(o._launched||(o._stun>0)||o._voidOut||(o._botVoid) || Math.hypot(o._kbVx||0,o._kbVz||0)>1.5 || (o.pvy||0)<-40)return;   // a KNOCKED / launched / stunned / falling bot must NOT get snapped back onto the pad (even a LIGHT melee that doesn't set _launched now escapes — it leaves knock velocity). Only pin a calm bot standing on its deck.
+      if(o._launched||(o._stun>0)||o._voidOut||(o._botVoid)||o._padWarp||o._botEnteredIn || Math.hypot(o._kbVx||0,o._kbVz||0)>1.5 || (o.pvy||0)<-40)return;   // a KNOCKED / launched / stunned / falling / tube-warping bot must NOT get snapped back onto the pad (even a LIGHT melee that doesn't set _launched now escapes — it leaves knock velocity). Only pin a calm bot standing on its deck.
       for(const p of pads){ if(Math.hypot((o.wx||0)-p.x,(o.wz||0)-p.z)>R)continue; if((o.py||0)>=p.y-6 && (o.py||0)<p.y+40){ o.py=p.y; if(o.pvy!=null&&o.pvy<0)o.pvy=0; o._onPlatform=true; if(o.model)o.model.position.y=p.y; } return; } };   // only pin from AT/ABOVE the deck top — a bot below the rim (knocked off the side) falls free instead of snapping up
     if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots) _stand(b);
     if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _stand(GS_trainingDummy);
@@ -31752,6 +31756,15 @@ function _buildShooterPads(){
       const peakY=Math.max(tip.y,20)+(window._SPAD_ARC||150);
       window._shooterPads.push({x:grp.position.x, z:grp.position.z, y:PY, holeR:(window._SPAD_HOLE_R||0.27)*S, grp, col, crv, tip, land, peakY, flames});
     }
+    // ── EVERYONE SPAWNS ON THE SHOOTER PADS ── replace the (skipped) elevated cube decks: each spawn point sits on a pad's
+    //   RING, offset outward from the mouth so you don't drop straight into the tube. You walk into the hole to launch in.
+    if(window._SPAWN_ON_SHOOTER!==false){ window._cubeSpawnPads=[];
+      for(let i=0;i<window._shooterPads.length;i++){ const sp=window._shooterPads[i]; const rr=Math.hypot(sp.x,sp.z)||1, off=(sp.holeR||16)+(window._SPAD_SPAWN_OFF||22);
+        window._cubeSpawnPads.push({x:sp.x+sp.x/rr*off, z:sp.z+sp.z/rr*off, y:sp.y, col:0x66e0ff, _shooter:sp}); }
+      // the pads may load AFTER the player/bots were already placed at the fallback centre (async GLB) -> reseat everyone onto the shooter-pad ring now
+      try{ if(typeof player!=='undefined'&&player){ const dr=(window._platformCol&&window._platformCol.hx)||980; if(Math.hypot(player.wx||0,player.wz||0)<dr){ const _p0=window._cubeSpawnPads[0]; player.wx=_p0.x; player.wz=_p0.z; player.py=_p0.y; player.pvy=0; player._onPlatform=true; player._platformY=_p0.y; player._spawnPadIdx=0; if(player.model)player.model.position.set(player.wx,player.py,player.wz); } } }catch(_){}
+      try{ if(typeof GS_bots!=='undefined'&&GS_bots){ GS_bots.forEach((b,bi)=>{ if(!b||b.alive===false)return; const _qi=(bi+1)%window._cubeSpawnPads.length, q=window._cubeSpawnPads[_qi]; b.wx=q.x; b.wz=q.z; b.py=q.y; b.pvy=0; b._onPlatform=true; b._platformY=q.y; b._spawnPadIdx=_qi; b._botEnteredIn=false; b._padWarp=null; b._padEnterPad=q._shooter; b._padPending=(window._BOT_ENTER_MIN||0.5)+Math.random()*(window._BOT_ENTER_STAGGER||2.2); if(b.model)b.model.position.set(b.wx,b.py,b.wz); }); } }catch(_){}   // reseat + arm any bots that already spawned before the pads loaded
+    }
   }catch(e){ console.warn('[shooter pads]',e); } };
   if(window._spadGltf)place(window._spadGltf);
   else{ try{ new GLTFLoader().load('models/player_shooter_pad.glb', g=>{ window._spadGltf=g; if(window._platformArena)place(g); }, undefined, e=>console.warn('[shooter pads] load failed',e)); }catch(_){} }
@@ -31759,6 +31772,23 @@ function _buildShooterPads(){
 window._buildShooterPads=_buildShooterPads;
 function _shooterPadTick(dt){ const SP=window._shooterPads; if(!SP||!SP.length||typeof player==='undefined'||!player)return;
   for(const p of SP){ if(p.flames)for(const f of p.flames){ f._t=(f._t||f._fid*1.7)+dt*(9+(f._fid%3)*2); const s=0.75+0.35*Math.sin(f._t)+0.15*Math.sin(f._t*2.7); f.scale.set(1,Math.max(0.3,s),1); if(f.material)f.material.opacity=0.5+0.3*Math.sin(f._t*1.3); } }   // jet flames flicker
+  // ── BOTS ENTER VIA THE TUBES ── armed at spawn (frozen on the pad by the update guard so the AI can't bolt off at GO); once
+  //    the match is LIVE the stagger ticks down and they ride the tube in (same spline+arc as the player).
+  if(typeof GS!=='undefined' && GS.state==='playing' && typeof GS_bots!=='undefined' && GS_bots && window._SPAWN_ON_SHOOTER!==false){
+    for(const b of GS_bots){ if(!b||b.alive===false)continue;
+      if(b._padWarp){ const W2=b._padWarp; W2.t+=dt;
+        if(W2.phase==='tube'){ const u=Math.min(1,W2.t/(window._SPAD_TUBE_T||1.15)), e=u*u*(3-2*u), pt=W2.pad.crv.getPoint(e);
+          b.wx=pt.x; b.wz=pt.z; b.py=pt.y; b.vx=0; b.vz=0; b.pvy=0; b._kbVx=0; b._kbVz=0; b._launched=false; b._onPlatform=false; b.inv=Math.max(b.inv||0,10);
+          if(u>=1){ W2.phase='fly'; W2.t=0; try{ if(typeof ps!=='undefined')ps.ring(pt.x,pt.z,[0.4,1,0.9],20,150,pt.y); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(240,0.14,'sawtooth',0.14,900); }catch(_){} }
+        } else { const u=Math.min(1,W2.t/(window._SPAD_FLY_T||1.0)), p0=W2.pad.tip, p2=W2.pad.land;
+          b.wx=p0.x+(p2.x-p0.x)*u; b.wz=p0.z+(p2.z-p0.z)*u; b.py=(1-u)*(1-u)*p0.y+2*(1-u)*u*W2.pad.peakY+u*u*p2.y; b.pvy=0;
+          if(u>=1){ b._padWarp=null; b._padPending=0; b._botEnteredIn=true; b.py=Math.max(2,p2.y); b._onPlatform=true; try{ if(typeof ps!=='undefined')ps.ring(b.wx,b.wz,[0.3,1,0.8],24,150); }catch(_){} } }
+        if(b.model)b.model.position.set(b.wx,b.py,b.wz);
+        continue;
+      }
+      if((b._padPending||0)>0){ b._padPending-=dt; if(b._padPending<=0 && b._padEnterPad){ b._padWarp={pad:b._padEnterPad,t:0,phase:'tube'}; } }   // armed at spawn -> launch when the stagger elapses
+    }
+  }
   const W=player._padWarp, B=window._BALL;
   if(W){ W.t+=dt;
     if(!player._ballActive){ try{ if(window._ballEnterRolling)window._ballEnterRolling(); }catch(_){} }   // stay BALLED for the whole ride (the ball's own idle auto-exit can fire mid-tube)
@@ -32036,7 +32066,7 @@ function buildCubeArena(){
   window._cubePlatforms=(window._cubePPplats?window._cubePPplats.slice():null);   // power pads seed the platform list; spawn decks + level kit add to it below
   try{ if(window._CUBE_LEVEL_ON===true && typeof _buildCubeLevel==='function') _buildCubeLevel(_cubeGroup); }catch(e){ console.warn('cube level',e); }   // OFF by default — the cube is a bare pitch again. Opt in with window._CUBE_LEVEL_ON=true (and override window._CUBE_LEVEL to hand-build a layout) if you ever want a second level.
   // ── FOUR ELEVATED SPAWN PLATFORMS — the SAME deck visual as the weapon-pad floats, ~2x the size, one high up on each wall, colour-keyed. You + the AI spawn on a random one. Standable (registered as cube platforms). ──
-  try{ if(window._SPAWN_PLATS!==false && typeof _makePowerPad==='function'){
+  try{ if(window._SPAWN_PLATS!==false && !window._PLATFORM_LEVEL && typeof _makePowerPad==='function'){   // VOID PLATFORM (-119): skip these elevated cube decks — the perimeter SHOOTER PADS become the spawn points instead (populated in _buildShooterPads)
     const _spY=(window._SPAWN_PLAT_Y||380), _spSc=(window._SPAWN_PLAT_SCALE||(window._POWERPAD_BIG||30)*1.2), _hw=(window._SPAWN_PLAT_HW||62);   // player pad = ~2x the power-up pad (was 1.75 = ~3x, a touch big); LIFTED high so you spawn up in the air and descend (skydive-in). window._SPAWN_PLAT_Y/_SCALE to tune.
     const _ex=(window._SPAWN_END_X||880), _ez=(window._SPAWN_SIDE_Z||700);   // 2v2: near the goal ENDS of the two long side walls; each team's two decks flank one end, teams at opposite ends
     const _bt=(window._TEAM_BLUE_COL!=null?window._TEAM_BLUE_COL:0x33aaff), _ot=(window._TEAM_ORANGE_COL!=null?window._TEAM_ORANGE_COL:0xff8a33);   // team colours (swap for red/blue etc. via window._TEAM_BLUE_COL/_TEAM_ORANGE_COL)
