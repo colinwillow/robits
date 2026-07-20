@@ -398,7 +398,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1024</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1025</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -586,7 +586,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1024</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1025</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -10711,6 +10711,27 @@ class DeployPod{
       this.timer-=dt; const GRAV=320;
       if(!this._orbitLock) this.vy-=GRAV*dt;
       this.wx+=this.vx*dt; this.wz+=this.vz*dt; this.y+=this.vy*dt;
+      // ── BALL IMPACT ── a thrown pod that nails an opponent mid-flight BONKS them: light damage + a SUBTLE launch, a metal
+      //   clank, then the ball slightly bounces off and drops to the ground to unfold as normal. Only a moving (thrown) pod
+      //   hits — a dropped one won't. Tunables: window._PODBALL_* ; disable with window._PODBALL_HIT=false.
+      if(window._PODBALL_HIT!==false && Math.hypot(this.vx,this.vz)>40){
+        if(!this._hitSet)this._hitSet=new Set(); let _bounced=false;
+        const _pk=(e,kind,idx)=>{ if(_bounced||!e||e===player||e.alive===false||e._captured||this._hitSet.has(e))return;
+          const ey=(e.mesh?e.mesh.position.y:(e.py!=null?e.py+10:9)), HR=(e.size||14)+11;
+          if(Math.hypot(e.wx-this.wx,e.wz-this.wz)>HR || Math.abs(this.y-ey)>28)return;
+          this._hitSet.add(e); _bounced=true;
+          const dl=Math.hypot(this.vx,this.vz)||1, dirx=this.vx/dl, dirz=this.vz/dl, dmg=(window._PODBALL_DMG!=null?window._PODBALL_DMG:4);
+          try{ if(e.knock)e.knock(dirx,dirz,(window._PODBALL_KB||3),(window._PODBALL_LIFT||90),(window._PODBALL_STUN||14), kind==='bot'); }catch(_){}   // SUBTLE launch (~half a melee home-run) — enough to pop them off you, not a full send
+          try{ const pts=(e.hit?e.hit(dmg,this.wx,this.wz):0);
+            if((pts>0||e.alive===false)&&kind==='enemy'&&typeof GS!=='undefined'&&GS.enemies&&idx!=null&&GS.enemies[idx]===e){ GS.score=(GS.score||0)+((e.score||0)*(GS.mult||1)); if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(idx,1); if(typeof registerKill==='function')registerKill(e); } }catch(_){}
+          if(typeof spawnDmgNum==='function')spawnDmgNum(e.wx,ey+22,e.wz,dmg,'#9ad0ff');
+          if(typeof ps!=='undefined')ps.burst(e.wx,ey+12,[0.6,0.85,1],12,110);
+          if(typeof _hitSfx==='function')try{ window._hitSfxT=0; _hitSfx((window._PODBALL_HIT_VOL||0.6),{wx:e.wx,wz:e.wz,size:(e.size||14)}); }catch(_){}
+          this.vx*=-(window._PODBALL_BOUNCE||0.4); this.vz*=-(window._PODBALL_BOUNCE||0.4); this.vy=Math.max(this.vy,(window._PODBALL_POP||70)); };   // slight bounce off + upward pop -> gravity lands it to unfold
+        if(typeof GS!=='undefined'&&GS.enemies)for(let j=GS.enemies.length-1;j>=0;j--)_pk(GS.enemies[j],'enemy',j);
+        if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)_pk(b,'bot');
+        if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy)_pk(GS_trainingDummy,'dummy');
+      }
       this._orbitLock=(GS.zone===-16 && !this._noOrbit)?_cityProjOrbit(this,12,46,dt):((GS.zone===-19 && !this._noOrbit)?_cubeProjStick(this,window._CUBE_PROJ_R||12,window._CUBE_PROJ_SOI||90,dt):(this._orbitLock||false));
       if(!this._orbitLock && this.y<=9){ this.y=9;
         if(Math.abs(this.vy)>40){ this.vy=Math.abs(this.vy)*0.42; this.vx*=0.7; this.vz*=0.7; if(typeof grid!=='undefined')grid.push(this.wx,this.wz,1.2,40); if(typeof Audio!=='undefined')Audio.blip(150,0.07,'sine',0.1,90); }
@@ -11210,8 +11231,12 @@ class FlameThrower{
     if(this.light){ this.light.position.set(ox+dir.x*40,oy+dir.y*40+10,oz+dir.z*40); this.light.intensity=(active||this.intensity>0.05)?(2.2+1.4*Math.sin(this.t*37))*this.intensity:0; this.light.color.setRGB(1,0.42+0.12*Math.sin(this.t*50),0.1); }
     this._dmgT-=dt; const dtick=this._dmgT<=0; if(dtick)this._dmgT=0.1;
     const RANGE=(od?260:200), cosH=Math.cos(0.42);
-    if(active){ for(const e of GS.enemies){ if(!e.alive||e._captured) continue; const ey=(e.mesh?e.mesh.position.y:9), ex=e.wx-ox, ee=ey-oy, ez=e.wz-oz, dd=Math.hypot(ex,ee,ez); if(dd<1||dd>RANGE) continue; if((ex*dir.x+ee*dir.y+ez*dir.z)/dd<cosH) continue; e._burnT=Math.max(e._burnT||0,0.9); if(typeof ps!=='undefined'&&Math.random()<0.25)ps.spark(e.wx+rand(-8,8),e.wz+rand(-8,8),[1,0.5,0.1],ey+rand(0,12)); } }
-    if(active){ for(const e of _extraHostiles()){ const ey=_hostileY(e), ex=e.wx-ox, ee=ey-oy, ez=e.wz-oz, dd=Math.hypot(ex,ee,ez); if(dd<1||dd>RANGE) continue; if((ex*dir.x+ee*dir.y+ez*dir.z)/dd<cosH) continue; e._burnT=Math.max(e._burnT||0,0.9); if(typeof ps!=='undefined'&&Math.random()<0.25)ps.spark(e.wx+rand(-8,8),e.wz+rand(-8,8),[1,0.5,0.1],ey+rand(0,12)); } }   // flame also burns the rival bot + the dummy
+    let _fHit=null;   // an enemy the flame is CONTACTING this frame -> drives the metal-clank impact SFX (so flaming a guy reads as HITTING him, not just spraying)
+    if(active){ for(const e of GS.enemies){ if(!e.alive||e._captured) continue; const ey=(e.mesh?e.mesh.position.y:9), ex=e.wx-ox, ee=ey-oy, ez=e.wz-oz, dd=Math.hypot(ex,ee,ez); if(dd<1||dd>RANGE) continue; if((ex*dir.x+ee*dir.y+ez*dir.z)/dd<cosH) continue; e._burnT=Math.max(e._burnT||0,0.9); _fHit=e; if(typeof ps!=='undefined'&&Math.random()<0.25)ps.spark(e.wx+rand(-8,8),e.wz+rand(-8,8),[1,0.5,0.1],ey+rand(0,12)); } }
+    if(active){ for(const e of _extraHostiles()){ const ey=_hostileY(e), ex=e.wx-ox, ee=ey-oy, ez=e.wz-oz, dd=Math.hypot(ex,ee,ez); if(dd<1||dd>RANGE) continue; if((ex*dir.x+ee*dir.y+ez*dir.z)/dd<cosH) continue; e._burnT=Math.max(e._burnT||0,0.9); _fHit=e; if(typeof ps!=='undefined'&&Math.random()<0.25)ps.spark(e.wx+rand(-8,8),e.wz+rand(-8,8),[1,0.5,0.1],ey+rand(0,12)); } }   // flame also burns the rival bot + the dummy
+    // METAL CLANK on contact — throttled (~5/s) so a held stream reads as repeated impacts on the target, not one continuous hiss
+    this._clankT=(this._clankT||0)-dt;
+    if(_fHit && this._clankT<=0 && typeof _hitSfx==='function'){ this._clankT=(window._FLAME_CLANK_CD||0.19); try{ _hitSfx((window._FLAME_CLANK_VOL||0.5),{wx:_fHit.wx,wz:_fHit.wz,size:(_fHit.size||14)}); }catch(_){} }
     if(dtick){ for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive||!(e._burnT>0)) continue; e._burnT-=0.1; const ey=(e.mesh?e.mesh.position.y:9);
         const pts=(e.hit?e.hit(od?3:2):0);
         if(typeof spawnDmgNum==='function'&&Math.random()<0.4)spawnDmgNum(e.wx,ey+18,e.wz,od?3:2,'#ff7a1a');
