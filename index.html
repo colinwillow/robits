@@ -398,7 +398,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1006</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1007</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -586,7 +586,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1006</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1007</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -14339,9 +14339,14 @@ class Player{
     const GND_RECHARGE=35;  // ground recharge unchanged
 
     if(this._wallRun) this._jetting=false;   // wall-run owns the body — never jet (no thrust, no particles on the wall)
+    // OFF THE FOOTPRINT = over the void at ANY height. Compute it ONCE here so the jetpack + float pose key off a single
+    //   unambiguous condition (not the Y-timing of _voidCommit). This is THE fix for "can't jet once I drop below the surface":
+    //   the moment your XZ leaves the disc you're falling over nothing, so air control is on regardless of your height.
+    this._platVoidAir = (window._platformArena && typeof _arenaSolidAt==='function' && !_arenaSolidAt(this.wx,this.wz));
+    if(this._platVoidAir) this._onPlatform=false;   // off the footprint -> you're NOT on the platform (its stale-true value blocked the jet)
     const _gflip=(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped));   // CUBE gravity-flip: boots-off = fall toward the CEILING (computed here so the jet thrust below can flip with gravity)
     // Jetpack force — continuous push AWAY from the current floor (flips with gravity in the cube)
-    if(this._jetting&&!this._onPlatform&&!this._ballActive&&(this.py>4 || (window._platformArena&&this._voidCommit))){   // ball mode runs its OWN jetpack in _ballUpdate. Normally jet only fires in the air (py>4); in the PLATFORM void the fall Y is negative, so ALSO allow it while committed to the plummet -> you can jet/jump to fight your way back onto the deck (fuel-limited: run dry and you fall).
+    if(this._jetting&&!this._onPlatform&&!this._ballActive&&(this.py>4 || this._platVoidAir)){   // ball mode runs its OWN jetpack in _ballUpdate. Normally jet only fires in the air (py>4); over the PLATFORM void it fires at ANY height so you can jet/jump back onto the deck the whole way down (fuel-limited: run dry and you fall).
       if(this._airSlam){ this._airSlam=false; if(this.model&&this.model.userData)this.model.userData._slamHold=false; }   // jetting cancels a slam -> release the held pose
       if(this.boostFuel>0){
         this.pvy+=JET_FORCE*dt*(_gflip?-1:1);   // gravity-flipped: thrust toward the ceiling-floor's "up" (i.e. toward the old floor), not into the ceiling
@@ -14503,7 +14508,7 @@ class Player{
       if(r < R){ const s=(R+(window._PLATFORM_EDGE_PUSH||12))/(r||0.001); this.wx=P.x+dx*s; this.wz=P.z+dz*s; } }   // ONLY while below deck level -> once you jet back up ABOVE the top you can move over the footprint and land (the wall is the disc's SIDE, not a lid)
     const _arSolid = !window._arenaVoid || (typeof _arenaSolidAt!=='function') || _arenaSolidAt(this.wx,this.wz);
     if(_arSolid)this._voidCommit=false;   // back over solid ground -> clear the "committed to the plummet" flag (jetpack works again)
-    if(window._arenaVoid && !_arSolid && this.py<=0 && eFloor<=0){
+    if(window._arenaVoid && !_arSolid && eFloor<=0 && (this._platVoidAir || this.py<=0)){   // platform: committed the moment you're off the footprint (ANY height); other void arenas keep the py<=0 gate
       // over the void — keep falling, ring out once we drop FAR down (a real plummet into space, not a 10-foot invisible floor)
       this._wasAirborne=true; if(window._platformArena){ this._voidCommit=true; this._onPlatform=false; }   // off the edge -> void-fall flag (drives the air pose + edge wall) + CLEAR _onPlatform (its normal clear needs py>1, but the fall Y is negative so it stayed stale-TRUE, which blocked BOTH the jet eligibility and the jet thrust — the "can't jetpack off the edge" bug). You CAN jet/jump back onto the deck (fuel permitting); run dry and you plummet.
       if(this.py<(window._VOID_RINGOUT_Y||-150) && typeof _arenaRingOutPlayer==='function') _arenaRingOutPlayer();
@@ -24438,45 +24443,55 @@ window._jewelHit=_jewelHit;
 //  rival) who touches one heals a block (with the "yum" sound). On death they scatter everywhere (Sonic-style). Off-map bits fall
 //  into the void. Toggle the whole system with window._HEALTH_BITS=false.
 window._healthBits = window._healthBits || [];
-let _bitGeo=null, _bitMat=null;
+let _bitGeoNut=null, _bitGeoHead=null, _bitGeoShaft=null, _bitMat=null;
 function _bitMesh(){
-  if(!_bitGeo) _bitGeo=new THREE.CylinderGeometry(4.4,4.4,3.2,6);   // a little hex NUT
-  if(!_bitMat) _bitMat=new THREE.MeshStandardMaterial({color:(window._BIT_COL!=null?window._BIT_COL:0xffc24a), emissive:(window._BIT_EMIS!=null?window._BIT_EMIS:0xff8a1a), emissiveIntensity:0.8, metalness:0.7, roughness:0.35});
-  const g=new THREE.Group(); g.add(new THREE.Mesh(_bitGeo,_bitMat));
-  const glow=new THREE.Mesh(new THREE.SphereGeometry(6.6,8,6), new THREE.MeshBasicMaterial({color:(window._BIT_GLOW!=null?window._BIT_GLOW:0xffd36a),transparent:true,opacity:0.3,blending:THREE.AdditiveBlending,depthWrite:false})); g.add(glow);
+  // a REAL machine nut — extruded hexagon with a hole through it (plus a bolt variant: hex head + tapered shaft).
+  // Glowing jewel-green, flat-shaded facets, sized to actually READ at gameplay camera distance.
+  if(!_bitGeoNut){ const sh=new THREE.Shape(); const R=(window._BIT_NUT_R||7.4);
+    for(let i=0;i<6;i++){ const a=i/6*Math.PI*2; if(i)sh.lineTo(Math.cos(a)*R,Math.sin(a)*R); else sh.moveTo(R,0); } sh.closePath();
+    const hole=new THREE.Path(); hole.absarc(0,0,R*0.46,0,Math.PI*2,true); sh.holes.push(hole);
+    _bitGeoNut=new THREE.ExtrudeGeometry(sh,{depth:(window._BIT_NUT_D||4.8),bevelEnabled:false}); _bitGeoNut.center(); }
+  if(!_bitGeoHead){ _bitGeoHead=new THREE.CylinderGeometry(5.2,5.2,3.6,6); _bitGeoShaft=new THREE.CylinderGeometry(2.0,1.5,10,8); }
+  if(!_bitMat) _bitMat=new THREE.MeshStandardMaterial({color:(window._BIT_COL!=null?window._BIT_COL:0x49ff8e), emissive:(window._BIT_EMIS!=null?window._BIT_EMIS:0x1fff6e), emissiveIntensity:(window._BIT_EMIS_I!=null?window._BIT_EMIS_I:1.5), metalness:0.65, roughness:0.3, flatShading:true});
+  const g=new THREE.Group();
+  if(Math.random()<(window._BIT_NUT_P!=null?window._BIT_NUT_P:0.55)){ g.add(new THREE.Mesh(_bitGeoNut,_bitMat)); }
+  else { const h=new THREE.Mesh(_bitGeoHead,_bitMat); const s=new THREE.Mesh(_bitGeoShaft,_bitMat); s.position.y=-6.4; g.add(h); g.add(s); }
+  const glow=new THREE.Mesh(new THREE.SphereGeometry((window._BIT_GLOW_R||11),8,6), new THREE.MeshBasicMaterial({color:(window._BIT_GLOW!=null?window._BIT_GLOW:0x55ffa0),transparent:true,opacity:0.42,blending:THREE.AdditiveBlending,depthWrite:false})); g.add(glow); g._glow=glow;
+  const S=(window._BIT_SCALE||1); if(S!==1)g.scale.setScalar(S);
   return g;
 }
 function _spawnHealthBits(x,y,z,n,opts){
   if(window._HEALTH_BITS===false || typeof scene==='undefined') return; opts=opts||{}; n=Math.max(0,Math.min(n|0,(opts.cap||window._BIT_HIT_CAP||8)));
   for(let i=0;i<n;i++){ while(window._healthBits.length>(window._BIT_MAX||80)){ const old=window._healthBits.shift(); try{ if(old.g&&old.g.parent)scene.remove(old.g); }catch(_){} }
-    const g=_bitMesh(); const a=Math.random()*Math.PI*2, sp=(opts.spread||130)*(0.45+Math.random());
-    const b={ x:x+rand(-6,6), y:(y!=null?y:14)+rand(0,8), z:z+rand(-6,6), vx:Math.cos(a)*sp, vz:Math.sin(a)*sp, vy:(opts.up||190)+Math.random()*130, g, life:(window._BIT_LIFE||18), _noGrab:(opts.noGrab!=null?opts.noGrab:0.55), sx:rand(-6,6),sy:rand(-6,6),sz:rand(-6,6) };
+    const g=_bitMesh(); const a=Math.random()*Math.PI*2, sp=(opts.spread||(window._BIT_SPREAD||230))*(0.45+Math.random());
+    const b={ x:x+rand(-6,6), y:(y!=null?y:14)+rand(0,8), z:z+rand(-6,6), vx:Math.cos(a)*sp, vz:Math.sin(a)*sp, vy:(opts.up||(window._BIT_UP||280))+Math.random()*160, g, life:(window._BIT_LIFE||18), _noGrab:(opts.noGrab!=null?opts.noGrab:0.55), sx:rand(-9,9),sy:rand(-9,9),sz:rand(-9,9), t:0, ph:Math.random()*6.28 };
     g.position.set(b.x,b.y,b.z); scene.add(g); window._healthBits.push(b);
   }
+  try{ if(n>0&&typeof ps!=='undefined')ps.burst(x,z,[0.35,1,0.55],Math.min(12,4+n*2),150,(y!=null?y:14)); }catch(_){}   // green pop so the eye finds where the bits burst out
 }
 window._spawnHealthBits=_spawnHealthBits;
 // pop bits proportional to the BLOCKS of damage an entity just took, at its position
 function _bitsFromDamage(e, dmg){ if(window._HEALTH_BITS===false || !e || !(dmg>0)) return;
-  const mhp=e.maxHp||e._maxHp||10; const blocks=Math.max(1, Math.round(dmg/mhp*(window._HP_BITS||20)));
+  const mhp=e.maxHp||e._maxHp||10; const blocks=Math.max(1, Math.round(dmg/mhp*(window._HP_BITS||20)*(window._BIT_YIELD!=null?window._BIT_YIELD:1.6)));   // _BIT_YIELD juices the visual payout (a solid hit should SHOWER, not dribble)
   _spawnHealthBits(e.wx||0, (e.py!=null?e.py:(e._cy!=null?e._cy:12))+10, e.wz||0, blocks, {}); }
 window._bitsFromDamage=_bitsFromDamage;
 function _bitYum(){ try{ if(typeof Audio!=='undefined'){ if(Audio.samples&&Audio.samples['mmm']&&Audio.playSample&&Audio.samples['mmm']!=='pending')Audio.playSample('mmm',(window._BIT_SFX_VOL!=null?window._BIT_SFX_VOL:1.1)); else if(Audio.blip)Audio.blip(720,0.07,'sine',0.12,980); } }catch(_){} }
 function _updateHealthBits(dt){
   const A=window._healthBits; if(!A||!A.length) return; const GRAV=(window._BIT_GRAV||430);
   const _pl=(typeof player!=='undefined'&&player&&player.alive!==false&&!player._deathSeq)?player:null;
-  for(let i=A.length-1;i>=0;i--){ const b=A[i]; b.life-=dt; if(b._noGrab>0)b._noGrab-=dt;
+  for(let i=A.length-1;i>=0;i--){ const b=A[i]; b.life-=dt; b.t=(b.t||0)+dt; if(b._noGrab>0)b._noGrab-=dt;
     // MAGNET toward the nearest HURT collector (you or a rival AI) in range — only fighters who can actually use the health pull it
-    let tgt=null, tHp=0, tMax=0, td=(window._BIT_MAGNET_R||120);
+    let tgt=null, tHp=0, tMax=0, td=(window._BIT_MAGNET_R||150);
     const _consider=(ent, hp, mhp)=>{ if(!ent||hp==null||!(mhp>0)||hp>=mhp) return; const d=Math.hypot((ent.wx||0)-b.x,(ent.wz||0)-b.z); if(d<td){ td=d; tgt=ent; tHp=hp; tMax=mhp; } };
     if(_pl && b._noGrab<=0) _consider(_pl, GS.hp, GS.maxHp);
     if(typeof GS!=='undefined'&&GS.enemies) for(const en of GS.enemies){ if(en&&en.alive!==false&&!en._captured&&en._bitHeal!==false&&(en.maxHp||en._maxHp)) _consider(en, en.hp, en.maxHp||en._maxHp); }
     if(typeof GS_bots!=='undefined'&&GS_bots) for(const en of GS_bots){ if(en&&en.alive!==false&&!en._captured&&en._bitHeal!==false&&(en.maxHp||en._maxHp)) _consider(en, en.hp, en.maxHp||en._maxHp); }   // rumble RIVALS live in GS_bots (not GS.enemies) -> they scavenge bits too
-    if(tgt){ const ty=(tgt.py!=null?tgt.py:0)+14, dx=(tgt.wx||0)-b.x, dy=ty-b.y, dz=(tgt.wz||0)-b.z, d=Math.hypot(dx,dy,dz)||1, pull=(window._BIT_MAGNET_K||520)*dt/Math.max(18,d);
+    if(tgt){ const ty=(tgt.py!=null?tgt.py:0)+14, dx=(tgt.wx||0)-b.x, dy=ty-b.y, dz=(tgt.wz||0)-b.z, d=Math.hypot(dx,dy,dz)||1, pull=(window._BIT_MAGNET_K||640)*dt/Math.max(18,d);
       b.vx+=dx*pull; b.vy+=dy*pull; b.vz+=dz*pull;
-      if(d<(window._BIT_GRAB_R||22)){   // COLLECT -> heal one block
+      if(d<(window._BIT_GRAB_R||26)){   // COLLECT -> heal one block
         if(tgt===_pl){ GS.hp=Math.min(GS.maxHp,(GS.hp||0)+1); _bitYum(); if(typeof updateUI==='function')try{updateUI();}catch(_){} if(typeof player!=='undefined'&&player)player._hurtFlash=0; }
         else { tgt.hp=Math.min(tMax, (tgt.hp||0)+Math.max(1,tMax/(window._HP_BITS||20))); if(tgt._updateHpBar)try{tgt._updateHpBar();}catch(_){} }
-        try{ if(typeof ps!=='undefined')ps.ring(b.x,b.z,[1,0.82,0.35],7,50,b.y); }catch(_){}
+        try{ if(typeof ps!=='undefined')ps.ring(b.x,b.z,[0.4,1,0.6],9,60,b.y); }catch(_){}
         try{ if(b.g&&b.g.parent)scene.remove(b.g); }catch(_){} A.splice(i,1); continue;
       }
     }
@@ -24485,7 +24500,14 @@ function _updateHealthBits(dt){
       if(b.y < (window._ITEM_VOID_Y||-900)){ try{ if(b.g&&b.g.parent)scene.remove(b.g); }catch(_){} A.splice(i,1); continue; }
     } else if(b.y<=(window._BIT_FLOOR||5)){ b.y=(window._BIT_FLOOR||5); if(b.vy<0)b.vy=-b.vy*0.34; b.vx*=0.66; b.vz*=0.66; if(Math.abs(b.vy)<10)b.vy=0; }
     if(b.life<=0){ try{ if(b.g&&b.g.parent)scene.remove(b.g); }catch(_){} A.splice(i,1); continue; }
-    if(b.g){ b.g.position.set(b.x,b.y,b.z); b.g.rotation.x+=b.sx*dt; b.g.rotation.y+=b.sy*dt; b.g.rotation.z+=b.sz*dt; if(b.life<1.5)b.g.scale.setScalar(Math.max(0.05,b.life/1.5)); }
+    if(b.g){
+      const _rest=(b.vy===0 && Math.hypot(b.vx,b.vz)<24);   // settled on the floor -> Sonic-ring idle: stand upright, spin on Y, hover-bob + glow pulse
+      if(_rest){ const k=Math.min(1,6*dt); b.g.rotation.x+=(0-b.g.rotation.x)*k; b.g.rotation.z+=(0-b.g.rotation.z)*k; b.g.rotation.y+=(window._BIT_SPIN||4.2)*dt; }
+      else { b.g.rotation.x+=b.sx*dt; b.g.rotation.y+=b.sy*dt; b.g.rotation.z+=b.sz*dt; }   // flying -> chaotic tumble
+      b.g.position.set(b.x, b.y+(_rest?(3.5+Math.sin(b.t*3.2+b.ph)*2.4):0), b.z);
+      if(b.g._glow){ const p=Math.sin(b.t*5+b.ph); b.g._glow.material.opacity=0.36+0.2*p; b.g._glow.scale.setScalar(1+0.16*p); }
+      const _bs=(window._BIT_SCALE||1); if(b.life<1.5)b.g.scale.setScalar(Math.max(0.05,b.life/1.5)*_bs);
+    }
   }
 }
 window._updateHealthBits=_updateHealthBits;
@@ -26868,7 +26890,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(_drive&&_drive.active){ updateDrive(dt); renderer.render(scene,camera); return; }
     // ── JETPACK HOLD — airborne, no bomb ──
     if(IS_TOUCH&&jR._holdingForJet&&player&&(!player.bombArmed||!!player._carryPayload)&&!player._wallClimb&&!player._wallRun){   // no jetpack while wall-running (the held stick is aim/shoot, not jet). CARRYING an object (droid/bomb/…) keeps the jet — a centered hold jets, a FLICK throws — so hopping around with a droid works normally
-      const _air = (GS.zone===-19 && typeof _cubeWalkOn==='function' && _cubeWalkOn(player)) ? true : (player._inPlanetGravity ? !player._glGrounded : ((player.py>8 || (window._platformArena&&player._voidCommit))&&!player._onPlatform));   // cube wall-walk: jet is eligible from ANY surface. PLATFORM void: the fall Y is NEGATIVE (py<8) so gate on _voidCommit too, else holding the jet did nothing while plummeting off the edge.
+      const _air = (GS.zone===-19 && typeof _cubeWalkOn==='function' && _cubeWalkOn(player)) ? true : (player._inPlanetGravity ? !player._glGrounded : ((player.py>8 || player._platVoidAir)&&!player._onPlatform));   // cube wall-walk: jet is eligible from ANY surface. PLATFORM void: _platVoidAir (off the footprint at ANY height) enables the jet the whole way down — no dead zone below the surface line.
       if(!_air){ jR._jetLatch=false; jR._jetEligible=false; }
       else if(player.boostFuel>0){ jR._jetEligible=true; jR._jetLatch=true; player._jetting=true; player._jetHeldAir=true; }            // airborne + holding stick = jetpack (no center-dwell gate; fire while jetting)
       else { jR._jetLatch=false; jR._jetEligible=false; player._jetting=false; player._jetHeldAir=true; }       // OUT OF FUEL -> cut the jet (no lift/no jet-loop) but STILL flag that thrust is held so update() can play the empty-tank sound + putter smoke
@@ -26982,7 +27004,7 @@ function loop(ts){ requestAnimationFrame(loop);
             angleDiff = si.x>0 ? Math.PI/2 : -Math.PI/2;
           }
         }
-        const _voidFall=!!player._voidCommit;   // PLATFORM plummet: force the in-air pose. py<=4 read the NEGATIVE fall Y as 'grounded', so he kept jogging as he fell off the edge — now he's airborne/floating the moment he commits to the drop.
+        const _voidFall=!!(player._voidCommit||player._platVoidAir);   // PLATFORM plummet: force the in-air/float pose. py<=4 read the NEGATIVE fall Y as 'grounded', so he kept jogging as he fell off the edge; and once below the surface line he flipped forever. _platVoidAir = off the footprint at ANY height -> airborne the instant he leaves the deck, floating (jettable) the whole way down, never the perpetual jog/flip.
         const onGround=(!_voidFall)&&(player._gfGrounded||player.py<=4||player._onPlatform||(player._inPlanetGravity&&player._glGrounded));   // planet/wall-walk: grounded means stuck to a surface, not py<=4. _gfGrounded = standing on the flipped ceiling.
         const airborne = _voidFall ? true : (player._gfGrounded ? false : (player._inPlanetGravity ? !(player._glGrounded||player._onPlatform) : (!onGround&&player.py>8)));   // on the planet: off the surface => 'floating' (galaxy walk marks ground via _onPlatform, grid-lab via _glGrounded)
 
@@ -27154,6 +27176,8 @@ function loop(ts){ requestAnimationFrame(loop);
               if(kind==='enemy' && typeof _isHostileSmall==='function' && _isHostileSmall(e) && window._MELEE_MINION_IFRAMES!==false && player){ player.inv=Math.max(player.inv||0,(window._MELEE_MINION_IFR||20)); }   // meleeing a MINION (spider/small) grants a brief i-window so its point-blank retaliation (acid already in flight, contact) can't chip you — meleeing a weakling shouldn't be backwards-lethal
               if(kind!=='ally') _hitSfx(null,e);   // impact SFX on a melee connect (pitch by target size)
               const _hitDmg=(kind==='bot')?Math.max(1,dmg*(window._MELEE_BOT_DMG_K!=null?window._MELEE_BOT_DMG_K:1)):dmg;   // bots + dummy take the same melee damage (compressed by _combatDmg at the receiver)
+              if(kind==='bot' && window._MELEE_NO_IFRAMES!==false) e.inv=0;   // melee IGNORES the bot's post-hit i-frames (40f ~0.66s tuned for bullet spam) — they silently ATE juggle hits 2..N ("I hit him four times and his health isn't going down"), which also meant no bits popped
+
               if(e.hit && (kind!=='ally' || window._FRIENDLY_FIRE===true))e.hit(_hitDmg, player.wx, player.wz);                                    // FF OFF: meleeing your own summon LAUNCHES it (below) but doesn't hurt it
               if(kind!=='ally' && e.alive!==false && (e.isBoss || e._tall || (e.size||0)>=24) && typeof _spawnSlashDecal==='function'){ try{ _spawnSlashDecal(e, bx, by, bz, Math.atan2((kvz||0),(kvx||0))*0.4+0.5); }catch(_){} }   // gash that sticks on the dragon / big enemies briefly
               if(kind!=='ally' && typeof spawnDmgNum==='function') spawnDmgNum(e.wx,ey+8,e.wz,_hitDmg,tier>=3?'#fff0b0':'#bfffff');   // visible feedback
@@ -27316,10 +27340,22 @@ function loop(ts){ requestAnimationFrame(loop);
           }
         }
 
-        // ── TUMBLE WHEN FALLING THROUGH THE GROUND (off-stage, into the void) ──
+        // ── FALLING OFF THE STAGE (off-footprint, into the void) ──
+        // PLATFORM: hold the FLOATING pose (Smash-style) the whole way down — you can still jet/jump back, so a
+        //  perpetual front-flip read wrong ("flipping flipping flipping, can't recover"). Other void arenas keep the tumble.
         {
           const overVoid = window._arenaVoid && (typeof _arenaSolidAt==='function') && !_arenaSolidAt(player.wx,player.wz);
-          if(overVoid && player.pvy<-40 && !player._onPlatform && !ud._voidTumble){
+          const wantFloat = overVoid && window._platformArena && !player._onPlatform && !player._jetting;   // jetpack has its own pose; only float on the free-fall
+          if(wantFloat && ud.clips['floating']){
+            if(ud.currentClip!=='floating' || !ud._voidTumble){
+              const fl=ud.clips['floating'];
+              Object.values(ud.clips).forEach(a=>{ if(a!==fl)a.fadeOut(0.12); });
+              if(!fl.isRunning()) fl.reset().play();
+              fl.setEffectiveWeight(1).setEffectiveTimeScale(1).setLoop(THREE.LoopRepeat,Infinity);
+              ud.currentClip='floating'; ud._flipClipName=null;
+              ud._voidTumble=true; ud._flippingTimer=0; ud._flipFadeStarted=false;
+            }
+          } else if(overVoid && !window._platformArena && player.pvy<-40 && !player._onPlatform && !ud._voidTumble){
             const ff=ud.clips['front_flip']||ud.clips['frontflip'];
             if(ff){
               Object.values(ud.clips).forEach(a=>a.fadeOut(0.12));
@@ -27328,8 +27364,8 @@ function loop(ts){ requestAnimationFrame(loop);
               ud.currentClip='front_flip'; ud._flipClipName='front_flip';
               ud._voidTumble=true; ud._flippingTimer=0; ud._flipFadeStarted=false;
             }
-          } else if(ud._voidTumble && !overVoid){
-            // back on solid footing / ring-out — release the tumble; blend system resumes
+          } else if(ud._voidTumble && (!overVoid || (wantFloat===false && window._platformArena && player._jetting))){
+            // back on solid footing / ring-out, or the jetpack took over — release the float/tumble; blend system resumes
             ud._voidTumble=false; ud.currentClip=null;
           }
         }
