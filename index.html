@@ -398,7 +398,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1010</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1011</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -586,7 +586,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1010</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1011</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -14345,6 +14345,14 @@ class Player{
     //   the moment your XZ leaves the disc you're falling over nothing, so air control is on regardless of your height.
     this._platVoidAir = (window._platformArena && typeof _arenaSolidAt==='function' && !_arenaSolidAt(this.wx,this.wz));
     if(this._platVoidAir) this._onPlatform=false;   // off the footprint -> you're NOT on the platform (its stale-true value blocked the jet)
+    // ── SPAWN-PAD ANTI-GRAV (the happy accident, made deliberate): during the 3-2-1 count-in the pad's field holds you
+    //    SUSPENDED above the deck (float pose, gentle bob). The count ends -> the field CUTS and you drop to the pad and land.
+    if(GS.zone===-19 && GS.state==='countdown' && !this._deathSeq && this._platformY!=null && window._SPAWN_HOVER!==false){
+      this._spawnHoverT=(this._spawnHoverT||0)+dt;
+      this.py=this._platformY+(window._SPAWN_HOVER_H||24)+Math.sin(this._spawnHoverT*2.4)*(window._SPAWN_HOVER_BOB||3);
+      this.pvy=0; this._onPlatform=false;   // held OFF the deck -> the airborne/float pose reads while the field has you
+    } else if(this._spawnHoverT){ this._spawnHoverT=0; this.pvy=Math.min(this.pvy||0,-20); this._onPlatform=false;   // GO! -> field cuts, gravity takes you the last two feet down onto the pad
+      try{ if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.3,1,0.9],14,90,(this._platformY||0)+2); }catch(_){} }
     const _gflip=(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped));   // CUBE gravity-flip: boots-off = fall toward the CEILING (computed here so the jet thrust below can flip with gravity)
     // Jetpack force — continuous push AWAY from the current floor (flips with gravity in the cube)
     if(this._jetting&&!this._onPlatform&&!this._ballActive&&(this.py>4 || this._platVoidAir)){   // ball mode runs its OWN jetpack in _ballUpdate. Normally jet only fires in the air (py>4); over the PLATFORM void it fires at ANY height so you can jet/jump back onto the deck the whole way down (fuel-limited: run dry and you fall).
@@ -20536,7 +20544,8 @@ function _rumbleEnd(){ const R=window.RUMBLE; if(R.over)return; R.over=true;
   const rows=rest.map((s,i)=>{ const hex=hexOf(s); return '<div style="display:flex;gap:12px;align-items:center;justify-content:center;margin:4px 0;font-size:12px;font-weight:700;letter-spacing:1px;color:'+hex+';opacity:0.75;animation:rumRow 0.4s ease '+(1.0+i*0.1)+'s both"><span style="color:#8899aa">'+(i+4)+'</span><span>'+s.name+'</span><span style="color:#ffffff66">'+s.kills+' KO</span></div>'; }).join('');
   el.innerHTML=
     '<div id="rr-bg" style="position:absolute;inset:0;background:#000;opacity:0.16;transition:opacity 1.15s ease"></div>'+
-    '<div id="rr-content" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;text-align:center">'+
+    '<div id="rr-circle" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(160vw,94vh,680px);height:min(160vw,94vh,680px);border-radius:50%;background:rgba(0,6,14,0.5);border:1px solid #ffffff26;box-shadow:0 0 70px rgba(0,0,0,0.6), inset 0 0 90px rgba(0,0,0,0.55);z-index:2;opacity:0;transition:opacity 1.1s ease"></div>'+   // dark PANEL DISC behind the podium — the mandala visualizer stays centred on it and wraps around the outside, so the text reads instead of fighting the viz
+    '<div id="rr-content" style="position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;text-align:center">'+
     '<div style="font-size:11px;letter-spacing:6px;color:#ff5577;margin-bottom:10px;animation:rumRow 0.4s ease both">── RUMBLE COMPLETE ──</div>'+
     '<div style="--wc:'+wHex+';font-size:clamp(26px,8vw,40px);font-weight:900;letter-spacing:3px;color:#fff;margin-bottom:26px;text-align:center;animation:rumHero 0.55s cubic-bezier(.3,1.5,.4,1) '+(DELAY[0]+0.15)+'s both,rumGlow 2.2s ease-in-out '+(DELAY[0]+0.7)+'s infinite">'+(winner?('<span style="color:'+wHex+'">'+winner.name+'</span>'+(winner.name==='YOU'?' WIN':' WINS')):'DRAW')+'</div>'+
     '<div style="display:flex;align-items:flex-end;gap:10px;border-bottom:2px solid #ff557766;padding:0 6px">'+cols+'</div>'+
@@ -20548,10 +20557,21 @@ function _rumbleEnd(){ const R=window.RUMBLE; if(R.over)return; R.over=true;
     '</div>';
   el.style.display='block';
   try{ if(window.Haptics)Haptics.notify(winner&&winner.name==='YOU'?'success':'warning'); }catch(_){}   // podium buzz — triumphant if YOU took the crown
+  // WINNER'S DANCE — you took the crown -> the hero busts a move in the arena behind the results (goal-celebration style;
+  //  the mixer keeps ticking through 'gameover' so the loop plays out — he was frozen mid-STRIDE here before).
+  //  Loser/mopey clips slot in the same way once they're authored (window._LOSE_CLIP).
+  try{ if(winner&&winner.isPlayer&&typeof player!=='undefined'&&player&&player.alive&&player.model&&player.model.userData&&player.model.userData.clips){
+    const ud=player.model.userData; let dc=ud.clips[(window._WIN_CLIP||'dance')]; if(!dc){ for(const k in ud.clips){ if(/dance/i.test(k)){ dc=ud.clips[k]; break; } } }
+    if(dc){ player.vx=0; player.vz=0; player._jetting=false;
+      Object.values(ud.clips).forEach(a=>{ if(a!==dc&&a.fadeOut)a.fadeOut(0.25); });
+      dc.reset().setLoop(THREE.LoopRepeat,Infinity).setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.25).play();
+      ud.currentClip='dance'; ud._victoryDance=true; }
+  } }catch(_){}
   // ── BEAT 2: after the podium has read over the live arena, deepen to black + fade the mandala up behind, then arm the actions ──
   try{ if(window._rumbleEndT2)clearTimeout(window._rumbleEndT2); }catch(_){}
   window._rumbleEndT2=setTimeout(()=>{ try{
     const bg=document.getElementById('rr-bg'); if(bg)bg.style.opacity='0.985';
+    const cc=document.getElementById('rr-circle'); if(cc)cc.style.opacity='1';   // the panel disc rises with the visualizer
     try{ if(window._menuVizStart){ window._menuVizStart(); const vc=document.getElementById('viz-menu'); const host=document.getElementById('rumble-results'); const bgEl=document.getElementById('rr-bg');
       if(vc&&host){ vc.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;display:block;z-index:1;opacity:0;transition:opacity 1.1s ease'; host.insertBefore(vc, bgEl?bgEl.nextSibling:host.firstChild); requestAnimationFrame(()=>{ vc.style.opacity='1'; }); } } }catch(_){}
     const ac=document.getElementById('rr-actions'); if(ac){ ac.style.visibility='visible'; ac.style.opacity='1'; ac.style.transform='translateY(0)'; ac.style.pointerEvents='all'; }
