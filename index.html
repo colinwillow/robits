@@ -398,7 +398,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1039</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1040</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -586,7 +586,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1039</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1040</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -1602,6 +1602,44 @@ const ARENA_R=Math.min(HALF_W,HALF_D)-10;
 // ════════════════════════════════════════════════════════════
 const app=document.getElementById('app');
 const renderer=new THREE.WebGLRenderer({antialias:!IS_MOBILE,powerPreference:'high-performance',alpha:true});   // alpha buffer so THE STAGE (zone -32) can composite the live robot over the DOM synthwave backdrop; every other zone keeps an opaque clear/background so nothing else changes
+// ── ALPHA-PRESERVING NEON BLOOM for the menu/select/customize canvases — those render WITHOUT the in-game composer, so the
+//    emissive robots read flat there. This adds bloom that KEEPS the transparent background (a normal composer would black it
+//    out): render scene -> RT (transparent clear, linear), bright-pass, separable gaussian blur (downsampled), then composite
+//    scene+bloom back to the canvas as PREMULTIPLIED sRGB with alpha = sceneA + bloomLuma (so the glow halo shows over the DOM
+//    backdrop, and empty pixels stay transparent). Self-contained; falls back to a plain render on any error. ──
+function _makeNeonBloom(rnd, opts){ opts=opts||{}; try{
+  const _v2=new THREE.Vector2(); rnd.getDrawingBufferSize(_v2);
+  let W=Math.max(2,_v2.x|0), H=Math.max(2,_v2.y|0); const DS=(opts.downsample||2); let bw=Math.max(2,(W/DS)|0), bh=Math.max(2,(H/DS)|0);
+  const rtO={minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,type:THREE.UnsignedByteType,format:THREE.RGBAFormat,depthBuffer:false};
+  let sceneRT=new THREE.WebGLRenderTarget(W,H,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,type:THREE.UnsignedByteType,format:THREE.RGBAFormat});
+  let brightRT=new THREE.WebGLRenderTarget(bw,bh,rtO), blurA=new THREE.WebGLRenderTarget(bw,bh,rtO), blurB=new THREE.WebGLRenderTarget(bw,bh,rtO);
+  const qScene=new THREE.Scene(), qCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1), qGeo=new THREE.PlaneGeometry(2,2);
+  const VS='varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }';
+  const brightMat=new THREE.ShaderMaterial({depthTest:false,depthWrite:false,uniforms:{tSrc:{value:null},thr:{value:opts.threshold!=null?opts.threshold:0.55},knee:{value:0.25}},vertexShader:VS,
+    fragmentShader:'uniform sampler2D tSrc;uniform float thr;uniform float knee;varying vec2 vUv; void main(){ vec3 c=texture2D(tSrc,vUv).rgb; float l=max(c.r,max(c.g,c.b)); float f=clamp((l-thr)/max(knee,1e-3),0.0,1.0); gl_FragColor=vec4(c*f,1.0); }'});
+  const blurMat=new THREE.ShaderMaterial({depthTest:false,depthWrite:false,uniforms:{tSrc:{value:null},dir:{value:new THREE.Vector2()},res:{value:new THREE.Vector2(bw,bh)}},vertexShader:VS,
+    fragmentShader:'uniform sampler2D tSrc;uniform vec2 dir;uniform vec2 res;varying vec2 vUv; void main(){ vec2 t=dir/res; vec3 s=texture2D(tSrc,vUv).rgb*0.227027; s+=texture2D(tSrc,vUv+t*1.3846).rgb*0.316216; s+=texture2D(tSrc,vUv-t*1.3846).rgb*0.316216; s+=texture2D(tSrc,vUv+t*3.2308).rgb*0.07027; s+=texture2D(tSrc,vUv-t*3.2308).rgb*0.07027; gl_FragColor=vec4(s,1.0); }'});
+  const compMat=new THREE.ShaderMaterial({depthTest:false,depthWrite:false,transparent:false,uniforms:{tScene:{value:null},tBloom:{value:null},str:{value:opts.strength!=null?opts.strength:1.0}},vertexShader:VS,
+    fragmentShader:'uniform sampler2D tScene;uniform sampler2D tBloom;uniform float str;varying vec2 vUv;'+
+      'vec3 lin2srgb(vec3 c){ return mix(c*12.92, 1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055, step(0.0031308,c)); }'+
+      'void main(){ vec4 s=texture2D(tScene,vUv); vec3 b=texture2D(tBloom,vUv).rgb*str; float bl=clamp(max(b.r,max(b.g,b.b)),0.0,1.0); vec3 lin=s.rgb+b; gl_FragColor=vec4(lin2srgb(lin), clamp(s.a+bl,0.0,1.0)); }'});
+  const quad=new THREE.Mesh(qGeo, brightMat); qScene.add(quad);
+  const _pass=(mat,target)=>{ quad.material=mat; rnd.setRenderTarget(target||null); rnd.render(qScene,qCam); };
+  function setSize(nw,nh){ W=Math.max(2,nw|0); H=Math.max(2,nh|0); bw=Math.max(2,(W/DS)|0); bh=Math.max(2,(H/DS)|0); sceneRT.setSize(W,H); brightRT.setSize(bw,bh); blurA.setSize(bw,bh); blurB.setSize(bw,bh); blurMat.uniforms.res.value.set(bw,bh); }
+  return { render(scene,camera){
+      rnd.getDrawingBufferSize(_v2); if((_v2.x|0)!==W||(_v2.y|0)!==H)setSize(_v2.x,_v2.y);
+      const pAC=rnd.autoClear, pAlpha=rnd.getClearAlpha(); rnd.autoClear=true; rnd.setClearColor(0x000000,0);
+      rnd.setRenderTarget(sceneRT); rnd.clear(); rnd.render(scene,camera);                       // 1) scene -> RT (linear, transparent)
+      brightMat.uniforms.tSrc.value=sceneRT.texture; _pass(brightMat, brightRT);                  // 2) bright pass
+      let src=brightRT; const it=(opts.iters||2);                                                 // 3) separable blur, downsampled
+      for(let i=0;i<it;i++){ blurMat.uniforms.tSrc.value=src.texture; blurMat.uniforms.dir.value.set(1,0); _pass(blurMat, blurA);
+        blurMat.uniforms.tSrc.value=blurA.texture; blurMat.uniforms.dir.value.set(0,1); _pass(blurMat, blurB); src=blurB; }
+      compMat.uniforms.tScene.value=sceneRT.texture; compMat.uniforms.tBloom.value=src.texture;   // 4) composite -> canvas (alpha kept)
+      rnd.setRenderTarget(null); rnd.clear(); _pass(compMat, null);
+      rnd.autoClear=pAC; rnd.setClearAlpha(pAlpha); rnd.setRenderTarget(null);
+    }, setSize, dispose(){ try{ sceneRT.dispose(); brightRT.dispose(); blurA.dispose(); blurB.dispose(); qGeo.dispose(); brightMat.dispose(); blurMat.dispose(); compMat.dispose(); }catch(_){} } };
+}catch(e){ try{ console.warn('[bloom] init failed', e); }catch(_){} return null; } }
+window._makeNeonBloom=_makeNeonBloom;
 renderer.setSize(window.innerWidth,window.innerHeight);
 renderer.setPixelRatio((function(){ const winPx=window.innerWidth*window.innerHeight, budget=IS_MOBILE?2.2e6:3.3e6; let p=Math.min(window.devicePixelRatio||1, IS_MOBILE?1.5:1.75); p=Math.min(p, Math.sqrt(budget/Math.max(1,winPx))); return Math.max(0.7,p); })());   // cap total rendered pixels -> keeps 60fps on large displays
 renderer.setClearColor(0x02040c,1);
@@ -44763,7 +44801,7 @@ function _titleNeonize(model, opts){ opts=opts||{};
   const isRobot=!!opts.robot, wires=[], _segM=[];
   // PREVIEW GLOW LIFT: the select/customize/title screens render WITHOUT the in-game bloom composer, so the same emissive reads
   // flatter there. Nudge the self-illum + wire up on these preview models so they read closer to the bloomed in-game look.
-  const _PGM=(window._PREVIEW_GLOW_MUL!=null?window._PREVIEW_GLOW_MUL:1.5);
+  const _PGM=(window._PREVIEW_GLOW_MUL!=null?window._PREVIEW_GLOW_MUL:1.1);   // gentle lift; the menu bloom pass now supplies most of the glow (matches in-game emissive ~1x + bloom)
   const wireCol=new THREE.Color(opts.wireCol!=null?opts.wireCol:(window._ROBOT_WIRE_COL!=null?window._ROBOT_WIRE_COL:0x7fd4ff));
   model.traverse(c=>{ if(!((c.isMesh||c.isSkinnedMesh)&&c.material))return; c.frustumCulled=false;
     const mats=Array.isArray(c.material)?c.material:[c.material];
@@ -45406,7 +45444,9 @@ function _startRobotViewer(canvasId, opts={}){
     }   // spinning ring + particle hover-jets + bob/tilt float (handled above)
     if(canvas._blast) _titleBlastStep(canvas, modelRoot, dt);   // JET-PACK BLAST-OFF cinematic owns the hero + block letters
     else _titleJetFlameFade(canvas, dt);                        // no cinematic -> age out any leftover jet puffs (they used to freeze mid-air)
-    renderer.render(sc,cam);
+    if(window._MENU_BLOOM!==false && !window._gfxPerf){ if(render._bloom===undefined)render._bloom=_makeNeonBloom(renderer,{strength:(window._MENU_BLOOM_STR||1.15),threshold:(window._MENU_BLOOM_THR||0.5),iters:(window._MENU_BLOOM_ITERS||2)});
+        if(render._bloom){ try{ render._bloom.render(sc,cam); }catch(_){ renderer.setRenderTarget(null); renderer.render(sc,cam); } } else renderer.render(sc,cam); }
+    else renderer.render(sc,cam);
     requestAnimationFrame(render);
   }
   render();
@@ -45941,7 +45981,11 @@ function _startCharWheel(canvasId){
         }
       }
     } }catch(_){}
-    renderer.render(sc,cam); if(canvas.style.visibility)canvas.style.visibility='';   // fresh frame drawn -> unmask (the mask hides last visit's stale frame across re-entry)
+    // NEON BLOOM (alpha-preserving) so the wheel/customize robots glow like in-game; falls back to a plain render on any failure.
+    if(window._MENU_BLOOM!==false && !window._gfxPerf){ if(render._bloom===undefined)render._bloom=_makeNeonBloom(renderer,{strength:(window._MENU_BLOOM_STR||1.15),threshold:(window._MENU_BLOOM_THR||0.5),iters:(window._MENU_BLOOM_ITERS||2)});
+        if(render._bloom){ try{ render._bloom.render(sc,cam); }catch(_){ renderer.setRenderTarget(null); renderer.render(sc,cam); } } else renderer.render(sc,cam); }
+    else renderer.render(sc,cam);
+    if(canvas.style.visibility)canvas.style.visibility='';   // fresh frame drawn -> unmask (the mask hides last visit's stale frame across re-entry)
     requestAnimationFrame(render);
   }
   state.render=render; render();
