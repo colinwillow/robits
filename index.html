@@ -398,7 +398,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1064</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1065</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -586,7 +586,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1064</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1065</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -14648,7 +14648,12 @@ class Player{
           if(!window._meshRay){ window._meshRay=new THREE.Raycaster(); window._meshRayO=new THREE.Vector3(); window._meshRayD=new THREE.Vector3(0,-1,0); }
           const rc=window._meshRay; rc.set(window._meshRayO.set(this.wx, this.py+RU, this.wz), window._meshRayD); rc.far=RU+RD;
           const hits=rc.intersectObjects(b._meshes,false); if(!hits.length){ if(this._stuckMesh===b){this._stuckMesh=null;this._stuckY=null;} return; }
-          let hy=hits[0].point.y; const _capM = Math.max(_capC,(window._MESH_CATCH||55));
+          // pick the TOPMOST surface AT/BELOW the feet — inside a hollow shell (the ship is a tube you stand INSIDE) the nearest hit is
+          //   the ROOF above your head; skip it so you land on the interior FLOOR under your feet instead of falling straight through.
+          let hit=null; const _feetEps=(window._MESH_FEET_EPS||16);
+          for(let _hi=0;_hi<hits.length;_hi++){ if(hits[_hi].point.y<=this.py+_feetEps){ hit=hits[_hi]; break; } }
+          if(!hit){ if(this._stuckMesh===b){this._stuckMesh=null;this._stuckY=null;} return; }
+          let hy=hit.point.y; const _capM = Math.max(_capC,(window._MESH_CATCH||55));
           const _stuck = (!b._surf && this._stuckMesh===b && this._stuckY!=null);   // already standing on this rigid deck last frame
           // STUCK -> STAY: once you're on the deck, ride its surface up/down and DON'T drop just because the raycast height jumped a frame (curved deck + being carried/aim-spun made the ray graze a higher/lower spot -> the "dip through then pop back up" bug). Release only on a real jump / drop-thru / leaving the footprint / a genuine gap (no hit above). First landing still uses the normal catch window.
           const _catch = _stuck ? (!_passUp && !_dropping) : (!_passUp && !_dropping && this.py<=hy+2 && this.py>=hy-_capM && hy>=eFloor);
@@ -14665,13 +14670,13 @@ class Player{
             eFloor=hy; _onPlat=true; this._platformY=hy;
             if(!b._surf){ this.py=hy; if(this.pvy<0)this.pvy=0; this._stuckMesh=b; }   // firm glue to the smoothed deck height (both directions) -> ride it up/down, never dip/pop
             // PLATFORM CARRY — ride the surface horizontally when it animates: track the hit face's centroid and shift the player by its frame-to-frame motion
-            if(window._PLAT_CARRY!==false){ const _hf=hits[0].face, _sm=(b._skin||b._meshes[0]);
+            if(window._PLAT_CARRY!==false){ const _hf=hit.face, _sm=(b._skin||b._meshes[0]);
               if(_hf && _sm && _sm.isSkinnedMesh && typeof _skinnedVertexWorld==='function'){
                 if(!window._pcvA){ window._pcvA=new THREE.Vector3(); window._pcvB=new THREE.Vector3(); window._pcvC=new THREE.Vector3(); }
                 _skinnedVertexWorld(_sm,_hf.a,window._pcvA); _skinnedVertexWorld(_sm,_hf.b,window._pcvB); _skinnedVertexWorld(_sm,_hf.c,window._pcvC);
                 const _ccx=(window._pcvA.x+window._pcvB.x+window._pcvC.x)/3, _ccz=(window._pcvA.z+window._pcvB.z+window._pcvC.z)/3;
-                if(this._platCarryFace===hits[0].faceIndex && this._platCarryPrev){ const _sh=Math.hypot(_ccx-this._platCarryPrev[0],_ccz-this._platCarryPrev[1]); if(_sh<(window._PLAT_CARRY_MAX||40)){ this.wx+=(_ccx-this._platCarryPrev[0]); this.wz+=(_ccz-this._platCarryPrev[1]); } }   // ignore a big centroid jump (face flicker) so the carry can't fling you
-                this._platCarryFace=hits[0].faceIndex; if(!this._platCarryPrev)this._platCarryPrev=[0,0]; this._platCarryPrev[0]=_ccx; this._platCarryPrev[1]=_ccz;
+                if(this._platCarryFace===hit.faceIndex && this._platCarryPrev){ const _sh=Math.hypot(_ccx-this._platCarryPrev[0],_ccz-this._platCarryPrev[1]); if(_sh<(window._PLAT_CARRY_MAX||40)){ this.wx+=(_ccx-this._platCarryPrev[0]); this.wz+=(_ccz-this._platCarryPrev[1]); } }   // ignore a big centroid jump (face flicker) so the carry can't fling you
+                this._platCarryFace=hit.faceIndex; if(!this._platCarryPrev)this._platCarryPrev=[0,0]; this._platCarryPrev[0]=_ccx; this._platCarryPrev[1]=_ccz;
               } else this._platCarryFace=-1;
             }
           } else { if(b._surf)this._surfY=null; this._platCarryFace=-1; if(this._stuckMesh===b){this._stuckMesh=null;this._stuckY=null;} }   // left the surface (or jumped) -> reset smoother + carry + stick tracking so re-landing doesn't jump
@@ -20208,6 +20213,7 @@ function _resolveAssetCollisions(P){
   const cols=window._arenaAssetCols; if(!cols||!cols.length||!P) return;
   const R=(window._ASSET_BODY_R||13), topEps=(window._ASSET_TOP_EPS||6);
   for(const b of cols){ if(!b||b._solid===false) continue;
+    if(b._meshes) continue;                                 // REAL-GEOMETRY (raycast) collider — no box top/bottom; solidity is owned by _chkPlat's downward raycast, and this box side-eject would fling you out the side of a hollow hull (the ship). Skip it.
     if((P.py||0) >= b.top-topEps) continue;                 // standing on / above the top -> the platform check owns it, no side push
     if((P.py||0) <= b.bottom-R) continue;                   // fully under a floating asset -> pass beneath
     const dx=P.wx-b.x, dz=P.wz-b.z, ox=(b.hw+R)-Math.abs(dx), oz=(b.hd+R)-Math.abs(dz);
@@ -20874,7 +20880,7 @@ function _buildArenaPodium(rank){
   const raw=src.animations||[];
   const idleClip=(raw.find(a=>a.name==='idle')||raw.find(a=>/^idle$/i.test(a.name)))||raw[0]||null;
   const danceClip=(raw.find(a=>a.name==='dance_01')||raw.find(a=>/dance/i.test(a.name)))||idleClip;
-  const PY=(window._ARENA_PODIUM_Y!=null?window._ARENA_PODIUM_Y:260);   // floating height (block bases) above the arena centre — high enough to clear the arena structures against clean sky
+  const PY=(window._ARENA_PODIUM_Y!=null?window._ARENA_PODIUM_Y:560);   // floating height (block bases) above the arena centre — well ABOVE the ring platforms/ships, against clean sky
   const SP=(window._ARENA_PODIUM_SP||120), BW=(window._ARENA_BW||72), CHH=(window._ARENA_CH_H||150);
   const BH=[(window._ARENA_BH1||96),(window._ARENA_BH2||62),(window._ARENA_BH3||40)];
   const slotX=[0,-SP,SP];   // 1st centre, 2nd left, 3rd right
@@ -20899,14 +20905,14 @@ function _buildArenaPodium(rank){
     let box; try{ box=new THREE.Box3().setFromObject(model); }catch(_){ box=null; }
     const mh=(box&&isFinite(box.min.y))?(box.max.y-box.min.y):1, scl=CHH/(mh||1);
     if(box)model.position.set(-(box.min.x+box.max.x)/2, -box.min.y, -(box.min.z+box.max.z)/2);
-    const mg=new THREE.Group(); mg.add(model); mg.scale.setScalar(scl); mg.position.set(bx, bh, 0); mg.rotation.y=(window._ARENA_FACE!=null?window._ARENA_FACE:Math.PI); grp.add(mg);
+    const mg=new THREE.Group(); mg.add(model); mg.scale.setScalar(scl); mg.position.set(bx, bh, 0); mg.rotation.y=(window._ARENA_FACE!=null?window._ARENA_FACE:0); grp.add(mg);   // face the CAMERA (front), not away
     let mx=null; try{ mx=new THREE.AnimationMixer(model); const clip=(idx===0?(danceClip||idleClip):(idleClip||danceClip)); if(clip){ const act=mx.clipAction(clip); const dur=clip.duration||2; act.time=(idx*dur*0.31)%dur; if(idx!==0)act.timeScale=0.9; act.play(); mx.update(0); } }catch(_){}
     if(mx)P.mixers.push(mx);
     try{ mg.updateWorldMatrix(true,true); const pb=(typeof _posedBounds==='function')?_posedBounds(model):null; if(pb&&isFinite(pb.min.y)){ const dy=(PY+bh)-pb.min.y; if(Math.abs(dy)<=CHH*1.4)mg.position.y+=dy; } }catch(_){}   // plant posed feet on the block top
     if(idx===0){ try{ const crown=_makePodiumCrown(); crown.scale.setScalar(CHH*0.17); crown.position.set(bx, bh+CHH*1.05, 0); crown._baseY=crown.position.y; grp.add(crown); P.crown=crown; }catch(_){} }
   }
   P.camLook.set(0, PY+CHH*(window._ARENA_LOOK_HK||0.5), 0);
-  P.camPos.set((window._ARENA_CAM_X||0), PY+CHH*(window._ARENA_CAM_HK||0.8), (window._ARENA_CAM_DIST||360));
+  P.camPos.set((window._ARENA_CAM_X||0), PY+CHH*(window._ARENA_CAM_HK||0.8), (window._ARENA_CAM_DIST||700));   // pulled back so all three read (was too zoomed in)
   return true;
 }
 window._buildArenaPodium=_buildArenaPodium;
@@ -32336,8 +32342,8 @@ function _spawnTransportShips(R, topY, gltf){
   _disposeTransportShips(); window._transportShips=[];
   const N=(window._SHIP_COUNT||5);
   const rings=(window._SHIP_RINGS||[1.34,1.66,1.98]);        // concentric orbit radii, as multiples of the platform radius R
-  const yBase=topY+(window._SHIP_Y||480), yStep=(window._SHIP_Y_STEP||150);
-  const LEN=(window._SHIP_LEN||460);                          // ship length in world units (the GLB is ~1 unit long on Z)
+  const yBase=topY+(window._SHIP_Y||900), yStep=(window._SHIP_Y_STEP||170);   // high up so you SKYDIVE down to the map after jumping out
+  const LEN=(window._SHIP_LEN||900);                          // ship length in world units (the GLB is ~1 unit long on Z); ~2x the first pass
   for(let i=0;i<N;i++){ const ring=rings[i%rings.length];
     let model; try{ model=gltf.scene.clone(true); }catch(_){ continue; }
     // SELF-ILLUMINATE so the ship reads in the dark neon void (its plain PBR material renders near-black out here). Clone the
@@ -32360,9 +32366,12 @@ function _spawnTransportShips(R, topY, gltf){
     for(const jp of _jetPos){ try{ const fg=_makeShipFlame(); fg.position.copy(jp); grp.add(fg); flames.push(fg); }catch(_){} }
     const rad=R*ring, ang=(i/N)*Math.PI*2 + ring*0.9;
     const y=yBase + Math.floor(i/rings.length)*yStep;
-    const hw=(window._SHIP_HW||0.42)*LEN, hd=(window._SHIP_HD||0.5)*LEN, deckDY=(window._SHIP_DECK!=null?window._SHIP_DECK:0.34)*LEN;   // roomy square-ish deck footprint (the ship yaws as it circles, so an axis-box is generous on purpose)
-    const s={ grp, model, flames, rad, ang, y, spd:(window._SHIP_SPD||0.05)*((i%2)?-1:1)*(1+(i%3)*0.18), bob:(Math.PI*2*i/N), deckDY, _px:Math.cos(ang)*rad, _pz:Math.sin(ang)*rad,
-      col:{x:Math.cos(ang)*rad, z:Math.sin(ang)*rad, hw, hd, top:y+deckDY, round:false, _solid:true} };
+    const hw=(window._SHIP_HW||0.55)*LEN, hd=(window._SHIP_HD||0.6)*LEN;   // broad-phase footprint (the raycast finds the real floor within it)
+    // REAL GEOMETRY collider: raycast down onto the ship's actual hull meshes (the donut floor), so you stand INSIDE it and walk
+    //   out the open ends — instead of a flat invisible box on top. Excludes the wire twins (no solid surface to land on).
+    const hull=[]; model.traverse(o=>{ if((o.isMesh||o.isSkinnedMesh)&&o.geometry&&!o._isWireTwin)hull.push(o); });
+    const s={ grp, model, flames, rad, ang, y, spd:(window._SHIP_SPD||0.05)*((i%2)?-1:1)*(1+(i%3)*0.18), bob:(Math.PI*2*i/N), _px:Math.cos(ang)*rad, _pz:Math.sin(ang)*rad,
+      col:{x:Math.cos(ang)*rad, z:Math.sin(ang)*rad, hw, hd, _meshes:hull, _solid:true} };
     window._arenaAssetCols=window._arenaAssetCols||[]; window._arenaAssetCols.push(s.col);
     if(typeof _cubeGroup!=='undefined'&&_cubeGroup)_cubeGroup.add(grp); else scene.add(grp);
     window._transportShips.push(s);
@@ -32377,12 +32386,12 @@ function _transportShipsTick(dt){ const A=window._transportShips; if(!A||!A.leng
   for(const s of A){ s.ang += s.spd*dt;
     const bx=Math.cos(s.ang)*s.rad, bz=Math.sin(s.ang)*s.rad, by=s.y+Math.sin(T*0.5+s.bob)*(window._SHIP_BOB||16);
     // RIDE-ALONG: if you're standing on this ship, carry you by the deck's frame delta so it doesn't slide out from under you
-    try{ if(typeof player!=='undefined'&&player&&player._stuckAsset===s.col){ player.wx+=(bx-s._px); player.wz+=(bz-s._pz); } }catch(_){}
+    try{ if(typeof player!=='undefined'&&player&&(player._stuckMesh===s.col||player._stuckAsset===s.col)){ player.wx+=(bx-s._px); player.wz+=(bz-s._pz); } }catch(_){}
     s._px=bx; s._pz=bz;
     s.grp.position.set(bx,by,bz);
     s.grp.rotation.y = Math.atan2(-Math.sin(s.ang), Math.cos(s.ang)) * (s.spd<0?-1:1) + (window._SHIP_YAW||0);   // nose along the tangent (direction of travel)
     s.grp.rotation.z = Math.sin(T*0.4+s.bob)*(window._SHIP_ROLL!=null?window._SHIP_ROLL:0.045);   // gentle bank
-    s.col.x=bx; s.col.z=bz; s.col.top=by+s.deckDY;
+    s.col.x=bx; s.col.z=bz;   // broad-phase centre; the raycast collider reads the hull meshes' live world geometry
     if(s.flames)for(const fg of s.flames){ const fl=0.72+0.28*Math.sin(T*(window._SHIP_FLAME_FLICK||24)+fg._ph); if(fg._outer){ fg._outer.scale.z=fl; fg._outer.material.opacity=0.4+0.22*fl; } if(fg._inner){ fg._inner.scale.z=fl*1.08; fg._inner.material.opacity=0.6+0.25*fl; } }
   }
 }
