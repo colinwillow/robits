@@ -398,7 +398,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1102</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1103</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -586,7 +586,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1102</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1103</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -43660,6 +43660,9 @@ function mpHandleRemoteEvent(msg){
       if(MP.versus){ _mpScoreCredit(msg.id, d.by||null);   // victim=msg.id, killer=d.by -> every client credits the same frag
         if(d.by===MP.myId){ const vn=_mpNameColorFor(msg.id).name; try{ announce('FRAGGED '+(vn||'').toUpperCase(),'#ff5577'); }catch(_){} } }
       break;
+    case 'round_over':
+      if(MP.versus) try{ _mpRoundOver(d.winner); }catch(_){}
+      break;
     case 'ball':
       if(GS.zone===-19 && typeof _cubeBall!=='undefined' && _cubeBall){
         const bb=_cubeBall;
@@ -43723,9 +43726,29 @@ function _mpScoreEnsureBot(id,name,color){ if(!MP.botRoster)MP.botRoster={}; MP.
 function _mpScoreCredit(victimId, killerId){
   if(!victimId) return;
   const v=_mpScoreEnsure(victimId); v.d++;
-  if(killerId && killerId!==victimId){ const k=_mpScoreEnsure(killerId); k.k++; }
+  if(killerId && killerId!==victimId){ const k=_mpScoreEnsure(killerId); k.k++;
+    // ROUND OVER — first to the frag limit takes it. The HOST calls it (single authority) and tells everyone.
+    if(MP.isHost && MP.versus && window._MP_ROUNDS!==false && k.k>=(window._MP_FRAG_LIMIT||10) && !MP._roundOver){ try{ mpSend('event',{event:'round_over',data:{winner:killerId}}); }catch(_){} _mpRoundOver(killerId); } }
   _mpScoreRender();
 }
+// ── MP ROUND FLOW ── a versus match now has a finish line: winner banner + fireworks, then scores wipe and a fresh
+//    round starts with everyone beamed back to a pad. window._MP_FRAG_LIMIT (default 10) frags takes the round.
+function _mpRoundOver(winnerId){
+  if(MP._roundOver) return; MP._roundOver=true;
+  try{ const nc=_mpNameColorFor(winnerId), hex='#'+('000000'+(((nc.hex!=null?nc.hex:(MP.PLAYER_COLORS[nc.color]||0xffd24a)))>>>0).toString(16)).slice(-6);
+    announce&&announce('★ '+String(nc.name||'??').toUpperCase()+' WINS THE ROUND! ★',hex);
+    if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(520,0.18,'square',0.3,700); setTimeout(()=>{try{Audio.blip(660,0.22,'square',0.3,880);}catch(_){}} ,180); setTimeout(()=>{try{Audio.blip(880,0.3,'square',0.32,990);}catch(_){}} ,380); }
+    // FIREWORKS over the champion (their own screen bursts over the player)
+    const wp=(winnerId===MP.myId&&typeof player!=='undefined'&&player)?{x:player.wx,y:(player.py||0),z:player.wz}:(MP.players[winnerId]&&MP.players[winnerId].mesh?{x:MP.players[winnerId].mesh.position.x,y:MP.players[winnerId].mesh.position.y,z:MP.players[winnerId].mesh.position.z}:null);
+    if(wp&&typeof ps!=='undefined'){ for(let i=0;i<5;i++){ setTimeout(()=>{ try{ ps.burst(wp.x+(Math.random()*2-1)*60, wp.z+(Math.random()*2-1)*60, [Math.random(),0.6+Math.random()*0.4,0.3], 26, 220, wp.y+40+Math.random()*60); }catch(_){} }, i*260); } }
+  }catch(_){}
+  setTimeout(()=>{ try{
+    MP._roundOver=false; _mpScoreReset();
+    announce&&announce('NEW ROUND — FIRST TO '+(window._MP_FRAG_LIMIT||10),'#00ffc8');
+    if(typeof mpRespawn==='function') mpRespawn();   // everyone beams back to a fresh pad with full HP (each client handles itself)
+  }catch(_){} }, (window._MP_ROUND_RESET_MS||6500));
+}
+window._mpRoundOver=_mpRoundOver;
 function _mpScoreReset(){ MP.scores={}; MP.botRoster={}; if(MP.myId)_mpScoreEnsure(MP.myId); for(const id in (MP.players||{}))_mpScoreEnsure(id); _mpScoreRender(); }
 function _mpScoreRender(){
   let el=document.getElementById('mp-scoreboard');
