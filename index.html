@@ -398,7 +398,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1094</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1095</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -586,7 +586,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1094</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1095</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -5142,6 +5142,19 @@ function _mpFoeProxy(rp,id){ let p=rp._foeProxy; if(!p){ p=rp._foeProxy={_mpFoe:
     knock:function(){} }; }
   p.wx=rp.mesh.position.x; p.wz=rp.mesh.position.z; p.py=rp.mesh.position.y; p.alive=!(rp.state&&rp.state.dead); return p;
 }
+// ── THE MP HOSTILE ROSTER ── one list of everything on the OTHER side in versus: each remote pilot (as a foe proxy whose
+//    hit() routes damage across the wire) + each of their summon puppets (whose hit() forwards to the owner as ally_hit).
+//    Spliced into every targeting system — aim assist, rocket homing, ally/summon AI (_extraHostiles) — so your rockets
+//    heat-seek the enemy player, your spiders hunt their spiders, and their dragon is actually killable on your screen.
+function _mpHostileList(){
+  const out=[]; if(typeof MP==='undefined'||!MP.active||!MP.versus||!MP.players) return out;
+  for(const id in MP.players){ const rp=MP.players[id]; if(!rp) continue;
+    if(rp.mesh && !(rp.state&&rp.state.dead)) out.push(_mpFoeProxy(rp,id));
+    if(rp._allies) for(const p of rp._allies){ if(p && p.alive!==false && p.wx!=null) out.push(p); }
+  }
+  return out;
+}
+window._mpHostileList=_mpHostileList;
 // HOSTILE creatures target the nearest of {player, your allies} — so a bot's dog/dragon will fight YOUR dog/dragon, not just run at you.
 function _pickHostileFoe(self){
   let best=(typeof player!=='undefined'&&player&&player.alive!==false)?player:null;
@@ -18691,6 +18704,7 @@ function _aaTargetList(){
   if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(e&&e.alive!==false&&!e._captured&&!e._invulnerable)L.push(e); }
   if(typeof GS_bots!=='undefined')for(const b of GS_bots){ if(b&&b.alive!==false)L.push(b); }
   if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy)L.push(GS_trainingDummy);
+  try{ if(typeof _mpHostileList==='function')L.push(..._mpHostileList()); }catch(_){}   // versus MP: enemy pilot + their summons are aim-assist / vertical-assist targets
   if(window._AA_TARGET_OBJECTS!==false){
     if(window._itemPU)for(const p of window._itemPU){ if(p&&p.type==='barrel')L.push({wx:p.x,wz:p.z,y:(p.y||9)+6,size:12,_isObj:true}); }
     if(window._crates)for(const c of window._crates)L.push({wx:c.x,wz:c.z,y:(c.y!=null?c.y:12)+8,size:14,_isObj:true});
@@ -28840,7 +28854,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.dragonFireballs){ for(let i=GS.dragonFireballs.length-1;i>=0;i--){ const f=GS.dragonFireballs[i]; if(!f||!f.update(dt)){ if(f&&!f.dead&&f.remove)f.remove(); GS.dragonFireballs.splice(i,1); } } }
       if(player&&player._burnT>0){ player._burnT-=dt; if(typeof ps!=='undefined'&&Math.random()<0.7) ps.spark(player.wx+rand(-8,8), player.wz+rand(-8,8), [1,0.45,0.08], (player.py||0)+rand(0,22)); }   // player ON FIRE -> lingering flames
       for(let i=GS.missiles.length-1;i>=0;i--){
-        const targets=[...GS.enemies,...GS_bots.filter(b=>b.alive),...(window._crates||[])];
+        const targets=[...GS.enemies,...GS_bots.filter(b=>b.alive),...(window._crates||[]),...((typeof _mpHostileList==='function')?_mpHostileList():[])];   // + versus MP: rockets heat-seek the enemy pilot + their summons
         if(GS_trainingDummy&&GS.zone===-2) targets.push(GS_trainingDummy);
         if(window._sentries)for(const s of window._sentries){ if(s&&s._faction!=='ally'&&s.hp>0)targets.push({wx:s.x,wz:s.z,size:(window._SENTRY_HITR||22),mesh:{position:{y:(s.grp?s.grp.position.y:(s.y||9))}},_sentry:s}); }   // rival TURRETS are homing/splash targets too, so rockets actually kill them
         if(!GS.missiles[i].update(dt,targets)){GS.missiles[i].remove();GS.missiles.splice(i,1);}
@@ -34750,7 +34764,7 @@ function _lockList(){
   return out;
 }
 // Bots + dummy ONLY (the rival pilot and the training dummy) — extra targets for weapons/allies that otherwise only damage GS.enemies. They manage their own death via hit(), so callers must NOT splice GS.enemies for these.
-function _extraHostiles(){ const out=[]; if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(b&&b.alive)out.push(b); } if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.alive!==false)out.push(GS_trainingDummy); return out; }
+function _extraHostiles(){ const out=[]; if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(b&&b.alive)out.push(b); } if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.alive!==false)out.push(GS_trainingDummy); try{ if(typeof _mpHostileList==='function')out.push(..._mpHostileList()); }catch(_){} return out; }   // + versus MP: the enemy pilot & their summons — so your spiders/summons see + hunt them
 function _hostileY(e){ return (e&&e.mesh)?e.mesh.position.y:((e&&e.py!=null)?e.py+9:9); }
 function _enemyCamRawTarget(P){
   const E=_lockList();
@@ -43499,12 +43513,25 @@ function mpHandleRemoteEvent(msg){
         while(rpa._allies.length>list.length){ _mpRemovePuppet(rpa._allies.pop()); }   // owner has fewer now
         for(let i=0;i<list.length;i++){ const ad=list[i]; let p=rpa._allies[i];
           if(!p || p._pt!==ad.t){ if(p)_mpRemovePuppet(p); p=_mpMakePuppet(ad.t); rpa._allies[i]=p; }
-          if(p){ p._nx=ad.x; p._nz=ad.z; p._ny=(ad.y!=null?ad.y:9); p._netClip=ad.c||null; if(ad.a!=null)p._netAim=ad.a; if(p.wx==null)p.wx=ad.x; if(p.wz==null)p.wz=ad.z; }
+          if(p){ p._nx=ad.x; p._nz=ad.z; p._ny=(ad.y!=null?ad.y:9); p._netClip=ad.c||null; if(ad.a!=null)p._netAim=ad.a; if(p.wx==null)p.wx=ad.x; if(p.wz==null)p.wz=ad.z;
+            p._mpOwner=msg.id; p._mpSlot=i;
+            if(!p._fwdHitSet){ p._fwdHitSet=true;   // a puppet takes no damage locally — every hit forwards to the OWNER, who applies it to the real summon (that's what makes their dragon killable on your screen)
+              p.hit=function(dmg){ const now=(typeof performance!=='undefined'?performance.now():0); if(now-(this._fwdT||0)<(window._MP_ALLY_HIT_CD||250))return 0; this._fwdT=now;
+                try{ mpSend('event',{event:'ally_hit',data:{owner:this._mpOwner,slot:this._mpSlot,dmg:dmg||1}}); }catch(_){}
+                try{ if(typeof ps!=='undefined'){ ps.spark(this.wx,this.wz,[1,0.6,0.2]); } if(typeof _hitSfx==='function')_hitSfx(0.6,this); }catch(_){} return 0; };
+              p.knock=function(){}; }
+          }
         }
       }
       break;
     case 'gravflip':
       if(GS.zone===-19){ GS._gravFlip=!!d.on; if(player){ player._wasAirborne=true; player._peakPy=0; } if(typeof addTrauma==='function')addTrauma(0.5); if(typeof grid!=='undefined'&&grid.pulse)grid.pulse(0.9); if(typeof announce==='function')announce(GS._gravFlip?'⬇ GRAVITY FLIPPED':'⬆ GRAVITY RESTORED', GS._gravFlip?'#ff66cc':'#33e0ff'); }
+      break;
+    case 'ally_hit':   // a peer damaged one of MY summons (they only have a display puppet — I own the real one)
+      if(d.owner===MP.myId && GS.allies && GS.allies[d.slot]){ const a=GS.allies[d.slot];
+        if(a && a.alive!==false){ a._lastAttacker=msg.id;
+          try{ if(a.hit)a.hit(d.dmg||1); }catch(_){}
+          try{ if(typeof ps!=='undefined')ps.burst(a.wx,a.wz,[1,0.5,0.2],10,100,((a.py!=null?a.py:(a._cy||9)))+8); }catch(_){} } }
       break;
   }
 }
@@ -43599,11 +43626,17 @@ function mpBeginGame(){
 function _mpVersusHit(){
   if(!player||!player.alive||GS.state!=='playing') return;
   const rpos=[];
-  for(const id in MP.players){ const rp=MP.players[id]; if(rp&&rp.mesh&&!rp.state?.dead) rpos.push({id, x:rp.mesh.position.x, y:rp.mesh.position.y, z:rp.mesh.position.z}); }
+  for(const id in MP.players){ const rp=MP.players[id]; if(!rp) continue;
+    if(rp.mesh&&!rp.state?.dead) rpos.push({id, x:rp.mesh.position.x, y:rp.mesh.position.y, z:rp.mesh.position.z});
+    if(rp._allies)for(let i=0;i<rp._allies.length;i++){ const p=rp._allies[i]; if(!p||p.alive===false||p.wx==null)continue;   // their SUMMON puppets are hittable too — damage routes to the owner
+      rpos.push({ally:1, owner:id, slot:i, x:p.wx, y:(p._ny!=null?p._ny:(p.py||9)), z:p.wz, r:(p.size||18)}); } }
   if(!rpos.length) return;
-  const near=(x,y,z,R,dy)=>{ const R2=R*R; for(const r of rpos){ const dx=x-r.x, dz=z-r.z; if(dx*dx+dz*dz<R2 && (dy==null || Math.abs((y||0)-(r.y||0))<dy)) return r; } return null; };
+  const near=(x,y,z,R,dy)=>{ for(const r of rpos){ const RR=Math.max(R,(r.r||0)); const dx=x-r.x, dz=z-r.z; if(dx*dx+dz*dz<RR*RR && (dy==null || Math.abs((y||0)-(r.y||0))<Math.max(dy||0,(r.r||0)*2))) return r; } return null; };
   const fx=(x,z,col)=>{ if(typeof ps!=='undefined')ps.burst(x,z,col||[1,0.4,0.2],8,80); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(320,0.05,'square',0.1); };
-  const _hit=(id,dmg,extra)=>{ MP._hitsSent=(MP._hitsSent||0)+1; mpSend('event',{event:'player_hit',data:Object.assign({target:id,dmg},extra||{})}); };   // count + send (debug overlay reads _hitsSent)
+  const _hit=(r,dmg,extra)=>{ const id=(r&&r.id!==undefined)?r.id:r;   // accepts an rpos entry OR a bare player id
+    if(r&&r.ally){ const now=(typeof performance!=='undefined'?performance.now():0); if(!MP._allyHitT)MP._allyHitT={}; const k=r.owner+'#'+r.slot; if(now-(MP._allyHitT[k]||0)<(window._MP_ALLY_HIT_CD||250))return; MP._allyHitT[k]=now;
+      mpSend('event',{event:'ally_hit',data:{owner:r.owner,slot:r.slot,dmg:dmg||1}}); return; }
+    MP._hitsSent=(MP._hitsSent||0)+1; mpSend('event',{event:'player_hit',data:Object.assign({target:id,dmg},extra||{})}); };   // count + send (debug overlay reads _hitsSent)
   // direct projectiles (mine only) — consumed on hit. Radius bumped + tunable so fast bullets don't skim past the remote mesh.
   const _R=(window._MP_HIT_R||26);
   const DIRECT=[[GS.bullets,_R,1],[GS.missiles,_R+8,3],[GS.arrows,_R+4,2]];
@@ -43611,19 +43644,20 @@ function _mpVersusHit(){
     for(let i=list.length-1;i>=0;i--){ const b=list[i]; if(!b||b._remote||b.dead||(b.life!=null&&b.life<=0)||b.stuck) continue;
       const hx=(b.wx!=null?b.wx:b.x), hz=(b.wz!=null?b.wz:b.z), hy=(b.y!=null?b.y:0);
       const r=near(hx,hy,hz,R,(window._MP_HIT_DY||70)); if(r){ if(b.life!=null)b.life=0; else b.dead=true; fx(hx,hz);
-        const _vl=Math.hypot(b.vx||0,b.vz||0)||1; _hit(r.id,(b.dmg||dmg),{px:(b.vx||0)/_vl,pz:(b.vz||0)/_vl}); } }   // shot direction rides along -> the victim gets a physical kickback
+        const _vl=Math.hypot(b.vx||0,b.vz||0)||1; _hit(r,(b.dmg||dmg),{px:(b.vx||0)/_vl,pz:(b.vz||0)/_vl}); } }   // shot direction rides along -> the victim gets a physical kickback
   }
   // boomerang (mine) — passes through, per-boomerang cooldown
-  if(GS.boomerangs)for(const b of GS.boomerangs){ if(!b||b._remote||b._enemy) continue; b._mpCd=(b._mpCd||0)-1; if(b._mpCd>0)continue; const r=near(b.wx,b.y,b.wz,(_R+4),70); if(r){ b._mpCd=30; fx(b.wx,b.wz); _hit(r.id,(b.dmg||2)); } }   // skip _enemy (bot) blades — they route their own attributed hits in Boomerang.update
+  if(GS.boomerangs)for(const b of GS.boomerangs){ if(!b||b._remote||b._enemy) continue; b._mpCd=(b._mpCd||0)-1; if(b._mpCd>0)continue; const r=near(b.wx,b.y,b.wz,(_R+4),70); if(r){ b._mpCd=30; fx(b.wx,b.wz); _hit(r,(b.dmg||2)); } }   // skip _enemy (bot) blades — they route their own attributed hits in Boomerang.update
   // AoE (mine) — nuke / quake / singularity: ticking damage while a remote is in radius. Damage brought in line with PvE
   // (was ~10x too low -> nukes/quakes felt like they did nothing to the other player).
   const AOE=[[GS.nukes,(window._NUKE_PVP_R||300),(window._NUKE_PVP_DMG||14),(window._NUKE_PVP_T||1.6)],[GS.quakes,(window._QUAKE_PVP_R||220),(window._QUAKE_PVP_DMG||6),null],[GS.wells,(window._SING_PVP_R||150),(window._SING_UNIT_DMG!=null?window._SING_UNIT_DMG:0.2),null]];   // singularity = hold trap, barely damages
   for(const [list,R,dmg,maxAge] of AOE){ if(!list) continue; for(const w of list){ if(!w||w._remote) continue; if(maxAge!=null && (w.t||0)>maxAge) continue;   // nuke only bites during the blast, not the whole cloud
-    const wx=(w.wx!=null?w.wx:(w.x!=null?w.x:0)), wz=(w.wz!=null?w.wz:(w.z!=null?w.z:0)); w._mpCd=(w._mpCd||0)-1; if(w._mpCd>0)continue; const r=near(wx,null,wz,R,null); if(r){ w._mpCd=24; _hit(r.id,dmg); } } }
+    const wx=(w.wx!=null?w.wx:(w.x!=null?w.x:0)), wz=(w.wz!=null?w.wz:(w.z!=null?w.z:0)); w._mpCd=(w._mpCd||0)-1; if(w._mpCd>0)continue; const r=near(wx,null,wz,R,null); if(r){ w._mpCd=24; _hit(r,dmg); } } }
   // melee — one hit per swing per target, with knockback (home-run launch)
   const ud=player.model&&player.model.userData; const swinging=!!(ud&&(ud._meleeTimer>0||ud._swActive))||((window._procMeleeT||0)>0);
   if(swinging){ if(!player._mpMeleeHit)player._mpMeleeHit={}; const r=near(player.wx,(player.py||0)+10,player.wz,(window._MP_MELEE_R||54),90);
-    if(r && !player._mpMeleeHit[r.id]){ player._mpMeleeHit[r.id]=1; const dx=r.x-player.wx, dz=r.z-player.wz, m=Math.hypot(dx,dz)||1; fx(r.x,r.z,[1,0.7,0.3]); if(typeof addTrauma==='function')addTrauma(0.08); _hit(r.id,(window._MP_MELEE_DMG||6),{knock:1,px:dx/m,pz:dz/m,lift:(window._MP_MELEE_LIFT||360)}); } }
+    const _mk=(r&&r.id!==undefined)?r.id:(r?('a'+r.owner+'#'+r.slot):null);
+    if(r && !player._mpMeleeHit[_mk]){ player._mpMeleeHit[_mk]=1; const dx=r.x-player.wx, dz=r.z-player.wz, m=Math.hypot(dx,dz)||1; fx(r.x,r.z,[1,0.7,0.3]); if(typeof addTrauma==='function')addTrauma(0.08); _hit(r,(window._MP_MELEE_DMG||6),{knock:1,px:dx/m,pz:dz/m,lift:(window._MP_MELEE_LIFT||360)}); } }
   else player._mpMeleeHit=null;
 }
 // ── Broadcast our state every 50ms ──
