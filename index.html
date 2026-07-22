@@ -398,7 +398,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1100</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1101</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -586,7 +586,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1100</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1101</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -5164,6 +5164,18 @@ function _squadsReset(){ const was=window._SQUADS_ON===true; window._SQUADS_ON=f
   if(was){ try{ if(typeof player!=='undefined'&&player&&player.model&&typeof _tintAllyApply==='function'&&window._PLAYER_HUE!=null)_tintAllyApply(player.model,new THREE.Color(window._PLAYER_HUE)); }catch(_){} }   // hand the paint job back to the dress-room hue
 }
 window._squadsOn=_squadsOn; window._squadCol=_squadCol; window._squadName=_squadName; window._squadOfPeer=_squadOfPeer; window._sameSquadMe=_sameSquadMe; window._botFriendly=_botFriendly; window._squadApplyPlayerTint=_squadApplyPlayerTint; window._squadsReset=_squadsReset;
+// ── MP BLAST BRIDGE ── MY explosion (grenade / drop-bomb / bouncy / Big Bill / barrel) sweeps the remote pilots + their
+//    summon puppets with proximity-scaled damage AND the radial blast-launch, exactly like it sweeps GS_bots in PvE.
+//    Every call site gates on !this._remote so a replayed peer explosion never double-hits.
+function _mpBlastRemotes(x,z,R,dmg,kbMag,kbLift){
+  if(typeof MP==='undefined'||!MP.active||!MP.versus||!MP.players||typeof mpSend!=='function')return;
+  try{ for(const id in MP.players){ const rp=MP.players[id]; if(!rp)continue; if(typeof _sameSquadMe==='function'&&_sameSquadMe(id))continue;
+    if(rp.mesh&&!(rp.state&&rp.state.dead)){ const dx=rp.mesh.position.x-x, dz=rp.mesh.position.z-z, d=Math.hypot(dx,dz);
+      if(d<R){ const n=1-d/R, dl=d||1; mpSend('event',{event:'player_hit',data:{target:id, dmg:Math.max(1,Math.ceil((dmg||3)*(0.5+n*0.5))), knock:1, px:dx/dl, pz:dz/dl, mag:(kbMag||16)*(0.5+n), lift:(kbLift||360)*(0.4+n*0.6), stun:30, blast:1}}); } }
+    if(rp._allies)for(let i=0;i<rp._allies.length;i++){ const p=rp._allies[i]; if(!p||p.alive===false||p.wx==null)continue; if(Math.hypot(p.wx-x,p.wz-z)<R){ mpSend('event',{event:'ally_hit',data:{owner:id,slot:i,dmg:Math.max(1,Math.ceil((dmg||3)*0.8))}}); } }
+  } }catch(_){}
+}
+window._mpBlastRemotes=_mpBlastRemotes;
 // ── THE MP HOSTILE ROSTER ── one list of everything on the OTHER side in versus: each remote pilot (as a foe proxy whose
 //    hit() routes damage across the wire) + each of their summon puppets (whose hit() forwards to the owner as ally_hit).
 //    Spliced into every targeting system — aim assist, rocket homing, ally/summon AI (_extraHostiles) — so your rockets
@@ -9942,6 +9954,7 @@ class DropBomb{
     if(typeof _blastBreakContainers==='function') _blastBreakContainers(this.wx,this.wz,BLAST_R);   // pop barrels + smash boxes in the blast
     // BOT — explosive launch FIRST (before the enemy loop, which can throw). Knock BEFORE hit, light damage so they FLY instead of vanishing.
     try{ if(typeof GS_bots!=='undefined'){ let _bhit=0; for(const _bot of GS_bots){ if(_bot&&_bot.alive){ const _bbd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_bbd<BLAST_R){ const _bsN=Math.max(0,(BLAST_R-_bbd)/BLAST_R); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 2+_bsN*2, 480+_bsN*220, 30+_bsN*20); _bot.hit(Math.max(1,Math.ceil(_bsN*2+1))); _bhit++; } } } if(_bhit&&typeof announce==='function') announce('DIRECT HIT!','#ff9933'); } }catch(_e){ console.warn('bomb->bot launch failed',_e); }
+    if(!this._remote)try{ _mpBlastRemotes(this.wx,this.wz,BLAST_R,(window._BOMB_PVP_DMG||5),(window._BOMB_PVP_KB||20),(window._BOMB_PVP_LIFT||540)); }catch(_){}   // bomb = a lesser nuke on the other pilot too (damage + fling)
     // Fire burst — multiple layers of orange/yellow/white particles
     ps.burst(this.wx,this.wz,[1,0.9,0.2],70,260);   // bright yellow core
     ps.burst(this.wx,this.wz,[1,0.4,0.05],50,220);  // orange mid
@@ -10168,6 +10181,7 @@ class Grenade{
         else { const _bd=Math.max(3,Math.ceil(30*_prox+4)); const pts=e.hit(_bd); if(e.knock)e.knock(e.wx-this.wx,e.wz-this.wz,_bd,1.2+_prox*1.6,_prox*_prox*16,true); if(pts>0){ GS.score+=pts*GS.mult; GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); e.remove(); GS.enemies.splice(i,1); registerKill(e); } }
       } }
     if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){ if(_bot.alive){ const _gd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_gd<BLAST_R){ const _gN=Math.max(0,(BLAST_R-_gd)/BLAST_R); _bot.hit(Math.max(1,Math.ceil(_gN*3+1))); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 2+_gN*2, 130+_gN*90, 26+_gN*16); } } }
+    if(!this._remote)try{ _mpBlastRemotes(this.wx,this.wz,BLAST_R,(window._GREN_PVP_DMG||4),(window._GREN_PVP_KB||16),(window._GREN_PVP_LIFT||430)); }catch(_){}   // grenade pops the other pilot too (damage + fling)
     if(player&&player.alive){ const pd=Math.hypot(player.wx-this.wx,player.wz-this.wz); if(pd<BLAST_R*0.7){ const s=1-pd/(BLAST_R*0.7), vy=s*s*120; if(vy>10) player.pvy=Math.max(player.pvy||0,vy); } }
     if(window._blastBall)window._blastBall(this.wx,this.y,this.wz,BLAST_R*1.3,(window._GREN_BALL_PW||520));   // grenade knocks the ball
   }
@@ -10241,6 +10255,7 @@ class BouncyBall{
     if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies)_blast(e);
     if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)_blast(b);
     try{ if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.hit&&GS_trainingDummy.wx!=null&&Math.hypot(GS_trainingDummy.wx-this.wx,GS_trainingDummy.wz-this.wz)<R)GS_trainingDummy.hit(this.dmg); }catch(_){}   // wallop the training dummy
+    if(!this._remote&&!this._enemy)try{ _mpBlastRemotes(this.wx,this.wz,R,(this.dmg||4),(window._BOUNCY_KB||16),(window._BOUNCY_LIFT||360)); }catch(_){}   // bouncy blast wallops the other pilot too (damage + fling)
     if(window._blastBreakContainers)try{ window._blastBreakContainers(this.wx,this.wz,R*0.85); }catch(_){}   // pop barrels + smash crates in the blast
     if(typeof player!=='undefined'&&player&&player.alive&&(player.inv||0)<=0){ const pd=Math.hypot(player.wx-this.wx,player.wz-this.wz); if(pd<R*0.7 && player.knock){ const n=1-pd/(R*0.7); try{ player.knock(player.wx-this.wx,player.wz-this.wz,(window._BOUNCY_SELF_KB||10)*n,(window._BOUNCY_SELF_LIFT||240)*n,20); }catch(_){} } }   // the heavy ball tosses YOU too if you're point-blank
     if(window._blastBall)try{ window._blastBall(this.wx,cy,this.wz,R*1.2,(window._BOUNCY_BALL_PW||480)); }catch(_){}   // shoves the soccer ball
@@ -10359,6 +10374,7 @@ class BigBill{
     if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies)_blast(e);
     if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots)_blast(b);
     try{ if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.hit&&GS_trainingDummy.wx!=null&&Math.hypot(GS_trainingDummy.wx-this.wx,GS_trainingDummy.wz-this.wz)<R)GS_trainingDummy.hit(this.dmg); }catch(_){}
+    if(!this._remote)try{ _mpBlastRemotes(this.wx,this.wz,R,(this.dmg||6),(window._BILL_KB||22),(window._BILL_LIFT||480)); }catch(_){}   // the bazooka rocket blasts the other pilot too — biggest non-nuke launch
     if(window._blastBreakContainers)try{ window._blastBreakContainers(this.wx,this.wz,R*0.9); }catch(_){}
     if(typeof player!=='undefined'&&player&&player.alive&&(player.inv||0)<=0){ const pd=Math.hypot(player.wx-this.wx,player.wz-this.wz); if(pd<R*0.8&&player.knock){ const n=1-pd/(R*0.8); try{ player.knock(player.wx-this.wx,player.wz-this.wz,(window._BILL_SELF_KB||14)*n,(window._BILL_SELF_LIFT||320)*n,24,{blast:true}); }catch(_){} } }
     if(window._blastBall)try{ window._blastBall(this.wx,cy,this.wz,R*1.3,(window._BILL_BALL_PW||700)); }catch(_){}
@@ -15175,6 +15191,13 @@ class Player{
     else if(this._inPlanetGravity){ const flat=new THREE.Vector3(Math.cos(a),0,Math.sin(a)); flat.addScaledVector(_gN,-flat.dot(_gN)); if(flat.lengthSq()>1e-4){ flat.normalize(); dx=flat.x; dy=flat.y; dz=flat.z; } }
     GS.beams.push(new PlasmaBeam(sx,y0,sz,dx,dy,dz,false,od));
     if(typeof MP!=='undefined'&&MP.active) mpSend('event',{event:'shot',data:{w:'plasma',x:sx,z:sz,y:y0,dx,dy,dz,od:!!od}});
+    // beam HITSCAN vs the remote pilots — same line/radius test the constructor runs on enemies (the beam pierced straight through the other player before)
+    if(typeof MP!=='undefined'&&MP.active&&MP.versus&&MP.players&&typeof mpSend==='function'){ try{ const _bLEN=760,_bR=(od?15:10)+18;
+      for(const _rid in MP.players){ const _rp=MP.players[_rid]; if(!_rp||!_rp.mesh||(_rp.state&&_rp.state.dead))continue; if(typeof _sameSquadMe==='function'&&_sameSquadMe(_rid))continue;
+        const _ex=_rp.mesh.position.x-sx,_ee=_rp.mesh.position.y-y0,_ez=_rp.mesh.position.z-sz; const _t=_ex*dx+_ee*dy+_ez*dz; if(_t<0||_t>_bLEN)continue;
+        const _perp=Math.hypot(_ex-dx*_t,_ee-dy*_t,_ez-dz*_t); if(_perp>=_bR)continue;
+        const _hdl=Math.hypot(dx,dz)||1; mpSend('event',{event:'player_hit',data:{target:_rid, dmg:(od?6:3), knock:1, px:dx/_hdl, pz:dz/_hdl, mag:8, lift:130, stun:14}});
+      } }catch(_){} }
     if(typeof Audio!=='undefined')Audio.blip(od?170:300,0.1,'sawtooth',0.2,od?80:1500);
     if(typeof ps!=='undefined'){ ps.ring(sx,sz,[1,0.3,0.95],5,70); for(let i=0;i<7;i++) ps._spawn(sx,y0,sz, dx*rand(90,200)+rand(-20,20), dy*rand(90,200)+rand(-10,20), dz*rand(90,200)+rand(-20,20), 1,0.4,1, 0.04+rand(0.03)); }
   }
@@ -15359,6 +15382,14 @@ class Player{
         if(d<=KR){ const dot=d<8?1:(ddx*dirx+ddz*dirz)/(d||1); if(dot>=cosHalf){ const nrm=Math.max(0,1-d/KR);
           try{ if(player.knock)player.knock(ddx,ddz,(window._SHOT_KB||32)*(0.3+nrm*0.95),(window._SHOT_LIFT||600)*(0.16+nrm*0.9),30,true); }catch(_){}
           const dmg=DMAX*Math.pow(nrm,DEXP); if(dmg>0.5 && typeof playerDie==='function')try{ playerDie(dmg,'#ffc24a','ranged'); }catch(_){} } } }
+      // MY shotgun onto a REMOTE PILOT: the same point-blank shred + home-run cone crosses the wire (pellets alone only chip)
+      if(_self===player && typeof MP!=='undefined'&&MP.active&&MP.versus&&MP.players&&typeof mpSend==='function'){ try{ for(const _rid in MP.players){ const _rp=MP.players[_rid];
+        if(!_rp||!_rp.mesh||(_rp.state&&_rp.state.dead))continue; if(typeof _sameSquadMe==='function'&&_sameSquadMe(_rid))continue;
+        const ddx=_rp.mesh.position.x-cx, ddz=_rp.mesh.position.z-cz, d=Math.hypot(ddx,ddz); if(d>KR)continue;
+        const dot=d<8?1:(ddx*dirx+ddz*dirz)/(d||1); if(dot<cosHalf)continue; const nrm=Math.max(0,1-d/KR), dl=d||1;
+        const _pd=Math.max(1,Math.round(DMAX*Math.pow(nrm,DEXP)*(window._SHOT_PVP_K!=null?window._SHOT_PVP_K:0.12)));   // bit-scale: point-blank ≈ half their bar + a launch, edge ≈ a chip
+        mpSend('event',{event:'player_hit',data:{target:_rid, dmg:_pd, knock:1, px:ddx/dl, pz:ddz/dl, mag:(window._SHOT_KB||32)*(0.3+nrm*0.95), lift:(window._SHOT_LIFT||600)*(0.16+nrm*0.9), stun:30, blast:1}});
+      } }catch(_){} }
     }
     if(typeof _boomSfx==='function'){ try{ _boomSfx('small',(window._SHOT_BOOM_PITCH||1.3),this.wx,this.wz); }catch(_){} }   // small-explosion report
     else if(typeof Audio!=='undefined'){ try{ Audio.blip(85,0.16,'sawtooth',0.34,48); Audio.blip(220,0.06,'square',0.16,120); }catch(_){} }
@@ -28000,6 +28031,21 @@ function loop(ts){ requestAnimationFrame(loop);
             if(typeof GS_bots!=='undefined') GS_bots.forEach(b=>_try(b,'bot'));
             if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _try(GS_trainingDummy,'dummy');
             if(typeof GS!=='undefined'&&GS.allies){ for(const a of GS.allies){ if(a&&a.alive!==false)_try(a,'ally'); } }   // your own summons: melee LAUNCHES them (knock-only unless _FRIENDLY_FIRE) so you can bat your drone/droid/spider into battle
+            // REMOTE PILOTS: the REAL blade-segment sweep vs the other player — same per-weapon reach + launch as PvE.
+            // (The old check lived in _mpVersusHit as "within 54 units of my body center", which whiffed swings that
+            // visibly connected — a spear/hammer tip reaches way past the body, and the blade line tracks the swing.)
+            if(typeof MP!=='undefined'&&MP.active&&MP.versus&&MP.players&&typeof mpSend==='function'){ for(const _rid in MP.players){ const _rp=MP.players[_rid];
+              if(!_rp||!_rp.mesh||(_rp.state&&_rp.state.dead)||ud._meleeHitSet.has(_rp))continue;
+              if(typeof _sameSquadMe==='function'&&_sameSquadMe(_rid))continue;
+              const _rx=_rp.mesh.position.x,_ry=_rp.mesh.position.y,_rz=_rp.mesh.position.z;
+              const _rreach=HIT_R+(window._MELEE_HIT_PAD!=null?window._MELEE_HIT_PAD:18)+(window._MP_MELEE_PAD||10);
+              let _rin=false; for(let _h=0;_h<=30;_h+=10){ if(_seg(_rx,_ry+_h,_rz)<=_rreach){ _rin=true; break; } }   // test up their body like the tall-enemy path
+              if(!_rin)continue;
+              ud._meleeHitSet.add(_rp);
+              const _ddx=_rx-player.wx,_ddz=_rz-player.wz,_rdl=Math.hypot(_ddx,_ddz)||1;
+              try{ if(typeof ps!=='undefined'){ ps.burst(_rx,_rz,[1,0.7,0.3],12,100,_ry+12); ps.ring(_rx,_rz,[1,0.7,0.3],18,120,_ry+10); } if(typeof _hitSfx==='function')_hitSfx(null,{wx:_rx,wz:_rz,size:16}); if(typeof addTrauma==='function')addTrauma(0.12); if(typeof hitStop==='function'&&_MS.hitStop)hitStop(_MS.hitStop); }catch(_){}
+              try{ mpSend('event',{event:'player_hit',data:{target:_rid, dmg:(dmg!=null?dmg:(window._MP_MELEE_DMG||6)), knock:1, px:_ddx/_rdl, pz:_ddz/_rdl, mag:(_MS.bMag!=null?_MS.bMag:(window._MP_MELEE_KB_MAG||26)), lift:(_MS.bLift!=null?_MS.bLift:(window._MP_MELEE_LIFT||400)), stun:24}}); }catch(_){}
+            } }
             // TURRETS/SENTRIES: rival deployed turrets are melee targets too (you could shoot them but not swing at them). They're
             //  bolted down, so the blade DAMAGES them (no knockback) like a bullet does; they die in _sentryTick when hp hits 0.
             if(typeof window._sentries!=='undefined'&&window._sentries){ const _shr=(window._SENTRY_HITR||22)+(window._MELEE_HIT_PAD!=null?window._MELEE_HIT_PAD:18);
@@ -43768,7 +43814,7 @@ function _mpVersusHit(){
         const _vl=Math.hypot(b.vx||0,b.vz||0)||1; _hit(r,(b.dmg||dmg),Object.assign({px:(b.vx||0)/_vl,pz:(b.vz||0)/_vl},kb||{})); } }   // shot direction rides along -> kickback; kb spec -> the full home-run launch
   }
   // boomerang (mine) — passes through, per-boomerang cooldown
-  if(GS.boomerangs)for(const b of GS.boomerangs){ if(!b||b._remote||b._enemy) continue; b._mpCd=(b._mpCd||0)-1; if(b._mpCd>0)continue; const r=near(b.wx,b.y,b.wz,(_R+4),70); if(r){ b._mpCd=30; fx(b.wx,b.wz); _hit(r,(b.dmg||2)); } }   // skip _enemy (bot) blades — they route their own attributed hits in Boomerang.update
+  if(GS.boomerangs)for(const b of GS.boomerangs){ if(!b||b._remote||b._enemy) continue; b._mpCd=(b._mpCd||0)-1; if(b._mpCd>0)continue; const r=near(b.wx,b.y,b.wz,(_R+4),70); if(r){ b._mpCd=30; fx(b.wx,b.wz); const _bvl=Math.hypot(b.vx||0,b.vz||0)||1; _hit(r,(b.dmg||2),{knock:1,px:(b.vx||0)/_bvl,pz:(b.vz||0)/_bvl,mag:10,lift:190,stun:12}); } }   // skip _enemy (bot) blades — they route their own attributed hits in Boomerang.update; blade shove rides the spin direction
   // AoE (mine) — nuke / quake / singularity: ticking damage while a remote is in radius. Damage brought in line with PvE
   // (was ~10x too low -> nukes/quakes felt like they did nothing to the other player).
   const AOE=[[GS.nukes,(window._NUKE_PVP_R||300),(window._NUKE_PVP_DMG||14),(window._NUKE_PVP_T||1.6),{knock:1,mag:(window._MP_NUKE_KB||28),lift:(window._MP_NUKE_LIFT||560),stun:30,blast:1}],   // a nuke SENDS you flying, PvE-style
@@ -43779,10 +43825,17 @@ function _mpVersusHit(){
       const _dx=r.x-wx,_dz=r.z-wz,_dl=Math.hypot(_dx,_dz)||1; _hit(r,dmg,kb?Object.assign({px:_dx/_dl,pz:_dz/_dl},kb):undefined); } } }   // fling direction = radially OUT of the blast
   // melee — one hit per swing per target, with knockback (home-run launch)
   const ud=player.model&&player.model.userData; const swinging=!!(ud&&(ud._meleeTimer>0||ud._swActive))||((window._procMeleeT||0)>0);
-  if(swinging){ if(!player._mpMeleeHit)player._mpMeleeHit={}; const r=near(player.wx,(player.py||0)+10,player.wz,(window._MP_MELEE_R||54),90);
+  if(swinging){ if(!player._mpMeleeHit)player._mpMeleeHit={}; let r=near(player.wx,(player.py||0)+10,player.wz,(window._MP_MELEE_R||54),90);
+    if(r&&r.id!==undefined)r=null;   // PILOTS are now hit by the real blade-segment sweep in the melee resolve (per-weapon reach) — this body-radius fallback only covers their summon puppets
     const _mk=(r&&r.id!==undefined)?r.id:(r?('a'+r.owner+'#'+r.slot):null);
     if(r && !player._mpMeleeHit[_mk]){ player._mpMeleeHit[_mk]=1; const dx=r.x-player.wx, dz=r.z-player.wz, m=Math.hypot(dx,dz)||1; fx(r.x,r.z,[1,0.7,0.3]); if(typeof addTrauma==='function')addTrauma(0.08); _hit(r,(window._MP_MELEE_DMG||6),{knock:1,px:dx/m,pz:dz/m,mag:(window._MP_MELEE_KB_MAG||26),lift:(window._MP_MELEE_LIFT||400),stun:24}); } }   // the melee HOME-RUN send — real launch magnitude, not just a lift number the old handler ignored
   else player._mpMeleeHit=null;
+  // BODY-CONTACT MOVES — slide tackle / ball-mode ram connect on the other pilot too (same shove-launch as PvE contact)
+  const _bodyAtk=(player._sliding&&Math.hypot(player.vx||0,player.vz||0)>60)||(player._ballActive&&Math.hypot(player.vx||0,player.vz||0)>240);
+  if(_bodyAtk){ if(!player._mpBodyCd)player._mpBodyCd={}; const rb=near(player.wx,(player.py||0)+8,player.wz,(window._MP_BODY_R||44),70);
+    const _bk=(rb&&rb.id!==undefined)?rb.id:(rb?('a'+rb.owner+'#'+rb.slot):null); const _nw=(typeof performance!=='undefined'?performance.now():0);
+    if(rb && _nw-(player._mpBodyCd[_bk]||0)>(window._MP_BODY_CD||700)){ player._mpBodyCd[_bk]=_nw; const dx=rb.x-player.wx, dz=rb.z-player.wz, m=Math.hypot(dx,dz)||1; fx(rb.x,rb.z,[0.4,0.9,1]); if(typeof addTrauma==='function')addTrauma(0.1);
+      _hit(rb,(window._MP_BODY_DMG||3),{knock:1,px:dx/m,pz:dz/m,mag:(window._MP_BODY_MAG||16),lift:(window._MP_BODY_LIFT||300),stun:20}); } }
 }
 // ── Broadcast our state every 50ms ──
 let _mpTick=0;
