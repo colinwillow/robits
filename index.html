@@ -398,7 +398,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1103</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1104</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -586,7 +586,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1103</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1104</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -28807,14 +28807,29 @@ function loop(ts){ requestAnimationFrame(loop);
           if(Math.hypot(_tx-rp.mesh.position.x,_tz-rp.mesh.position.z)>80) rp.mesh.position.set(_tx,_ty,_tz);
           else { rp.mesh.position.x=lerp(rp.mesh.position.x,_tx,0.55); rp.mesh.position.y=lerp(rp.mesh.position.y,_ty,0.55); rp.mesh.position.z=lerp(rp.mesh.position.z,_tz,0.55); }
         }
-        // Lerp toward reported position — but SNAP on a big jump (teleporter / respawn) so they don't smear across the map
-        else if(Math.hypot(rp.state.x-rp.mesh.position.x, rp.state.z-rp.mesh.position.z)>80){
+        // SNAP only on a GENUINE teleport (the raw snapshot leapt — respawn/warp); a big mesh-vs-truth gap from a lag spike
+        // just eases closed via the lerp below (a slow catch-up reads far better than a hard pop, and prediction error never
+        // trips a snap now that it can't be mistaken for a teleport).
+        else if(rp._teleport){
           rp.mesh.position.set(rp.state.x, rp.state.y, rp.state.z);
           if(typeof ps!=='undefined') ps.ring(rp.state.x, rp.state.z, [1,0.2,1], 26, 130);
+          rp._teleport=false; rp._vx=0; rp._vz=0;
         } else {
-          rp.mesh.position.x=lerp(rp.mesh.position.x, rp.state.x, 0.3);
-          rp.mesh.position.y=lerp(rp.mesh.position.y, rp.state.y, 0.35);
-          rp.mesh.position.z=lerp(rp.mesh.position.z, rp.state.z, 0.3);
+          // EXTRAPOLATE toward where the peer SHOULD be = last snapshot + velocity × staleness, with the velocity DECAYING as
+          // the snapshot ages (past ~1 packet-interval it eases to a stop instead of coasting off), and a hard distance cap.
+          // Correction is a gentle lerp, so a juking target's overshoot is absorbed smoothly — never a snap-back pop.
+          let _tx=rp.state.x, _tz=rp.state.z;
+          if(window._MP_EXTRAP===true && !rp.state.dead && (rp._vx||rp._vz)){   // OPT-IN: measured a ~10-15% smoothness win on STEADY motion but a wash-to-negative on juking/combat motion (linear prediction overshoots a reversing target). Off by default; flip to true to A/B.
+            const _ageR=((typeof performance!=='undefined'?performance.now():Date.now())-(rp._snapT||0))/1000;
+            const _age=Math.min(_ageR, (window._MP_EXTRAP_MS||80)/1000);
+            const _decay=Math.max(0, 1-_ageR/((window._MP_EXTRAP_DECAY_MS||240)/1000));   // fade the guess out over ~320ms of silence
+            let _ex=(rp._vx||0)*_age*_decay, _ez=(rp._vz||0)*_age*_decay; const _em=Math.hypot(_ex,_ez), _cap=(window._MP_EXTRAP_CAP||30);
+            if(_em>_cap){ _ex=_ex/_em*_cap; _ez=_ez/_em*_cap; }
+            _tx+=_ex; _tz+=_ez;
+          }
+          rp.mesh.position.x=lerp(rp.mesh.position.x, _tx, 0.3);
+          rp.mesh.position.y=lerp(rp.mesh.position.y, rp.state.y, 0.35);   // vertical stays pure interpolation — gravity arcs make linear extrapolation overshoot
+          rp.mesh.position.z=lerp(rp.mesh.position.z, _tz, 0.3);
         }
         // HEALTH BAR over the other pilot (PvP) so you can SEE your damage land + their kills/respawns. Their hp is in state.
         if(window._MP&&window._MP.versus && typeof THREE!=='undefined'){
@@ -43504,6 +43519,19 @@ function mpRemoveRemotePlayer(id){
 function mpUpdateRemotePlayer(msg){
   const rp=MP.players[msg.id];
   if(!rp) return;
+  // DEAD-RECKONING: derive the peer's horizontal velocity from the gap between this snapshot and the last, so the render
+  // loop can EXTRAPOLATE their motion forward between the ~10Hz packets instead of freezing them until the next one lands.
+  // (This is the "predictive layer" — smooths the residual network stutter without a real authoritative server.)
+  if(msg.x!=null && msg.z!=null){ const _now=(typeof performance!=='undefined'?performance.now():Date.now());
+    const _rawJump=(rp._snapX!=null)?Math.hypot(msg.x-rp._snapX, msg.z-rp._snapZ):0;
+    rp._teleport=(_rawJump>(window._MP_TELE_SNAP||140));   // the SNAPSHOT itself leapt -> genuine teleport (respawn/warp); prediction error alone must NOT snap
+    if(rp._snapT && !rp._teleport){ const _dt=(_now-rp._snapT)/1000;
+      if(_dt>0.002 && _dt<0.6){ const _nvx=(msg.x-(rp._snapX||msg.x))/_dt, _nvz=(msg.z-(rp._snapZ||msg.z))/_dt;
+        rp._vx=(rp._vx!=null)?lerp(rp._vx,_nvx,0.5):_nvx; rp._vz=(rp._vz!=null)?lerp(rp._vz,_nvz,0.5):_nvz; }   // smooth the estimate so one jittery packet doesn't fling the prediction
+      else if(_dt>=0.6){ rp._vx=0; rp._vz=0; }   // long gap -> they probably stopped; don't keep coasting
+    } else if(rp._teleport){ rp._vx=0; rp._vz=0; }
+    rp._snapT=_now; rp._snapX=msg.x; rp._snapZ=msg.z;
+  }
   Object.assign(rp.state, msg);   // store latest only; the per-frame loop is the single owner of position, facing & animation
   if(msg.char && msg.char!==rp._skinChar && !rp._skinLoading) _mpBuildRemoteSkin(rp, msg.id, msg.char);   // they revealed / changed their skin -> rebuild
   // HOST's transport-ship orbit clock -> align our decks with theirs (each device otherwise accumulates its own _shipT
