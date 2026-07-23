@@ -409,7 +409,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1114</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1115</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -597,7 +597,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1114</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1115</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -12932,6 +12932,58 @@ function _hurtFlash(a){
 window._hurtFlash=_hurtFlash;
 const dmgVig=document.getElementById('dmg-vig');
 function dmgFlash(){ dmgVig.style.opacity='1';setTimeout(()=>dmgVig.style.opacity='0',240); }
+
+// ══ LOW-HEALTH FEEDBACK + SHIELD-STYLE REGEN ═══════════════════════════════════════════════════════
+// CoD/Halo model: when you STAY OUT OF HARM'S WAY your bits regenerate back up to a "shield" floor
+// (half the bar by default — the deeper health you lost stays lost until you scavenge bits). While you're
+// LOW, a red fog vignette creeps in from the edges + your view blurs + a heartbeat thumps (faster the lower
+// you drop). ANY damage resets the regen clock. All tunables live on window._HP_* / window._HB_* .
+let _lowVigEl=null, _lowBlurEl=null;
+function _ensureLowVig(){
+  if(!_lowVigEl){ _lowVigEl=document.createElement('div'); _lowVigEl.id='lowhp-vig';
+    _lowVigEl.style.cssText='position:fixed;inset:0;z-index:94;pointer-events:none;opacity:0;background:radial-gradient(ellipse at 50% 54%,transparent 30%,rgba(130,0,0,0.16) 60%,rgba(58,0,0,0.74) 110%)';
+    document.body.appendChild(_lowVigEl); }
+  if(!_lowBlurEl && window._HP_LOW_BLUR!==false){
+    const _st=document.documentElement.style; if(('backdropFilter' in _st)||('webkitBackdropFilter' in _st)){
+      _lowBlurEl=document.createElement('div'); _lowBlurEl.id='lowhp-blur';
+      const _m='radial-gradient(ellipse at 50% 54%, transparent 44%, #000 98%)';   // sharp centre, blurred edges (peripheral-vision blur, not a full-screen smear)
+      _lowBlurEl.style.cssText='position:fixed;inset:0;z-index:93;pointer-events:none;opacity:0;backdrop-filter:blur('+(window._HP_LOW_BLUR_PX||4)+'px);-webkit-backdrop-filter:blur('+(window._HP_LOW_BLUR_PX||4)+'px);-webkit-mask:'+_m+';mask:'+_m;
+      document.body.appendChild(_lowBlurEl); } }
+}
+function _setLowVig(op){ _ensureLowVig(); const o=Math.max(0,Math.min(1,op)); if(_lowVigEl){ _lowVigEl.style.transition='none'; _lowVigEl.style.opacity=String(o); } if(_lowBlurEl){ _lowBlurEl.style.transition='none'; _lowBlurEl.style.opacity=String(Math.min(0.9,o)); } }
+function _hideLowVig(){ _ensureLowVig(); if(_lowVigEl){ _lowVigEl.style.transition='opacity .55s ease'; _lowVigEl.style.opacity='0'; } if(_lowBlurEl){ _lowBlurEl.style.transition='opacity .55s ease'; _lowBlurEl.style.opacity='0'; } }
+function _heartbeatThump(v){ try{ if(typeof Audio==='undefined'||!Audio.blip)return; const _v=(v!=null?v:0.5)*(window._HB_VOL!=null?window._HB_VOL:0.7);
+  Audio.blip((window._HB_FREQ||58),0.11,'sine',_v,60); setTimeout(()=>{ try{ Audio.blip((window._HB_FREQ||58)*0.8,0.14,'sine',_v*0.78,52); }catch(_){} }, (window._HB_DUB_MS||150)); }catch(_){} }   // lub-dub
+window._onPlayerDamaged=function(){ try{ if(typeof player!=='undefined'&&player){ player._noHitT=0; player._regenAcc=0; } }catch(_){} };   // ANY real hit resets the regen delay
+window._healthRegenTick=function(dt){
+  try{
+    if(typeof GS==='undefined'||!GS||GS.state!=='playing'||typeof player==='undefined'||!player||player.alive===false||player._deathSeq||!(GS.maxHp>0)){ if(player&&player._lowWasActive){ _hideLowVig(); player._lowWasActive=false; player._hbPhase=0; } return; }
+    const mx=GS.maxHp, hp=GS.hp||0, frac=Math.max(0,Math.min(1,hp/mx));
+    // ── SHIELD-STYLE REGEN: after a quiet spell, bits creep back UP TO the floor (never past it, never pulls you down) ──
+    player._noHitT=(player._noHitT||0)+dt;
+    if(window._HP_REGEN!==false){
+      const floor=Math.max(1,Math.round(mx*(window._HP_REGEN_FLOOR!=null?window._HP_REGEN_FLOOR:0.5)));
+      if(hp>0 && hp<floor && player._noHitT>=(window._HP_REGEN_DELAY!=null?window._HP_REGEN_DELAY:3.5)){
+        player._regenAcc=(player._regenAcc||0)+dt*(window._HP_REGEN_RATE!=null?window._HP_REGEN_RATE:1.6);
+        if(player._regenAcc>=1){ const add=Math.floor(player._regenAcc); player._regenAcc-=add; GS.hp=Math.min(floor,hp+add);
+          if(typeof updateUI==='function')try{updateUI();}catch(_){}
+          if(window._HP_REGEN_TICK_SFX!==false && typeof Audio!=='undefined'&&Audio.blip){ try{ Audio.blip(940,0.03,'sine',0.05,1500); }catch(_){} } }
+      } else if(hp>=floor){ player._regenAcc=0; }
+    }
+    // ── LOW-HEALTH: heartbeat (faster the lower you are) + creeping red fog / peripheral blur ──
+    const lowFrac=(window._HP_LOW_FRAC!=null?window._HP_LOW_FRAC:0.32);
+    if(frac<=lowFrac && hp>0){
+      const sev=Math.max(0,Math.min(1,1-(frac/lowFrac)));                              // 0 at the threshold -> 1 at death's door
+      const bps=(window._HB_MIN_BPS!=null?window._HB_MIN_BPS:1.0)+sev*((window._HB_MAX_BPS!=null?window._HB_MAX_BPS:2.1)-(window._HB_MIN_BPS!=null?window._HB_MIN_BPS:1.0));   // beats/sec
+      const prev=player._hbPhase||0, ph=prev+dt*bps;
+      if(Math.floor(ph)>Math.floor(prev)){ _heartbeatThump(0.4+sev*0.6); if(navigator.vibrate&&window._HB_VIBRATE!==false){ try{navigator.vibrate(16);}catch(_){} } }
+      player._hbPhase=ph;
+      const beatFr=ph-Math.floor(ph), pulse=Math.exp(-beatFr*(window._HB_DECAY||4.5));  // sharp thump on the beat, quick decay
+      const base=(window._HP_LOW_VIG_BASE!=null?window._HP_LOW_VIG_BASE:0.2)+sev*0.48, amp=0.1+sev*0.22;
+      _setLowVig(base+pulse*amp); player._lowWasActive=true;
+    } else if(player._lowWasActive){ _hideLowVig(); player._lowWasActive=false; player._hbPhase=0; }
+  }catch(_){}
+};
 const annEl=document.getElementById('announce');let annT=null;
 function announce(text,color){ annEl.textContent=text;annEl.style.color=color||'#fff';annEl.style.textShadow=`0 0 28px ${color||'#fff'}`;
   annEl.style.transition='none';annEl.style.opacity='1';annEl.style.transform='translate(-50%,-50%) scale(1.4)';
@@ -25435,7 +25487,7 @@ function playerDie(dmg=1, col='#ff4444', kind){
   if(typeof _hurtFlash==='function')try{ _hurtFlash(window._HURT_FLASH_A!=null?window._HURT_FLASH_A:0.6); }catch(_){}
   if(typeof ps!=='undefined'&&ps.spark)for(let _hs=0;_hs<6;_hs++)ps.spark(player.wx+rand(-9,9),player.wz+rand(-9,9),[1,0.45,0.35],(player.py||0)+12);
   if(navigator.vibrate){ try{ navigator.vibrate(45); }catch(e){} }
-  { const _bl=Math.max(1,Math.round(_unitDmg(dmg))); GS.hp-=_unitDmg(dmg); try{ if(window._HEALTH_BITS===true)_spawnHealthBits(player.wx,(player.py||0)+18,player.wz,_bl,{}); }catch(_){} }   // POP health bits out of YOU per block of damage taken (rivals can scavenge them)
+  { const _bl=Math.max(1,Math.round(_unitDmg(dmg))); GS.hp-=_unitDmg(dmg); try{ if(window._onPlayerDamaged)window._onPlayerDamaged(); }catch(_){} try{ if(window._HEALTH_BITS===true)_spawnHealthBits(player.wx,(player.py||0)+18,player.wz,_bl,{}); }catch(_){} }   // POP health bits out of YOU per block of damage taken (rivals can scavenge them) + reset the shield-regen clock
   if(GS.hp<=0){
     // Lost a life
     try{ if(window._HEALTH_BITS===true)_spawnHealthBits(player.wx,(player.py||0)+20,player.wz,(window._BIT_DEATH_N||12),{spread:(window._BIT_DEATH_SPREAD||300),up:(window._BIT_DEATH_UP||260),noGrab:0.9}); }catch(_){}   // DEATH: your bits burst out all over (Sonic-style) for others to scavenge
@@ -28816,6 +28868,7 @@ function loop(ts){ requestAnimationFrame(loop);
         try{ if(_grabItem(true)) player._slideGrabCD=(window._SLIDE_PICKUP_CD||0.6); }catch(_){}   // fromSlide=true -> powerups/weapons get picked up, crates/barrels get BUSTED open
       }
       if(typeof window._barrelTick==='function')window._barrelTick(dt);
+      if(typeof window._healthRegenTick==='function')window._healthRegenTick(dt);   // shield-style bit regen + low-HP heartbeat/fog
       if(IS_TOUCH&&player){
         // DROP button: only shown when you're actually HOLDING something you could set down — a carried object (bomb/drone/dog/
         // crate/…), a melee weapon in hand, or a throwable gun. No held item -> no button (no more ever-present stale button).
@@ -43871,7 +43924,7 @@ function mpTakeDamage(dmg, byId, px, pz){
     try{ const kn=(byId&&typeof _mpNameColorFor==='function')?_mpNameColorFor(byId).name:null; announce&&announce(kn?('FRAGGED BY '+String(kn).toUpperCase()):'FRAGGED!','#ff4455'); }catch(_){}
     try{ if(window._HEALTH_BITS===true&&typeof _spawnHealthBits==='function'){ const _dn=(window._BIT_DEATH_N||12); _spawnHealthBits(player.wx,(player.py||0)+16,player.wz,_dn,{spread:1.6}); mpSend('event',{event:'fx',data:{k:'bits',x:player.wx,y:(player.py||0)+16,z:player.wz,n:_dn,sp:1.6}}); } }catch(_){}   // death = the big bit explosion, on BOTH screens
     _mpDeathCinematic(byId); return; }   // shatter -> hold on the wreckage -> camera pans to spawn -> beam-in (was an instant teleport that read as "I glitched")
-  GS.hp-=_md; updateUI&&updateUI();
+  GS.hp-=_md; try{ if(window._onPlayerDamaged)window._onPlayerDamaged(); }catch(_){} updateUI&&updateUI();
   // NUTS & BOLTS: cross-wire damage crumbles bits off you just like PvE damage (it skipped the playerDie path that
   // spawns them), and the scatter is broadcast so the ATTACKER sees your bits fly on their screen too.
   try{ if(window._HEALTH_BITS===true&&typeof _spawnHealthBits==='function'){ const _bn=Math.max(1,Math.round(_md)); _spawnHealthBits(player.wx,(player.py||0)+18,player.wz,_bn,{}); mpSend('event',{event:'fx',data:{k:'bits',x:player.wx,y:(player.py||0)+18,z:player.wz,n:_bn}}); } }catch(_){}
