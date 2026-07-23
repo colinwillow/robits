@@ -409,7 +409,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1130</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1131</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -597,7 +597,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1130</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1131</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -20773,7 +20773,17 @@ function _matchCountdown(guard){   // GENERIC 3-2-1-FIGHT (freezes input via GS.
   // frames don't hitch — shader compilation on an effect's first render is the biggest cause of the "slow first 20-30s" ramp.
   // A second pass ~1.4s later catches the async-loaded transport ships + bot skins that land after the count begins.
   if(window._MATCH_WARMUP!==false){ try{ if(typeof renderer!=='undefined'&&renderer&&renderer.compile&&typeof scene!=='undefined'&&scene&&typeof camera!=='undefined'){
+    // Also warm the SHARED combat-effect material programs (bullets + their glow tails) that spawn mid-match and
+    // otherwise compile lazily on the first shot (the profiled getProgramInfoLog/setProgram hitch). We drop one hidden
+    // prototype mesh per shared material into the scene just for the compile() traversal — compile() draws no pixels,
+    // so there's no on-screen artifact — then remove them. Programs are cached by material params, so the real bullets hit a warm cache.
+    let _warmG=null;
+    try{ if(typeof bulletMats!=='undefined'){ _warmG=new THREE.Group();
+      for(const _k in bulletMats){ if(bulletMats[_k]&&typeof bulletGeo!=='undefined') _warmG.add(new THREE.Mesh(bulletGeo,bulletMats[_k])); }
+      if(typeof bulletTailMats!=='undefined')for(const _k in bulletTailMats){ if(bulletTailMats[_k]&&typeof bulletTailGeo!=='undefined') _warmG.add(new THREE.Mesh(bulletTailGeo,bulletTailMats[_k])); }
+      _warmG.position.set(0,-99999,0); scene.add(_warmG); } }catch(_){}
     renderer.compile(scene,camera);
+    try{ if(_warmG){ scene.remove(_warmG); _warmG.traverse(o=>{ if(o.geometry&&o.geometry!==bulletGeo&&o.geometry!==bulletTailGeo)try{o.geometry.dispose();}catch(_){} }); } }catch(_){}
     setTimeout(()=>{ try{ if(GS&&(GS.state==='countdown'||GS.state==='playing'))renderer.compile(scene,camera); }catch(_){} }, (window._WARMUP_COMPILE_MS||1400)); } }catch(_){} }
   let count=3;
   const cd=document.createElement('div');
@@ -29712,13 +29722,18 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS_victoryFX) GS_victoryFX.update(dt);
 
       GS.displayScore+=(GS.score-GS.displayScore)*0.2;
-      document.getElementById('score-display').textContent=Math.round(GS.displayScore).toLocaleString();
-      document.getElementById('mult-val').textContent='×'+GS.mult;
-      document.getElementById('mult-val').style.transform=`scale(${1+(GS.multT/GS.multMax)*0.15})`;
-      document.getElementById('od-fill').style.width=(GS.odActive>0?(GS.odActive/420*100):(GS.od/GS.odMax*100))+'%';
-      document.getElementById('dash-fill').style.width=(player.dash>=1?100:(1-player.dashCD/80)*100)+'%';
-      document.getElementById('dash-fill').style.background=player.dash>=1?'#00d9ff':'#00d9ff66';
-      document.getElementById('zone-display').textContent=getZoneDef(GS.zone).name;
+      // HUD writes: cache element refs once + only touch the DOM when a value actually changed. Writing the same
+      // textContent/style every frame still marks style/layout dirty on some engines; guarding keeps the steady-state
+      // HUD cost at ~0 and avoids per-frame getElementById churn. window._HUD_DIFF=false to A/B it off.
+      { let _H=loop._hud; if(!_H||_H._scoreEl!==document.getElementById('score-display')){ _H=loop._hud={ _scoreEl:document.getElementById('score-display'), mult:document.getElementById('mult-val'), od:document.getElementById('od-fill'), dash:document.getElementById('dash-fill'), zone:document.getElementById('zone-display') }; loop._hudPrev={}; }
+        const _p=loop._hudPrev, _diff=(window._HUD_DIFF!==false);
+        const _sc=Math.round(GS.displayScore).toLocaleString(); if(_H._scoreEl&&(!_diff||_p.score!==_sc)){ _p.score=_sc; _H._scoreEl.textContent=_sc; }
+        const _mv='×'+GS.mult; if(_H.mult&&(!_diff||_p.mult!==_mv)){ _p.mult=_mv; _H.mult.textContent=_mv; }
+        const _mt='scale('+(1+(GS.multT/GS.multMax)*0.15).toFixed(3)+')'; if(_H.mult&&(!_diff||_p.mtf!==_mt)){ _p.mtf=_mt; _H.mult.style.transform=_mt; }
+        const _ow=((GS.odActive>0?(GS.odActive/420*100):(GS.od/GS.odMax*100)).toFixed(1))+'%'; if(_H.od&&(!_diff||_p.odw!==_ow)){ _p.odw=_ow; _H.od.style.width=_ow; }
+        const _dw=(player.dash>=1?100:((1-player.dashCD/80)*100).toFixed(1))+'%'; if(_H.dash&&(!_diff||_p.dw!==_dw)){ _p.dw=_dw; _H.dash.style.width=_dw; }
+        const _db=player.dash>=1?'#00d9ff':'#00d9ff66'; if(_H.dash&&(!_diff||_p.db!==_db)){ _p.db=_db; _H.dash.style.background=_db; }
+        const _zn=getZoneDef(GS.zone).name; if(_H.zone&&(!_diff||_p.zn!==_zn)){ _p.zn=_zn; _H.zone.textContent=_zn; } }
     }
     // Dynamic fog — shifts toward zone glow color
     if((GS.state==='playing'||GS.state==='zoneTransition')&&scene.fog){   // THE STAGE runs fogless — without the guard this line threw every frame, and the catch-all fallback render below uses the COMPOSER, silently defeating the stage's direct-render bypass (opaque + bloom = the 'lit super weird' backdrop)
