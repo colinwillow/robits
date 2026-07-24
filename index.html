@@ -422,7 +422,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1147</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1148</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -624,7 +624,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1147</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1148</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -1841,8 +1841,15 @@ const playerLight=new THREE.PointLight(0x00ffc8,1.2,400,2); scene.add(playerLigh
 const CAM={ yaw:0, tyaw:0, pitch:0, tpitch:0, dist:230, height:200, trauma:0,
   focus:new THREE.Vector3(), tfocus:new THREE.Vector3(), zoom:0, tzoom:0,
   aimMode:false }; // aimMode = 3D free-look bomb throw
-function addTrauma(t){ CAM.trauma=clamp(CAM.trauma+t,0,1); }
-function punchZoom(z){ CAM.tzoom=z; }
+// ── CINEMATIC INTENSITY ── one master dial that scales EVERY existing hit/explosion/KO feedback so the game reads bigger & more
+//    dramatic as a single turned-up system: camera shake (which cascades into screen chroma automatically), camera punch-zoom,
+//    hit-stop freeze frames, and slow-mo depth + duration. Each channel has a baked base multiplier; window._CINE is a master
+//    scalar on top of all of them (default 1). Set window._CINE=1 for baked feel, higher to crank, or override any single channel
+//    (window._CINE_SHAKE / _ZOOM / _FREEZE / _SLOW / _SLOWHOLD / _SHAKEAMP). Set window._CINE=0.7 to tone the whole thing down.
+const _CINE_BASE={ SHAKE:1.42, ZOOM:1.22, FREEZE:1.35, SLOW:1.16, SLOWHOLD:1.35, SHAKEAMP:1.3 };
+function _cine(ch){ const o=window['_CINE_'+ch]; if(typeof o==='number')return o; return (_CINE_BASE[ch]||1)*(typeof window._CINE==='number'?window._CINE:1); }
+function addTrauma(t){ CAM.trauma=clamp(CAM.trauma+t*_cine('SHAKE'),0,1); }
+function punchZoom(z){ CAM.tzoom=z*_cine('ZOOM'); }
 // ── CAMERA MODE BLEND — ease between ball / enemy / regular cams instead of popping. Captured on toggle, applied just before render.
 const _camFx={active:false,t:0,dur:0.42,p0:new THREE.Vector3(),q0:new THREE.Quaternion(),_tp:new THREE.Vector3(),_tq:new THREE.Quaternion()};
 function _camFxBegin(){ try{ if(typeof camera==='undefined'||!camera)return; _camFx.active=true; _camFx.t=0; _camFx.dur=(window._CAM_BLEND_DUR||0.42); _camFx.p0.copy(camera.position); _camFx.q0.copy(camera.quaternion); }catch(_){} }
@@ -1958,7 +1965,7 @@ function updateCamera(dt){
   const cz=CAM.focus.z+Math.cos(CAM.yaw)*d;
   // GS._gfCamF (eased 0..1 gravity-flip factor) is computed in the main loop BEFORE updateCamera so it's available to BOTH this normal path and the boots/wall-walk path (which early-returns above). The view roll is applied universally AFTER updateCamera.
   const cy=CAM.focus.y+(CAM.height*heightMult-CAM.zoom*20)*(1-2*(GS._gfCamF||0));   // flipped: offset moves to the other (world-down) side so the camera sits "above" the ceiling-floor and pitches down
-  const sh=CAM.trauma*CAM.trauma*0.5, t=performance.now()*0.05;
+  const sh=CAM.trauma*CAM.trauma*0.5*_cine('SHAKEAMP'), t=performance.now()*0.05;   // SHAKEAMP gives headroom past the trauma clamp so the biggest hits kick harder
   const shX=(Math.sin(t*1.7)+Math.sin(t*3.3))*0.5*sh*14;
   const shY=(Math.sin(t*2.1)+Math.sin(t*4.7))*0.5*sh*14;
   const aheadX=CAM.tfocus.x-Math.sin(CAM.yaw)*lookAheadDist;
@@ -2057,8 +2064,8 @@ window._stageFrameSync=function(dt){ try{
 // ── TIME DILATION ──
 const TIME={scale:1,target:1,freeze:0,hold:0};
 function _timeFXoff(){ return (typeof GS!=='undefined') && (GS.zone===-11 || GS.odActive>0 || (typeof MP!=='undefined' && MP.active && window._MP_SLOWMO!==true)); }  // no slow-mo in asset room, overdrive, or MULTIPLAYER — a hit/explosion slowing down the OTHER player's game reads as "someone is lagging me". SP self-explosions keep it. window._MP_SLOWMO=true to allow.
-function hitStop(f){ if(_timeFXoff()) return; TIME.freeze=Math.max(TIME.freeze,f); }
-function slowmo(s,h){ if(_timeFXoff()) return; TIME.target=s; TIME.hold=h; }
+function hitStop(f){ if(_timeFXoff()) return; TIME.freeze=Math.max(TIME.freeze,Math.round(f*_cine('FREEZE'))); }
+function slowmo(s,h){ if(_timeFXoff()) return; TIME.target=Math.max(0.04, s/_cine('SLOW')); TIME.hold=Math.round(h*_cine('SLOWHOLD')); }
 window._spawnSpidersNearPlayer=(n=6)=>{   // DEBUG: spawn spiders in a radius around the player AT the player's height -> up on the platform if you're up there, on the floor if you're down
   if(typeof Crawler==='undefined'||typeof player==='undefined'||!player) return;
   const R=(window._DBG_SPIDER_R||80), py=(player.py||0), onDeck=(py>20), CAP=(window._ENEMY_CAP||60);
@@ -2159,7 +2166,7 @@ const Audio={
     try{ if(navigator.audioSession) navigator.audioSession.type='playback'; }catch(_){}
     this.master=this.ctx.createGain(); this.master.gain.value=0.85; this.master.connect(this.ctx.destination);
     this.musicGain=this.ctx.createGain(); this.musicGain.gain.value=0.28; this.musicGain.connect(this.master);
-    this.sfxGain=this.ctx.createGain(); this.sfxGain.gain.value=0.55; this.sfxGain.connect(this.master);
+    this.sfxGain=this.ctx.createGain(); this.sfxGain.gain.value=(typeof window._SFX_GAIN==='number'?window._SFX_GAIN:0.63); this.sfxGain.connect(this.master);   // cinematic: punchier SFX (was 0.55) — impacts/booms hit harder without touching the music bed
     // Reverb for atmosphere
     this._makeReverb();
     // preload sample SFX (laser bullet sounds) — decoded once, then played polyphonically
@@ -12781,7 +12788,7 @@ class Missile{
     ps.burst(this.wx,this.wz,[1,0.55,0.15],(window._ROCKET_BURST_N||26),BLAST*0.95,this.y);
     ps.ring(this.wx,this.wz,[1,0.8,0.3],12,BLAST*1.1,this.y);
     ps.ring(this.wx,this.wz,[1,1,1],10,BLAST*0.7,this.y+2);   // bright inner flash
-    if(typeof _spawnBlastShock==='function')try{ _spawnBlastShock(this.wx,this.y,this.wz, BLAST*(window._ROCKET_SHOCK_R||0.7), 0xff8a2a); }catch(_){}   // shaded shockwave (single mesh) — halved (was 1.4)
+    if(typeof _spawnBlastShock==='function')try{ _spawnBlastShock(this.wx,this.y,this.wz, BLAST*(window._ROCKET_SHOCK_R||0.9), 0xff8a2a); }catch(_){}   // shaded shockwave (single mesh) — cinematic: bigger (0.9, was 0.7)
     if(ps._spawn){
       const _eN=(window._ROCKET_EMBER_N||14);   // white-hot embers thrown up & out — they arc + bounce (particles have gravity) and linger ~1s
       for(let i=0;i<_eN;i++){ const a=rand(TAU), sp=rand(70,220); ps._spawn(this.wx,this.y+2,this.wz, Math.cos(a)*sp, rand(150,340), Math.sin(a)*sp, 1,0.72+rand(0.22),0.3, 0.5+rand(0.5)); }
@@ -16277,7 +16284,7 @@ function _explodeRobitProxy(model, color, baseY){
   const v=new THREE.Vector3(), pts=[]; model.traverse(o=>{ if(o.isBone){ o.getWorldPosition(v); pts.push(v.clone()); } });
   let cx=0,cy=0,cz=0; if(pts.length){ for(const p of pts){ cx+=p.x; cy+=p.y; cz+=p.z; } cx/=pts.length; cy/=pts.length; cz/=pts.length; }
   else { cx=model.position.x; cy=(baseY!=null?baseY:model.position.y)+9; cz=model.position.z; for(let i=0;i<22;i++)pts.push(new THREE.Vector3(cx+rand(-8,8),cy+rand(-12,12),cz+rand(-8,8))); }
-  const N=Math.min(pts.length, window._EXPLODE_SHARDS||28);
+  const N=Math.min(pts.length, window._EXPLODE_SHARDS||36);   // cinematic: more shrapnel on a KO (was 28)
   for(let i=0;i<N;i++){ const p=pts[Math.floor(i*pts.length/N)];
     const s=(window._EXPLODE_SHARD_SZ||2.6)*(0.6+Math.random()*0.9), g=new THREE.BoxGeometry(s,s,s);
     const mesh=new THREE.Mesh(g, new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.92,toneMapped:false}));
@@ -16285,7 +16292,7 @@ function _explodeRobitProxy(model, color, baseY){
     mesh.position.copy(p);
     const dx=p.x-cx, dy=p.y-cy, dz=p.z-cz, dl=Math.hypot(dx,dy,dz)||1, spd=(window._EXPLODE_SPD||120)*(0.6+Math.random()*0.9);
     scene.add(mesh);
-    window._robitShards.push({mesh, vx:(dx/dl)*spd+rand(-26,26), vy:Math.abs(dy/dl)*spd*0.4+(window._EXPLODE_UP||150)+Math.random()*90, vz:(dz/dl)*spd+rand(-26,26), sx:rand(-9,9),sy:rand(-9,9),sz:rand(-9,9), life:0, max:(window._EXPLODE_LIFE||1.2)});
+    window._robitShards.push({mesh, vx:(dx/dl)*spd+rand(-26,26), vy:Math.abs(dy/dl)*spd*0.4+(window._EXPLODE_UP||185)+Math.random()*90, vz:(dz/dl)*spd+rand(-26,26), sx:rand(-9,9),sy:rand(-9,9),sz:rand(-9,9), life:0, max:(window._EXPLODE_LIFE||1.2)});
   }
   return {cx,cy,cz,col};
 }
@@ -16323,7 +16330,7 @@ function _explodeRobit(model, color, baseY){
         let cmat; try{ cmat=new THREE.MeshStandardMaterial({color:col.clone().multiplyScalar(window._EXPLODE_BASE_MUL!=null?window._EXPLODE_BASE_MUL:0.35), emissive:col, emissiveIntensity:(window._EXPLODE_GLOW!=null?window._EXPLODE_GLOW:1.9), roughness:0.45, metalness:0.2, transparent:true, opacity:0.96, side:THREE.DoubleSide, toneMapped:false}); }catch(_){ cmat=new THREE.MeshBasicMaterial({color:col,transparent:true}); }
         const cmsh=new THREE.Mesh(cg,cmat); cmsh.position.set(gx,gy,gz); scene.add(cmsh);
         const dx=gx-cx, dy=gy-cy, dz=gz-cz, dl=Math.hypot(dx,dy,dz)||1, spd=(window._EXPLODE_SPD||120)*(0.7+Math.random()*0.8);
-        window._robitShards.push({mesh:cmsh, vx:(dx/dl)*spd+rand(-22,22), vy:Math.abs(dy/dl)*spd*0.4+(window._EXPLODE_UP||150)+Math.random()*80, vz:(dz/dl)*spd+rand(-22,22), sx:rand(-7,7),sy:rand(-7,7),sz:rand(-7,7), life:0, max:(window._EXPLODE_LIFE||1.4), _chunk:true});
+        window._robitShards.push({mesh:cmsh, vx:(dx/dl)*spd+rand(-22,22), vy:Math.abs(dy/dl)*spd*0.4+(window._EXPLODE_UP||185)+Math.random()*80, vz:(dz/dl)*spd+rand(-22,22), sx:rand(-7,7),sy:rand(-7,7),sz:rand(-7,7), life:0, max:(window._EXPLODE_LIFE||1.4), _chunk:true});
       }
       made=true;
     }
