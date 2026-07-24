@@ -422,7 +422,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1165</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1166</div>
   <!-- TEMP: preview the quantum-core room + jack-in cinematic (remove once the deploy path is decided) -->
   <button id="jackin-test-btn" onclick="try{window._gameMode='rumble';window._limboEnter(function(){try{if(window._startRumble)window._startRumble({stage:-119,rule:'elim',bots:1,stocks:3});else if(window._rumbleStart)window._rumbleStart();}catch(e){}});}catch(e){}" style="position:fixed;left:8px;top:84px;z-index:9999;font:bold 11px monospace;color:#00ffc8;background:#0c1622ee;border:1px solid #00ffc8;border-radius:8px;padding:8px 12px;letter-spacing:1px;pointer-events:all;box-shadow:0 0 14px #00ffc855">⚡ JACK-IN ROOM</button>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
@@ -626,7 +626,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1165</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1166</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -1859,6 +1859,7 @@ function _camFxApply(dt){ if(!_camFx.active)return; _camFx.t+=dt; let k=_camFx.t
 window._camFxBegin=_camFxBegin; window._camFx=_camFx;
 
 function updateCamera(dt){
+  if(player && player._skydive && window._skydiveCam){ if(window._skydiveCam(dt))return; }   // SKYDIVE DEPLOY: the drop-in cinematic owns the camera (behind-and-above chase, slow orbit)
   if(window._arenaPodium && typeof _arenaPodiumCam==='function'){ if(_arenaPodiumCam(dt))return; }   // RESULTS: the floating in-arena podium cinematic owns the camera
   if(window._goalCam && GS.zone===-19 && typeof _goalCamTick==='function'){ if(_goalCamTick(dt))return; }   // ROBIT-BALL goal cinematic owns the camera while a goal celebration plays
   if(player&&player._inPlanetGravity&&(GS.zone===-15||GS.zone===-16)) return;   // lab/city gravity cam owns the camera
@@ -25900,6 +25901,91 @@ function _deathLivesBanner(before, after){
   setTimeout(()=>{ if(el){ el.style.transition='opacity 0.5s'; el.style.opacity='0'; } }, (window._DEATH_BANNER_HIDE||3000));
 }
 window._startDeathSeq=_startDeathSeq; window._deathSeqTick=_deathSeqTick;
+// ══ SKYDIVE DEPLOY ══ Fortnite-style drop-in: at match start you leap off the transport ship and freefall down through glowing
+//   ring gates + cloud puffs onto your spawn pad — camera chasing from behind-and-above with a slow orbit — landing with an
+//   impact as FIGHT drops. The LOGICAL player is parked at the landing pad the whole time (frozen + floor-planted, so the physics/
+//   net see a valid spawn); the VISUAL model is flown from the ship down an accelerating fall path in _skydiveModelPose (runs AFTER
+//   player.draw, like the death-beam descent, so the floor-snap can't fight it), and _skydiveCam owns the camera (early-return in
+//   updateCamera). SP only by default (MP would see you standing on the pad — opt in with _SKYDIVE_MP). window._SKYDIVE=false off.
+function _skyEaseIO(k){ k=k<0?0:k>1?1:k; return k*k*(3-2*k); }
+window._skydiveStart=function(origin){ try{
+  if(window._SKYDIVE===false || typeof player==='undefined' || !player)return false;
+  if(!window._platformArena)return false;                                        // transport ships / open void only
+  if(typeof MP!=='undefined'&&MP&&MP.active&&window._SKYDIVE_MP!==true)return false;
+  const O=origin||{x:player.wx,y:(player.model?player.model.position.y:9+(player.py||0)),z:player.wz};
+  // LANDING TARGET — the disc spawn pad nearest the ship (natural inward descent); fall back to a point on the disc.
+  let tx=0,tz=0,ty=(window._PLATFORM_Y||0);
+  const pads=window._cubeSpawnPads;
+  if(pads&&pads.length){ let best=null,bd=1e18; for(const p of pads){ const d=(p.x-O.x)*(p.x-O.x)+(p.z-O.z)*(p.z-O.z); if(d<bd){bd=d;best=p;} } if(best){ tx=best.x; tz=best.z; if(best.y!=null)ty=best.y; } }
+  else { const r=(window._SKY_LAND_R||160), a=Math.atan2(O.z,O.x); tx=Math.cos(a)*r; tz=Math.sin(a)*r; }
+  // DROP START — the transport ships orbit FAR out (~5x the arena) but only moderately high, so falling straight from the deck is a
+  //   shallow cross-map glide, not a skydive. Instead drop from HIGH directly above the pad, drifted a controlled amount toward the
+  //   ship's bearing so it still reads as an inbound descent. Vertical dominates -> it feels like a fall. _SKY_HEIGHT/_SKY_LATERAL.
+  let dirx=O.x-tx, dirz=O.z-tz; const dl=Math.hypot(dirx,dirz)||1; dirx/=dl; dirz/=dl;
+  const H=(window._SKY_HEIGHT||1500), LAT=(window._SKY_LATERAL||320);
+  const x0=tx+dirx*LAT, z0=tz+dirz*LAT, y0=Math.max(O.y, ty+H);
+  const S={ t:0, dur:(window._SKY_DUR||2.7), x0, y0, z0, tx, tz, ty, myEnd:9+ty, k:0, mx:x0, my:y0, mz:z0, rings:[], _camOrb:0 };
+  // RING GATES + CLOUD PUFFS strung along the fall path (ring depths follow the accelerating fall so they're evenly spaced in TIME)
+  try{ if(typeof scene!=='undefined'&&typeof THREE!=='undefined'){ const grp=new THREE.Group(); scene.add(grp); S.grp=grp;
+    const NR=(window._SKY_RINGS!=null?window._SKY_RINGS:3), RR=(window._SKY_RING_R||48), COLS=[0x2ff0e0,0xff3df0,0xffc24a];
+    for(let i=0;i<NR;i++){ const f=(i+1)/(NR+1), rk=Math.pow(f,(window._SKY_FALL_POW||1.8));
+      const rx=x0+(tx-x0)*f, rz=z0+(tz-z0)*f, ry=y0+(S.myEnd-y0)*rk, col=COLS[i%3];
+      const ring=new THREE.Mesh(new THREE.TorusGeometry(RR,RR*0.09,10,40), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false}));
+      ring.position.set(rx,ry,rz); ring.rotation.x=Math.PI/2; grp.add(ring); S.rings.push({m:ring,ry,r:RR,passed:false}); }
+    const NP=(window._SKY_PUFFS!=null?window._SKY_PUFFS:5);
+    for(let i=0;i<NP;i++){ const f=0.14+Math.random()*0.72, jx=(Math.random()-0.5)*130, jz=(Math.random()-0.5)*130, jy=(Math.random()-0.5)*70;
+      const pf=new THREE.Mesh(new THREE.SphereGeometry(28+Math.random()*44,10,8), new THREE.MeshBasicMaterial({color:0xbfe8ff,transparent:true,opacity:0.13,blending:THREE.AdditiveBlending,depthWrite:false}));
+      pf.position.set(x0+(tx-x0)*f+jx, y0+(S.myEnd-y0)*Math.pow(f,(window._SKY_FALL_POW||1.8))+jy, z0+(tz-z0)*f+jz); grp.add(pf); }
+  } }catch(_){}
+  try{ if(window._revealShipSeat)window._revealShipSeat(); }catch(_){}                 // model must be visible to skydive it
+  // park the LOGICAL player at the landing pad, frozen + floor-planted + invulnerable through the drop
+  player.wx=tx; player.wz=tz; player.py=ty; player.pvy=0; player.vx=0; player.vz=0; player._onPlatform=true; player._platformY=ty;
+  player._voidCommit=false; player._platVoidAir=false; player._inPlanetGravity=false; player._padWarp=null; player.inv=Math.max(player.inv||0,180);
+  player._skydive=S;
+  try{ if(typeof Audio!=='undefined'){ if(Audio.samples&&Audio.samples['swoosh_01']&&Audio.samples['swoosh_01']!=='pending'&&Audio.playSample)Audio.playSample('swoosh_01',0.55,0.88); else if(Audio.blip)Audio.blip(520,0.5,'sawtooth',0.12,220); } }catch(_){}
+  return true;
+}catch(e){ try{ console.warn('skydiveStart',e); }catch(_){} return false; } };
+window._skydiveTick=function(dt){ const S=player&&player._skydive; if(!S)return;
+  S.t+=dt; const k=Math.min(1,S.t/Math.max(0.001,S.dur)); S.k=k;
+  const eH=_skyEaseIO(Math.min(1,k*1.06)), eV=Math.pow(k,(window._SKY_FALL_POW||1.8));   // horizontal drifts in smoothly; vertical ACCELERATES (freefall)
+  S.mx=S.x0+(S.tx-S.x0)*eH; S.mz=S.z0+(S.tz-S.z0)*eH; S.my=S.y0+(S.myEnd-S.y0)*eV;
+  // keep the logical player planted on the pad + invulnerable
+  player.wx=S.tx; player.wz=S.tz; player.py=S.ty; player.pvy=0; player.vx=0; player.vz=0; player._onPlatform=true; player._platformY=S.ty; player._voidCommit=false; player._platVoidAir=false; player.inv=Math.max(player.inv||0,60);
+  for(const rg of S.rings){ if(!rg.m)continue; rg.m.rotation.z+=dt*1.3;
+    if(!rg.passed && S.my<=rg.ry){ rg.passed=true; try{ rg.m.material.opacity=1; }catch(_){}
+      try{ if(typeof ps!=='undefined'&&ps.ring)ps.ring(S.mx,S.mz,[0.6,0.95,1],rg.r,60); }catch(_){}
+      try{ if(typeof addTrauma==='function')addTrauma(0.06); }catch(_){}
+      try{ if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(760,0.11,'sine',0.1,940); }catch(_){} }
+    else if(rg.passed){ try{ rg.m.material.opacity=Math.max(0,rg.m.material.opacity-dt*1.6); }catch(_){} } }
+  if(k>=1) _skydiveLand(S);
+};
+function _skydiveLand(S){
+  try{ if(typeof addTrauma==='function')addTrauma(window._SKY_LAND_TRAUMA||0.4); }catch(_){}
+  try{ if(typeof ps!=='undefined'&&ps.ring)ps.ring(S.tx,S.tz,[0.7,0.95,1],62,220); }catch(_){}
+  try{ if(typeof ps!=='undefined'&&ps._spawn)for(let i=0;i<26;i++){ const a=Math.random()*TAU, sp=120+Math.random()*180; ps._spawn(S.tx,(S.ty||0)+4,S.tz, Math.cos(a)*sp, 30+Math.random()*60, Math.sin(a)*sp, 0.8,0.95,1, 0.5); } }catch(_){}
+  try{ if(typeof Audio!=='undefined'){ if(Audio.samples&&Audio.samples['metal_clang_02']&&Audio.samples['metal_clang_02']!=='pending'&&Audio.playSample)Audio.playSample('metal_clang_02',0.7,0.9); else if(Audio.blip){ Audio.blip(120,0.2,'square',0.25,80); Audio.blip(420,0.14,'triangle',0.14,220); } } }catch(_){}
+  try{ if(S.grp&&typeof scene!=='undefined'){ scene.remove(S.grp); S.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); } }catch(_){}
+  try{ player.py=S.ty; player.pvy=0; player._onPlatform=true; player._platformY=S.ty; if(player.model)player.model.rotation.set(0,-(player.aim||0)+Math.PI/2,0); }catch(_){}
+  try{ if(player)player._skydive=null; }catch(_){}
+}
+window._skydiveLand=_skydiveLand;
+window._skydiveModelPose=function(){ const S=player&&player._skydive, m=player&&player.model; if(!S||!m)return;
+  m.visible=true; m.position.set(S.mx,S.my,S.mz);
+  let hx=S.tx-S.x0, hz=S.tz-S.z0; if(Math.abs(hx)+Math.abs(hz)<1e-3){hx=0;hz=1;} const yaw=Math.atan2(hx,hz);
+  const lk=(window._SKY_UPRIGHT_K||0.82), up=S.k>lk?Math.min(1,(S.k-lk)/(1-lk)):0, ue=up*up*(3-2*up);   // ease from a forward DIVE to feet-first UPRIGHT in the final stretch
+  const pitch=(1-ue)*(window._SKY_DIVE_PITCH!=null?window._SKY_DIVE_PITCH:1.2);
+  m.rotation.set(pitch, yaw+(window._SKY_YAW_OFF||0), 0);
+};
+window._skydiveCam=function(dt){ const S=player&&player._skydive; if(!S||typeof camera==='undefined')return false;
+  const mx=S.mx,my=S.my,mz=S.mz; let hx=S.tx-S.x0, hz=S.tz-S.z0; const hl=Math.hypot(hx,hz)||1; hx/=hl; hz/=hl;
+  S._camOrb=(S._camOrb||0)+dt*(window._SKY_CAM_ORBIT||0.45);                         // slow arc around the falling robot
+  const ca=Math.cos(S._camOrb), sa=Math.sin(S._camOrb), bx=hx*ca-hz*sa, bz=hx*sa+hz*ca;
+  const D=(window._SKY_CAM_DIST||150), H=(window._SKY_CAM_H||44), AH=(window._SKY_CAM_AHEAD||28);
+  camera.up.set(0,1,0);
+  camera.position.set(mx-bx*D, my+H, mz-bz*D);
+  camera.lookAt(mx+bx*AH, my-(window._SKY_CAM_DOWN||14), mz+bz*AH);
+  return true;
+};
 window._dbgRefs=function(){ try{ return {player, GS, CAM, camera:(typeof camera!=='undefined'?camera:null), scene:(typeof scene!=='undefined'?scene:null), renderer:(typeof renderer!=='undefined'?renderer:null), bots:(typeof GS_bots!=='undefined'?GS_bots:null), ball:(typeof _cubeBall!=='undefined'?_cubeBall:null), audio:(typeof Audio!=='undefined'&&Audio&&Audio.playSample?Audio:null)}; }catch(_){ return null; } };   // debug/headless: live engine refs (module-scoped; audio = the GAME's sampler, not DOM Audio)
 
 // ════════════════════════════════════════════════════════════
@@ -28005,6 +28091,7 @@ function loop(ts){ requestAnimationFrame(loop);
     updateTime(); const dt=rawDt*TIME.scale;
     if(typeof player!=='undefined'&&player&&(player._smashPct||0)>0)player._smashPct=Math.max(0,player._smashPct-rawDt*(window._SMASH_PCT_DECAY||0.5));   // Smash-% recovers over time (ball mode) so knockback tracks RECENT damage
     if(typeof player!=='undefined'&&player&&player._deathSeq&&window._deathSeqTick){ try{ window._deathSeqTick(dt); }catch(_dse){ try{ if(typeof _deathFinish==='function')_deathFinish(player._deathSeq); }catch(_){} } }   // run the death cinematic FIRST -> it always advances even if later per-frame code throws
+    if(typeof player!=='undefined'&&player&&player._skydive&&window._skydiveTick){ try{ window._skydiveTick(dt); }catch(_sde){ try{ if(player)player._skydive=null; }catch(_){} } }   // SKYDIVE DEPLOY: advance the drop-in BEFORE updateCamera so the chase cam reads this frame's fall position
     if(window._menuPaused){ try{ renderer.render(scene,camera); }catch(_){} return; }   // PAUSE: hold the frame under the menu overlay (lastT already advanced -> no dt spike on resume)
     _updateStarfield(dt);
     _updateSkyViz(dt);
@@ -29076,8 +29163,8 @@ function loop(ts){ requestAnimationFrame(loop);
           const _step=(window._SWORD_CHARGE_TURN||3.2)*dt;   // ~half of a normal snap-turn -> a slow, controllable sweep
           player.aim=(player.aim||0)+Math.max(-_step,Math.min(_step,_da)); }
         mvx=0; mvz=0;
-      } else if(player._deathSeq){ mvx=0; mvz=0; }   // locked during the death cinematic
-      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10&&!player._deathSeq,od,aiming); resolveObstacles(player,13); if(typeof _resolveSentryCollide==='function')_resolveSentryCollide(player); resolveBodyCollisions(player); if(typeof _resolveAssetCollisions==='function')_resolveAssetCollisions(player); if(typeof _portalCollide==='function')_portalCollide(player); if(typeof _updateWallRun==='function'){ try{ _updateWallRun(dt); }catch(_wre){ try{ player._wallRun=null; }catch(_){} } } if(window._aimAssistTick){ try{ window._aimAssistTick(dt,firing,Math.hypot(avx,avz)); }catch(_){} } if(!player._deathSeq || player._deathSeq.phase==='beam'){ try{ player.draw(od); }catch(_pde){ try{if(player.model)player.model.visible=true;}catch(_){} } if(player._deathSeq&&window._deathModelPose){ try{ window._deathModelPose(); }catch(_){} } } if(player._spawnAura){ player._spawnAuraMs=(player._spawnAuraMs||0)+dt; if(player._spawnAuraMs>(window._SPAWN_AURA_SEC||4.2)){ try{player._spawnAura.remove();}catch(_){} player._spawnAura=null; player._respawnBlink=0; } } /* FAILSAFE: spawn-in glow shell normally removed in draw() as _respawnBlink counts down; an early-return draw path can freeze it on forever, so force-remove after a fixed time */ if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt); if(typeof _updateFlagCloth==='function'){try{_updateFlagCloth(dt);}catch(_fce){}} if(window._swordTick){try{window._swordTick(dt);}catch(_swe){}} if(window._ballFrame)window._ballFrame(dt); if(window._ballShotTick){try{window._ballShotTick();}catch(_bse){}} if(window._grappleTick){try{window._grappleTick(dt);}catch(_gpe){}} if(window._jetSfxTick){try{window._jetSfxTick();}catch(_jse){}} if(window._flameSfxTick){try{window._flameSfxTick();}catch(_fse){}} if(window._rumbleTick){try{window._rumbleTick(dt);}catch(_rte){}} if(window._cageBd){try{_cageBackdropTick(dt);}catch(_cbe){}} if(window._boomboxTick){try{window._boomboxTick(dt);}catch(_bbe){}} if(window._superTick)window._superTick(dt); if(window._voxTick)window._voxTick(dt); if(window._animPlatMixer)window._animPlatMixer.update(dt); if(window._platWireTick)window._platWireTick(dt); if(window._phaseWarpTick){try{window._phaseWarpTick(dt);}catch(_pwe){}} if(window._platPUTick){try{window._platPUTick(dt);}catch(_ppe){}} if(window._superPickupTick){try{window._superPickupTick(dt);}catch(_supe){}} if(window._updateFuelBar)window._updateFuelBar(); if(window._riflePoseTick)window._riflePoseTick(dt);
+      } else if(player._deathSeq||player._skydive){ mvx=0; mvz=0; }   // locked during the death cinematic / skydive drop-in
+      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10&&!player._deathSeq&&!player._skydive,od,aiming); resolveObstacles(player,13); if(typeof _resolveSentryCollide==='function')_resolveSentryCollide(player); resolveBodyCollisions(player); if(typeof _resolveAssetCollisions==='function')_resolveAssetCollisions(player); if(typeof _portalCollide==='function')_portalCollide(player); if(typeof _updateWallRun==='function'){ try{ _updateWallRun(dt); }catch(_wre){ try{ player._wallRun=null; }catch(_){} } } if(window._aimAssistTick){ try{ window._aimAssistTick(dt,firing,Math.hypot(avx,avz)); }catch(_){} } if(!player._deathSeq || player._deathSeq.phase==='beam'){ try{ player.draw(od); }catch(_pde){ try{if(player.model)player.model.visible=true;}catch(_){} } if(player._deathSeq&&window._deathModelPose){ try{ window._deathModelPose(); }catch(_){} } if(player._skydive&&window._skydiveModelPose){ try{ window._skydiveModelPose(); }catch(_){} } } if(player._spawnAura){ player._spawnAuraMs=(player._spawnAuraMs||0)+dt; if(player._spawnAuraMs>(window._SPAWN_AURA_SEC||4.2)){ try{player._spawnAura.remove();}catch(_){} player._spawnAura=null; player._respawnBlink=0; } } /* FAILSAFE: spawn-in glow shell normally removed in draw() as _respawnBlink counts down; an early-return draw path can freeze it on forever, so force-remove after a fixed time */ if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt); if(typeof _updateFlagCloth==='function'){try{_updateFlagCloth(dt);}catch(_fce){}} if(window._swordTick){try{window._swordTick(dt);}catch(_swe){}} if(window._ballFrame)window._ballFrame(dt); if(window._ballShotTick){try{window._ballShotTick();}catch(_bse){}} if(window._grappleTick){try{window._grappleTick(dt);}catch(_gpe){}} if(window._jetSfxTick){try{window._jetSfxTick();}catch(_jse){}} if(window._flameSfxTick){try{window._flameSfxTick();}catch(_fse){}} if(window._rumbleTick){try{window._rumbleTick(dt);}catch(_rte){}} if(window._cageBd){try{_cageBackdropTick(dt);}catch(_cbe){}} if(window._boomboxTick){try{window._boomboxTick(dt);}catch(_bbe){}} if(window._superTick)window._superTick(dt); if(window._voxTick)window._voxTick(dt); if(window._animPlatMixer)window._animPlatMixer.update(dt); if(window._platWireTick)window._platWireTick(dt); if(window._phaseWarpTick){try{window._phaseWarpTick(dt);}catch(_pwe){}} if(window._platPUTick){try{window._platPUTick(dt);}catch(_ppe){}} if(window._superPickupTick){try{window._superPickupTick(dt);}catch(_supe){}} if(window._updateFuelBar)window._updateFuelBar(); if(window._riflePoseTick)window._riflePoseTick(dt);
       if(window._rippleTick){ window._rippleTick(rawDt); if((window._RIPPLE_ON||window._rippleTP)&&player){ const _rsp=Math.hypot(player.vx||0,player.vz||0); player._ripTrailT=(player._ripTrailT||0)-rawDt; if(_rsp>(window._RIP_TRAIL_SPD||190)&&player._ripTrailT<=0){ window._rippleHit(player.wx,player.py,player.wz,(window._RIP_TRAIL_AMP||0.5),(window._RIP_TRAIL_LIFE||0.9)); player._ripTrailT=(window._RIP_TRAIL_CD||0.12); } } }   // ripple field: advance the impact rings + drop a faint trailing ring as the player runs
       if(window._updateHitMarks) window._updateHitMarks(rawDt);   // ball-style bullet hit-marks (enemies + friendly-fire red)
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _ww=(typeof _cubeWalkOn==='function'&&_cubeWalkOn(player)&&player._cubeUp&&player._cubeUp.y<0.9); const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(_ww||!_bmv) window._reorientGameBoots(); }   // on a wall/ceiling re-aim the boots to the surface every frame; on the floor only when standing still (avoids stride jitter)
@@ -33000,7 +33087,9 @@ function _spawnTransportShips(R, topY, gltf){
   }
   // SPAWN THE PLAYER ABOARD a ship at match start (ships load async, so the shooter-pad placement already ran — override it here).
   //   Only when they're still parked at their fresh spawn (on/near a pad, alive, not mid-warp) so it never yanks them mid-fight.
-  if(window._SPAWN_ON_SHIP!==false){ try{ if(typeof player!=='undefined'&&player&&player.alive!==false&&!player._padWarp){ _spawnPlayerOnShip(_myShipIndex()); } }catch(_){} }
+  if(window._SPAWN_ON_SHIP!==false){ try{ if(typeof player!=='undefined'&&player&&player.alive!==false&&!player._padWarp){ const _seated=_spawnPlayerOnShip(_myShipIndex());
+    if(_seated && window._SKYDIVE!==false && window._skydiveStart){ try{ window._skydiveStart({x:player.wx, y:(player.model?player.model.position.y:9+(player.py||0)), z:player.wz}); }catch(_){} }   // SKYDIVE DEPLOY: leap off the ship deck and freefall in (captures the deck as the drop origin)
+  } }catch(_){} }
   try{ if(window._optimizeArenaCulling)_optimizeArenaCulling(); }catch(_){}   // ships load async after the platform build -> cull them now (they spawn with frustumCulled=false)
 }
 // Clear the match-start ship-seat hide and show the player again (called at the beam flash, or as a failsafe).
