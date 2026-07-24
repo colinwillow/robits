@@ -422,7 +422,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1171</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1172</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -624,7 +624,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1171</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1172</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -25994,11 +25994,22 @@ function _skydiveLand(S){
 window._skydiveLand=_skydiveLand;
 window._skydiveModelPose=function(){ const S=player&&player._skydive, m=player&&player.model; if(!S||!m)return;
   m.visible=true; m.position.set(S.mx,S.my,S.mz);
-  let hx=S.tx-S.x0, hz=S.tz-S.z0; if(Math.abs(hx)+Math.abs(hz)<1e-3){hx=0;hz=1;} const yaw=Math.atan2(hx,hz);
-  const lk=(window._SKY_UPRIGHT_K||0.82), up=S.k>lk?Math.min(1,(S.k-lk)/(1-lk)):0, ue=up*up*(3-2*up);   // ease from a forward DIVE to feet-first UPRIGHT in the final stretch
-  const pitch=(1-ue)*(window._SKY_DIVE_PITCH!=null?window._SKY_DIVE_PITCH:1.2);
-  m.rotation.set(pitch, yaw+(window._SKY_YAW_OFF||0), 0);
+  // FLOATING POSE — force the in-air float clip (the parked player isn't 'falling' per physics, so it was showing idle). This
+  //   runs AFTER the frame's mixer + anim-select, so it wins: next frame's mixer.update renders floating. _SKY_FLOAT_CLIP overrides.
+  try{ const ud=m.userData; if(ud&&ud.clips){ const fname=(window._SKY_FLOAT_CLIP||'floating'); const fl=ud.clips[fname]||ud.clips['floating']||ud.clips['flying'];
+    if(fl){ if(!fl.isRunning())fl.reset().play(); fl.setEffectiveWeight(1).setEffectiveTimeScale(1).setLoop(THREE.LoopRepeat,Infinity);
+      for(const k in ud.clips){ const a=ud.clips[k]; if(a&&a!==fl)a.setEffectiveWeight(0); }
+      ud.currentClip=fname; ud._voidTumble=false; ud._flippingTimer=0; ud._flipFadeStarted=false; ud._flipClipName=null; } } }catch(_){}
+  // ORIENT — face the travel heading, then pitch FORWARD into the dive (about the model's local right axis so it's a clean
+  //   head-first lean regardless of heading), easing to feet-first upright for the landing. _SKY_DIVE_SIGN flips fwd/back.
+  let hx=S.tx-S.x0, hz=S.tz-S.z0; if(Math.abs(hx)+Math.abs(hz)<1e-3){hx=0;hz=1;} const yaw=Math.atan2(hx,hz)+(window._SKY_YAW_OFF||0);
+  const lk=(window._SKY_UPRIGHT_K||0.82), up=S.k>lk?Math.min(1,(S.k-lk)/(1-lk)):0, ue=up*up*(3-2*up);
+  const pitch=(1-ue)*(window._SKY_DIVE_PITCH!=null?window._SKY_DIVE_PITCH:0.9)*(window._SKY_DIVE_SIGN!=null?window._SKY_DIVE_SIGN:1);   // +1 = lean FORWARD into the dive (was leaning backward)
+  try{ if(!_SKY_QY)_SKY_QY=new THREE.Quaternion(); if(!_SKY_QP)_SKY_QP=new THREE.Quaternion(); if(!_SKY_EY)_SKY_EY=new THREE.Euler();
+    _SKY_EY.set(0,yaw,0); _SKY_QY.setFromEuler(_SKY_EY); _SKY_QP.setFromAxisAngle(_SKY_RIGHT,pitch); m.quaternion.copy(_SKY_QY).multiply(_SKY_QP);
+  }catch(_){ m.rotation.set(pitch,yaw,0); }
 };
+let _SKY_QY=null,_SKY_QP=null,_SKY_EY=null; const _SKY_RIGHT=new THREE.Vector3(1,0,0);
 window._skydiveCam=function(dt){ const S=player&&player._skydive; if(!S||typeof camera==='undefined')return false;
   const mx=S.mx,my=S.my,mz=S.mz; let hx=S.tx-S.x0, hz=S.tz-S.z0; const hl=Math.hypot(hx,hz)||1; hx/=hl; hz/=hl;
   S._camOrb=(S._camOrb||0)+dt*(window._SKY_CAM_ORBIT||0.45);                         // slow arc around the falling robot
@@ -46348,13 +46359,14 @@ function _dressJackBuild(){ if(window._DRESS_JACK===false)return;
 function _dressJackUpdate(dt){ const J=window._dressJack; if(!J)return; const now=performance.now(); const H=J.H; dt=Math.min(dt,0.05);
   // STATIONARY anchor: measure off the model ROOT while descending, then FREEZE (also stays frozen through the retract so the machine rises straight up)
   if(!J.anchor || (J.descK<1 && !J.retract)){ J.model.getWorldPosition(_LJ_bw); const rx=_LJ_bw.x, ry=_LJ_bw.y, rz=_LJ_bw.z;
-    _LJ_a.set(0,0,-1); try{ if(J.cam){ _LJ_a.set(rx-J.cam.position.x,0,rz-J.cam.position.z); if(_LJ_a.lengthSq()<1e-6)_LJ_a.set(0,0,-1); _LJ_a.normalize(); } }catch(_){}
+    _LJ_a.set(0,0,-1); try{ if(J.cam){ J.cam.getWorldDirection(_LJ_a); _LJ_a.y=0; if(_LJ_a.lengthSq()<1e-6)_LJ_a.set(0,0,-1); _LJ_a.normalize(); } }catch(_){}   // machine sits along the CAMERA's forward (straight into the screen behind him) -> DIRECTLY behind, centered; the old camera->robot ray skewed it off to the side when he wasn't dead-centre
     const settleY=ry+H*(window._DRESS_JACK_HIGH||1.15);
     J.anchor={ sx:rx+_LJ_a.x*H*(window._DRESS_JACK_BACK||0.35), sz:rz+_LJ_a.z*H*(window._DRESS_JACK_BACK||0.35), ax:_LJ_a.x, az:_LJ_a.z, settleY, startY:settleY+H*2.2 }; }
   const A=J.anchor;
   // DEPLOY DETACH: on retract each cable pops off one-by-one (staggered), clanks, retracts up into the machine — THEN the machine lifts to the ceiling
-  if(J.retract && !J._retInit){ J._retInit=true; J._retEl=0; J.tubes.forEach((t,i)=>{ t.detT=i*(window._DRESS_JACK_DETACH_STAG||0.13); t._clanked=false;
-    try{ if(t.bone){ if(!t._detBone)t._detBone=new THREE.Vector3(); t.bone.getWorldPosition(t._detBone); } }catch(_){} }); }   // FREEZE each cable's plug point at the instant of detach -> the tubes retract IN PLACE instead of stretching after the pilot as he walks off (the "tubes follow you through the portal" bug)
+  if(J.retract && !J._retInit){ J._retInit=true; J._retEl=0; J.tubes.forEach((t,i)=>{ t.detT=i*(window._DRESS_JACK_DETACH_STAG||0.13); t._clanked=false; t._flungT=0;
+    try{ if(t.bone){ if(!t._detBone)t._detBone=new THREE.Vector3(); t.bone.getWorldPosition(t._detBone); } }catch(_){}
+    if(!t._flingDir)t._flingDir=new THREE.Vector3(); t._flingDir.set(Math.cos(t.ang),(window._DRESS_JACK_FLING_UP!=null?window._DRESS_JACK_FLING_UP:0.55),Math.sin(t.ang)).normalize(); }); }   // each cable flings off in its OWN radial direction (spread around) + a touch up, so they shoot off different ways instead of all retracting inward   // FREEZE each cable's plug point at the instant of detach -> the tubes retract IN PLACE instead of stretching after the pilot as he walks off (the "tubes follow you through the portal" bug)
   if(!J.retract) J._retInit=false;
   if(J.retract) J._retEl=(J._retEl||0)+dt;
   const _machHoldT=J.tubes.length*(window._DRESS_JACK_DETACH_STAG||0.13)+0.15;
@@ -46369,10 +46381,17 @@ function _dressJackUpdate(dt){ const J=window._dressJack; if(!J)return; const no
     if(J.retract && t._detBone){ _LJ_b.copy(t._detBone); }   // retract: detach from the FROZEN plug point (don't chase the pilot into the void)
     else t.bone.getWorldPosition(_LJ_b);
     _LJ_mid.set(A.sx+Math.cos(t.ang)*H*0.08, my-H*0.08, A.sz+Math.sin(t.ang)*H*0.08);   // machine underside port (rope top)
-    if(J.retract){ if(t.detT>0){ t.detT-=dt; } else { if(!t._clanked){ t._clanked=true; try{ if(!(window._uiSfx&&window._uiSfx('clank',0.5,0.85+((t.ang*97)%1)*0.4))&&window._pingSfx)window._pingSfx(_LJ_b.x,_LJ_b.z); }catch(_){} } t.shootK=Math.max(0,t.shootK-dt/(window._DRESS_JACK_DETACH_T||0.28)); } }
+    let _flung=false;
+    if(J.retract){ if(t.detT>0){ t.detT-=dt; }   // still plugged in (waiting its stagger)
+      else { if(!t._clanked){ t._clanked=true; t._flungT=0; try{ if(!(window._uiSfx&&window._uiSfx('clank',0.5,0.85+((t.ang*97)%1)*0.4))&&window._pingSfx)window._pingSfx(_LJ_b.x,_LJ_b.z); }catch(_){} }
+        // FLING: the plug rips off and SHOOTS OUTWARD from the frozen point in its own direction (still tethered to the machine
+        //   at the top). Once the whip is out, it fades. window._DRESS_JACK_FLING / _FLING_T / _DETACH_T.
+        t._flungT=(t._flungT||0)+dt; const FT=(window._DRESS_JACK_FLING_T||0.4), fp=Math.min(1,t._flungT/FT), FL=(window._DRESS_JACK_FLING!=null?window._DRESS_JACK_FLING:H*1.0), fe=1-Math.pow(1-fp,2), fd=t._flingDir;
+        _LJ_d.set(_LJ_b.x+fd.x*FL*fe, _LJ_b.y+fd.y*FL*fe, _LJ_b.z+fd.z*FL*fe); _flung=true;
+        if(fp>=1) t.shootK=Math.max(0,t.shootK-dt/(window._DRESS_JACK_DETACH_T||0.3)); } }
     else { if(t.delay>0)t.delay-=dt; else t.shootK=Math.min(1,t.shootK+dt/(window._DRESS_JACK_SHOOT||0.4)); }
     const se=1-Math.pow(1-t.shootK,2);
-    _LJ_d.copy(_LJ_mid).lerp(_LJ_b, se);                            // live bottom endpoint
+    if(!_flung) _LJ_d.copy(_LJ_mid).lerp(_LJ_b, se);                            // live bottom endpoint (attached: lerp mid<->plug by shootK)
     if(!t.init){ for(let s=0;s<t.N;s++){ t.pts[s].p.copy(_LJ_mid).lerp(_LJ_d, s/(t.N-1)); t.pts[s].o.copy(t.pts[s].p); } t.init=true; }
     for(let s=1;s<t.N-1;s++){ const pt=t.pts[s], vx=(pt.p.x-pt.o.x)*0.9, vy=(pt.p.y-pt.o.y)*0.9, vz=(pt.p.z-pt.o.z)*0.9; pt.o.copy(pt.p); pt.p.set(pt.p.x+vx, pt.p.y+vy+G*dt*dt, pt.p.z+vz); }   // light verlet inertia
     t.pts[0].p.copy(_LJ_mid); t.pts[t.N-1].p.copy(_LJ_d);
