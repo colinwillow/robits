@@ -423,7 +423,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1186</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1187</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -625,7 +625,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1186</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1187</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -47368,6 +47368,52 @@ function _titleUnprojectZ0(cam, nx, ny){
   return new THREE.Vector3(cam.position.x+dir.x*t, cam.position.y+dir.y*t, 0);
 }
 // ONE-TO-ONE ALIGN — scale + place the 3D block letters so they project onto the live HTML "ROBITS" rect (the MAJIA trick)
+// ── BLAST OVERSCAN ── the exploding ROBITS letters are 3-D cubes inside title-robot-canvas, so they can only ever be drawn
+//   INSIDE that canvas's rectangle. In PORTRAIT the canvas is 393x860 over a 393x852 viewport, so its clip edge is off-screen
+//   and you never see it. In LANDSCAPE the stylesheet shrinks it (height:150vh + scale(.6)) to a ~236x354 box floating in the
+//   middle of an 852x393 screen — so ~12% of the debris flies past a hard, visible rectangular edge and vanishes. That's
+//   "the text gets cut off by a frame" after a flip.
+//   FIX: for the duration of the blast, grow the canvas to cover the whole viewport and compensate the camera with
+//   setViewOffset so every pixel of the hero/letters lands in EXACTLY the same place — the only change is that there's now
+//   canvas out past the edges of the frame for the debris to fly into. Portrait already covers the viewport, so it early-outs
+//   and is byte-for-byte untouched. window._BLAST_OVERSCAN=false to revert.
+function _titleBlastOverscan(canvas){
+  try{ if(window._BLAST_OVERSCAN===false||!canvas||canvas._ovOn)return;
+    const cam=canvas._titleCam, ren=canvas._glr; if(!cam||!ren)return;
+    const R0=canvas.getBoundingClientRect(); if(R0.width<2||R0.height<2)return;
+    const VW=window.innerWidth||R0.width, VH=window.innerHeight||R0.height;
+    if(R0.left<=0.5&&R0.top<=0.5&&R0.right>=VW-0.5&&R0.bottom>=VH-0.5)return;   // already covers the screen (portrait) -> nothing to do
+    const OP=canvas.offsetParent||canvas.parentElement; if(!OP)return;
+    const pr=OP.getBoundingClientRect();
+    canvas._ov={ l:R0.left, t:R0.top, w:R0.width, h:R0.height, css:canvas.getAttribute('style')||'' };
+    // stay position:absolute (going fixed would re-stack it against the DJ rig / grid); just re-place it over the viewport.
+    // setProperty(...,'important') because the landscape rule sets height/transform with !important.
+    canvas.style.setProperty('left',(0-pr.left)+'px','important');
+    canvas.style.setProperty('top',(0-pr.top)+'px','important');
+    canvas.style.setProperty('width',VW+'px','important');
+    canvas.style.setProperty('height',VH+'px','important');
+    canvas.style.setProperty('transform','none','important');
+    // camera keeps its ORIGINAL framing (aspect + fov over R0); the new canvas renders the sub-rect of that virtual frame
+    // which the viewport occupies. Offsets go negative — that's the overscan, and three.js applies view offsets linearly.
+    cam.aspect=R0.width/R0.height;
+    cam.setViewOffset(R0.width, R0.height, 0-R0.left, 0-R0.top, VW, VH);
+    cam.updateProjectionMatrix();
+    const CAP=(window._BLAST_OV_PX||1800000), dpr=Math.max(1,Math.min(2,Math.sqrt(CAP/Math.max(1,VW*VH))));
+    try{ ren.setSize(Math.round(VW*dpr),Math.round(VH*dpr),false); }catch(_){}
+    canvas._glW=Math.round(VW*dpr); canvas._glH=Math.round(VH*dpr);
+    canvas._ovOn=true;
+  }catch(_){}
+}
+function _titleBlastOverscanOff(canvas){
+  try{ if(!canvas||!canvas._ovOn)return; const cam=canvas._titleCam;
+    if(canvas._ov&&canvas._ov.css!=null)canvas.setAttribute('style',canvas._ov.css); else canvas.removeAttribute('style');
+    if(cam){ cam.clearViewOffset(); cam.updateProjectionMatrix(); }
+    canvas._ovOn=false; canvas._ov=null;
+    // force the per-frame re-fit to re-measure the restored box on the next tick
+    canvas._reFitW=-1; canvas._reFitH=-1;
+  }catch(_){}
+}
+window._titleBlastOverscan=_titleBlastOverscan; window._titleBlastOverscanOff=_titleBlastOverscanOff;
 function _titleAlignBlocks(canvas){
   try{ const cam=canvas._titleCam, blocks=canvas._blocks, el=document.getElementById('ts-robits'); if(!cam||!blocks||!el)return;
     const cr=canvas.getBoundingClientRect(), tr=el.getBoundingClientRect(); if(cr.width<2||tr.width<2)return;
@@ -47614,6 +47660,7 @@ function _titleBlastStep(canvas, modelRoot, dt){
 window._titleReEnter=function(){ try{
   if(!window._titleBlasting)return; window._titleBlasting=false;
   const canvas=document.getElementById('title-robot-canvas'); if(!canvas)return;
+  try{ _titleBlastOverscanOff(canvas); }catch(_){}   // drop the blast overscan so the title reverts to its normal framing
   try{ const keep=document.getElementById('ts-robits'); if(keep){ keep.style.visibility=''; keep.style.opacity='';
       if(keep.parentElement)for(const sib of keep.parentElement.children){ sib.style.transition='opacity .3s ease'; sib.style.opacity=''; } }
     const scr=document.getElementById('screen-title'); if(scr)for(const el of scr.children){ if(el.id==='ts-power')continue; el.style.transition='opacity .3s ease'; el.style.opacity=''; }
@@ -47649,7 +47696,8 @@ window._titleBlastOff=function(btn){
   const canvas=document.getElementById('title-robot-canvas');
   // align the block letters ONTO the live HTML "ROBITS" (measure now, while it's still shown) but KEEP THEM HIDDEN — the
   // real text stays up until the rocket hits, then we swap to the exploding blocks. Fade the OTHER chrome now, not ROBITS.
-  try{ if(canvas){ _titleAlignBlocks(canvas); if(canvas._blocks){ canvas._blocks.visible=false; for(const c of canvas._blocks.userData.cubes){ if(!c.userData._hp)c.userData._hp=c.position.clone(); } } } }catch(_){}
+  try{ if(canvas){ _titleBlastOverscan(canvas);   // grow the canvas past the frame FIRST, so the alignment below measures the new box
+    _titleAlignBlocks(canvas); if(canvas._blocks){ canvas._blocks.visible=false; for(const c of canvas._blocks.userData.cubes){ if(!c.userData._hp)c.userData._hp=c.position.clone(); } } } }catch(_){}
   try{ const keep=document.getElementById('ts-robits');
     if(keep&&keep.parentElement){ for(const sib of keep.parentElement.children){ if(sib===keep)continue; sib.style.transition='opacity .22s ease'; sib.style.opacity='0'; } }   // fade NEON BLAST + version but keep ROBITS
     const _tgrid=document.getElementById('title-grid-canvas');   // KEEP the colourful lattice up through the whole blast-off — it transitions out with everything else at the very end (_screenExitFx), instead of popping the instant START is pressed
@@ -47772,14 +47820,15 @@ function _startRobotViewer(canvasId, opts={}){
   function render(){
     if(!canvas._robotRunning) return;
     if(((render._vc=((render._vc||0)+1))&15)===1)render._hid=(canvas.offsetParent===null);   // visibility probed every 16th frame (offsetParent can force layout)
-    if(render._hid){ clock.getDelta(); requestAnimationFrame(render); return; }   // screen hidden (gameplay) -> idle: skip anim + render, resume instantly on return (these viewer contexts were rendering behind the game full-time)
+    if(render._hid){ clock.getDelta(); try{ if(canvas._ovOn)_titleBlastOverscanOff(canvas); }catch(_){} requestAnimationFrame(render); return; }   // screen hidden (gameplay) -> idle: skip anim + render, resume instantly on return (these viewer contexts were rendering behind the game full-time). Left the title mid-blast -> drop the overscan so the next visit starts clean.
     // ── RESPONSIVE RE-FIT ── same stale-buffer trap as the menu visualizer: the framebuffer is built once, so a device ROTATE
     //   leaves it at the old resolution and the browser stretches it to the new canvas box (the landscape rule re-sizes this
     //   canvas to 150vh) -> the hero warps out of aspect. Re-fit the buffer + camera whenever the live box changes. Skipped
-    //   while _auxGLShrink has parked the buffer at 2x2. window._TITLE_BUF_FIT=false to revert.
-    if(window._TITLE_BUF_FIT!==false && !canvas._glShrunk){
+    //   while _auxGLShrink has parked the buffer at 2x2, and while the blast overscan owns the box + camera view offset.
+    //   window._TITLE_BUF_FIT=false to revert.
+    if(window._TITLE_BUF_FIT!==false && !canvas._glShrunk && !canvas._ovOn){
       const bw=canvas.offsetWidth|0, bh=canvas.offsetHeight|0;
-      if(bw>1&&bh>1&&(render._bw!==bw||render._bh!==bh)){ render._bw=bw; render._bh=bh;
+      if(bw>1&&bh>1&&(canvas._reFitW!==bw||canvas._reFitH!==bh)){ canvas._reFitW=bw; canvas._reFitH=bh;
         try{ renderer.setSize(bw*2,bh*2,false); }catch(_){}
         canvas._glW=bw*2; canvas._glH=bh*2;
         cam.aspect=bw/bh; cam.updateProjectionMatrix(); } }
