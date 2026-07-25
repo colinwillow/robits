@@ -423,7 +423,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1189</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1190</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -625,7 +625,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1189</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1190</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -19988,6 +19988,56 @@ function _buildHeldShield(){
   holder.position.set(P.x,P.y,P.z); holder.rotation.set(R.x,R.y,R.z); holder.scale.setScalar(S*inv);
   hand.add(holder); player._heldShield=holder; player._heldShieldFx=sh.userData;
 }
+// ── PLASMA SHIELD ── the thing the guard actually projects. A slightly BENT plane (a patch cut out of a sphere, so it bows
+//   toward whatever it's facing) with an additive fill, a faint lattice and a hot rim, parked in the air in front of him and
+//   yawed to his facing. It is world-space, NOT parented to a hand bone — the guard pose is the sword's cocked-back hold and
+//   the shield reads as something he's projecting, not carrying. Its width is deliberately matched to the block arc so what
+//   you see is what actually stops a bullet. Tunables: _PSHIELD_R / _PSHIELD_ARC / _PSHIELD_TALL / _PSHIELD_DIST / _PSHIELD_Y.
+function _makePlasmaShield(){
+  const G=new THREE.Group();
+  const C=(window._PSHIELD_COL!=null?window._PSHIELD_COL:0x5fd8ff), C2=(window._PSHIELD_COL2!=null?window._PSHIELD_COL2:0xcdf4ff);
+  // R = how far it bows (bigger = flatter), ARC = how wide the patch is in radians, TALL = how tall. ~±49° wide keeps it a
+  // shield rather than a wall, while the block arc stays a shade wider (±60°) so it errs on the player's side.
+  const R=(window._PSHIELD_R||21), ARC=(window._PSHIELD_ARC||1.7), TALL=(window._PSHIELD_TALL||1.15);
+  // SphereGeometry patch: phi centred on PI/2 so the bulge points down local +Z, theta centred on the equator
+  const geo=new THREE.SphereGeometry(R, 30, 20, Math.PI/2-ARC/2, ARC, Math.PI/2-TALL/2, TALL);
+  const fill=new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color:C,transparent:true,opacity:0.14,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  const wire=new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color:C2,wireframe:true,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  G.add(fill); G.add(wire);
+  // HOT RIM — trace the patch's four borders with the same sphere parametrisation THREE uses, so the outline sits exactly on the edge
+  const sp=(u,v)=>{ const ph=(Math.PI/2-ARC/2)+u*ARC, th=(Math.PI/2-TALL/2)+v*TALL;
+    return new THREE.Vector3(-R*Math.cos(ph)*Math.sin(th), R*Math.cos(th), R*Math.sin(ph)*Math.sin(th)); };
+  const border=[]; const N=26;
+  for(let i=0;i<=N;i++)border.push(sp(i/N,0));
+  for(let i=1;i<=N;i++)border.push(sp(1,i/N));
+  for(let i=N-1;i>=0;i--)border.push(sp(i/N,1));
+  for(let i=N-1;i>=1;i--)border.push(sp(0,i/N));
+  const rimMat=new THREE.LineBasicMaterial({color:C2,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false});
+  G.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(border), rimMat));
+  G.userData={fill:fill.material, wire:wire.material, rim:rimMat};
+  return G;
+}
+function _plasmaShieldTick(raised, dt){
+  if(window._PLASMA_SHIELD===false) return;
+  if(raised && !player._plasmaShield){ try{ const s=_makePlasmaShield(); scene.add(s); player._plasmaShield=s; }catch(_){ return; } }
+  const S=player._plasmaShield; if(!S) return;
+  if(!S.parent){ try{ scene.add(S); }catch(_){ return; } }   // a zone change can clear the scene out from under it
+  S.visible=!!raised; if(!raised) return;
+  const a=player.aim||0, fx=Math.cos(a), fz=Math.sin(a);
+  const D=(window._PSHIELD_DIST!=null?window._PSHIELD_DIST:15), Y=(window._PSHIELD_Y!=null?window._PSHIELD_Y:16);
+  S.position.set(player.wx+fx*D, (player.py||0)+Y, player.wz+fz*D);
+  S.rotation.set(0, Math.atan2(fx,fz), 0);   // local +Z (the bulge) points along his facing
+  // SHRINKS as the guard drains, the same read as the old held shield; flashes white-hot on a block
+  const gf=Math.max(0.15,(player._shieldGuard||0)/(player._shieldGuardMax||100));
+  S.scale.setScalar((window._PSHIELD_SCALE!=null?window._PSHIELD_SCALE:1)*(0.62+0.38*gf));
+  const u=S.userData, t=performance.now()*0.004, flash=Math.min(12,player._shieldHitFlash||0);
+  u.fill.opacity=0.11+0.04*Math.sin(t*1.7)+flash*0.035;
+  u.wire.opacity=0.18+0.06*Math.sin(t*2.3)+flash*0.030;
+  u.rim.opacity =0.70+0.18*Math.sin(t)      +flash*0.020;
+}
+function _disposePlasmaShield(){ try{ const S=player&&player._plasmaShield; if(!S)return; if(S.parent)S.parent.remove(S);
+  S.traverse(o=>{ if(o.geometry&&o.geometry.dispose)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); player._plasmaShield=null; }catch(_){}}
+window._makePlasmaShield=_makePlasmaShield; window._disposePlasmaShield=_disposePlasmaShield;
 // PARRY = RETURN TO SENDER. A deflected/parried projectile is aimed straight back at whoever fired it (heat-seeking it home for
 // rockets), not just flung along the player's facing. Falls back to the player's aim when the shooter is unknown/dead.
 function _parryShooterPos(p){ if(!p)return null;
@@ -20011,7 +20061,11 @@ function _parryReturn(p, px, pz, fx, fz){ const pd=_parryDir(p,px,pz,fx,fz); if(
 window._parryDir=_parryDir; window._parryReturn=_parryReturn;
 function _shieldBlockScan(dt){
   const px=player.wx, pz=player.wz, fx=Math.cos(player.aim||0), fz=Math.sin(player.aim||0);
-  const R=(window._SHIELD_BLOCK_R!=null?window._SHIELD_BLOCK_R:56), R2=R*R, ARC=(window._SHIELD_ARC!=null?window._SHIELD_ARC:0.15);
+  // ARC is the cosine of the half-angle the shield actually covers. It was 0.15 (a ±81° wedge — nearly everything that
+  // wasn't literally behind you), which would read as cheating now that the shield is a VISIBLE object: you'd watch shots
+  // die well outside the plate. 0.5 = ±60°, a shade wider than the plasma plate's ±57° so it stays forgiving without
+  // blocking things that clearly missed it. Shots from behind have never counted and still don't.
+  const R=(window._SHIELD_BLOCK_R!=null?window._SHIELD_BLOCK_R:56), R2=R*R, ARC=(window._SHIELD_ARC!=null?window._SHIELD_ARC:0.5);
   const perfect=(player._shieldRaiseT||0)<=(window._SHIELD_PERFECT!=null?window._SHIELD_PERFECT:0.22);
   const SPD=(window._PARRY_SPEED!=null?window._PARRY_SPEED:560);
   const _front=(ox,oz,vx,vz)=>{ const dx=ox-px, dz=oz-pz, d2=dx*dx+dz*dz; if(d2>R2)return false; const d=Math.sqrt(d2)||1; if((dx/d*fx+dz/d*fz)<=ARC)return false; return (vx*(px-ox)+vz*(pz-oz))>-20; };   // in front, in range, heading toward you
@@ -20160,8 +20214,13 @@ function _shieldTick(dt){
   const b=document.getElementById('btn-shield'); if(b){ const _on=(window._SHIELD_BTN===true);   // RETIRED: the mid-screen shield button is gone; shielding moves to the right-stick press. window._SHIELD_BTN=true brings the button back.
     if(_on)_ensureShieldHold(); b.style.display=(_on&&GS.state==='playing')?'flex':'none'; }
   const raised=!!player._shieldRaised && player.alive!==false && GS.state==='playing' && (player._shieldGuard||0)>0 && !player._shieldBroken;
-  if(raised && !player._heldShield) _buildHeldShield();
-  if(player._heldShield){ player._heldShield.visible=raised; if(raised){ const gf=Math.max(0.15,(player._shieldGuard||0)/(player._shieldGuardMax||100)); player._heldShield.scale.setScalar((window._SHIELD_SCALE!=null?window._SHIELD_SCALE:0.4)*(0.5+0.5*gf)); } }   // SHRINKS as the guard drains
+  // THE PLASMA SHIELD is the guard's visual now. The hand-held KNIGHT shield is benched (it hung off the left hand, which
+  // fights the two-handed cocked-back guard pose) — window._KNIGHT_SHIELD=true brings it back alongside.
+  try{ _plasmaShieldTick(raised, dt); }catch(_){}
+  if(window._KNIGHT_SHIELD===true){
+    if(raised && !player._heldShield) _buildHeldShield();
+    if(player._heldShield){ player._heldShield.visible=raised; if(raised){ const gf=Math.max(0.15,(player._shieldGuard||0)/(player._shieldGuardMax||100)); player._heldShield.scale.setScalar((window._SHIELD_SCALE!=null?window._SHIELD_SCALE:0.4)*(0.5+0.5*gf)); } }   // SHRINKS as the guard drains
+  } else if(player._heldShield){ player._heldShield.visible=false; }
   if(raised){
     player._shieldGuard=Math.max(0, player._shieldGuard-(window._SHIELD_DRAIN||14)*dt);   // holding it up drains the guard (Smash shrink)
     player._shieldRegenT=(window._SHIELD_REGEN_DELAY||0.5);
@@ -27333,7 +27392,7 @@ class Joystick{
     }}
   get isHeld(){ return this.id!==null; }
 }
-const jL=new Joystick(document.getElementById('joystick-left'),document.getElementById('joy-knob-left'));jL.setOutput(moveIn);
+const jL=new Joystick(document.getElementById('joystick-left'),document.getElementById('joy-knob-left'));jL.setOutput(moveIn);window._jL=jL;   // exported for parity with _jR (harness/debug access to the move stick)
 // floating-stick base rings (shown at the touch point in FLOATING mode)
 try{ const _mkRing=(id,col)=>{ let r=document.getElementById(id); if(!r){ r=document.createElement('div'); r.id=id; r.className='joy-ring'; r.style.boxShadow='0 0 18px '+col+'55'; document.body.appendChild(r);} return r; };
   jL.setRing(_mkRing('joy-ring-left','#00d9ff')); window._joyRingR=_mkRing; }catch(_){}
@@ -28959,7 +29018,15 @@ function loop(ts){ requestAnimationFrame(loop);
             const meleeEquipped=!!player._hammer;
             if((!meleeEquipped || player._meleeType!=='sword') && player._swordAirHold){ try{player._swordAirHold.fadeOut(0.18);}catch(_){} player._swordAirHold=null; }   // threw/unequipped the sword -> drop the air-hold torso layer
             const bombClip=targetClip.replace('_shoot','')+'_bomb';
-            if(bombArmed&&ud.clips[bombClip]) targetClip=bombClip;
+            // ── GUARD STANCE ── pulling straight back on the right stick drops him into the sword's cocked-back charge pose and
+            //    HOLDS it there, whatever he happens to be carrying: the sword, any other melee, a gun, or bare fists. That pose
+            //    IS the block now — the plasma shield projects off the front of it. Normal melee swings are untouched; this only
+            //    owns the frames where the guard is actually up. window._GUARD_POSE=false falls back to the per-weapon stance.
+            if(window._GUARD_POSE!==false && player._shieldRaised && ud.clips['sword_charge']){
+              targetClip='sword_charge';
+              if(player._swordAirHold){ try{player._swordAirHold.fadeOut(0.18);}catch(_){} player._swordAirHold=null; }   // the sword branch below would normally drop this layer; we skipped it
+            }
+            else if(bombArmed&&ud.clips[bombClip]) targetClip=bombClip;
             else if(meleeEquipped){
               // NEW TWO-HANDED SWORD: dedicated sword_* clip family (sword_idle/walk/run/strafe/charge). Only the sword uses
               // this (its rig has the extra weapon2 joint); every other melee weapon keeps the old one-handed _sword-suffix set.
