@@ -422,7 +422,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1181</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1182</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -624,7 +624,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1181</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1182</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -16597,6 +16597,7 @@ class BotPilot{
   }
 
   _shoot(){
+    this._botFiringT=(window._BOT_SHOOT_POSE_HOLD||0.22);   // drives the hero-parity shoot pose
     const w=this._botWeapon||'rapid';
     // EnemyBullet constructor auto-adds to GS.enemyBullets — fire a pattern based on the bot's current weapon
     // col MUST go through the constructor — b.mesh is a Group (core+tail), so setting b.mesh.material after does nothing (that was the bug that made ALL bot fire red)
@@ -16645,7 +16646,7 @@ class BotPilot{
     if(!hand){ this.model.traverse(o=>{ if(!hand && o.isBone && /hand/i.test(o.name||'')&&!/finger|thumb|index|middle|ring|pinky/i.test(o.name||''))hand=o; }); }
     if(!hand) return false;
     if(this._meleeMesh&&this._meleeMesh.parent)this._meleeMesh.parent.remove(this._meleeMesh);
-    if(this._gunMesh&&this._gunMesh.parent){ this._gunMesh.parent.remove(this._gunMesh); this._gunMesh=null; this._gunMuzzle=null; }   // melee + gun are mutually exclusive in-hand
+    this._botDropGunMeshes();   // melee + gun are mutually exclusive in-hand (drops BOTH wrist cannons, not just the right)
     let hm=null; try{ hm=_makeMeleeWeapon(type); }catch(_){ return false; }
     if(!hm) return false;
     hand.add(hm);
@@ -16664,41 +16665,56 @@ class BotPilot{
     this._meleeMesh=hm; this._botMeleeWeapon=type; return true;
   }
   // ── VISIBLE GUN — hold the real weapon model in-hand (mirror of _botEquipMelee, using the player's _makeWeaponHandModel; barrel faces +Z so we aim +Z along the bot's facing) ──
+  // ── EQUIP A GUN, HERO-IDENTICAL ── routes by the SAME weapon classes the player uses (window._RIFLE_WEAPONS /
+  //   _LARGE_WEAPONS) and defers all placement to the hero's own orient functions each frame in _botWeaponPoseTick:
+  //     A) hand/wrist cannons (bullets, rockets, plasma, ...) -> DUAL, one per wrist, aimed down each forearm
+  //     B) two-handed rifle stance (shotgun, minigun, flamethrower) -> SINGLE in the right hand, aimed hand->hand
+  //     C) large launchers (grenade, bigbill) -> parented to the weapon_1 bone, bazooka stance
+  //   Bots previously dual-wielded shotguns and baked a one-shot orientation into the hand (which then drifted with the
+  //   animation) — both are gone. window._BOT_WPN_CLASSES=false falls back to the old single-hand behaviour.
+  _botWpnClass(w){ try{ if(window._LARGE_WEAPONS&&window._LARGE_WEAPONS.has(w))return 'C';
+    if(window._RIFLE_WEAPONS&&window._RIFLE_WEAPONS.has(w))return 'B'; }catch(_){} return 'A'; }
   _botEquipGun(weapon){
     if(!this.model || typeof _makeWeaponHandModel!=='function') return false;
     if(this._gunMeshWeapon===weapon && this._gunMesh) return true;
     if(this._meleeMesh&&this._meleeMesh.parent){ this._meleeMesh.parent.remove(this._meleeMesh); this._meleeMesh=null; this._botMeleeWeapon=null; }
-    if(this._gunMesh&&this._gunMesh.parent)this._gunMesh.parent.remove(this._gunMesh);
-    if(this._gunMeshL&&this._gunMeshL.parent)this._gunMeshL.parent.remove(this._gunMeshL);   // clear BOTH wrists (dual cannons)
-    this._gunMesh=null; this._gunMuzzle=null; this._gunMeshL=null; this._gunMuzzleL=null;
-    const _findHand=(re)=>{ let h=null; this.model.traverse(o=>{ if(!h && o.isBone && re.test(o.name||''))h=o; }); return h; };
-    let rHand=_findHand(/mixamorig_RightHand$/i) || _findHand(/righthand$/i);
+    this._botDropGunMeshes();
+    const bones=(this.model.userData&&this.model.userData.bones)||null;
+    const _findHand=(re)=>{ let h=null; if(bones){ for(const k in bones){ if(re.test(k)){ h=bones[k]; break; } } } if(!h)this.model.traverse(o=>{ if(!h && o.isBone && re.test(o.name||''))h=o; }); return h; };
+    let rHand=_findHand(/mixamorig_RightHand$/i)||_findHand(/righthand$/i);
     if(!rHand){ this.model.traverse(o=>{ if(!rHand && o.isBone && /hand/i.test(o.name||'')&&!/finger|thumb|index|middle|ring|pinky|left/i.test(o.name||''))rHand=o; }); }
     if(!rHand) return false;
-    // attach a freshly-built weapon model to a given hand bone, oriented barrel(+Z)->facing (shared by both wrists)
-    const _attach=(hand,side)=>{ let gm=null; try{ gm=_makeWeaponHandModel(weapon, side); }catch(_){ return null; } if(!gm)return null; hand.add(gm);
-      try{ this.model.updateWorldMatrix(true,true);
-        const bs=new THREE.Vector3(); hand.getWorldScale(bs); gm.scale.setScalar((1/(Math.abs(bs.x)||1))*(window._BOT_GUN_MESH_SCALE||1.4));
-        const bq=new THREE.Quaternion(); hand.getWorldQuaternion(bq); const mq=this.model.getWorldQuaternion(new THREE.Quaternion());
-        let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
-        const desired=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), fwd);   // barrel (+Z) -> facing
-        if(window._BOT_GUN_FIX){ desired.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(window._BOT_GUN_FIX.x||0,window._BOT_GUN_FIX.y||0,window._BOT_GUN_FIX.z||0))); }
-        gm.quaternion.copy(bq.clone().invert().multiply(desired));
-        const Ph=hand.getWorldPosition(new THREE.Vector3()); const refS=(window._WPN_REF_HANDSCALE||Math.abs(bs.x)||1);
-        const off=(window._BOT_GUN_POS||{x:0,y:0,z:6}); const wo=new THREE.Vector3(off.x,off.y,off.z).applyQuaternion(mq).multiplyScalar(refS);
-        gm.position.copy(hand.worldToLocal(Ph.add(wo)));
-      }catch(_){}
-      return gm; };
-    const gmR=_attach(rHand, 1); if(!gmR) return false;
-    this._gunMesh=gmR; this._gunMuzzle=(gmR.userData&&gmR.userData._muzzle)||null; this._gunMeshWeapon=weapon;
-    // DUAL WRIST CANNONS — the player's rockets/arm-cannons sit on BOTH wrists, so the rival's should too (a lone floating
-    //   launcher was the "single rocket thing" bug). Only the per-hand cannons go dual; big mounted launchers (bigbill/grenade)
-    //   + single-hand weapons stay one-handed. window._BOT_DUAL_GUN=false forces single; _BOT_SINGLE_GUNS overrides the list.
-    const _single=(window._BOT_SINGLE_GUNS||['bigbill','grenade','bow','boomerang','flag','flag1h']);
-    const _dual = window._BOT_DUAL_GUN!==false && !(gmR.userData&&gmR.userData._large) && _single.indexOf(weapon)<0;
-    if(_dual){ let lHand=_findHand(/mixamorig_LeftHand$/i)||_findHand(/lefthand$/i);
-      if(lHand){ const gmL=_attach(lHand, -1); if(gmL){ this._gunMeshL=gmL; this._gunMuzzleL=(gmL.userData&&gmL.userData._muzzle)||null; } } }
+    const cls=(window._BOT_WPN_CLASSES===false)?'A':this._botWpnClass(weapon);
+    const _mk=(side)=>{ let gm=null; try{ gm=_makeWeaponHandModel(weapon, side); }catch(_){ return null; } if(!gm)return null;
+      gm.userData._wpn=weapon; try{ const _c=window._WPN_SCALE_COMP; if(_c&&isFinite(_c)&&_c>0&&_c!==1)gm.scale.multiplyScalar(_c); }catch(_){} return gm; };
+    const gmR=_mk(1); if(!gmR) return false;
+    rHand.add(gmR);   // large weapons get re-parented onto weapon_1 by _orientLargeWeapon on the first pose tick
+    this._gunMesh=gmR; this._gunMuzzle=(gmR.userData&&gmR.userData._muzzle)||null; this._gunMeshWeapon=weapon; this._gunClass=cls;
+    this._rHandBone=rHand; this._lHandBone=_findHand(/mixamorig_LeftHand$/i)||_findHand(/lefthand$/i);
+    this._rForeBone=(bones&&typeof _foreArmBone==='function')?_foreArmBone(bones,'R'):null;
+    this._lForeBone=(bones&&typeof _foreArmBone==='function')?_foreArmBone(bones,'L'):null;
+    // CLASS A ONLY gets the second wrist cannon — the hero never dual-wields a rifle-stance or large weapon either.
+    if(cls==='A' && window._BOT_DUAL_GUN!==false && this._lHandBone){ const gmL=_mk(-1); if(gmL){ this._lHandBone.add(gmL); this._gunMeshL=gmL; this._gunMuzzleL=(gmL.userData&&gmL.userData._muzzle)||null; } }
+    try{ this._botWeaponPoseTick(0.016); }catch(_){}   // place it correctly on frame ONE (no one-frame flash at the origin)
     return true;
+  }
+  _botDropGunMeshes(){ for(const k of ['_gunMesh','_gunMeshL']){ const m=this[k]; if(m&&m.parent)m.parent.remove(m); this[k]=null; }
+    this._gunMuzzle=null; this._gunMuzzleL=null; this._gunClass=null; }
+  // Per-frame weapon placement + stance, reusing the HERO's own orient functions (they take an owner now).
+  _botWeaponPoseTick(dt){
+    if(!this.model||!this._gunMesh)return;
+    const cls=this._gunClass||'A';
+    try{
+      if(cls==='C'){ if(typeof _orientLargeWeapon==='function')_orientLargeWeapon(this._gunMesh, this._rHandBone, this); }
+      else if(cls==='B'){ let ok=false; if(typeof _orientMinigun==='function')ok=_orientMinigun(this._gunMesh, this._rHandBone, this);
+        if(!ok && typeof _orientHandLauncher==='function')_orientHandLauncher(this._gunMesh, this._rHandBone, this._rForeBone, this); }
+      else { if(typeof _orientHandLauncher==='function'){ _orientHandLauncher(this._gunMesh, this._rHandBone, this._rForeBone, this);
+          if(this._gunMeshL)_orientHandLauncher(this._gunMeshL, this._lHandBone, this._lForeBone, this); } }
+    }catch(_){}
+    // spin the rotary barrels like the hero's do
+    try{ const sp=((this._botFiringT||0)>0)?(window._CANNON_SPIN_FIRE||24):(window._CANNON_SPIN_IDLE||5);
+      this._mgSpin=(this._mgSpin||0)+sp*Math.min(dt,0.05);
+      for(const m of [this._gunMesh,this._gunMeshL]){ const r=m&&m.userData&&m.userData._rotor; if(r)r.rotation[(m.userData._rotorAxis)||'z']=this._mgSpin; } }catch(_){}
   }
   // fell off a void stage (disc/sky) -> ring out. In RUMBLE this spends a stock + respawns (or eliminates); elsewhere it just dies.
   _botVoidRingOut(){
@@ -16834,7 +16850,7 @@ class BotPilot{
       if(window._DROP_ON_SMASH!==false && window._BOT_DROP_ON_SMASH!==false && lift>=(window._BOT_DROP_LIFT||340) && typeof _spawnLootBall==='function'){
         try{ const _a=Math.random()*Math.PI*2, _sp=90, _ox=Math.cos(_a)*14, _oz=Math.sin(_a)*14, _vx=-Math.cos(_a)*_sp, _vz=-Math.sin(_a)*_sp;
           const _gun=this._botGun||null, _mel=this._meleeType||this._botMeleeWeapon||null;
-          if(_gun){ _spawnLootBall(this.wx-_ox,this.wz-_oz,'gun',_gun,_vx,170,_vz); this._botGun=null; this._botWeapon='rapid'; this._botWeaponLocked=false; this._botWeaponT=0; if(this._gunMesh&&this._gunMesh.parent)this._gunMesh.parent.remove(this._gunMesh); this._gunMesh=null; this._gunMeshWeapon=null; this._gunMuzzle=null; if(this.primaryWeapon&&this.primaryWeapon!=='bullets')this.primaryWeapon='bullets'; }
+          if(_gun){ _spawnLootBall(this.wx-_ox,this.wz-_oz,'gun',_gun,_vx,170,_vz); this._botGun=null; this._botWeapon='rapid'; this._botWeaponLocked=false; this._botWeaponT=0; this._botDropGunMeshes(); this._gunMeshWeapon=null; if(this.primaryWeapon&&this.primaryWeapon!=='bullets')this.primaryWeapon='bullets'; }
           else if(_mel){ _spawnLootBall(this.wx-_ox,this.wz-_oz,'melee',_mel,_vx,170,_vz); if(this._hammer&&this._hammer.parent)this._hammer.parent.remove(this._hammer); this._hammer=null; this._meleeType=null; this._stowedType=null; if(this._meleeMesh&&this._meleeMesh.parent)this._meleeMesh.parent.remove(this._meleeMesh); this._meleeMesh=null; this._botMeleeWeapon=null; }
         }catch(_){}
       }
@@ -17320,7 +17336,7 @@ class BotPilot{
     if(this._botGun==='rockets' && typeof EnemyMissile!=='undefined' && typeof GS!=='undefined' && GS.enemyMissiles){   // REAL ROCKETS: fire homing enemy missiles that actually fly at the player, on a slow launcher cadence
       this._botRocketT=(this._botRocketT||0)-dt;
       if(canFire && dist<(window._BOT_ROCKET_R||1000) && _foe && _foe.alive!==false && this._botRocketT<=0){
-        this._botRocketT=(window._BOT_ROCKET_CD||1.6);
+        this._botRocketT=(window._BOT_ROCKET_CD||1.6); this._botFiringT=(window._BOT_SHOOT_POSE_HOLD||0.22);
         try{ const rdx=_foe.wx-this.wx, rdz=_foe.wz-this.wz, rd=Math.hypot(rdx,rdz)||1, _rs=(window._BOT_ROCKET_SPD||64); const _rk=new EnemyMissile(this.wx,this.wz,(this.py||0)+14,(rdx/rd)*_rs,(rdz/rd)*_rs); _rk._ownerBot=this; GS.enemyMissiles.push(_rk); }catch(_){}
         if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(150,0.14,'sawtooth',0.16,60);}catch(_){}
         if(typeof ps!=='undefined')ps.burst(this.wx,(this.py||0)+12,[1,0.5,0.15],5,80);
@@ -17328,7 +17344,7 @@ class BotPilot{
     } else if(this._botGun==='grenade'){   // REAL GRENADE — lob an arcing bomb that explodes on the foe (was a straight slug)
       this._botNadeT=(this._botNadeT||0)-dt;
       if(canFire && _foe && _foe.alive!==false && dist<(window._BOT_NADE_R||760) && this._botNadeT<=0){
-        this._botNadeT=(window._BOT_NADE_CD||1.9);
+        this._botNadeT=(window._BOT_NADE_CD||1.9); this._botFiringT=(window._BOT_SHOOT_POSE_HOLD||0.22);
         try{ this._throwBombAt(px+(_foe.vx||0)*0.3, pz+(_foe.vz||0)*0.3); }catch(_){}
       }
     } else if(this._botGun==='flamethrower'){   // REAL FLAMETHROWER — a short cone of flame: sustained DoT + licking particles, no bullets
@@ -17351,13 +17367,13 @@ class BotPilot{
     } else if(this._botGun==='boomerang'){   // REAL BOOMERANG — throws a returning enemy blade that strikes out AND back
       this._botBoomT=(this._botBoomT||0)-dt;
       if(canFire && _foe && _foe.alive!==false && dist<(window._BOT_BOOM_R||820) && this._botBoomT<=0 && typeof Boomerang!=='undefined'){
-        this._botBoomT=(window._BOT_BOOM_CD||2.3);
+        this._botBoomT=(window._BOT_BOOM_CD||2.3); this._botFiringT=(window._BOT_SHOOT_POSE_HOLD||0.22);
         try{ const b=new Boomerang(this.wx,this.wz,this.aim,false); b._enemy=true; b._ownerBot=this; b._mpBotId=this._mpBotId; if(!GS.boomerangs)GS.boomerangs=[]; GS.boomerangs.push(b); }catch(_){}
       }
     } else if(this._botGun==='plasma'){   // REAL PLASMA CANNON — fat glowing bolts on a deliberate cadence, heavy hit
       this._botPlasT=(this._botPlasT||0)-dt;
       if(canFire && _foe && _foe.alive!==false && dist<(window._BOT_PLASMA_R||900) && this._botPlasT<=0){
-        this._botPlasT=(window._BOT_PLASMA_CD||1.1);
+        this._botPlasT=(window._BOT_PLASMA_CD||1.1); this._botFiringT=(window._BOT_SHOOT_POSE_HOLD||0.22);
         try{ const ang=this.aim+(Math.random()-0.5)*this.aimError, sp=(window._BOT_PLASMA_SPD||430); const bb=new EnemyBullet(this.wx,this.wz,Math.cos(ang)*sp,Math.sin(ang)*sp,0x66ff88); bb._ownerBot=this; bb.dmg=(window._BOT_PLASMA_DMG||2); if(bb.mesh)bb.mesh.scale.multiplyScalar(window._BOT_PLASMA_SZ||2.6); }catch(_){}
         if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(300,0.12,'sine',0.14,560);}catch(_){}
         if(typeof ps!=='undefined')ps.burst(this.wx,(this.py||0)+12,[0.4,1,0.5],4,70);
@@ -17371,21 +17387,21 @@ class BotPilot{
     } else if(this._botGun==='shotgun'){   // REAL SHOTGUN — a 5-pellet fan, close-range burst
       this._botShotT=(this._botShotT||0)-dt;
       if(canFire && _foe && _foe.alive!==false && dist<(window._BOT_SHOTGUN_R||300) && this._botShotT<=0){
-        this._botShotT=(window._BOT_SHOTGUN_CD||1.15);
+        this._botShotT=(window._BOT_SHOTGUN_CD||1.15); this._botFiringT=(window._BOT_SHOOT_POSE_HOLD||0.22);
         try{ for(let k=-2;k<=2;k++){ const ang=this.aim+k*(window._BOT_SHOTGUN_ANG||0.13)+(Math.random()-0.5)*this.aimError, sp=(window._BOT_SHOTGUN_SPD||480); const bb=new EnemyBullet(this.wx,this.wz,Math.cos(ang)*sp,Math.sin(ang)*sp,0xffaa22); bb._ownerBot=this; if(bb.mesh)bb.mesh.scale.multiplyScalar(0.9); } }catch(_){}
         if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(130,0.1,'square',0.14,100);}catch(_){}
       }
     } else if(this._botGun==='bow'){   // REAL BOW — a single FAST heavy bolt on a slow draw (long range sniper)
       this._botBowT=(this._botBowT||0)-dt;
       if(canFire && _foe && _foe.alive!==false && dist<(window._BOT_BOW_R||780) && this._botBowT<=0){
-        this._botBowT=(window._BOT_BOW_CD||1.7);
+        this._botBowT=(window._BOT_BOW_CD||1.7); this._botFiringT=(window._BOT_SHOOT_POSE_HOLD||0.22);
         try{ const ang=this.aim+(Math.random()-0.5)*this.aimError*0.5, sp=(window._BOT_BOW_SPD||960); const bb=new EnemyBullet(this.wx,this.wz,Math.cos(ang)*sp,Math.sin(ang)*sp,0xb6ff3a); bb._ownerBot=this; bb.dmg=(window._BOT_BOW_DMG||3); if(bb.mesh)bb.mesh.scale.set(0.7,0.7,2.4); }catch(_){}
         if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(520,0.09,'triangle',0.12,900);}catch(_){}
       }
     } else if(this._botGun==='bigbill'){   // REAL BIG BILL — an RPG rocket: same homing missile as rockets, bigger + slower cadence
       this._botBillT=(this._botBillT||0)-dt;
       if(canFire && _foe && _foe.alive!==false && dist<(window._BOT_BILL_R||980) && this._botBillT<=0 && typeof EnemyMissile!=='undefined' && GS.enemyMissiles){
-        this._botBillT=(window._BOT_BILL_CD||2.8);
+        this._botBillT=(window._BOT_BILL_CD||2.8); this._botFiringT=(window._BOT_SHOOT_POSE_HOLD||0.22);
         try{ const rdx=_foe.wx-this.wx, rdz=_foe.wz-this.wz, rd=Math.hypot(rdx,rdz)||1, _rs=(window._BOT_BILL_SPD||56); const _rk=new EnemyMissile(this.wx,this.wz,(this.py||0)+14,(rdx/rd)*_rs,(rdz/rd)*_rs); _rk._ownerBot=this; if(_rk.mesh)try{_rk.mesh.scale.multiplyScalar(1.6);}catch(_){} GS.enemyMissiles.push(_rk); }catch(_){}
         if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(110,0.18,'sawtooth',0.2,50);}catch(_){}
         if(typeof ps!=='undefined')ps.burst(this.wx,(this.py||0)+12,[1,0.4,0.1],7,90);
@@ -17561,6 +17577,8 @@ class BotPilot{
       else { this.model.rotation.set(0, yaw, 0); this.model.position.set(this.wx,this.py,this.wz); }
     }
     if(this._mixer) this._mixer.update(dt);
+    this._botFiringT=Math.max(0,(this._botFiringT||0)-dt);   // 'recently fired' window that drives the shoot poses
+    try{ if(this._gunMesh)this._botWeaponPoseTick(dt); }catch(_){}   // re-place the gun AFTER the mixer wrote this frame's bones (a one-shot equip-time orient drifted with the animation)
     if(this._clips && (this._botMeleeAnimT||0)<=0 && !((this._botSlideT||0)>0||(this._botRollT||0)>0||this._botBall)){   // don't override a melee swing or special move mid-play
       // DIRECTIONAL BLEND: pick the clip from where he's MOVING relative to where he's FACING -> proper
       // back-pedal / strafe reads instead of always run_forward. Airborne -> floating.
@@ -17577,6 +17595,16 @@ class BotPilot{
         else { const _right=((window._BOT_STRAFE_SIGN||1)*_df)>0; target=_right?'strafe_right':'strafe_left'; }
       } else target='idle';
       if(!this._clips[target]) target=(_spd>(window._BOT_MOVE_MIN||20)?'run_forward':'idle');   // fall back if the rig is missing a directional clip
+      // ── WEAPON STANCE (hero parity) ── bots load the SAME clip set the hero does, they just never used the gun poses.
+      //   Class B (shotgun/minigun/flamethrower) -> rifle_idle/rifle_shoot; Class C (grenade/bigbill) -> bazooka/bazooka_shoot;
+      //   Class A + everything else -> the base locomotion clip with the hero's '_shoot' suffix while firing.
+      //   Two-handed stances are full-body clips, so they're used while planted; running keeps the locomotion clip.
+      if(window._BOT_WPN_STANCE!==false && this._gunMesh){
+        const _fir=((this._botFiringT||0)>0), _cls=this._gunClass||'A', _planted=(_spd<=(window._BOT_STANCE_SPD||60));
+        if(_cls==='C'&&_planted){ const n=_fir?'bazooka_shoot':'bazooka'; if(this._clips[n])target=n; else if(this._clips['bazooka'])target='bazooka'; }
+        else if(_cls==='B'&&_planted){ const n=_fir?'rifle_shoot':'rifle_idle'; if(this._clips[n])target=n; else if(this._clips['rifle_idle'])target='rifle_idle'; }
+        else if(_fir){ const n=target+'_shoot'; if(this._clips[n])target=n; }
+      }
       if(!this._clips[target]) target='idle';
       if(target!==this._clips._cur&&this._clips[target]){
         Object.values(this._clips).forEach(a=>{ if(typeof a.fadeOut==='function') a.fadeOut(0.15); });
@@ -18442,7 +18470,7 @@ function _slideStealFrom(vic){
   if(gun){
     if(_armed){ try{ if(typeof _spawnLootBall==='function')_spawnLootBall(vic.wx+_ox, vic.wz+_oz, 'gun', gun, _vx, 170, _vz); }catch(_){} }
     else { try{ if(typeof _equipWeapon==='function')_equipWeapon(gun); }catch(_){} }
-    try{ vic._botGun=null; vic._botWeapon='rapid'; vic._botWeaponLocked=false; vic._botWeaponT=0; if(vic._gunMesh&&vic._gunMesh.parent)vic._gunMesh.parent.remove(vic._gunMesh); vic._gunMesh=null; vic._gunMeshWeapon=null; vic._gunMuzzle=null; if(vic.primaryWeapon&&vic.primaryWeapon!=='bullets')vic.primaryWeapon='bullets'; }catch(_){}
+    try{ vic._botGun=null; vic._botWeapon='rapid'; vic._botWeaponLocked=false; vic._botWeaponT=0; if(vic._botDropGunMeshes)vic._botDropGunMeshes(); vic._gunMeshWeapon=null; if(vic.primaryWeapon&&vic.primaryWeapon!=='bullets')vic.primaryWeapon='bullets'; }catch(_){}
     _msg(gun); return true; }
   // 3) MELEE weapon
   const melee = vic._meleeType || vic._botMeleeWeapon || null;
@@ -40720,31 +40748,39 @@ function _makeBazooka(side){
   return g;
 }
 window._makeBazooka=_makeBazooka;
-function _resolveGunDir(){
-  const bones=player.model&&player.model.userData&&player.model.userData.bones; if(!bones) return null;
-  if(player._gunDirBonesRef===bones) return player._gunDirBone;       // cache per skeleton; re-resolve on model rebuild
-  let db=bones['weapon_1']||bones['mixamorig_weapon_1']||bones['weapon_direction']||bones['mixamorig_weapon_direction']||null;   // weapon_1 is the renamed weapon_direction; keep the old name as a fallback for older rigs
-  if(!db){ for(const k in bones){ if(/weapon_?1\b|weapon.*dir/i.test(k)){ db=bones[k]; break; } } }
-  if(!db&&player.model){ player.model.traverse(o=>{ if(!db&&/weapon_?1\b|weapon.*dir/i.test(o.name||'')) db=o; }); }
-  if(db){ player._gunDirBone=db; player._gunDirBonesRef=bones; }   // only cache on success -> keep retrying each frame until the bone exists (was caching null permanently)
+// _o = the OWNER whose rig we're resolving on (defaults to the hero). Bots pass themselves so they can reuse the hero's exact
+//   weapon placement/pose code instead of a parallel implementation. All state written here is per-instance already.
+function _resolveGunDir(_o){ const P=_o||player; if(!P)return null;
+  if(!P.model) return null;
+  const bones=(P.model.userData&&P.model.userData.bones)||null;   // BOT rigs don't publish a bones map -> fall through to the traverse below instead of bailing (that's why large weapons never re-parented onto weapon_1 for bots)
+  if(bones&&P._gunDirBonesRef===bones) return P._gunDirBone;       // cache per skeleton; re-resolve on model rebuild
+  if(!bones&&P._gunDirBone&&P._gunDirBone.parent) return P._gunDirBone;
+  let db=bones?(bones['weapon_1']||bones['mixamorig_weapon_1']||bones['weapon_direction']||bones['mixamorig_weapon_direction']||null):null;   // weapon_1 is the renamed weapon_direction; keep the old name as a fallback for older rigs
+  if(!db&&bones){ for(const k in bones){ if(/weapon_?1\b|weapon.*dir/i.test(k)){ db=bones[k]; break; } } }
+  if(!db&&P.model){ P.model.traverse(o=>{ if(!db&&/weapon_?1\b|weapon.*dir/i.test(o.name||'')) db=o; }); }
+  if(db){ P._gunDirBone=db; P._gunDirBonesRef=bones; }   // only cache on success -> keep retrying each frame until the bone exists (was caching null permanently)
   return db||null;
 }
-function _resolveGunDir2(){   // weapon_2 = the FORWARD span bone (weapon_1 is the rear/grip end). Large weapons span weapon_1 -> weapon_2.
-  const bones=player.model&&player.model.userData&&player.model.userData.bones; if(!bones) return null;
-  if(player._gunDir2BonesRef===bones) return player._gunDir2Bone;
-  let db=bones['weapon_2']||bones['mixamorig_weapon_2']||null;
-  if(!db){ for(const k in bones){ if(/weapon_?2\b/i.test(k)){ db=bones[k]; break; } } }
-  if(!db&&player.model){ player.model.traverse(o=>{ if(!db&&/weapon_?2\b/i.test(o.name||'')) db=o; }); }
-  if(db){ player._gunDir2Bone=db; player._gunDir2BonesRef=bones; }
+function _resolveGunDir2(_o){   // weapon_2 = the FORWARD span bone (weapon_1 is the rear/grip end). Large weapons span weapon_1 -> weapon_2.
+  const P=_o||player; if(!P)return null;
+  if(!P.model) return null;
+  const bones=(P.model.userData&&P.model.userData.bones)||null;
+  if(bones&&P._gunDir2BonesRef===bones) return P._gunDir2Bone;
+  if(!bones&&P._gunDir2Bone&&P._gunDir2Bone.parent) return P._gunDir2Bone;
+  let db=bones?(bones['weapon_2']||bones['mixamorig_weapon_2']||null):null;
+  if(!db&&bones){ for(const k in bones){ if(/weapon_?2\b/i.test(k)){ db=bones[k]; break; } } }
+  if(!db&&P.model){ P.model.traverse(o=>{ if(!db&&/weapon_?2\b/i.test(o.name||'')) db=o; }); }
+  if(db){ P._gunDir2Bone=db; P._gunDir2BonesRef=bones; }
   return db||null;
 }
 function _foreArmBone(bones,side){
   const want=side==='L'?'Left':'Right';
   return bones['mixamorig_'+want+'ForeArm']||bones[want+'ForeArm']||(function(){ for(const k in bones){ if(/forearm/i.test(k) && (side==='L'?/left/i.test(k):/right/i.test(k))) return bones[k]; } return null; })();
 }
-function _orientHandLauncher(obj,bone,fore){
-  if(!obj||!bone||!player||!player.model) return;
-  player.model.updateWorldMatrix(true,true);
+function _orientHandLauncher(obj,bone,fore,_o){
+  const P=_o||player;
+  if(!obj||!bone||!P||!P.model) return;
+  P.model.updateWorldMatrix(true,true);
   const bq=new THREE.Quaternion(); bone.getWorldQuaternion(bq);
   let aim;
   if(fore){
@@ -40761,25 +40797,26 @@ function _orientHandLauncher(obj,bone,fore){
   obj.quaternion.copy(bq.clone().invert().multiply(desired));
   const bs=new THREE.Vector3(); bone.getWorldScale(bs);
   obj.scale.setScalar((1/(Math.abs(bs.x)||1))*_LAUNCHER_SCALE*(obj.userData._extraScale||1));   // per-weapon size (bazooka shrinks its long geometry to a sane in-hand size)
-  const swT=player._handSwapT||0; if(swT>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT/dur))*Math.PI*2)); }   // weapon-swap flip
+  const swT=P._handSwapT||0; if(swT>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT/dur))*Math.PI*2)); }   // weapon-swap flip
 }
 // Minigun is a single TWO-HANDED cannon: aim its +Z barrel axis down the world line from the right hand
 // (back of the gun) to the weapon_direction bone (muzzle end) — the rifle stances pose weapon_direction out
 // at the left hand, so the gun lies along both hands. Mirrors _orientHammer's handle-aim. Runs after
 // _riflePoseTick, so the bones it reads are already in the rifle pose. Returns false if there's no dir bone.
-function _orientMinigun(obj,bone){
-  if(!obj||!bone||!player||!player.model) return false;
-  const bones=player.model.userData&&player.model.userData.bones; if(!bones) return false;
-  player.model.updateWorldMatrix(true,true);
+function _orientMinigun(obj,bone,_o){
+  const P=_o||player;
+  if(!obj||!bone||!P||!P.model) return false;
+  const bones=P.model.userData&&P.model.userData.bones; if(!bones) return false;
+  P.model.updateWorldMatrix(true,true);
   const P0=bone.getWorldPosition(new THREE.Vector3());     // right hand = back of the gun
   // Muzzle-end target. weapon_direction is meant to be posed out at the LEFT hand in the rifle stances; but an
   // un-posed helper sits right on the right hand and reads as "just forward of the hand" (= the forearm aim the
   // user is seeing). So: use weapon_direction only when it's actually posed away, else aim at the left-hand bone
   // (which IS the between-the-hands line). window._MINIGUN_AIM forces 'weapondir' | 'lefthand'.
-  const ud=player.model.userData||{};
-  const meleeing=(ud._meleeTimer>0)||!!player._meleeAdditive||!!ud._slamHold;   // mid-swing the melee animation owns the arms; swing the rifle like a blade
+  const ud=P.model.userData||{};
+  const meleeing=(ud._meleeTimer>0)||!!P._meleeAdditive||!!ud._slamHold;   // mid-swing the melee animation owns the arms; swing the rifle like a blade
   const mode=window._MINIGUN_AIM||'auto';
-  const db=(typeof _resolveGunDir==='function')?_resolveGunDir():null;
+  const db=(typeof _resolveGunDir==='function')?_resolveGunDir(P):null;
   const lh=bones['mixamorig_LeftHand']||null;
   const wdP=db?db.getWorldPosition(new THREE.Vector3()):null;
   const lhP=lh?lh.getWorldPosition(new THREE.Vector3()):null;
@@ -40792,10 +40829,10 @@ function _orientMinigun(obj,bone){
     else if(wdP){ P1=wdP; src='weapondir'; } }
   // on-screen debug: DEFAULT ON (set window._MINIGUN_DEBUG=false to silence). Mirrors to the green DBG panel so it's readable on a phone — no console needed. Throttled to ~1 line / 1.5s.
   const _wds=wdP?wdP.distanceTo(P0).toFixed(1):'none', _lhs=lhP?lhP.distanceTo(P0).toFixed(1):'none';
-  const _mgDbg=(m)=>{ if(window._MINIGUN_DEBUG!==true)return; const n=(typeof performance!=='undefined'?performance.now():0); if(n-(player._mgDbgT||0)>1500){ player._mgDbgT=n; console.log('[minigun] '+m); } };
-  if(!P1){ player._mgAimDbg='NOAIM wd'+_wds+' lh'+_lhs+' m='+mode; _mgDbg('NO TARGET wd='+_wds+' lh='+_lhs+' mode='+mode); return false; }
+  const _mgDbg=(m)=>{ if(window._MINIGUN_DEBUG!==true)return; const n=(typeof performance!=='undefined'?performance.now():0); if(n-(P._mgDbgT||0)>1500){ P._mgDbgT=n; console.log('[minigun] '+m); } };
+  if(!P1){ P._mgAimDbg='NOAIM wd'+_wds+' lh'+_lhs+' m='+mode; _mgDbg('NO TARGET wd='+_wds+' lh='+_lhs+' mode='+mode); return false; }
   const aim=P1.clone().sub(P0); if(aim.lengthSq()<1e-8) return false; aim.normalize();
-  player._mgAimDbg=src+' wd'+_wds+' lh'+_lhs+' d'+aim.x.toFixed(1)+','+aim.y.toFixed(1)+','+aim.z.toFixed(1);
+  P._mgAimDbg=src+' wd'+_wds+' lh'+_lhs+' d'+aim.x.toFixed(1)+','+aim.y.toFixed(1)+','+aim.z.toFixed(1);
   _mgDbg('src='+src+' wd='+_wds+' lh='+_lhs+' dir='+aim.x.toFixed(2)+','+aim.y.toFixed(2)+','+aim.z.toFixed(2));
   const _up=new THREE.Vector3(0,1,0);
   let _right=new THREE.Vector3().crossVectors(_up,aim); if(_right.lengthSq()<1e-6)_right.set(1,0,0); _right.normalize();
@@ -40806,16 +40843,17 @@ function _orientMinigun(obj,bone){
   obj.quaternion.copy(bq.clone().invert().multiply(desired));
   const bs=new THREE.Vector3(); bone.getWorldScale(bs);
   obj.scale.setScalar((1/(Math.abs(bs.x)||1))*_LAUNCHER_SCALE*(obj.userData._extraScale||1));
-  const swT=player._handSwapT||0; if(swT>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT/dur))*Math.PI*2)); }   // keep the weapon-swap flip
+  const swT=P._handSwapT||0; if(swT>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT/dur))*Math.PI*2)); }   // keep the weapon-swap flip
   return true;
 }
 // LARGE weapons (grenade launcher / bazooka): snap the gun to the weapon_1 bone's FULL world transform (position +
 // rotation), so the animator places & aims it directly on the rig. The gun (child of the hand) gets its local
 // transform set so its WORLD transform == weapon_1.world * fix. _LARGE_FIX rolls/tilts the model onto the bone's
 // axes, _LARGE_SCALE sizes it, _LARGE_POS nudges it along the bone's own axes. Runs after the bazooka pose tick.
-function _orientLargeWeapon(obj,bone){
-  if(!obj||!player||!player.model) return false;
-  const dir=(typeof _resolveGunDir==='function')?_resolveGunDir():null;
+function _orientLargeWeapon(obj,bone,_o){
+  const P=_o||player;
+  if(!obj||!P||!P.model) return false;
+  const dir=(typeof _resolveGunDir==='function')?_resolveGunDir(P):null;
   if(!dir){   // no weapon_1 on this rig -> leave the gun neutral on the hand (rare; live rig has the bone)
     if(obj.parent!==bone && bone){ bone.add(obj); }
     obj.quaternion.identity(); obj.position.set(0,0,0); obj.scale.setScalar(window._LARGE_SCALE!=null?window._LARGE_SCALE:1.7); return false;
@@ -40823,12 +40861,12 @@ function _orientLargeWeapon(obj,bone){
   // PARENT the gun straight to weapon_1 -> the gun's ORIGIN sits exactly on the bone and inherits its full
   // rotation for free (no math, no dependence on the hand). The animator places & aims it on the rig.
   if(obj.parent!==dir){ dir.add(obj); }
-  player.model.updateWorldMatrix(true,true);
+  P.model.updateWorldMatrix(true,true);
   // ── SPAN mode: aim the barrel (+Z) down the weapon_1 -> weapon_2 line and seat it forward, so the launcher lies
   //    BALANCED between the hands the way the bazooka anim was authored — instead of inheriting weapon_1's own
   //    rotation (which threw the long tube back over the shoulder). Mirrors the sword's weapon_1->weapon_2 span.
   //    Enabled per-weapon via obj.userData._spanBones. Falls through to the old weapon_1-transform path otherwise.
-  const dir2=obj.userData._spanBones?((typeof _resolveGunDir2==='function')?_resolveGunDir2():null):null;
+  const dir2=obj.userData._spanBones?((typeof _resolveGunDir2==='function')?_resolveGunDir2(P):null):null;
   if(dir2){
     const W1=dir.getWorldPosition(new THREE.Vector3());
     const W2=dir2.getWorldPosition(new THREE.Vector3());
@@ -40849,7 +40887,7 @@ function _orientLargeWeapon(obj,bone){
     const wp=W1.clone().addScaledVector(sd, seat);
     obj.position.copy(dir.worldToLocal(wp));
     const np2=obj.userData._largePos||window._LARGE_POS; if(np2){ obj.position.x+=(np2.x||0); obj.position.y+=(np2.y||0); obj.position.z+=(np2.z||0); }   // fine nudge in weapon_1-local space
-    const swT2=player._handSwapT||0; if(swT2>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT2/dur))*Math.PI*2)); }
+    const swT2=P._handSwapT||0; if(swT2>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT2/dur))*Math.PI*2)); }
     return true;
   }
   // local transform RELATIVE to weapon_1: origin-aligned, optional model-axis fix, optional nudge, scale that undoes the bone's world scale
@@ -40861,7 +40899,7 @@ function _orientLargeWeapon(obj,bone){
   obj.scale.setScalar(_scL);
   // CENTRE the gun between the two grip joints (POSITION only — keeps weapon_1's correct horizontal aim): slide it along its own
   // barrel so its geometric centre (local +Z=_spanMidZ) lands on the midpoint of weapon_1<->weapon_2. Fixes the back-heavy droop.
-  if(obj.userData._centerPos){ const bones=player.model.userData&&player.model.userData.bones;
+  if(obj.userData._centerPos){ const bones=P.model.userData&&P.model.userData.bones;
     const RH=bones&&bones['mixamorig_RightHand'], LH=bones&&bones['mixamorig_LeftHand'];   // the two GRIPS = the hands (weapon_1/weapon_2 are stacked vertically in this stance, so use the hands)
     if(RH&&LH){ const W1=RH.getWorldPosition(new THREE.Vector3()), W2=LH.getWorldPosition(new THREE.Vector3());
       const M=W1.clone().add(W2).multiplyScalar(0.5);
@@ -40871,7 +40909,7 @@ function _orientLargeWeapon(obj,bone){
       const origin=M.addScaledVector(fwd, -midZ*_scL + (obj.userData._centerBias||0));           // origin so origin + fwd*midZ*scale == M (centre of tube at the mid-grip)
       obj.position.copy(dir.worldToLocal(origin));
       if(np){ obj.position.x+=(np.x||0); obj.position.y+=(np.y||0); obj.position.z+=(np.z||0); } } }
-  const swT=player._handSwapT||0; if(swT>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT/dur))*Math.PI*2)); }   // keep the weapon-swap flip
+  const swT=P._handSwapT||0; if(swT>0){ const dur=(window._SWAP_DUR!=null?window._SWAP_DUR:0.34); obj.quaternion.multiply(_shQ.setFromAxisAngle(_HANDX,(1-Math.min(1,swT/dur))*Math.PI*2)); }   // keep the weapon-swap flip
   return true;
 }
 // ── ROTARY WRIST-CANNON — a gatling barrel cluster on a spinning rotor (like the minigun) sized per weapon. The rotor
