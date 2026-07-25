@@ -423,7 +423,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1194</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1195</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -625,7 +625,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1194</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1195</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -14329,6 +14329,18 @@ class Player{
       this._updateLaunch(dt); return; }   // SMASH KNOCKBACK owns the body: parabolic arc + cage bounce + getup, input locked
     this._lockT=0;   // reached here = you have normal control -> reset the knockback-lock watchdog timer (so it only measures ONE continuous lock, never sums across separate hits)
     if(this._mount){ rawX=0; rawZ=0; this.vx=0; this.vz=0; this.inX=0; this.inZ=0; }   // MOUNTED: the left stick can't drive locomotion (no lean/glide) — you're pinned to the creature; the right stick still aims/shoots
+    // ── GUARD ROOTS YOU ── holding the block plants your feet. The left stick still TURNS you, so you can bring the shield
+    //   round onto whoever is shooting, but it no longer moves you: strolling around behind a raised shield would make
+    //   blocking strictly better than moving. Same shape as the _mount gate above, except we read the stick for FACING
+    //   first — zeroing the input outright would take the rotation with it. window._SHIELD_ROOT=false to walk while guarding.
+    if(window._SHIELD_ROOT!==false && this._shieldRaised && this.alive!==false){
+      const _gm=Math.hypot(rawX||0, rawZ||0);
+      if(_gm>(window._SHIELD_TURN_DEAD||0.15) && typeof rotInput==='function'){
+        const _w=rotInput(rawX,rawZ);
+        if(Math.hypot(_w.x,_w.z)>1e-4) this.aim=Math.atan2(_w.z,_w.x);
+      }
+      rawX=0; rawZ=0; this.vx=0; this.vz=0; this.inX=0; this.inZ=0;
+    }
     // hand cannons / default bullets ALWAYS fire — only physically-held special weapons (melee, minigun) drop when you're smashed. (Old melee-only gate removed: getting hit no longer locks out shooting.)
     if(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped) && !this._ballActive){ rawX=-rawX; }   // gravity flipped + camera rolled 180°: only left/right needs inverting (the camera's vertical mirror already handles forward/back)
     if(this._meleeType==='mace'||this._meleeType==='whip'){ this._maceRX=avx||0; this._maceRZ=avz||0; }   // mace/whip are one-handed physics-chain melee — shooting stays enabled (gun routes to the shoulder like other melee)
@@ -19995,17 +20007,26 @@ function _buildHeldShield(){
 function _makePlasmaShield(){
   const G=new THREE.Group();
   const C=(window._PSHIELD_COL!=null?window._PSHIELD_COL:0x5fd8ff), C2=(window._PSHIELD_COL2!=null?window._PSHIELD_COL2:0xcdf4ff);
-  // R = how far it bows (bigger = flatter), ARC = how wide the patch is in radians, TALL = how tall. ~±49° wide keeps it a
-  // shield rather than a wall, while the block arc stays a shade wider (±60°) so it errs on the player's side.
-  const R=(window._PSHIELD_R||21), ARC=(window._PSHIELD_ARC||1.7), TALL=(window._PSHIELD_TALL||1.15);
+  // R = how far it bows (bigger = flatter), ARC = how wide the patch is in radians, TALL = how tall.
+  const R=(window._PSHIELD_R||24), ARC=(window._PSHIELD_ARC||2.0), TALL=(window._PSHIELD_TALL||1.15);
   // SphereGeometry patch: phi centred on PI/2 so the bulge points down local +Z, theta centred on the equator
   const geo=new THREE.SphereGeometry(R, 30, 20, Math.PI/2-ARC/2, ARC, Math.PI/2-TALL/2, TALL);
   const fill=new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color:C,transparent:true,opacity:0.14,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
-  const wire=new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color:C2,wireframe:true,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
-  G.add(fill); G.add(wire);
-  // HOT RIM — trace the patch's four borders with the same sphere parametrisation THREE uses, so the outline sits exactly on the edge
+  G.add(fill);
   const sp=(u,v)=>{ const ph=(Math.PI/2-ARC/2)+u*ARC, th=(Math.PI/2-TALL/2)+v*TALL;
     return new THREE.Vector3(-R*Math.cos(ph)*Math.sin(th), R*Math.cos(th), R*Math.sin(ph)*Math.sin(th)); };
+  // QUAD LATTICE — a wireframe:true material draws the GEOMETRY's triangles, so the panel read as a mesh of diagonals.
+  // Trace the patch's own u/v parameter lines instead and you get clean rectangular cells, which is what an energy panel
+  // should look like. _PSHIELD_CU / _PSHIELD_CV are the cell counts across and down.
+  const CU=(window._PSHIELD_CU||9), CV=(window._PSHIELD_CV||6), SEG=10, pts=[];
+  for(let i=0;i<=CU;i++){ const u=i/CU;                       // verticals
+    for(let s=0;s<SEG;s++){ pts.push(sp(u,s/SEG), sp(u,(s+1)/SEG)); } }
+  for(let j=0;j<=CV;j++){ const v=j/CV;                       // horizontals
+    for(let s=0;s<SEG;s++){ pts.push(sp(s/SEG,v), sp((s+1)/SEG,v)); } }
+  const wire=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({color:C2,transparent:true,opacity:0.30,blending:THREE.AdditiveBlending,depthWrite:false}));
+  G.add(wire);
+  // HOT RIM — trace the patch's four borders with the same parametrisation, so the outline sits exactly on the edge
   const border=[]; const N=26;
   for(let i=0;i<=N;i++)border.push(sp(i/N,0));
   for(let i=1;i<=N;i++)border.push(sp(1,i/N));
@@ -20075,7 +20096,7 @@ function _shieldBlockScan(dt){
   const perfect=(player._shieldRaiseT||0)<=(window._SHIELD_PERFECT!=null?window._SHIELD_PERFECT:0.22);
   const SPD=(window._PARRY_SPEED!=null?window._PARRY_SPEED:560);
   const _front=(ox,oz,vx,vz)=>{ const dx=ox-px, dz=oz-pz, d2=dx*dx+dz*dz; if(d2>R2)return false; const d=Math.sqrt(d2)||1; if((dx/d*fx+dz/d*fz)<=ARC)return false; return (vx*(px-ox)+vz*(pz-oz))>-20; };   // in front, in range, heading toward you
-  const _fx=(x,z,def)=>{ if(typeof ps!=='undefined'){ ps.ring(x,z,[0.3,0.9,1],14,def?170:120); ps.burst(x,z,def?[0.6,1,1]:[0.4,0.8,1],def?22:14,def?170:120);} if(typeof grid!=='undefined'&&grid.shock)grid.shock(x,z,def?2.0:1.0); if(typeof addTrauma==='function')addTrauma(def?0.14:0.06); if(typeof hitStop==='function')hitStop(def?6:3); if(def){ if(window._pingSfx)window._pingSfx(x,z); } else if(typeof Audio!=='undefined'){try{ Audio.blip(360,0.06,'sine',0.14,420); }catch(_){}} if(def&&typeof announce==='function')announce('DEFLECT!','#7dffd0'); player._shieldHitFlash=10; if(player._shieldGuard!=null){ player._shieldGuard=Math.max(0,player._shieldGuard-(def?(window._SHIELD_PARRY_COST||5):(window._SHIELD_PROJ_COST||10))); if(player._shieldGuard<=0&&typeof _shieldBreak==='function')_shieldBreak(); } };   // perfect parry (ricochet back) -> metal ping; blocking drains the guard
+  const _fx=(x,z,def)=>{ if(typeof ps!=='undefined'){ ps.ring(x,z,[0.3,0.9,1],14,def?170:120); ps.burst(x,z,def?[0.6,1,1]:[0.4,0.8,1],def?22:14,def?170:120);} if(typeof grid!=='undefined'&&grid.shock)grid.shock(x,z,def?2.0:1.0); if(typeof addTrauma==='function')addTrauma(def?0.14:0.06); if(typeof hitStop==='function')hitStop(def?6:3); if(def){ if(window._pingSfx)window._pingSfx(x,z); } else if(typeof Audio!=='undefined'){try{ Audio.blip(360,0.06,'sine',0.14,420); }catch(_){}} if(def&&typeof announce==='function')announce('DEFLECT!','#7dffd0'); player._shieldHitFlash=10; if(window._SHIELD_DEGRADE===true && player._shieldGuard!=null){ player._shieldGuard=Math.max(0,player._shieldGuard-(def?(window._SHIELD_PARRY_COST||5):(window._SHIELD_PROJ_COST||10))); if(player._shieldGuard<=0&&typeof _shieldBreak==='function')_shieldBreak(); } };   // blocking only costs guard while degradation is on   // perfect parry (ricochet back) -> metal ping; blocking drains the guard
   if(typeof GS!=='undefined'&&GS.bullets){ for(let i=GS.bullets.length-1;i>=0;i--){ const b=GS.bullets[i]; if(!b||b._deflected)continue; if(_front(b.wx,b.wz,b.vx||0,b.vz||0)){ if(perfect){ const s=Math.hypot(b.vx,b.vz)||300; const pd=_parryDir(b,px,pz,fx,fz); b.vx=pd.x*s; b.vz=pd.z*s; b._deflected=true; b._ownerBot=null; _fx(b.wx,b.wz,true);} else { b.life=0; _fx(b.wx,b.wz,false);} } } }
   // ENEMY GUNFIRE — this scan covered rockets, bombs and thrown nukes but NOT GS.enemyBullets, whose only shield interaction
   // was the legacy passive bubble that _shieldTick force-disables. So the guard blocked everything except the single most
@@ -20220,10 +20241,9 @@ function _shieldTick(dt){
   const b=document.getElementById('btn-shield'); if(b){ const _on=(window._SHIELD_BTN===true);   // RETIRED: the mid-screen shield button is gone; shielding moves to the right-stick press. window._SHIELD_BTN=true brings the button back.
     if(_on)_ensureShieldHold(); b.style.display=(_on&&GS.state==='playing')?'flex':'none'; }
   const raised=!!player._shieldRaised && player.alive!==false && GS.state==='playing' && (player._shieldGuard||0)>0 && !player._shieldBroken;
-  // HE HOLDS THE SHIELD. The knight shield hangs off the LEFT hand — which is the FRONT hand in the cocked-back guard pose
-  // (the right hand is drawn all the way back), so that's the one that can actually present it. The plasma plane rides on it
-  // as the barrier it projects. window._KNIGHT_SHIELD=false drops back to the bare plasma plane.
-  if(window._KNIGHT_SHIELD!==false){
+  // KNIGHT SHIELD RETIRED — at its working scale it read as a tiny chip in his hand you could barely see. The plasma plane
+  // is the shield now. window._KNIGHT_SHIELD=true brings the held one back alongside it.
+  if(window._KNIGHT_SHIELD===true){
     if(raised && !player._heldShield) _buildHeldShield();
     if(player._heldShield){ const H=player._heldShield; H.visible=raised;
       if(raised){ const gf=Math.max(0.15,(player._shieldGuard||0)/(player._shieldGuardMax||100));
@@ -20242,7 +20262,15 @@ function _shieldTick(dt){
     }
   } else if(player._heldShield){ player._heldShield.visible=false; }
   try{ _plasmaShieldTick(raised, dt); }catch(_){}
-  if(raised){
+  // ── DEGRADATION IS OFF FOR NOW ── the guard used to drain while held and SHIELD-BREAK at zero, which is what made the block
+  //   "let go on its own after a bit and start shooting": once broken it can't be re-raised until the guard regens past
+  //   _SHIELD_RECOVER, and with the guard down the fire suppression lifts too. That reads as the control randomly working and
+  //   then not working. Holding the guard is free until the drain economy is actually designed. window._SHIELD_DEGRADE=true
+  //   turns the drain / break / regen cycle back on.
+  if(window._SHIELD_DEGRADE!==true){
+    player._shieldGuard=(player._shieldGuardMax||100); player._shieldBroken=false; player._shieldRegenT=0;
+  }
+  else if(raised){
     player._shieldGuard=Math.max(0, player._shieldGuard-(window._SHIELD_DRAIN||14)*dt);   // holding it up drains the guard (Smash shrink)
     player._shieldRegenT=(window._SHIELD_REGEN_DELAY||0.5);
     if(player._shieldGuard<=0){ _shieldBreak(); }
