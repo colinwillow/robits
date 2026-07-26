@@ -423,7 +423,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1229</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1230</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -625,7 +625,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1229</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1230</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -14838,8 +14838,9 @@ class Player{
       if(al>_dead){
         // RIGHT STICK pushed -> responsive camera swing behind the aim (same feel as twin-stick)
         if(Math.abs(_diff)>0.03) CAM.tyaw+=_diff*Math.min(1,dt*(window._CAM_FOLLOW_RATE!=null?window._CAM_FOLLOW_RATE:2.8)*_sens);
-      } else if(mvMag>0.15){
-        // RIGHT STICK idle, but MOVING -> lazy drift toward behind your facing (very slow -> doesn't fight split-second turns)
+      } else if(mvMag<=0.15){
+        // FULLY IDLE (no sticks) -> the camera slowly eases to rest behind wherever you're facing. While you're RUNNING it
+        // never corrects at all — you can hold any angle to the camera mid-play; it only settles once you stop.
         CAM.tyaw+=_diff*Math.min(1,dt*(window._CAM_HYBRID_DRIFT||1.1)*_sens);
       }
     } else {
@@ -17159,7 +17160,15 @@ class BotPilot{
   }
 
   die(){
-    try{ if(this._pBeamLine){ scene.remove(this._pBeamLine); if(this._pBeamLine.geometry)this._pBeamLine.geometry.dispose(); if(this._pBeamLine.material)this._pBeamLine.material.dispose(); this._pBeamLine=null; } }catch(_){}   // tear the plasma beam down with its owner
+    try{ if(this._pBeamLine){ scene.remove(this._pBeamLine); this._pBeamLine.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); this._pBeamLine=null; } }catch(_){}   // tear the plasma beam down with its owner
+    // DEATH DROPS THE WEAPON — kill a rival and its held gun/melee lands as grabbable loot instead of vanishing, and it
+    // respawns bare-handed. Runs BEFORE the rumble stock-respawn intercept so every death drops. _DEATH_DROP=false disables.
+    try{ if(!this._netMirror && window._DEATH_DROP!==false && typeof _spawnLootBall==='function'){
+      const _gun=this._botGun||null, _mel=this._meleeType||this._botMeleeWeapon||null;
+      const _a=Math.random()*Math.PI*2, _ox=Math.cos(_a)*10, _oz=Math.sin(_a)*10;
+      if(_gun){ _spawnLootBall(this.wx+_ox,this.wz+_oz,'gun',_gun, Math.cos(_a)*70,170,Math.sin(_a)*70); this._botGun=null; this._botWeapon='rapid'; this._botWeaponLocked=false; this._botWeaponT=0; try{ this._botDropGunMeshes(); }catch(_){} this._gunMeshWeapon=null; if(this.primaryWeapon&&this.primaryWeapon!=='bullets')this.primaryWeapon='bullets'; }
+      else if(_mel){ _spawnLootBall(this.wx+_ox,this.wz+_oz,'melee',_mel, Math.cos(_a)*70,170,Math.sin(_a)*70); if(this._hammer&&this._hammer.parent)this._hammer.parent.remove(this._hammer); this._hammer=null; try{ _offHandOff(this); }catch(_){} this._meleeType=null; this._stowedType=null; if(this._meleeMesh&&this._meleeMesh.parent)this._meleeMesh.parent.remove(this._meleeMesh); this._meleeMesh=null; this._botMeleeWeapon=null; }
+    } }catch(_){}
     if(window.RUMBLE&&window.RUMBLE.active&&this._rumbleSlot!=null&&!this._netMirror){ try{ if(window._rumbleBotDown(this))return; }catch(_){} }   // RUMBLE: spend a stock + respawn in place (or eliminate) instead of a plain death
     if(!(window.RUMBLE&&window.RUMBLE.active)&&(window._BALL_TEAMS===true||window._gameMode==='robitball')&&!this._netMirror&&typeof window._ballBotRespawn==='function'){ try{ if(window._ballBotRespawn(this))return; }catch(_){} }   // ROBIT BALL: goals not kills -> always beam back on a team pad, never a permanent death
     this.alive=false;
@@ -17612,7 +17621,8 @@ class BotPilot{
     this._burstCD=Math.max(0,this._burstCD-1);
     const _burstLen=(window._BOT_BURST_LEN&&window._BOT_BURST_LEN[this.diff])||{rookie:4,soldier:6,elite:8}[this.diff];
     const _burstGap=(window._BOT_BURST_GAP&&window._BOT_BURST_GAP[this.diff])||{rookie:34,soldier:24,elite:16}[this.diff];   // ~0.4/0.3/0.25s breather between mags — enough that it's not a constant blast
-    if(this._botGun==='rockets' && typeof EnemyMissile!=='undefined' && typeof GS!=='undefined' && GS.enemyMissiles){   // REAL ROCKETS: fire homing enemy missiles that actually fly at the player, on a slow launcher cadence
+    if(this._botGun==='rockets' && typeof EnemyMissile!=='undefined' && typeof GS!=='undefined'){
+      if(!GS.enemyMissiles)GS.enemyMissiles=[];   // a zone that never initialised the array silently killed the WHOLE branch (fell through to basic bullets)   // REAL ROCKETS: fire homing enemy missiles that actually fly at the player, on a slow launcher cadence
       this._botRocketT=(this._botRocketT||0)-dt;
       if(canFire && dist<(window._BOT_ROCKET_R||1000) && _foe && _foe.alive!==false && this._botRocketT<=0){
         this._botRocketT=(window._BOT_ROCKET_CD||1.6); this._botFiringT=(window._BOT_SHOOT_POSE_HOLD||0.22);
@@ -17655,16 +17665,24 @@ class BotPilot{
       if(_foe && _foe.alive!==false && dist<_pr){ const ca=Math.atan2(_foe.wz-this.wz,_foe.wx-this.wx); const da=Math.abs(((ca-this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI); _aimOk=da<(window._BOT_PLASMA_CONE||0.55); }
       if(canFire && _aimOk){
         this._botFiringT=(window._BOT_SHOOT_POSE_HOLD||0.22);
-        try{   // segmented lightning line, rebuilt each frame from the muzzle to the target with jitter
-          if(!this._pBeamLine){ const N=(window._BOT_BEAM_SEGS||9); const g=new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array((N+1)*3),3));
-            this._pBeamLine=new THREE.Line(g, new THREE.LineBasicMaterial({color:(window._BOT_PLASMA_COL!=null?window._BOT_PLASMA_COL:(typeof _WPN_COLORS!=='undefined'&&_WPN_COLORS.plasma)||0xff3df0),transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
-            this._pBeamLine._segs=N; scene.add(this._pBeamLine); }
-          const L=this._pBeamLine, N=L._segs, pa=L.geometry.attributes.position;
+        try{   // THICK LIGHTNING — three jittered strands (bright core + two loose arcs) rebuilt every frame, so it reads like
+          //   the hero's crackling plasma, not a hairline. Impact sparks fly at the target end every frame it's connected.
+          if(!this._pBeamLine){ const N=(window._BOT_BEAM_SEGS||9); const grp=new THREE.Group(); grp._strands=[]; grp._segs=N;
+            const col=(window._BOT_PLASMA_COL!=null?window._BOT_PLASMA_COL:(typeof _WPN_COLORS!=='undefined'&&_WPN_COLORS.plasma)||0xff3df0);
+            for(let si=0;si<3;si++){ const g=new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array((N+1)*3),3));
+              const ln=new THREE.Line(g, new THREE.LineBasicMaterial({color:(si===0?0xffffff:col),transparent:true,opacity:(si===0?0.95:0.65),blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+              ln.frustumCulled=false; grp.add(ln); grp._strands.push(ln); }
+            this._pBeamLine=grp; scene.add(grp); }
+          const L=this._pBeamLine, N=L._segs;
           const x0=this.wx, y0=(this.py||0)+(window._BOT_MUZZLE_Y||14), z0=this.wz, x1=_foe.wx, y1=(_foe.py||0)+14, z1=_foe.wz;
-          for(let k=0;k<=N;k++){ const f=k/N, j=(k>0&&k<N)?(window._BOT_BEAM_JIT||7):0;
-            pa.setXYZ(k, x0+(x1-x0)*f+rand(-j,j), y0+(y1-y0)*f+rand(-j,j), z0+(z1-z0)*f+rand(-j,j)); }
-          pa.needsUpdate=true; L.geometry.computeBoundingSphere(); L.visible=true;
-          L.material.opacity=0.55+0.4*Math.random();
+          for(let si=0;si<L._strands.length;si++){ const pa=L._strands[si].geometry.attributes.position;
+            const J=(si===0?(window._BOT_BEAM_JIT||7)*0.5:(window._BOT_BEAM_JIT||7)*(1+si*0.7));
+            for(let k=0;k<=N;k++){ const f=k/N, j=(k>0&&k<N)?J:0;
+              pa.setXYZ(k, x0+(x1-x0)*f+rand(-j,j), y0+(y1-y0)*f+rand(-j,j), z0+(z1-z0)*f+rand(-j,j)); }
+            pa.needsUpdate=true; L._strands[si].geometry.computeBoundingSphere();
+            L._strands[si].material.opacity=(si===0?0.75+0.25*Math.random():0.35+0.4*Math.random()); }
+          L.visible=true;
+          if(typeof ps!=='undefined'&&Math.random()<0.7)ps.spark(x1+rand(-5,5),z1+rand(-5,5),[1,0.45,0.95],y1+rand(-4,8));   // continuous impact crackle so being zapped READS
         }catch(_){}
         this._botPlasT=(this._botPlasT||0)-dt;
         if(this._botPlasT<=0){ this._botPlasT=(window._BOT_PLASMA_TICK||0.3);   // damage TICK while the beam is on you — the hero's beam cadence
@@ -17708,7 +17726,8 @@ class BotPilot{
       }
     } else if(this._botGun==='bigbill'){   // REAL BIG BILL — an RPG rocket: same homing missile as rockets, bigger + slower cadence
       this._botBillT=(this._botBillT||0)-dt;
-      if(canFire && _foe && _foe.alive!==false && dist<(window._BOT_BILL_R||980) && this._botBillT<=0 && typeof EnemyMissile!=='undefined' && GS.enemyMissiles){
+      if(canFire && _foe && _foe.alive!==false && dist<(window._BOT_BILL_R||980) && this._botBillT<=0 && typeof EnemyMissile!=='undefined'){
+        if(!GS.enemyMissiles)GS.enemyMissiles=[];
         this._botBillT=(window._BOT_BILL_CD||2.8); this._botFiringT=(window._BOT_SHOOT_POSE_HOLD||0.22);
         try{ const rdx=_foe.wx-this.wx, rdz=_foe.wz-this.wz, rd=Math.hypot(rdx,rdz)||1, _rs=(window._BOT_BILL_SPD||56); const _rk=new EnemyMissile(this.wx,this.wz,(this.py||0)+14,(rdx/rd)*_rs,(rdz/rd)*_rs); _rk._ownerBot=this; if(_rk.mesh)try{_rk.mesh.scale.multiplyScalar(1.6);}catch(_){} GS.enemyMissiles.push(_rk); }catch(_){}
         if(typeof Audio!=='undefined'&&Audio.blip)try{Audio.blip(110,0.18,'sawtooth',0.2,50);}catch(_){}
@@ -47042,7 +47061,7 @@ window._stagePortalBuild=function(){ try{
     const P0=poses[0]; root.traverse(o=>{ if(o.name&&P0[o.name]){ o.quaternion.copy(P0[o.name].q); o.position.copy(P0[o.name].p); o.scale.copy(P0[o.name].s); } });
     const grp=new THREE.Group(); grp.add(root);
     const sc=(window._STAGE_PORTAL_SCALE!=null?window._STAGE_PORTAL_SCALE:42); grp.scale.setScalar(sc);
-    grp.position.set((window._STAGE_PORTAL_DIST!=null?window._STAGE_PORTAL_DIST:150), (window._STAGE_PORTAL_Y||0), 0);   // on the +x axis BEHIND the quantum machine (machine at ~+50): come off the machine and the portal is past it — not unfolding in the camera's face
+    grp.position.set((window._STAGE_PORTAL_DIST!=null?window._STAGE_PORTAL_DIST:260), (window._STAGE_PORTAL_Y||0), 0);   // on the +x axis BEHIND the quantum machine (machine at ~+50): come off the machine and the portal is past it — not unfolding in the camera's face
     grp.rotation.y=(window._STAGE_PORTAL_YAW!=null?window._STAGE_PORTAL_YAW:Math.PI/2);   // doorway (local ±z) turned to face back toward the pad/machine (-x)
     scene.add(grp);
     window._stagePortal={grp, root, poses, t:0, unfold:false, done:false, waitK:0};
