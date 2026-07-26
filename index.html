@@ -423,7 +423,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1214</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1215</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -625,7 +625,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1214</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1215</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -41440,9 +41440,24 @@ function _clawTick(dt){
     if(_stickDir!=null){ if(player._clawPrevDir!=null){ let da=_stickDir-player._clawPrevDir; while(da>Math.PI)da-=Math.PI*2; while(da<-Math.PI)da+=Math.PI*2; player._clawWhirl=(player._clawWhirl||0)*0.85+Math.abs(da)/Math.max(dt,1e-3)*0.15; } player._clawPrevDir=_stickDir; }
     else { player._clawPrevDir=null; player._clawWhirl=(player._clawWhirl||0)*0.9; }
     if((player._clawWhirl||0) > (window._CLAW_SLAM_WHIRL||6)) _slam=true;
-    // pull toward the player = reel (stick pointed roughly from the enemy back toward you)
-    const towardPlayerDot = (_stickDir!=null)? ((Math.cos(_stickDir)*(-dx/d))+(Math.sin(_stickDir)*(-dz/d))) : 0;
-    const _reel=(towardPlayerDot>(window._CLAW_REEL_DOT||0.35)) && !_slam;
+    // WEIGHT DECIDES WHO MOVES: a boss-class target (dragon / dog / anything that shrugs off knockback or is huge) can't be
+    // reeled toward you — instead the chain grapples YOU in toward IT. Players, AI rivals and small enemies you can reel in.
+    const _heavy=!!(e._noKnock || e.isBoss || (e._tall||0)>(window._CLAW_HEAVY_TALL||20) || (e.size||0)>=(window._CLAW_HEAVY_SIZE||24));
+    // STICK ALONG THE TETHER: push toward the target (forward) = YOU travel to them; pull back toward yourself = pull them (or,
+    // on a heavy target, pull yourself in). Whirl still slams — but only a light target; you can't sling a boss around.
+    const _towardTarget=(_stickDir!=null)?(Math.cos(_stickDir)*(dx/d)+Math.sin(_stickDir)*(dz/d)):0;
+    const _towardPlayer=-_towardTarget;
+    const _pushFwd=(_towardTarget>(window._CLAW_PUSH_DOT||0.35));
+    const _pullBack=(_towardPlayer>(window._CLAW_REEL_DOT||0.35));
+    if(_heavy)_slam=false;   // no slamming a boss
+    // shared helper: yank the PLAYER in toward the target (grapple), release + land a hit on arrival
+    const _grappleIn=()=>{ player._clawState='reeling';
+      const pull=(window._CLAW_PULL_SPD||320)*dt, nd=Math.max(0,d-pull);
+      player.wx=e.wx-(dx/d)*nd; player.wz=e.wz-(dz/d)*nd; player.vx=0; player.vz=0; player._kbVx=0; player._kbVz=0; player._launched=false;
+      if(nd<(window._CLAW_PULL_DONE||42)){ try{ e._clawHeldBy=null; }catch(_){} player._clawHooked=null; player._clawState='retract';
+        if(typeof announce==='function')try{ announce(_heavy?'GRAPPLED IN!':'PULLED IN!','#9fe8ff'); }catch(_){}
+        if(typeof ps!=='undefined')try{ ps.burst(player.wx,player.wz,[0.5,0.95,1],16,150,(player.py||0)+12); }catch(_){}
+        if(typeof addTrauma==='function')addTrauma(0.14); if(typeof hitStop==='function')hitStop(4); } };
     if(_slam){
       // SLAM: fling the hooked enemy in the whirl direction and DOWN into the ground; costs a slam, bit of damage each
       player._clawState='hooked'; const sd=_stickDir!=null?_stickDir:Math.atan2(dz,dx);
@@ -41455,7 +41470,12 @@ function _clawTick(dt){
         if(typeof _hitSfx==='function')try{ _hitSfx(null,e); }catch(_){} if(typeof addTrauma==='function')addTrauma(0.1); if(typeof hitStop==='function')hitStop(2);
         try{ if(typeof _bodyImpactDeform==='function')_bodyImpactDeform(e.wx,e.wz,9,60); }catch(_){}
       }
-    } else if(_reel){
+    } else if(_heavy){
+      // GRAPPLE MOBILITY: either stick command drags you in toward the boss (you can't move it)
+      if(_pushFwd||_pullBack) _grappleIn(); else player._clawState='hooked';
+    } else if(_pushFwd){
+      _grappleIn();   // LIGHT + push forward -> YOU dash to them
+    } else if(_pullBack){
       player._clawState='reeling';
       const pull=(window._CLAW_REEL_SPD||260)*dt; const nd=Math.max(0, d-pull);
       e.wx=player.wx+(dx/d)*nd; e.wz=player.wz+(dz/d)*nd; if(e.vx!=null){ e.vx=0; e.vz=0; }
