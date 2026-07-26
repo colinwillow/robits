@@ -423,7 +423,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1198</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1199</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -625,7 +625,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1198</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1199</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -14335,9 +14335,12 @@ class Player{
     //   first — zeroing the input outright would take the rotation with it. window._SHIELD_ROOT=false to walk while guarding.
     if(window._SHIELD_ROOT!==false && this._shieldRaised && this.alive!==false){
       const _gm=Math.hypot(rawX||0, rawZ||0);
+      // POINT WHERE THE STICK POINTS, screen-relative off the LIVE camera — the ordinary third-person convention. Feed the
+      // AIM VECTOR rather than writing this.aim: the normal facing code eases toward avx/avz further down this same update,
+      // so assigning this.aim here was simply overwritten a few hundred lines later.
       if(_gm>(window._SHIELD_TURN_DEAD||0.15) && typeof rotInput==='function'){
         const _w=rotInput(rawX,rawZ);
-        if(Math.hypot(_w.x,_w.z)>1e-4) this.aim=Math.atan2(_w.z,_w.x);
+        if(Math.hypot(_w.x,_w.z)>1e-4){ avx=_w.x; avz=_w.z; }
       }
       rawX=0; rawZ=0; this.vx=0; this.vz=0; this.inX=0; this.inZ=0;
     }
@@ -14623,7 +14626,12 @@ class Player{
         const behindYaw=-this.aim-Math.PI/2;
         let diff=behindYaw-CAM.tyaw;
         if(diff>Math.PI) diff-=TAU; if(diff<-Math.PI) diff+=TAU;
-        CAM.tyaw+=clamp(diff*0.04,-0.05,0.05);
+        // NOT WHILE GUARDING. The stick is mapped through the camera, so if the camera also chases the facing you get a
+        // feedback loop: push right -> he turns -> the camera swings after him -> "right" now means a NEW world heading ->
+        // he keeps turning, forever. Measured at 1237 degrees of spin from one held direction. That is what made
+        // guard-aiming feel relative/additive instead of "point where I'm pushing". Holding the camera still while the
+        // guard is up makes the mapping honest. window._SHIELD_CAM_LOCK=false reverts.
+        if(!(window._SHIELD_CAM_LOCK!==false && this._shieldRaised)) CAM.tyaw+=clamp(diff*0.04,-0.05,0.05);
         if(!this._wallClimb&&!this._crestSeq&&!this._rollAimLock&&!((this._throwFaceLockT||0)>0)){
           const ws=rotInput(moveIn.x,moveIn.y);
           const moveAngle=Math.atan2(ws.z,ws.x);
@@ -20249,6 +20257,28 @@ function _shieldBlockScan(dt){
   if(typeof GS!=='undefined'&&GS.missiles){ for(let i=GS.missiles.length-1;i>=0;i--){ const m=GS.missiles[i]; if(!m||m._deflected)continue; if(_front(m.wx,m.wz,m.vx||0,m.vz||0)){ if(perfect){ m._deflected=true; m.target=null; const s=Math.max(m.speed||300,340); const pd=_parryReturn(m,px,pz,fx,fz); m.vx=pd.x*s; m.vz=pd.z*s; m.speed=s; _fx(m.wx,m.wz,true);} else { if(m.group)scene.remove(m.group); GS.missiles.splice(i,1); _fx(m.wx,m.wz,false);} } } }
   if(typeof GS!=='undefined'&&GS.dropBombs){ for(const b of GS.dropBombs){ if(!b||b.dead||b._deflected||!b._fromCannon)continue; if(_front(b.wx,b.wz,b.vx||0,b.vz||0)){ if(perfect){ b._deflected=true; b._fromCannon=false; const pd=_parryDir(b,px,pz,fx,fz); b.vx=pd.x*SPD; b.vz=pd.z*SPD; b.vy=Math.max(b.vy||0,150); if(b.timer!=null)b.timer=Math.max(b.timer,1.4); _fx(b.wx,b.wz,true);} else { b.dead=true; if(typeof ps!=='undefined')ps.burst(b.wx,b.wz,[0.4,0.8,1],16,120); _fx(b.wx,b.wz,false);} } } }
   if(typeof GS!=='undefined'&&GS.enemyMissiles){ for(let i=GS.enemyMissiles.length-1;i>=0;i--){ const m=GS.enemyMissiles[i]; if(!m||m._deflected)continue; if(_front(m.wx,m.wz,m.vx||0,m.vz||0)){ if(perfect){ m._deflected=true; const s=Math.max(m.speed||300,360); const pd=_parryReturn(m,px,pz,fx,fz); m._ownerBot=null; m.vx=pd.x*s; m.vz=pd.z*s; m.speed=s; _fx(m.wx,m.wz,true);} else { if(m.detonate)m.detonate(); else m.remove(); GS.enemyMissiles.splice(i,1); _fx(m.wx,m.wz,false);} } } }   // ROCKETS blocked too (returned to sender on a perfect raise, else shot down)
+  // ── EVERYTHING ELSE THAT FLIES ── the scan grew one hand-written branch per projectile type and had quietly missed most
+  //   of them: acid globs, arrows, big-bills, bouncy balls and dragon fireballs all sailed straight through a raised shield.
+  //   One generic pass over the rest instead. _front() already requires the thing to be heading TOWARD you, which is what
+  //   keeps your own outgoing shots out of it, and anything flagged friendly/ally is skipped so covering fire doesn't die on
+  //   your back. BOOMERANGS are deliberately excluded — yours returning to you is not an attack
+  //   (window._SHIELD_BLOCK_BOOMERANG=true to include them). Melee is untouched: none of this is a swing.
+  if(window._SHIELD_BLOCK_ALL!==false && typeof GS!=='undefined'){
+    const _lists=[GS.acid, GS.arrows, GS.bigBills, GS.bouncyBalls, GS.dragonFireballs];
+    if(window._SHIELD_BLOCK_BOOMERANG===true && GS.boomerangs)_lists.push(GS.boomerangs);
+    for(const L of _lists){ if(!L||!L.length)continue;
+      for(let i=L.length-1;i>=0;i--){ const o=L[i];
+        if(!o||o._deflected||o.dead||o.alive===false)continue;
+        if(o.friendly===true||o._friendly===true||o._ally===true)continue;          // ours / an ally's — let it through
+        const ox=(o.wx!=null?o.wx:o.x), oz=(o.wz!=null?o.wz:o.z);
+        if(ox==null||oz==null)continue;
+        if(!_front(ox,oz,o.vx||0,o.vz||0))continue;
+        if(typeof o._deflect==='function'){ o._deflect(); o._deflected=true; _fx(ox,oz,perfect); continue; }   // fireballs retarget themselves — nicer than anything generic
+        if(perfect){ const sp2=Math.hypot(o.vx||0,o.vz||0)||300; const pd=_parryReturn(o,px,pz,fx,fz);
+          o.vx=pd.x*sp2; o.vz=pd.z*sp2; if('speed' in o)o.speed=sp2; o._deflected=true; o._ownerBot=null; _fx(ox,oz,true); }
+        else { _shieldSparkOff(o,px,pz,fx,fz); _fx(ox,oz,false); }
+      } }
+  }
   if(window._itemShots){ for(const s of window._itemShots){ if(!s||s._deflected)continue; if(_front(s.x,s.z,s.vx||0,s.vz||0)){ if(perfect){ s._deflected=true; const pd=_parryDir(s,px,pz,fx,fz); s.vx=pd.x*SPD; s.vz=pd.z*SPD; s.vy=Math.max(s.vy||0,150); _fx(s.x,s.z,true);} else { s._deflected=true; s.vx*=0.1; s.vz*=0.1; _fx(s.x,s.z,false);} } } }   // thrown bombs/nukes RETURN TO SENDER (was flung along the player's facing)
 }
 // ── MELEE DEFLECTS ROCKETS ── swing your melee near an incoming rocket and you knock it away (heat-seeks a foe now, not you).
@@ -20403,6 +20433,18 @@ function _shieldTick(dt){
       }
     }
   } else if(player._heldShield){ player._heldShield.visible=false; }
+  // ── HOLD THE CAMERA WHILE BRACED ── the move stick is mapped to the world THROUGH the camera yaw, so anything that turns
+  //   the camera re-maps the stick: push right -> he turns -> the camera follows -> "right" is now a new world heading -> he
+  //   keeps turning. Measured at 1237 degrees of spin from a single held direction, which is exactly the "it's relative /
+  //   additive" feel. Several different paths nudge the camera (the follow-behind chase, the free-look branch, updateCamera's
+  //   own easing), so rather than gate each one, latch the yaw when the guard goes up and hold it there — that makes the
+  //   mapping provably stable no matter who tries to move it. Released the moment the guard drops.
+  //   window._SHIELD_CAM_LOCK=false reverts.
+  if(window._SHIELD_CAM_LOCK!==false && typeof CAM!=='undefined'){
+    if(raised){ if(player._guardCamLock==null) player._guardCamLock=CAM.tyaw;
+      CAM.tyaw=player._guardCamLock; CAM.yaw=player._guardCamLock; }
+    else if(player._guardCamLock!=null) player._guardCamLock=null;
+  }
   try{ _plasmaShieldTick(raised, dt); }catch(_){}
   // ── DEGRADATION IS OFF FOR NOW ── the guard used to drain while held and SHIELD-BREAK at zero, which is what made the block
   //   "let go on its own after a bit and start shooting": once broken it can't be re-raised until the guard regens past
