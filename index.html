@@ -423,7 +423,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1208</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1209</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -625,7 +625,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1208</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1209</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -29717,6 +29717,23 @@ function loop(ts){ requestAnimationFrame(loop);
           player._flickStartMelee=(Math.abs(_ay)>=Math.abs(_ax))?((_ay<0)?2:3):1;       // flick UP=melee_2, DOWN=melee_3, LEFT/RIGHT=melee_1 — the combo continues forward from there, wrapping (melee_4 kick removed)
           if(_fmag < _MELEE_FLICK_LO){ _fireFlick(); }   // WHOLE FLICK BETWEEN FRAMES: it peaked AND already returned to rest this same frame -> fire now (the low-fps catch)
         }
+        // ── CLAW CHAIN: a HOLD (not a flick) aims the harpoon, RELEASE fires it. A flick still swings the flail (above). ──
+        if(player._meleeType==='clawchain' && !player._meleeStowed && window._CLAW_SHOOT!==false){
+          const _cbusy=(player._clawState==='flying'||player._clawState==='hooked'||player._clawState==='reeling'||player._clawState==='retract');
+          const _swinging=!!(player.model&&player.model.userData&&(player.model.userData._meleeTimer||0)>0);
+          if(!_cbusy){
+            if(_fmag>(window._CLAW_AIM_DEAD||0.35) && !player._flickPending && !_swinging){   // sustained hold past the flick window -> arming the aim
+              if(player._clawState!=='aiming'){ player._clawState='aiming'; player._clawAimT=0; }
+              player._clawAimT=(player._clawAimT||0)+dt;
+              const _cws=rotInput(shootIn.x,shootIn.y); const _cl=Math.hypot(_cws.x,_cws.z)||1; player._clawAimX=_cws.x/_cl; player._clawAimZ=_cws.z/_cl;
+            } else if(player._clawState==='aiming'){
+              if(_fmag<_MELEE_FLICK_LO && !player._flickPending){   // stick released -> LAUNCH (if we actually held long enough to be an aim, not a slow flick)
+                if((player._clawAimT||0)>=(window._CLAW_AIM_MIN||0.11)) _clawFire(); else player._clawState=null;
+              }
+            }
+          }
+          player._clawNoFire=(player._clawState==='aiming'||_cbusy);   // suppress the gun while aiming/flying/hooked (release fires the CLAW, not a bullet)
+        } else if(player._clawNoFire){ player._clawNoFire=false; }
       }
 
       // In puzzle lab: check if right stick is pointing toward a wall — suppress firing if so
@@ -29797,7 +29814,7 @@ function loop(ts){ requestAnimationFrame(loop);
           //  a jump-tap that grazed past the 0.22 fire deadzone fired the gun (very obvious with the shotgun, but it hit every weapon).
           const _jrHeld=(typeof jR!=='undefined'&&jR._tapStart)?(performance.now()-jR._tapStart):9999;
           const _notTap=(typeof jR==='undefined') || jR.id===null || !!jR._tapMoved || (jR._tapPeak||0)>=(window._FIRE_TAP_PEAK!=null?window._FIRE_TAP_PEAK:0.4) || _jrHeld>=(window._FIRE_TAP_MS!=null?window._FIRE_TAP_MS:220);
-          if((_wallFire || stickMag > (window._FIRE_DEADZONE!=null?window._FIRE_DEADZONE:0.22)) && _notTap) player._fireLatched=true; }   // a fast flick is still suppressed so melee reads as melee
+          if((_wallFire || stickMag > (window._FIRE_DEADZONE!=null?window._FIRE_DEADZONE:0.22)) && _notTap && !player._clawNoFire) player._fireLatched=true; }   // a fast flick is still suppressed so melee reads as melee; claw-chain HOLD aims the harpoon instead of firing the gun
         // CAMERA + FACING orient the INSTANT the stick moves — not gated on the fire latch or the flick window. The camera was
         // waiting until firing engaged (past the deadzone), so a slow push felt laggy/dead until it "caught". Now any real push
         // eases the view + facing that way immediately; FIRING still waits for the latch below.
@@ -29809,7 +29826,7 @@ function loop(ts){ requestAnimationFrame(loop);
           const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; aiming=true; }
         else if(player._fireLatched){ avx=Math.cos(player.aim)*0.04; avz=Math.sin(player.aim)*0.04; aiming=true; }   // latched but stick back at center -> keep facing, minimal mag = steepest dive at your feet
         if(player._fireLatched){
-          firing=!flickActive&&!nearWallStick&&!player._wallClimb&&!_flickGuard&&!player._swordCharging&&!(player._swordLungeT>0);   // charging/lunging the sword suppresses fire (so aiming the lunge doesn't shoot)
+          firing=!flickActive&&!nearWallStick&&!player._wallClimb&&!_flickGuard&&!player._swordCharging&&!(player._swordLungeT>0)&&!player._clawNoFire;   // charging/lunging the sword suppresses fire (so aiming the lunge doesn't shoot); claw-chain HOLD aims the harpoon
         }
       }
       if(IS_TOUCH&&grenadeActive&&stickAim&&!CAM.aimMode){
@@ -29872,7 +29889,7 @@ function loop(ts){ requestAnimationFrame(loop);
         if(sm>0.12){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; aiming=true; }   // right stick pushed: twin-stick aim -> shoot exactly where you push (any direction)
         else if(window._padFire){ if(window._PAD_RT_CAMERA_FWD===true){ avx=-Math.sin(CAM.yaw); avz=-Math.cos(CAM.yaw); } else { avx=Math.cos(player.aim||0); avz=Math.sin(player.aim||0); } aiming=true; }   // RT with NO stick: shoot the way he's FACING (run right + pull -> he shoots right, no camera whip). Since aim is unchanged the camera doesn't swing either — only the RIGHT STICK re-aims/rotates. Opt into the old camera-forward reorient with window._PAD_RT_CAMERA_FWD=true.
         // FIRE on right-stick HOLD past the deadzone (mirrors mobile) OR the RT trigger — but NOT during a flick (that's a melee)
-        if(!grenadeActive && !flickActive && !_flickGuard && (sm > (window._PAD_FIRE_DEADZONE||window._FIRE_DEADZONE||0.22) || window._padFire)) firing=true;
+        if(!grenadeActive && !flickActive && !_flickGuard && !player._clawNoFire && (sm > (window._PAD_FIRE_DEADZONE||window._FIRE_DEADZONE||0.22) || window._padFire)) firing=true;
         if(player&&player._gcur) player._gcur.visible=false;   // stick aiming: hide the mouse ground cursor
         // HYBRID FACING (default): he faces his MOVEMENT direction while running (turns as he runs), and only whips around to
         // CAMERA-FORWARD when you pull the trigger (handled by the RT block above, which sets camera-forward + firing). So a
@@ -30006,7 +30023,7 @@ function loop(ts){ requestAnimationFrame(loop);
           player.aim=(player.aim||0)+Math.max(-_step,Math.min(_step,_da)); }
         mvx=0; mvz=0;
       } else if(player._deathSeq||player._skydive){ mvx=0; mvz=0; }   // locked during the death cinematic / skydive drop-in
-      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10&&!player._deathSeq&&!player._skydive,od,aiming); resolveObstacles(player,13); if(typeof _resolveSentryCollide==='function')_resolveSentryCollide(player); resolveBodyCollisions(player); if(typeof _resolveAssetCollisions==='function')_resolveAssetCollisions(player); if(typeof _portalCollide==='function')_portalCollide(player); if(typeof _updateWallRun==='function'){ try{ _updateWallRun(dt); }catch(_wre){ try{ player._wallRun=null; }catch(_){} } } if(window._aimAssistTick){ try{ window._aimAssistTick(dt,firing,Math.hypot(avx,avz)); }catch(_){} } if(!player._deathSeq || player._deathSeq.phase==='beam'){ try{ player.draw(od); }catch(_pde){ try{if(player.model)player.model.visible=true;}catch(_){} } if(player._deathSeq&&window._deathModelPose){ try{ window._deathModelPose(); }catch(_){} } if(player._skydive&&window._skydiveModelPose){ try{ window._skydiveModelPose(); }catch(_){} } } if(player._spawnAura){ player._spawnAuraMs=(player._spawnAuraMs||0)+dt; if(player._spawnAuraMs>(window._SPAWN_AURA_SEC||4.2)){ try{player._spawnAura.remove();}catch(_){} player._spawnAura=null; player._respawnBlink=0; } } /* FAILSAFE: spawn-in glow shell normally removed in draw() as _respawnBlink counts down; an early-return draw path can freeze it on forever, so force-remove after a fixed time */ if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt); if(typeof _updateFlagCloth==='function'){try{_updateFlagCloth(dt);}catch(_fce){}} if(window._swordTick){try{window._swordTick(dt);}catch(_swe){}} if(window._ballFrame)window._ballFrame(dt); if(window._ballShotTick){try{window._ballShotTick();}catch(_bse){}} if(window._grappleTick){try{window._grappleTick(dt);}catch(_gpe){}} if(window._jetSfxTick){try{window._jetSfxTick();}catch(_jse){}} if(window._flameSfxTick){try{window._flameSfxTick();}catch(_fse){}} if(window._rumbleTick){try{window._rumbleTick(dt);}catch(_rte){}} if(window._cageBd){try{_cageBackdropTick(dt);}catch(_cbe){}} if(window._boomboxTick){try{window._boomboxTick(dt);}catch(_bbe){}} if(window._superTick)window._superTick(dt); if(window._voxTick)window._voxTick(dt); if(window._animPlatMixer)window._animPlatMixer.update(dt); if(window._platWireTick)window._platWireTick(dt); if(window._phaseWarpTick){try{window._phaseWarpTick(dt);}catch(_pwe){}} if(window._platPUTick){try{window._platPUTick(dt);}catch(_ppe){}} if(window._superPickupTick){try{window._superPickupTick(dt);}catch(_supe){}} if(window._updateFuelBar)window._updateFuelBar(); if(window._riflePoseTick)window._riflePoseTick(dt);
+      player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10&&!player._deathSeq&&!player._skydive,od,aiming); resolveObstacles(player,13); if(typeof _resolveSentryCollide==='function')_resolveSentryCollide(player); resolveBodyCollisions(player); if(typeof _resolveAssetCollisions==='function')_resolveAssetCollisions(player); if(typeof _portalCollide==='function')_portalCollide(player); if(typeof _updateWallRun==='function'){ try{ _updateWallRun(dt); }catch(_wre){ try{ player._wallRun=null; }catch(_){} } } if(window._aimAssistTick){ try{ window._aimAssistTick(dt,firing,Math.hypot(avx,avz)); }catch(_){} } if(!player._deathSeq || player._deathSeq.phase==='beam'){ try{ player.draw(od); }catch(_pde){ try{if(player.model)player.model.visible=true;}catch(_){} } if(player._deathSeq&&window._deathModelPose){ try{ window._deathModelPose(); }catch(_){} } if(player._skydive&&window._skydiveModelPose){ try{ window._skydiveModelPose(); }catch(_){} } } if(player._spawnAura){ player._spawnAuraMs=(player._spawnAuraMs||0)+dt; if(player._spawnAuraMs>(window._SPAWN_AURA_SEC||4.2)){ try{player._spawnAura.remove();}catch(_){} player._spawnAura=null; player._respawnBlink=0; } } /* FAILSAFE: spawn-in glow shell normally removed in draw() as _respawnBlink counts down; an early-return draw path can freeze it on forever, so force-remove after a fixed time */ if(window._DRONE_ON&&typeof _ensureFireDrone==='function')_ensureFireDrone(); if(window._fireDrone)window._fireDrone.update(dt); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateElectro==='function')_updateElectro(dt); if(typeof _updateFlame==='function')_updateFlame(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt); if(typeof _updateMace==='function')_updateMace(dt); if(typeof _clawTick==='function'){try{_clawTick(dt);}catch(_cte){}} if(typeof _updateFlagCloth==='function'){try{_updateFlagCloth(dt);}catch(_fce){}} if(window._swordTick){try{window._swordTick(dt);}catch(_swe){}} if(window._ballFrame)window._ballFrame(dt); if(window._ballShotTick){try{window._ballShotTick();}catch(_bse){}} if(window._grappleTick){try{window._grappleTick(dt);}catch(_gpe){}} if(window._jetSfxTick){try{window._jetSfxTick();}catch(_jse){}} if(window._flameSfxTick){try{window._flameSfxTick();}catch(_fse){}} if(window._rumbleTick){try{window._rumbleTick(dt);}catch(_rte){}} if(window._cageBd){try{_cageBackdropTick(dt);}catch(_cbe){}} if(window._boomboxTick){try{window._boomboxTick(dt);}catch(_bbe){}} if(window._superTick)window._superTick(dt); if(window._voxTick)window._voxTick(dt); if(window._animPlatMixer)window._animPlatMixer.update(dt); if(window._platWireTick)window._platWireTick(dt); if(window._phaseWarpTick){try{window._phaseWarpTick(dt);}catch(_pwe){}} if(window._platPUTick){try{window._platPUTick(dt);}catch(_ppe){}} if(window._superPickupTick){try{window._superPickupTick(dt);}catch(_supe){}} if(window._updateFuelBar)window._updateFuelBar(); if(window._riflePoseTick)window._riflePoseTick(dt);
       if(window._rippleTick){ window._rippleTick(rawDt); if((window._RIPPLE_ON||window._rippleTP)&&player){ const _rsp=Math.hypot(player.vx||0,player.vz||0); player._ripTrailT=(player._ripTrailT||0)-rawDt; if(_rsp>(window._RIP_TRAIL_SPD||190)&&player._ripTrailT<=0){ window._rippleHit(player.wx,player.py,player.wz,(window._RIP_TRAIL_AMP||0.5),(window._RIP_TRAIL_LIFE||0.9)); player._ripTrailT=(window._RIP_TRAIL_CD||0.12); } } }   // ripple field: advance the impact rings + drop a faint trailing ring as the player runs
       if(window._updateHitMarks) window._updateHitMarks(rawDt);   // ball-style bullet hit-marks (enemies + friendly-fire red)
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _ww=(typeof _cubeWalkOn==='function'&&_cubeWalkOn(player)&&player._cubeUp&&player._cubeUp.y<0.9); const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(_ww||!_bmv) window._reorientGameBoots(); }   // on a wall/ceiling re-aim the boots to the surface every frame; on the floor only when standing still (avoids stride jitter)
@@ -41164,9 +41181,12 @@ function _startMaceSwing(sx,sz,strength){
   player._maceSwing={ strike, wind, t:0, strength:strength||1, struck:false };
 }
 function _updateMace(dt){
-  if(!player || (player._meleeType!=='mace' && player._meleeType!=='whip' && player._meleeType!=='clawchain')){ if(player&&player._maceChain)_disposeMaceChain(); return; }
+  if(!player || (player._meleeType!=='mace' && player._meleeType!=='whip' && player._meleeType!=='clawchain')){ if(player&&player._maceChain)_disposeMaceChain(); if(player){player._clawState=null; player._clawNoFire=false;} return; }
   if(!player._maceChain || player._maceChain.kind!==player._meleeType) _initMaceChain();   // re-init on swap between mace<->whip
   const mc=player._maceChain; if(!mc) return;
+  // CLAW CHAIN — while the harpoon is FLYING/HOOKED/REELING, the claw owns the chain (a taut line, not a floppy flail). _clawTick
+  // (run right after this) advances that state and straightens the chain. Skip the pendulum physics so they don't fight.
+  if(player._meleeType==='clawchain' && player._clawState && player._clawState!=='aiming') return;
   const P=_chainParams();
   const a=_maceAnchor(new THREE.Vector3());
   const pts=mc.pts, N=mc.N, L=mc.L, h=Math.min(dt,0.033);
@@ -41268,6 +41288,155 @@ function _updateMace(dt){
     if(window._itemPU){ for(const p of window._itemPU){ if(!p||p.type!=='barrel'||p._cooking>0)continue; if(Math.hypot(ballP.x-p.x,ballP.z-p.z)<R+(window._BARREL_SIZE||11)+2 && Math.abs(ballP.y-(p.y||7))<24){ if(typeof _barrelImpactMark==='function')_barrelImpactMark(p); p._cooking=(window._BARREL_FUSE||0.12); } } }
   }
 }
+// ════════ CLAW CHAIN — HARPOON SHOT + HOOK/REEL/SLAM ════════
+// A HOLD on the right stick (detected in the stick handler) sets player._clawState='aiming'; RELEASE calls _clawFire() below.
+// The claw flies out to a limited range; a hit HOOKS the target and you either reel it in or whirl the stick to slam it.
+const _CLAW_V=new THREE.Vector3();
+function _clawCandidates(){   // everything the claw can hook: real enemies, rival bots, the training dummy
+  const out=[];
+  try{ if(typeof GS!=='undefined'&&GS.enemies)for(const e of GS.enemies){ if(e&&e.alive!==false&&!e._captured&&!e._dying&&!e._invulnerable)out.push({e,kind:'enemy'}); } }catch(_){}
+  try{ if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(b&&b.alive!==false&&!b._netMirror)out.push({e:b,kind:'bot'}); } }catch(_){}
+  try{ if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy&&GS_trainingDummy.alive!==false)out.push({e:GS_trainingDummy,kind:'dummy'}); }catch(_){}
+  return out;
+}
+function _clawAimTarget(){   // the enemy the aim stick is pointing at, within range + a forgiving cone — drives the lock ring
+  if(!player)return null;
+  const ax=player._clawAimX||Math.cos(player.aim||0), az=player._clawAimZ||Math.sin(player.aim||0), al=Math.hypot(ax,az)||1;
+  const nx=ax/al, nz=az/al, RANGE=(window._CLAW_RANGE||260), CONE=(window._CLAW_AIM_CONE||0.7);
+  let best=null, bd=1e9;
+  for(const c of _clawCandidates()){ const e=c.e; const dx=e.wx-player.wx, dz=e.wz-player.wz, d=Math.hypot(dx,dz)||1;
+    if(d>RANGE+((e.size||14)))continue; const dot=(dx/d)*nx+(dz/d)*nz; if(dot<CONE)continue;
+    const score=d*(2-dot); if(score<bd){ bd=score; best=c; } }
+  return best;
+}
+function _clawFire(){
+  if(!player||player._meleeType!=='clawchain'||!player._maceChain)return;
+  const a=_maceAnchor(new THREE.Vector3());
+  let ax=player._clawAimX||Math.cos(player.aim||0), az=player._clawAimZ||Math.sin(player.aim||0); const al=Math.hypot(ax,az)||1; ax/=al; az/=al;
+  const lock=_clawAimTarget();   // fire straight at a locked target if the ring found one, else along the stick
+  player._clawState='flying'; player._clawT=0; player._clawLock=lock?lock.e:null; player._clawLockKind=lock?lock.kind:null;
+  player._clawDirX=ax; player._clawDirZ=az; player._clawOrigin={x:a.x,y:a.y,z:a.z};
+  player._clawTip={x:a.x,y:a.y,z:a.z}; player._clawReach=0; player._clawHooked=null; player._clawSlams=0; player._clawExtend=1;
+  if(typeof Audio!=='undefined'&&Audio.blip)try{ Audio.blip(150,0.1,'square',0.2,90); Audio.blip(420,0.06,'sawtooth',0.12,180); }catch(_){}
+  if(typeof ps!=='undefined')try{ ps.ring(a.x,a.z,[0.4,0.9,1],10,90,a.y); }catch(_){}
+}
+window._clawFire=_clawFire;
+function _clawRenderTaut(){   // straighten the chain from the muzzle anchor to the claw tip + point the claw outward
+  const mc=player&&player._maceChain; if(!mc||!player._clawTip)return;
+  const A=_maceAnchor(new THREE.Vector3()), T=player._clawTip, N=mc.N;
+  for(let i=0;i<=N;i++){ const t=i/N; const px=A.x+(T.x-A.x)*t, py=A.y+(T.y-A.y)*t, pz=A.z+(T.z-A.z)*t; mc.pts[i].pos.set(px,py,pz); mc.pts[i].prev.set(px,py,pz); }
+  for(let i=0;i<mc.links.length;i++){ mc.links[i].position.copy(mc.pts[i+1].pos); }
+  mc.ball.position.set(T.x,T.y,T.z);
+  try{ mc.ball.lookAt(A.x,A.y,A.z); }catch(_){}
+  if(mc.ball.userData.flash) mc.ball.userData.flash.material.opacity=Math.max(0,(mc.ball.userData.flash.material.opacity||0)-0.05);
+}
+function _clawTick(dt){
+  if(!player||player._meleeType!=='clawchain'){ if(player){ player._clawNoFire=false; player._clawState=null; } return; }
+  const st=player._clawState;
+  if(!st) player._clawNoFire=false;   // never strand the gun suppressed once the harpoon is done
+  // AIM RING — while holding to aim, throb a ring under the locked target (or the aim point) so you see what you'll spear
+  if(st==='aiming'){
+    player._clawRingT=(player._clawRingT||0)+dt;
+    if(player._clawRingT>=0.12){ player._clawRingT=0;
+      const lock=_clawAimTarget();
+      let rx,rz,col; if(lock){ rx=lock.e.wx; rz=lock.e.wz; col=[0.5,1,0.7]; } else { const R=(window._CLAW_AIM_SHOW||90); rx=player.wx+(player._clawAimX||Math.cos(player.aim||0))*R; rz=player.wz+(player._clawAimZ||Math.sin(player.aim||0))*R; col=[0.4,0.85,1]; }
+      try{ if(typeof ps!=='undefined'&&ps.ring)ps.ring(rx,rz,col,lock?((lock.e.size||14)+6):14,70); }catch(_){}
+    }
+    return;
+  }
+  if(!st) return;
+  const mc=player._maceChain; if(!mc){ player._clawState=null; return; }
+  const A=_maceAnchor(new THREE.Vector3());
+  const SPD=(window._CLAW_SPEED||900), RANGE=(window._CLAW_RANGE||260), TIPR=(window._CLAW_TIP_R||7);
+  if(st==='flying'){
+    player._clawReach=(player._clawReach||0)+SPD*dt;
+    // home slightly toward a locked target so a moving foe still gets speared
+    if(player._clawLock && player._clawLock.alive!==false){ const e=player._clawLock; const dx=e.wx-A.x, dz=e.wz-A.z, d=Math.hypot(dx,dz)||1; player._clawDirX+=((dx/d)-player._clawDirX)*Math.min(1,dt*6); player._clawDirZ+=((dz/d)-player._clawDirZ)*Math.min(1,dt*6); const dl=Math.hypot(player._clawDirX,player._clawDirZ)||1; player._clawDirX/=dl; player._clawDirZ/=dl; }
+    const reach=Math.min(player._clawReach,RANGE);
+    const ty=(player._clawLock&&player._clawLock.alive!==false)?((player._clawLock.mesh?player._clawLock.mesh.position.y:(player._clawLock.py||0))+10):(A.y);
+    player._clawTip={ x:A.x+player._clawDirX*reach, y:A.y+(ty-A.y)*Math.min(1,reach/Math.max(1,RANGE*0.45)), z:A.z+player._clawDirZ*reach };   // ease to target height over the near half of the throw
+    player._clawExtend=Math.max(1, reach/(window._CLAW_LEN||70));   // stretch the chain so it visually reaches
+    // hit test — a HARPOON hooks on HORIZONTAL proximity with a forgiving vertical band (it flies flat; exact tip-Y shouldn't matter)
+    let hooked=null, hk=null; const _DY=(window._CLAW_HIT_DY||46);
+    for(const c of _clawCandidates()){ const e=c.e; const ey=(e.mesh?e.mesh.position.y:(e.py||0));
+      if(Math.hypot(player._clawTip.x-e.wx, player._clawTip.z-e.wz) < TIPR+(e.size||14)+6 && Math.abs(player._clawTip.y-(ey+10)) < _DY+(e._tall||0)){ hooked=e; hk=c.kind; break; } }
+    if(hooked){
+      player._clawState='hooked'; player._clawHooked=hooked; player._clawHookKind=hk; player._clawSlams=0; player._clawHookT=0;
+      try{ hooked._clawHeldBy=player; hooked._stunT=Math.max(hooked._stunT||0,0.1); }catch(_){}
+      if(typeof ps!=='undefined')try{ ps.ring(hooked.wx,hooked.wz,[1,0.7,0.2],20,140,(hooked.py||0)+10); ps.burst(hooked.wx,hooked.wz,[1,0.8,0.3],14,140,(hooked.py||0)+12); }catch(_){}
+      if(typeof _hitSfx==='function')try{ _hitSfx(null,hooked); }catch(_){}
+      if(typeof addTrauma==='function')addTrauma(0.12); if(typeof hitStop==='function')hitStop(3);
+      if(typeof announce==='function')try{ announce('HOOKED! — REEL or SLAM','#9fe8ff'); }catch(_){}
+    } else if(player._clawReach>=RANGE){ player._clawState='retract'; }
+    _clawRenderTaut();
+    return;
+  }
+  if(st==='retract'){
+    player._clawReach=(player._clawReach||0)-SPD*1.4*dt;
+    const reach=Math.max(0,player._clawReach);
+    player._clawTip={ x:A.x+player._clawDirX*reach, y:A.y, z:A.z+player._clawDirZ*reach };
+    player._clawExtend=Math.max(1, reach/(window._CLAW_LEN||70));
+    if(reach<=2){ player._clawState=null; player._clawExtend=1; }
+    _clawRenderTaut();
+    return;
+  }
+  if(st==='hooked'||st==='reeling'){
+    const e=player._clawHooked;
+    if(!e || e.alive===false){ player._clawState='retract'; player._clawHooked=null; try{ if(e)e._clawHeldBy=null; }catch(_){} _clawRenderTaut(); return; }
+    player._clawHookT=(player._clawHookT||0)+dt;
+    const dx=e.wx-player.wx, dz=e.wz-player.wz, d=Math.hypot(dx,dz)||1;
+    // READ THE STICK: pull toward you (aim points back at the player-ish / low deflection while hooked) = REEL; whirl = SLAM
+    const sMag=Math.hypot(player._maceRX||0, player._maceRZ||0);
+    const _stickDir=(sMag>0.2)?Math.atan2(player._maceRZ,player._maceRX):null;
+    // stick angular velocity => whirl => slam
+    let _slam=false;
+    if(_stickDir!=null){ if(player._clawPrevDir!=null){ let da=_stickDir-player._clawPrevDir; while(da>Math.PI)da-=Math.PI*2; while(da<-Math.PI)da+=Math.PI*2; player._clawWhirl=(player._clawWhirl||0)*0.85+Math.abs(da)/Math.max(dt,1e-3)*0.15; } player._clawPrevDir=_stickDir; }
+    else { player._clawPrevDir=null; player._clawWhirl=(player._clawWhirl||0)*0.9; }
+    if((player._clawWhirl||0) > (window._CLAW_SLAM_WHIRL||6)) _slam=true;
+    // pull toward the player = reel (stick pointed roughly from the enemy back toward you)
+    const towardPlayerDot = (_stickDir!=null)? ((Math.cos(_stickDir)*(-dx/d))+(Math.sin(_stickDir)*(-dz/d))) : 0;
+    const _reel=(towardPlayerDot>(window._CLAW_REEL_DOT||0.35)) && !_slam;
+    if(_slam){
+      // SLAM: fling the hooked enemy in the whirl direction and DOWN into the ground; costs a slam, bit of damage each
+      player._clawState='hooked'; const sd=_stickDir!=null?_stickDir:Math.atan2(dz,dx);
+      const kx=Math.cos(sd), kz=Math.sin(sd);
+      e.wx=player.wx+kx*(window._CLAW_SLAM_R||70); e.wz=player.wz+kz*(window._CLAW_SLAM_R||70);
+      if(e.knock)try{ e.knock(kx,kz,(window._CLAW_SLAM_MAG||6),(window._CLAW_SLAM_LIFT||60),12); }catch(_){}
+      if((player._clawSlamCD||0)<=0){ player._clawSlamCD=(window._CLAW_SLAM_CD||0.45); player._clawSlams=(player._clawSlams||0)+1;
+        if(e.hit)try{ e.hit((window._CLAW_SLAM_DMG||2), e.wx, e.wz); }catch(_){}
+        if(typeof ps!=='undefined')try{ ps.ring(e.wx,e.wz,[1,0.6,0.2],18,120,(e.py||0)+6); ps.burst(e.wx,e.wz,[1,0.7,0.3],12,120,(e.py||0)+8); }catch(_){}
+        if(typeof _hitSfx==='function')try{ _hitSfx(null,e); }catch(_){} if(typeof addTrauma==='function')addTrauma(0.1); if(typeof hitStop==='function')hitStop(2);
+        try{ if(typeof _bodyImpactDeform==='function')_bodyImpactDeform(e.wx,e.wz,9,60); }catch(_){}
+      }
+    } else if(_reel){
+      player._clawState='reeling';
+      const pull=(window._CLAW_REEL_SPD||260)*dt; const nd=Math.max(0, d-pull);
+      e.wx=player.wx+(dx/d)*nd; e.wz=player.wz+(dz/d)*nd; if(e.vx!=null){ e.vx=0; e.vz=0; }
+      try{ e._stunT=Math.max(e._stunT||0,0.2); if(e._stun!==undefined)e._stun=Math.max(e._stun||0,6); }catch(_){}
+      if(nd < (window._CLAW_REEL_DONE||34)){   // reeled in close -> pop them right in front for a beatdown, release the hook
+        e.wx=player.wx+(dx/d)*30; e.wz=player.wz+(dz/d)*30;
+        if(e.hit)try{ e.hit((window._CLAW_REEL_DMG||3), e.wx, e.wz); }catch(_){}
+        try{ e._clawHeldBy=null; }catch(_){}
+        player._clawHooked=null; player._clawState='retract';
+        if(typeof announce==='function')try{ announce('REELED IN!','#9fe8ff'); }catch(_){}
+        if(typeof ps!=='undefined')try{ ps.burst(e.wx,e.wz,[0.5,0.95,1],16,150,(e.py||0)+12); }catch(_){}
+        if(typeof addTrauma==='function')addTrauma(0.14); if(typeof hitStop==='function')hitStop(4);
+      }
+    } else { player._clawState='hooked'; }   // holding, no command -> tethered in place
+    if((player._clawSlamCD||0)>0)player._clawSlamCD-=dt;
+    // AUTO-RELEASE after enough slams or a timeout -> they come unhooked
+    if((player._clawSlams||0) >= (window._CLAW_SLAM_BREAK||4) || (player._clawHookT||0) > (window._CLAW_HOOK_MAX||6)){
+      try{ if(player._clawHooked)player._clawHooked._clawHeldBy=null; }catch(_){}
+      player._clawHooked=null; player._clawState='retract';
+      if(typeof announce==='function')try{ announce('CAME UNHOOKED','#ff9a3c'); }catch(_){}
+    }
+    // keep the tip ON the hooked enemy
+    if(player._clawHooked){ const he=player._clawHooked; player._clawTip={ x:he.wx, y:(he.mesh?he.mesh.position.y:(he.py||0))+10, z:he.wz }; }
+    _clawRenderTaut();
+    return;
+  }
+}
+window._clawTick=_clawTick;
 // ════════════════════════════════════════════════════════════════════════════════
 //  BANNER FLAG (prototype) — a POLE held in the hand + a world-space VERLET CLOTH
 //  that flows on PROCEDURAL-NOISE WIND with NO gravity (rope-dynamics look). Combat is
