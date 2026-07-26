@@ -423,7 +423,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1202</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1203</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -625,7 +625,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1202</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1203</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -4892,7 +4892,13 @@ class BlueDragon extends Enemy{
     // IMPACT FEEDBACK at the point struck (bullets pass their 3D pos; melee/explosive pass x,z) — shows where he's being hit, like the ball does
     const _ix=(hx!==undefined?hx:this.wx), _iz=(hz!==undefined?hz:this.wz), _iy=(hy!==undefined?hy:(this._curY||0)+((this._tall||36)*0.5));
     try{ ps.burst(_ix,_iz,[1,0.93,0.55],11,95,_iy); ps.spark(_ix,_iz,this.glow,_iy); if(ps._spawn){ for(let s=0;s<5;s++){ const a=rand(TAU); ps._spawn(_ix,_iy,_iz,Math.cos(a)*rand(40,120),rand(20,90),Math.sin(a)*rand(40,120),1,1,1,0.06+rand(0.04)); } } if(typeof spawnDmgNum==='function')spawnDmgNum(_ix,_iy+6,_iz,dmg,'#bfe8ff'); }catch(_){}
-    this._energy=Math.max(0, this._energy - dmg*(window._DRAGON_STAGGER||0.16));
+    // STAGGER, WEIGHTED BY HOW BIG THE HIT WAS. Plain gunfire used to drain the same stagger meter as a rocket, so holding
+    // the trigger chain-dizzied the creature (1.8s frozen every 6s) and you could just shoot it down while it stood there.
+    // Chip damage now barely dents it — rockets/melee/explosives still stagger it into the dizzy opening.
+    // window._DRAGON_CHIP_STAGGER_K=1 restores the old behaviour; _DRAGON_BIGHIT is the "this was a real hit" threshold.
+    { const _bigHit=(dmg>=(window._DRAGON_BIGHIT||4));
+      const _sk=(window._DRAGON_STAGGER||0.16)*(_bigHit?1:(window._DRAGON_CHIP_STAGGER_K!=null?window._DRAGON_CHIP_STAGGER_K:0.22));
+      this._energy=Math.max(0, this._energy - dmg*_sk); }
     this.hp-=dmg; this._hpShowT=150;
     if(this.hp<=0){   // DEATH: keep alive so the death clip can play; award score now, self-remove after the clip (no weapon loop splices us because we return 0)
       this._dying=true; this._noKnock=true; this._invulnerable=true; this.hp=9999; this.vx=0; this.vz=0; this._enter('death');   // _invulnerable + hp>0 so explosion/weapon loops can't splice us mid-clip (that's what made him sometimes just vanish); we self-remove after the death clip
@@ -16953,8 +16959,15 @@ class BotPilot{
     this._updateHpBar();
     ps.burst(this.wx,this.wz,[1,1,1],10,80,(this.py||0)+12); ps.burst(this.wx,this.wz,[1,0.5,0.2],8,60,(this.py||0)+12);
     if(this.hp<=0) this.die();
-    // Evade when hit
-    this.state='evade'; this.stateT=60;
+    // HIT REACTION — a hit no longer FORCES a full 60-frame evade every single time. That unconditional break-off meant
+    // sustained fire pinned the rival in a permanent retreat (measured: 100% of frames in 'evade' under fire vs 0% idle),
+    // where it can't shoot back — so you could just hold the trigger and walk it down. Now getting shot only SOMETIMES
+    // breaks it off, on a cooldown, and tougher bots stand their ground more.
+    // window._BOT_HIT_EVADE=false kills the reaction entirely; _BOT_HIT_EVADE_P / _CD / _T to tune.
+    if(window._BOT_HIT_EVADE!==false){
+      const _hp=(window._BOT_HIT_EVADE_P&&window._BOT_HIT_EVADE_P[this.diff])||({rookie:0.5, soldier:0.28, elite:0.14}[this.diff])||0.3;
+      if((this._hitEvadeCD||0)<=0 && Math.random()<_hp){ this._hitEvadeCD=(window._BOT_HIT_EVADE_CD||150); this.state='evade'; this.stateT=(window._BOT_HIT_EVADE_T||36); }
+    }
     // Use shield reactively on elite
     if(this.diff==='elite'&&this.shieldHp>30&&Math.random()<0.6) this.shieldActive=true;
   }
@@ -17223,6 +17236,7 @@ class BotPilot{
 
     // ── KNOCKBACK / STUN (Smash-style parabolic launch + recover) ──
     if(this._stun>0) this._stun--;
+    if(this._hitEvadeCD>0) this._hitEvadeCD--;   // gap between shot-triggered break-offs, so rapid fire can't chain them into one endless retreat
     if(this._kbVx||this._kbVz){
       this.wx+=this._kbVx; this.wz+=this._kbVz;
       const _air=(this.py>2)||this._launched;
@@ -17472,9 +17486,13 @@ class BotPilot{
     this.fireT++;
     // FIRE in every state except a full evade (and never mid-special) — the old chase/strafe-only gate left the rival barely
     // shooting because it spent so much time repositioning. Now it unloads like the player does whenever it has a bead on you.
-    const canFire=(this.state!=='evade') && !this._botBall && !((this._botSlideT||0)>0) && !((this._botRollT||0)>0);
+    // FIGHTING RETREAT: an evading rival keeps shooting (at a reduced cadence) instead of going completely silent.
+    // Combined with the gated break-off above, that's what stops "hold the trigger and it never fires back".
+    // window._BOT_FIRE_WHILE_EVADE=false restores the old silent-retreat.
+    const _evading=(this.state==='evade');
+    const canFire=(!_evading || window._BOT_FIRE_WHILE_EVADE!==false) && !this._botBall && !((this._botSlideT||0)>0) && !((this._botRollT||0)>0);
     const _frBase=(window._BOT_FIRE_BASE&&window._BOT_FIRE_BASE[this.diff])||{rookie:12, soldier:9, elite:6}[this.diff];   // frames between shots WITHIN a burst — tighter now so it reads as an automatic weapon (you hold + unload, so should they)
-    const fireRate=Math.round(_frBase*({rapid:1, spread:2.4, plasma:2.0, heavy:2.8, minigun:0.45, bow:4.2}[this._botWeapon||'rapid']||1));   // heavier guns fire slower; minigun streams
+    const fireRate=Math.round(_frBase*({rapid:1, spread:2.4, plasma:2.0, heavy:2.8, minigun:0.45, bow:4.2}[this._botWeapon||'rapid']||1)*(_evading?(window._BOT_EVADE_FIRE_K||1.5):1));   // heavier guns fire slower; minigun streams. Backpedalling = slower cadence, not silence.
     // Automatic-weapon burst: unload a long string of rounds, then a SHORT breath (not the old 2-shots-then-1.5s-pause that read as single fire)
     if(!this._burstCD) this._burstCD=0;
     if(!this._burstCount) this._burstCount=0;
