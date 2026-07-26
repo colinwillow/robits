@@ -423,7 +423,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1204</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1205</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -625,7 +625,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1204</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1205</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -17820,7 +17820,20 @@ class BotPilot{
       if(window.RUMBLE&&window.RUMBLE.active)this._lastHitBy=(b&&b._ownerBot)?b._ownerBot:'player';   // RUMBLE kill attribution: remember who last shot this bot
       this.hit(b.dmg||1);
       // kickback ONLY on a landed hit, and NO pose-freezing stun (stun routes to _renderStunned which holds the current clip). A light shove reads as recoil; the bot keeps animating + fighting. window._BOT_SHOT_STUN to re-add a stun.
-      if(_landed) this.knock(this.wx-(b.wx||this.wx-1), this.wz-(b.wz||this.wz), (window._BOT_SHOT_KB||1.6), 0, (window._BOT_SHOT_STUN||0));
+      // BULLET SHOVE — a FLAT impulse along the round's travel, applied to every shot that connects, with no stun at all.
+      // Routing this through knock() meant the shove was scaled by accumulated damage (0.15x at full HP), so a fresh rival
+      // moved about one unit per hit: you couldn't feel the impact. And gating it on _landed meant 39 of every 40 rounds did
+      // nothing visible while i-frames were up. Flat + always-on, so the blast reads — and because it never touches _stun the
+      // rival keeps animating and shooting back through it. _BOT_SHOT_KB / _CAP / _SOAK to tune, _BOT_SHOT_SHOVE=false to kill.
+      if(window._BOT_SHOT_SHOVE!==false){
+        const _sdx=this.wx-(b.wx!=null?b.wx:this.wx-1), _sdz=this.wz-(b.wz!=null?b.wz:this.wz), _sl=Math.hypot(_sdx,_sdz)||1;
+        const _smag=(window._BOT_SHOT_KB||1.6)*(_landed?1:(window._BOT_SHOT_KB_SOAK!=null?window._BOT_SHOT_KB_SOAK:0.45));   // a round soaked by i-frames still nudges, just less
+        this._kbVx=(this._kbVx||0)+(_sdx/_sl)*_smag; this._kbVz=(this._kbVz||0)+(_sdz/_sl)*_smag;
+        const _ssp=Math.hypot(this._kbVx,this._kbVz), _scap=(window._BOT_SHOT_KB_CAP||3.2);   // capped so sustained fire pushes rather than launches
+        if(_ssp>_scap){ this._kbVx=this._kbVx/_ssp*_scap; this._kbVz=this._kbVz/_ssp*_scap; }
+        this._hitFlash=Math.max(this._hitFlash||0,4);
+      }
+      if((window._BOT_SHOT_STUN||0)>0) this._stun=Math.max(this._stun||0,window._BOT_SHOT_STUN);   // opt-in only; a stun here routes to _renderStunned and freezes the pose, which is exactly what we removed
       if(typeof ps!=='undefined')ps.spark(this.wx+rand(-6,6),this.wz+rand(-6,6),[0.85,0.5,1],(this.py||0)+16);   // sparks on every round for continuous feedback
       return true;
     }
