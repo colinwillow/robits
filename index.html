@@ -426,7 +426,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1257</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1258</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -628,7 +628,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1257</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1258</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -5785,6 +5785,128 @@ class Seeker extends Enemy{
     const sc=this.spawn<1?(0.2+this.spawn*0.8):1; this.mesh.scale.setScalar(sc); this.mesh.position.set(this.wx,11,this.wz);}
   remove(){ scene.remove(this.mesh); }
 }
+// ── ROBOTIC MANTA RAY — a big elegant glider: segmented wings flap in a slow traveling wave, a long jointed tail
+//    sways behind with a glowing stinger. Orbits the player banking into its turns; at range it fires paired bolts
+//    from its EYES, up close it swoops through and STINGS with the tail. Procedural "skeleton": every wing plate and
+//    tail joint is its own hinged group driven per-frame (no GLB). Knobs: _MANTA_* ──
+function _makeManta(glowHex=0x9d5cff){
+  const g=new THREE.Group(); const dark=0x120a24;
+  const eMat=(op)=>new THREE.LineBasicMaterial({color:glowHex,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false});
+  const solid=(par,geo,x,y,z)=>{ const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:dark})); m.position.set(x,y,z); par.add(m); return m; };
+  const edge=(par,geo,x,y,z,op)=>{ const e=new THREE.LineSegments(new THREE.EdgesGeometry(geo),eMat(op||0.85)); e.position.set(x,y,z); par.add(e); return e; };
+  // HULL — flattened diamond body, nose toward +Z
+  const hull=new THREE.OctahedronGeometry(11,0); hull.scale(1.15,0.34,1.6);
+  solid(g,hull,0,0,0); edge(g,hull,0,0,0,0.95);
+  const spine=new THREE.BoxGeometry(3.4,1.6,16); solid(g,spine,0,2.2,-1); edge(g,spine,0,2.2,-1,0.5);
+  // EYES — two hot orbs on the nose (these are the ranged weapon)
+  const eyeMat=new THREE.MeshBasicMaterial({color:glowHex,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  const eyes=[]; for(const ex of [-3.4,3.4]){ const e=new THREE.Mesh(new THREE.SphereGeometry(1.7,10,8),eyeMat); e.position.set(ex,1.1,15.5); g.add(e); eyes.push(e); }
+  // WINGS — 4 hinged plates per side, root at the hull, each plate hinged off the last (traveling flap wave)
+  const memMat=new THREE.MeshBasicMaterial({color:glowHex,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+  const mkWing=(side)=>{ const segs=[]; let par=g, ax=side*10;
+    const W=[[14,17,3],[12,14,1.4],[10,11,0],[7.5,8,-1.5]];   // plate [span, chord, zTrail] root->tip
+    for(let i=0;i<4;i++){ const [span,chord,zt]=W[i];
+      const j=new THREE.Group(); j.position.set(ax,0,0); par.add(j);
+      const geo=new THREE.BoxGeometry(span,0.9-(i*0.14),chord);
+      const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:dark})); m.position.set(side*span/2,0,zt*0.4); j.add(m);
+      const eg=new THREE.LineSegments(new THREE.EdgesGeometry(geo),eMat(0.8)); eg.position.copy(m.position); j.add(eg);
+      const mem=new THREE.Mesh(new THREE.PlaneGeometry(span,chord+3),memMat); mem.rotation.x=-Math.PI/2; mem.position.set(side*span/2,-0.3,zt*0.4); j.add(mem);
+      segs.push(j); par=j; ax=side*span;
+    }
+    return segs; };
+  const wL=mkWing(1), wR=mkWing(-1);
+  // TAIL — 9 hinged joints trailing -Z, thinning; glowing stinger barb at the tip
+  const tail=[]; let tp=g, tz=-14;
+  for(let i=0;i<9;i++){ const j=new THREE.Group(); j.position.set(0,0,tz); tp.add(j);
+    const w=Math.max(0.7,2.6-i*0.24), len=6.2;
+    const geo=new THREE.BoxGeometry(w,w*0.55,len);
+    const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:dark})); m.position.z=-len/2; j.add(m);
+    const eg=new THREE.LineSegments(new THREE.EdgesGeometry(geo),eMat(0.6+((i===8)?0.3:0))); eg.position.z=-len/2; j.add(eg);
+    tail.push(j); tp=j; tz=-len;
+  }
+  const sting=new THREE.Mesh(new THREE.ConeGeometry(1.5,6,8),eyeMat); sting.rotation.x=Math.PI/2; sting.position.z=-8; tail[8].add(sting);
+  g.traverse(o=>o.frustumCulled=false);
+  return {group:g, wL, wR, tail, eyes, eyeMat, sting, t:Math.random()*TAU};
+}
+class MantaRay extends Enemy{
+  constructor(wx,wz,wave){super(wx,wz); this.glow=[0.66,0.4,1];
+    this.hp=(window._MANTA_HP||30); this.score=600; this.size=26; this._hitR=(window._MANTA_HITR||38); this._tall=90; this._barY=30; this._barW=40;
+    this.spd=(window._MANTA_SPD||120); this.t=rand(TAU); this.hitFlash=0;
+    this.mesh=new THREE.Group();
+    this._rig=_makeManta(0x9d5cff); this._rig.group.scale.setScalar(window._MANTA_SCALE||1.6); this.mesh.add(this._rig.group);
+    this._face=rand(TAU); this._roll=0; this.y=(window._MANTA_CRUISE||62);
+    this._orbitDir=(Math.random()<0.5?1:-1); this._volleyT=rand(2,4); this._swoopT=rand(5,8); this._state='orbit'; this._stingCd=0;
+  }
+  hit(dmg=1){ this.hitFlash=6; try{ this._rig.eyeMat.color.setHex(0xffffff); }catch(_){} return super.hit(dmg); }
+  knock(dx,dz,mag,lift,stun){ const l=Math.hypot(dx,dz)||1; this._kbVx=(dx/l)*(mag||6)*0.4; this._kbVz=(dz/l)*(mag||6)*0.4; }   // heavy airframe — shoves, doesn't tumble
+  update(p,dt){ this.baseUpdate(); this.t+=dt; if(this.hitFlash>0)this.hitFlash--; else try{ this._rig.eyeMat.color.setHex(0x9d5cff); }catch(_){}
+    const px=p.wx, pz=p.wz, dx=px-this.wx, dz=pz-this.wz, d=Math.hypot(dx,dz)||1;
+    const py=(p.py||0);
+    this._volleyT-=dt; this._swoopT-=dt; this._stingCd=Math.max(0,this._stingCd-dt);
+    let wantY=(window._MANTA_CRUISE||62)+py+Math.sin(this.t*1.1)*8;
+    let tx,tz, sp=this.spd;
+    if(this._state==='swoop'){
+      // dive through the player's spot; sting on the pass, then climb out
+      tx=this._sx; tz=this._sz; sp=this.spd*(window._MANTA_SWOOP_K||2.1); wantY=py+16;
+      if(this._stingCd<=0 && d<(window._MANTA_STING_R||46) && Math.abs(this.y-(py+14))<44){
+        this._stingCd=2.5;
+        try{ if(typeof playerDie==='function' && p===player && (player.inv||0)<=0){ playerDie((window._MANTA_STING_DMG||2),'#b06aff','melee'); if(player.knock)player.knock(dx,dz,(window._MANTA_STING_KB||16),(window._MANTA_STING_LIFT||300),24,true); } }catch(_){}
+        try{ if(typeof ps!=='undefined'){ ps.burst(px,pz,[0.7,0.4,1],20,180,py+14); ps.ring(px,pz,[0.8,0.5,1],14,120,py+8); } }catch(_){}
+        try{ if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(200,0.12,'sawtooth',0.24,60); }catch(_){}
+        this._tailLash=0.5;
+      }
+      if(Math.hypot(this._sx-this.wx,this._sz-this.wz)<40 || (this._swoopHold-=dt)<=0){ this._state='orbit'; this._swoopT=rand(5,9); }
+    } else {
+      // graceful orbit at standoff radius; drift the ring slowly
+      const R=(window._MANTA_ORBIT_R||260);
+      const oa=Math.atan2(this.wz-pz,this.wx-px)+this._orbitDir*dt*(this.spd/R);
+      tx=px+Math.cos(oa)*R; tz=pz+Math.sin(oa)*R;
+      if(this._volleyT<=0 && d>120 && d<(window._MANTA_VOLLEY_R||560)){ this._volleyT=rand(3.5,6); this._burst=3; this._burstT=0; }
+      if(this._burst>0){ this._burstT-=dt; if(this._burstT<=0){ this._burstT=0.22; this._burst--;
+        try{ const lead=(window._MANTA_LEAD||0.55), tx2=px+(p.vx||0)*lead, tz2=pz+(p.vz||0)*lead;
+          for(const eye of this._rig.eyes){ const wp=new THREE.Vector3(); eye.getWorldPosition(wp);
+            const a=Math.atan2(tz2-wp.z,tx2-wp.x), sp2=(window._MANTA_BOLT_SPD||230);
+            const b=new EnemyBullet(wp.x,wp.z,Math.cos(a)*sp2,Math.sin(a)*sp2,0xb06aff,wp.y,py+12); if(b&&b.mesh)b.mesh.scale.multiplyScalar(1.25); }
+          if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(760,0.06,'square',0.12,300);
+        }catch(_){} } }
+      if(this._swoopT<=0 && d<(window._MANTA_SWOOP_TRIG||380) && this._stingCd<=0){
+        this._state='swoop'; this._swoopHold=2.2;
+        const ov=Math.hypot(dx,dz)||1; this._sx=px+dx/ov*80; this._sz=pz+dz/ov*80;   // aim THROUGH the player -> a fly-by pass, not a hover-on-top
+      }
+    }
+    // steer toward (tx,tz)
+    const mdx=tx-this.wx, mdz=tz-this.wz, md=Math.hypot(mdx,mdz)||1;
+    this.vx+=(mdx/md)*300*dt; this.vz+=(mdz/md)*300*dt;
+    const s=Math.hypot(this.vx,this.vz); if(s>sp){ this.vx=this.vx/s*sp; this.vz=this.vz/s*sp; }
+    this.wx+=this.vx*dt; this.wz+=this.vz*dt; if(GS.zone!==-19)this._clamp&&this._clamp();
+    this.y+=(wantY-this.y)*Math.min(1,dt*(this._state==='swoop'?3.2:1.4));
+    // face travel + bank into the turn
+    const tgt=Math.atan2(this.vx,this.vz); let ddf=tgt-this._face; while(ddf>Math.PI)ddf-=TAU; while(ddf<-Math.PI)ddf+=TAU;
+    this._face+=ddf*Math.min(1,dt*3.2); this._roll+=((-ddf*1.8)-this._roll)*Math.min(1,dt*4);
+    const G=this._rig.group; G.rotation.y=this._face; G.rotation.z=Math.max(-0.7,Math.min(0.7,this._roll));
+    G.rotation.x=Math.max(-0.5,Math.min(0.5,(this._state==='swoop'?(this.y-wantY)*0.012:0)+Math.sin(this.t*1.1)*0.04));
+    // WING WAVE — slow elegant flap, amplitude eases with speed, phase travels root->tip
+    const spd01=Math.min(1,s/(this.spd*1.4));
+    const fr=(window._MANTA_FLAP||1.7)+spd01*1.1, amp=0.34+spd01*0.22;
+    for(let i=0;i<4;i++){ const ph=this.t*fr*Math.PI*2-i*0.85, a=Math.sin(ph)*amp*(0.55+i*0.3);
+      this._rig.wL[i].rotation.z=a; this._rig.wR[i].rotation.z=-a; }
+    // TAIL WAVE — lazy serpentine sway; a sting LASHES it hard for a beat
+    this._tailLash=Math.max(0,(this._tailLash||0)-dt);
+    const lash=this._tailLash>0?3.4:1;
+    for(let i=0;i<9;i++){ const T=this._rig.tail[i];
+      T.rotation.y=Math.sin(this.t*2.1*lash-i*0.55)*0.16*lash*(0.4+i*0.09);
+      T.rotation.x=Math.sin(this.t*1.5*lash-i*0.4+1)*0.07*lash; }
+    try{ this._rig.sting.material.opacity=0.7+0.3*Math.sin(this.t*6); }catch(_){}
+    if(Math.random()<0.2)ps.spark(this.wx,this.wz,this.glow);
+    const sc=this.spawn<1?(0.2+this.spawn*0.8):1; this.mesh.scale.setScalar(sc);
+    this.mesh.position.set(this.wx,this.y+(this._kbYOff||0),this.wz);
+  }
+  die(){ ps.burst(this.wx,this.wz,this.glow,40,220,this.y); ps.ring(this.wx,this.wz,this.glow,30,200,this.y); ps.burst(this.wx,this.wz,[1,1,1],16,160,this.y); addTrauma(0.16);
+    try{ if(typeof _boomSfx==='function')_boomSfx('small',0.9,this.wx,this.wz); }catch(_){} }
+  remove(){ scene.remove(this.mesh); try{ this.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); }catch(_){} }
+}
+window.MantaRay=MantaRay;
+window._spawnManta=function(n=1){ for(let k=0;k<n;k++){ try{ const a=Math.random()*TAU, r=280+Math.random()*140; const e=new MantaRay((player?player.wx:0)+Math.cos(a)*r,(player?player.wz:0)+Math.sin(a)*r,1); e.addToScene(); GS.enemies.push(e); }catch(err){ console.warn('spawn manta',err); } } };
 class Drifter extends Enemy{
   constructor(wx,wz,wave,tier){super(wx,wz);this.glow=[1,1,0.53];this.tier=tier||3;
     const a=rand(TAU),sp=(26+rand(16))*(1+(3-this.tier)*0.5);this.vx=Math.cos(a)*sp;this.vz=Math.sin(a)*sp;
@@ -34794,7 +34916,7 @@ window._spawnChainTick=_spawnChainTick;
 // _VOID_RANGE_MP=true brings it online too, _VOID_RANGE_R overrides the main ring radius.
 function _voidRangeOn(){ return window._VOID_RANGE!==false && !!window._platformArena && (window._VOID_RANGE_MP===true || !(typeof MP!=='undefined'&&MP&&MP.active)); }
 window._voidRangeOn=_voidRangeOn;
-const _VR_ENEMIES=[['DIAMOND','Diamond'],['BOUNCER','Bouncer'],['PINWHEEL','Pinwheel'],['SEEKER','Seeker'],['DRIFTER','Drifter'],['SPIDER','Crawler'],['SHIELDER','Shielder'],['TURRET','Turret'],['GHOST','Ghost'],['BOMBER','HoverBomber'],['TANK','Tank'],['DRONE','BomberDrone'],['DRAGON','BlueDragon'],['CERBERUS','ThreeHeadedDog'],['DROIDEKA','DroidekaBot']];
+const _VR_ENEMIES=[['DIAMOND','Diamond'],['BOUNCER','Bouncer'],['PINWHEEL','Pinwheel'],['SEEKER','Seeker'],['DRIFTER','Drifter'],['SPIDER','Crawler'],['SHIELDER','Shielder'],['TURRET','Turret'],['GHOST','Ghost'],['BOMBER','HoverBomber'],['TANK','Tank'],['DRONE','BomberDrone'],['DRAGON','BlueDragon'],['CERBERUS','ThreeHeadedDog'],['DROIDEKA','DroidekaBot'],['MANTA','MantaRay']];
 function _voidPlatRange(){
   window._voidRangePads=[];
   const deckR=(window._platformCol&&window._platformCol.hx)||1666;   // read AFTER the settle-poll below — the collider flip-flops (980 -> 1666) during the arena build
@@ -34826,7 +34948,7 @@ function _voidRangeTick(dt){
     if(p.cd<=0 && (player.py||0)<30 && Math.hypot(player.wx-p.x,player.wz-p.z)<(window._VR_PAD_R||26)){
       p.cd=(window._VR_PAD_CD||3);
       try{
-        const REG={Diamond,Bouncer,Pinwheel,Seeker,Drifter,Crawler,Shielder,Turret,Ghost,HoverBomber,Tank,BomberDrone,BlueDragon,ThreeHeadedDog,DroidekaBot};
+        const REG={Diamond,Bouncer,Pinwheel,Seeker,Drifter,Crawler,Shielder,Turret,Ghost,HoverBomber,Tank,BomberDrone,BlueDragon,ThreeHeadedDog,DroidekaBot,MantaRay};
         const C=REG[p.cls]; if(!C)continue;
         if(GS.enemies.length>=(window._ENEMY_CAP||60)){ if(typeof announce==='function')announce('ENEMY CAP — CLEAR SOME FIRST','#ff8844'); continue; }
         const d=Math.hypot(p.x,p.z)||1, sx=p.x-(p.x/d)*70, sz=p.z-(p.z/d)*70;
@@ -45885,7 +46007,7 @@ function _mpQuickLaunch(){
 }
 
 const _MP_ETYPES={Diamond,Bouncer,Pinwheel,Seeker,Drifter,Crawler,Shielder,Turret,Ghost,HoverBomber,Tank,BomberDrone,
-  BlueDragon,ThreeHeadedDog,DroidekaBot,DroneBuddy};   // newer creatures — so a host-spawned boss/droid/drone renders as itself instead of a fallback Diamond
+  BlueDragon,ThreeHeadedDog,DroidekaBot,DroneBuddy,MantaRay};   // newer creatures — so a host-spawned boss/droid/drone renders as itself instead of a fallback Diamond
 function _mpSyncEnemies(list){
   if(!list||!GS.enemies) return;
   while(GS.enemies.length>list.length){ const e=GS.enemies.pop(); if(e&&e.remove)e.remove(); }   // drop extras the host no longer has
