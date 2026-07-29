@@ -498,7 +498,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <button id="btn-audio-mix" onclick="window.toggleAudioMix&&window.toggleAudioMix()" title="SOLO: game keeps audio focus and plays through the silent switch. MIX: share audio so YouTube/Spotify can play alongside (silent switch must be OFF)." style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 8h4l3 8h4l3-4h2"/></svg><span id="mx-lbl">SOLO</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1285</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1286</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -700,7 +700,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1285</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1286</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -4392,32 +4392,54 @@ function _neutralUpdate(e,dt){
 window._enterNeutralized=_enterNeutralized; window._canNeutralize=_canNeutralize; window._clearStunHalo=_clearStunHalo;
 
 // ── PROCEDURAL ROBOTIC SPIDER (idle + walk gait) ──
+// ── SPIDER GEOMETRY / MATERIAL POOL ──
+// Every spider used to allocate its own copy of everything: 23 geometries and 37 materials each, so 50 of them meant
+// 1150 geometries and 1850 materials, with 18 EdgesGeometry solves per spider at spawn time. All of that is identical
+// between spiders. Built once here and shared by every spider ever made, which is what makes a 50-spider swarm cheap.
+// Shared LAZILY (first spider builds them) so the cost isn't paid by players who never see one.
+let _SPG=null;
+function _spiderGeo(){
+  if(_SPG) return _SPG;
+  const abs=new THREE.SphereGeometry(6,10,8), ceph=new THREE.BoxGeometry(7,4.5,7);
+  const fem=new THREE.BoxGeometry(1.5,1.5,7), tib=new THREE.BoxGeometry(1.1,1.1,9);
+  _SPG={ abs, ceph, core:new THREE.SphereGeometry(2.4,10,8), fem, tib,
+         absE:new THREE.EdgesGeometry(abs), cephE:new THREE.EdgesGeometry(ceph),
+         femE:new THREE.EdgesGeometry(fem), tibE:new THREE.EdgesGeometry(tib),
+         // the dark body fill is the one material _tintAllyApply deliberately SKIPS (opaque solid), so one instance is
+         // safe to share across every spider on the field — an ally tint can never leak through it.
+         dark:new THREE.MeshBasicMaterial({color:0x0a1f16}) };
+  for(const k in _SPG){ if(_SPG[k]&&_SPG[k].isBufferGeometry)_SPG[k]._shared=true; }   // never dispose these
+  return _SPG;
+}
 function _makeSpider(glowHex=0x00ff88){
-  const g=new THREE.Group(); const dark=0x0a1f16;
-  const eMat=(col,op=0.9)=>new THREE.LineBasicMaterial({color:col,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false});
-  const addEdges=(par,geo,x,y,z,col=glowHex,op=0.9)=>{ const e=new THREE.LineSegments(new THREE.EdgesGeometry(geo),eMat(col,op)); e.position.set(x,y,z); par.add(e); return e; };
-  const solid=(par,geo,x,y,z,col=dark)=>{ const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:col})); m.position.set(x,y,z); par.add(m); return m; };
+  const P=_spiderGeo();
+  const g=new THREE.Group();
+  // ONE line material for this spider's whole glow lattice instead of 18 near-identical ones. They are all the same
+  // colour and _tintAlly recolours them together anyway, so a single instance tints correctly AND collapses the
+  // per-object material state changes. It stays PER-SPIDER (not shared globally) precisely because tinting mutates it.
+  const line=new THREE.LineBasicMaterial({color:glowHex,transparent:true,opacity:0.87,blending:THREE.AdditiveBlending,depthWrite:false});
+  const addEdges=(par,geo,x,y,z)=>{ const e=new THREE.LineSegments(geo,line); e.position.set(x,y,z); par.add(e); return e; };
+  const solid=(par,geo,x,y,z)=>{ const m=new THREE.Mesh(geo,P.dark); m.position.set(x,y,z); par.add(m); return m; };
   // body: abdomen (rear) + cephalothorax (front) + glowing eye
-  const absGeo=new THREE.SphereGeometry(6,10,8); const abs=solid(g,absGeo,0,0,-3); abs.scale.set(1,0.72,1.3);
-  { const e=new THREE.LineSegments(new THREE.EdgesGeometry(absGeo),eMat(glowHex,0.85)); e.scale.copy(abs.scale); e.position.copy(abs.position); g.add(e); }
-  const cephGeo=new THREE.BoxGeometry(7,4.5,7); solid(g,cephGeo,0,0.6,5.5); addEdges(g,cephGeo,0,0.6,5.5,glowHex,0.9);
-  const coreMat=new THREE.MeshBasicMaterial({color:glowHex,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
-  const core=new THREE.Mesh(new THREE.SphereGeometry(2.4,10,8),coreMat); core.position.set(0,1.8,8); g.add(core);
+  const abs=solid(g,P.abs,0,0,-3); abs.scale.set(1,0.72,1.3);
+  { const e=new THREE.LineSegments(P.absE,line); e.scale.copy(abs.scale); e.position.copy(abs.position); g.add(e); }
+  solid(g,P.ceph,0,0.6,5.5); addEdges(g,P.cephE,0,0.6,5.5);
+  const coreMat=new THREE.MeshBasicMaterial({color:glowHex,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});   // per-spider: hit-flash writes to it
+  const core=new THREE.Mesh(P.core,coreMat); core.position.set(0,1.8,8); g.add(core);
   // 8 legs (femur along +Z, raised at the knee, tibia reaching to the ground)
-  const legs=[]; const L1=7, L2=9;
-  const femurGeo=new THREE.BoxGeometry(1.5,1.5,L1), tibiaGeo=new THREE.BoxGeometry(1.1,1.1,L2);
+  const legs=[]; const L1=7, L2=9, legParts=[];
   const azs=[0.6,1.0,1.5,1.95];
   for(let s=0;s<2;s++){ const side=s===0?1:-1;
     for(let k=0;k<4;k++){ const A=azs[k]*side;
       const root=new THREE.Group(); root.position.set(Math.sin(A)*4.5,1.2,Math.cos(A)*4.5); root.rotation.y=A; g.add(root);
       const baseFemUp=0.55;
       const fem=new THREE.Group(); fem.rotation.x=-baseFemUp; root.add(fem);
-      solid(fem,femurGeo,0,0,L1/2); addEdges(fem,femurGeo,0,0,L1/2,glowHex,0.85);
+      solid(fem,P.fem,0,0,L1/2); legParts.push(addEdges(fem,P.femE,0,0,L1/2));
       const knee=new THREE.Group(); knee.position.set(0,0,L1); knee.rotation.x=baseFemUp+1.25; fem.add(knee);
-      solid(knee,tibiaGeo,0,0,L2/2); addEdges(knee,tibiaGeo,0,0,L2/2,glowHex,0.8);
+      solid(knee,P.tib,0,0,L2/2); legParts.push(addEdges(knee,P.tibE,0,0,L2/2));
       legs.push({root,fem,az:A,baseFemUp,offset:((k+s)%2)*0.5+k*0.04});
     } }
-  return {group:g, legs, core, coreMat, gait:Math.random(), t:Math.random()*TAU};
+  return {group:g, legs, core, coreMat, lineMat:line, legEdges:legParts, gait:Math.random(), t:Math.random()*TAU};
 }
 function _updateSpider(sp, dt, moveAmt){
   sp.t+=dt; moveAmt=Math.max(0,Math.min(1,moveAmt));
@@ -4433,6 +4455,23 @@ function _updateSpider(sp, dt, moveAmt){
   }
   const mv=moveAmt<0.04?0:moveAmt;                          // standing still -> no leg motion at all (just breathing)
   sp.gait += dt*(0.5+mv*2.5)*(mv>0?1:0);                    // gait advances ONLY while moving -> legs freeze in place when idle
+  // ── DISTANCE LOD ── a swarm is mostly BACKGROUND. Past _SPIDER_LOD_D a spider is a few pixels across, so its 16 leg
+  //    glow-lines are dropped and the 8-leg gait solve is skipped entirely: that's the per-spider draw objects down from
+  //    37 to 21 and the per-frame trig down to zero, for something you provably cannot see move at that range. Re-checked
+  //    4x a second rather than per frame so the check itself is free. window._SPIDER_LOD=false to always draw full detail.
+  if(window._SPIDER_LOD!==false){
+    sp._lodT=(sp._lodT||0)+dt;
+    if(sp._lodT>=0.25){ sp._lodT=0;
+      let far=false;
+      try{ const par=sp.group.parent;
+        if(par && typeof camera!=='undefined'){
+          const dx=par.position.x-camera.position.x, dy=par.position.y-camera.position.y, dz=par.position.z-camera.position.z;
+          const R=(window._SPIDER_LOD_D||620); far=(dx*dx+dy*dy+dz*dz) > R*R; } }catch(_){}
+      if(far!==sp._far){ sp._far=far;
+        const E=sp.legEdges; if(E){ for(let i=0;i<E.length;i++) E[i].visible=!far; } }
+    }
+    if(sp._far) return;   // frozen legs at that distance are indistinguishable from animated ones
+  }
   const swingAmp=mv*0.5, liftAmp=mv*0.85;                   // no idle swing/lift floor
   for(const lg of sp.legs){
     const ang=((sp.gait+lg.offset)%1)*TAU;
