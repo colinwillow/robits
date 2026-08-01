@@ -880,6 +880,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
         <button class="rmb-opt rmb-stage" data-cfg="stage" data-val="-19" onclick="window._rumbleCfgSet('stage',-19)"><div class="rmb-thumb" style="background-image:url('thumbs/lv_cage.jpg')"></div>CAGE MATCH</button>
         <button class="rmb-opt rmb-stage" data-cfg="stage" data-val="-119" onclick="window._rumbleCfgSet('stage',-119)"><div class="rmb-thumb" style="background-image:url('thumbs/lv_void.jpg')"></div>PLATFORM</button>
         <button class="rmb-opt rmb-stage" data-cfg="stage" data-val="-319" onclick="window._rumbleCfgSet('stage',-319)"><div class="rmb-thumb" style="background-image:url('thumbs/lv_foundry.jpg')"></div>FOUNDRY</button>
+        <button class="rmb-opt rmb-stage" data-cfg="stage" data-val="-419" onclick="window._rumbleCfgSet('stage',-419)"><div class="rmb-thumb" style="background-image:url('thumbs/lv_rift.jpg')"></div>THE RIFT</button>
       </div></div>
       <div class="rmb-row"><div class="rmb-lbl">RIVALS</div><div class="rmb-opts">
         <button class="rmb-opt" data-cfg="bots" data-val="1" onclick="window._rumbleCfgSet('bots',1)">1</button>
@@ -15859,6 +15860,11 @@ class Player{
         if(this.py<=topY+2 && this.py>=topY-_capD && topY>=eFloor){ eFloor=topY; _onPlat=true; this._platformY=topY; } }
       if(_onPlat) this._onPlatform=true; else if(this.py>1) this._onPlatform=false;
     }
+    if(GS.zone===-19 && window._terra && typeof _terraH==='function' && !this._inPlanetGravity && !this._hang){   // THE RIFT: the ground IS the sculpted heightfield — solid everywhere (no pass-under), so it's an unconditional floor raise, not a catch window
+      const _th=_terraH(this.wx,this.wz);
+      if(_th>eFloor)eFloor=_th;
+      if(this.py<=_th+2){ this._onPlatform=true; this._platformY=_th; }   // grounded on the terrain -> jump/land systems read it like a deck
+    }
     if((GS.zone===-19||GS.zone===-20) && !this._inPlanetGravity && !this._hang && ((window._cubePlatforms&&window._cubePlatforms.length)||(window._arenaAssetCols&&window._arenaAssetCols.length))){   // CUBE LEVEL KIT + custom deform-asset platforms (incl. the DISC arena -20): land on platforms + run up ramps (same flat/slope math as the dojo)
       const _capC=Math.max(14, Math.abs(this.pvy||0)*dt+10); let _onPlat=false;
       // PASS-THROUGH platforms (Smash-style): rising -> pass up through the bottom; dropping (_dropThru, left-stick down-tap) -> fall through the top. Only CATCH when descending / standing.
@@ -18978,8 +18984,8 @@ class BotPilot{
     }
 
     // ── JUMP + JETPACK — hops and jet bursts like the player: leap to close gaps, contest an airborne foe, juke ──
-    if(window._BOT_JET!==false && (GS.zone!==-19 || window._platformArena)){   // the cage keeps bots grounded, but the PLATFORM arena shares zone -19 — this gate was why rivals never jumped/jetted there
-      const _grounded=(this.py<=0.5)&&((this.pvy||0)<=0);
+    if(window._BOT_JET!==false && (GS.zone!==-19 || window._platformArena || window._terra)){   // the cage keeps bots grounded, but the PLATFORM arena + THE RIFT share zone -19 — this gate was why rivals never jumped/jetted there
+      const _grounded=(this.py<=((window._terra&&typeof _terraH==='function')?_terraH(this.wx,this.wz)+0.5:0.5))&&((this.pvy||0)<=0);   // rift terrain counts as ground for the bot jump/jet logic
       if(_grounded) this._botJetFuel=Math.min(1,(this._botJetFuel==null?1:this._botJetFuel)+dt*(window._BOT_JET_REGEN||0.5));   // refuel on the ground
       this._jumpCD=Math.max(0,(this._jumpCD||0)-dt);
       const _foeHigh=(_foe&&(_foe.py||0)>(window._BOT_JET_CHASE_Y||45));
@@ -19015,7 +19021,9 @@ class BotPilot{
           if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(this.wx+rand(-8,8),this.wz+rand(-8,8),[0.5,0.9,1],this.py+rand(0,20));
           if(k>=1){ this.py=L.toY; this.pvy=0; this._onPad=L.anchor; this._padLift=null; this._padChargeA=null; this._padChargeT=0; }
         } else {
-          this.pvy=(this.pvy||0)-320*dt; this.py=(this.py||0)+this.pvy*dt; if(this.py<=0){ this.py=0; if(this.pvy<0)this.pvy=0; }   // gravity + floor
+          this.pvy=(this.pvy||0)-320*dt; this.py=(this.py||0)+this.pvy*dt;
+          { const _tf=(window._terra&&typeof _terraH==='function')?_terraH(this.wx,this.wz):0;   // THE RIFT: bots stand on the heightfield, not on y=0 under it
+            if(this.py<=_tf){ this.py=_tf; if(this.pvy<0)this.pvy=0; } }   // gravity + floor
           if(this._onPad){ const a=this._onPad, d=Math.hypot(this.wx-a.x,this.wz-a.z);   // held on a pad (virtual platform)
             if((this.pvy||0)>(window._PAD_JUMP_OFF||15) || d>a.r+(window._PAD_STAND_SLOP||20)){ this._onPad=null; }
             else { this.py=a.y; if((this.pvy||0)<0)this.pvy=0; this._onPlatform=true; } }
@@ -21372,7 +21380,7 @@ function _ensureBuildBtn(){
 }
 function _showBuildBtn(show){ if(window._SHOW_BUILD_RAMP_BTN!==true)show=false;   // BUILD RAMP is a debug rig — hidden by default (window._SHOW_BUILD_RAMP_BTN=true brings it back)
   _ensureBuildBtn(); const b=document.getElementById('dbg-build-btn'); if(b)b.style.display=show?'block':'none'; }
-window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateThrownMelee(dt); _updateCarry(dt); _barrelSpawnTick(dt); _updateJewelPods(dt); if(typeof _jumpPadTick==='function')_jumpPadTick(dt); if(window._foundry&&typeof _foundryTick==='function')_foundryTick(dt); if(typeof _updateHealthBits==='function')_updateHealthBits(dt); if(window._platformArena&&typeof _shooterPadTick==='function')_shooterPadTick(dt); if(window._platformArena&&typeof _voidRangeTick==='function')_voidRangeTick(dt); if(window._armoryStation&&typeof _armoryTick==='function')_armoryTick(dt); if(window._platformArena&&typeof _mantaAmbientTick==='function')_mantaAmbientTick(dt); if(typeof _playerBurnTick==='function')_playerBurnTick(dt); if(window._platformArena&&typeof _spawnChainTick==='function')_spawnChainTick(dt); if(window._platformArena&&typeof _transportShipsTick==='function')_transportShipsTick(dt); if(window._heroIsland&&window._heroIsland.userData){ const u=window._heroIsland.userData; const T=(u._pulseT=(u._pulseT||0)+dt); const pu=0.5+0.5*Math.sin(T*2.1);
+window._barrelTick=function(dt){ try{ _updateCrates(dt); _updatePU(dt); _updateItemShots(dt); _updateThrownMelee(dt); _updateCarry(dt); _barrelSpawnTick(dt); _updateJewelPods(dt); if(typeof _jumpPadTick==='function')_jumpPadTick(dt); if(window._foundry&&typeof _foundryTick==='function')_foundryTick(dt); if(window._terra&&typeof _terraTick==='function')_terraTick(dt); if(typeof _updateHealthBits==='function')_updateHealthBits(dt); if(window._platformArena&&typeof _shooterPadTick==='function')_shooterPadTick(dt); if(window._platformArena&&typeof _voidRangeTick==='function')_voidRangeTick(dt); if(window._armoryStation&&typeof _armoryTick==='function')_armoryTick(dt); if(window._platformArena&&typeof _mantaAmbientTick==='function')_mantaAmbientTick(dt); if(typeof _playerBurnTick==='function')_playerBurnTick(dt); if(window._platformArena&&typeof _spawnChainTick==='function')_spawnChainTick(dt); if(window._platformArena&&typeof _transportShipsTick==='function')_transportShipsTick(dt); if(window._heroIsland&&window._heroIsland.userData){ const u=window._heroIsland.userData; const T=(u._pulseT=(u._pulseT||0)+dt); const pu=0.5+0.5*Math.sin(T*2.1);
       if(u.coreIn&&u.coreIn.material)u.coreIn.material.opacity=0.55+0.35*pu; if(u.core&&u.core.material)u.core.material.opacity=0.26+0.18*pu;
       if(u.gyro)u.gyro.rotation.y+=dt*0.6; if(u.gyro2)u.gyro2.rotation.y-=dt*0.9;   // counter-rotating gyro rings
       if(u.jets)for(const j of u.jets){ const f=0.6+0.4*Math.sin(T*9+ (j.flame.userData.ph||0)); if(j.flame){ j.flame.material.opacity=0.35+0.35*f; j.flame.scale.y=0.8+0.5*f; } if(j.flameIn)j.flameIn.material.opacity=0.55+0.4*f; }   // thruster flames flicker
@@ -22977,8 +22985,9 @@ window._startRumble=function(opts){ opts=opts||{}; const R=window.RUMBLE;
   // a non-platform stage clears it (unless ?platform forced it globally at load) so switching back to CAGE MATCH stays walled.
   let _stg=(opts.stage!=null?opts.stage:-119);
   if(_stg===-20) _stg=-119;   // RETIRED: -20 was the disc arena, a scratch test that predates the real platform level. Anything still asking for it lands on PLATFORM.
-  if(_stg===-319){ window._FOUNDRY_LEVEL=true; window._PLATFORM_LEVEL=false; _stg=-19; }   // FOUNDRY (sentinel -319): the caged cube dressed as the multi-tier machine works (same sentinel trick as -119)
-  else { window._FOUNDRY_LEVEL=false;
+  if(_stg===-319){ window._FOUNDRY_LEVEL=true; window._TERRA_LEVEL=false; window._PLATFORM_LEVEL=false; _stg=-19; }   // FOUNDRY (sentinel -319): the caged cube dressed as the multi-tier machine works (same sentinel trick as -119)
+  else if(_stg===-419){ window._TERRA_LEVEL=true; window._FOUNDRY_LEVEL=false; window._PLATFORM_LEVEL=false; _stg=-19; }   // THE RIFT (sentinel -419): its OWN arena builder — sculpted terrain world, zero cube content
+  else { window._FOUNDRY_LEVEL=false; window._TERRA_LEVEL=false;
     if(_stg===-119){ window._PLATFORM_LEVEL=true; _stg=-19; } else if(window._PLATFORM_URL!==true){ window._PLATFORM_LEVEL=false; } }
   R.stage=_stg;
   R.teams=(opts.teams!=null?opts.teams:0);   // 0/undefined = free-for-all; 2..4 = TEAM RUMBLE (squad hues, no friendly fire)
@@ -23731,7 +23740,7 @@ window._ballEndCleanup=function(){ try{ if(window._ballEndT2)clearTimeout(window
   try{ const vc=document.getElementById('viz-menu'); if(vc){ const ov=document.getElementById('overlay'); if(ov){ vc.style.cssText='position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;display:none'; ov.insertBefore(vc, ov.firstChild); } } }catch(_){}   // return the mandala canvas to the menu overlay (hidden) so the menus own it again
   try{ if(window._menuVizStop)window._menuVizStop(); }catch(_){}
   const el=document.getElementById('ball-results'); if(el)el.style.display='none'; };
-window._ballRematch=function(){ window._ballEndCleanup(); window._BALL_MATCH=null; window._gameMode='robitball'; window._goalCam=null; window._FOUNDRY_LEVEL=false; try{ window.startGameAtLevel(-19); }catch(_){} };   // relaunch the cube; _ballMatchSpawn re-seats the camera on the pilot so the rematch isn't framed across the arena
+window._ballRematch=function(){ window._ballEndCleanup(); window._BALL_MATCH=null; window._gameMode='robitball'; window._goalCam=null; window._FOUNDRY_LEVEL=false; window._TERRA_LEVEL=false; try{ window.startGameAtLevel(-19); }catch(_){} };   // relaunch the cube; _ballMatchSpawn re-seats the camera on the pilot so the rematch isn't framed across the arena
 window._ballExitMatch=function(){ window._ballEndCleanup(); window._exitMatchToMenu('gamemode'); };
 window._surfOff=function(){ if(window._surfPlaneRoot){ try{ scene.remove(window._surfPlaneRoot); }catch(_){} for(let i=(window._arenaDeformers||[]).length-1;i>=0;i--){ if(window._arenaDeformers[i]&&window._arenaDeformers[i]._surf)window._arenaDeformers.splice(i,1); } for(let i=(window._arenaAssetCols||[]).length-1;i>=0;i--){ if(window._arenaAssetCols[i]&&window._arenaAssetCols[i]._asset==='surf')window._arenaAssetCols.splice(i,1); } window._surfPlaneRoot=null; if(typeof announce==='function')announce('SURF OFF','#9fd8ff'); } };
 
@@ -25313,7 +25322,7 @@ function startGame(levelIdx){
   else if(GS.zone===-16){ buildCityTest(); }
   else if(GS.zone===-17){ buildSoundRoom(); }
   else if(GS.zone===-18){ buildCustomLevel(); }
-  else if(GS.zone===-19){ buildCubeArena(); if(GS.survivalExp && typeof spawnWave==='function') spawnWave(); }   // experimental survival is CONTAINED in the cube — build the arena, then start the wave/round cycle
+  else if(GS.zone===-19){ if(window._TERRA_LEVEL===true&&typeof buildTerraArena==='function')buildTerraArena(); else buildCubeArena(); if(GS.survivalExp && typeof spawnWave==='function') spawnWave(); }   // -19 wears one of two SEPARATE builders: THE RIFT terrain world, or the cube (cage/platform/foundry dressings)
   else if(GS.zone===-20){ buildDiscArena(); }   // DISC ARENA — lone circular platform in black space (Smash-style: fall off = ring out)
   else if(GS.zone===0){ if(GS.survival) spawnWave(); else buildZone1Puzzle(); }
   else spawnWave();
@@ -33504,7 +33513,7 @@ function _projOOB(x,z,y,m){ m=(m!=null?m:40);   // projectile out-of-bounds — 
   return Math.hypot(x,z)>ARENA_R+m; }
 window._projOOB=_projOOB;
 function _disposeCubeSheets(){ if(_cubeSheets&&_cubeSheets.length){ for(const s of _cubeSheets){ try{ const idx=GRID_SHEETS.indexOf(s); if(idx>=0)GRID_SHEETS.splice(idx,1); if(s.group){ scene.remove(s.group); s.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }catch(_){} } } _cubeSheets=[]; _goalCurtains=[]; }
-function _disposeCubeArena(){ window._BALL_TEAMS=false; window._cageBd=null;
+function _disposeCubeArena(){ window._BALL_TEAMS=false; window._cageBd=null; window._terra=null;   // the rift's props live in _cubeGroup -> torn down with it; null the state so its tick+floor hooks go quiet
   try{ if(window._disposeJumbotron)_disposeJumbotron(); }catch(_){}   // tear down the centre score jumbotron with the arena
   try{ if(window._voidCleanApplied){ window._voidCleanApplied=false; window._PLAT_PU=undefined; window._SUPER_PU=undefined; window._BARRELS_ENABLED=undefined; window._POD_DISPENSERS=undefined; } }catch(_){}   // leaving the CLEAN-DECK void -> other zones get their pickups back
   try{ if(window._platformArena){ window._platformArena=false; window._arenaVoid=false; window._platformCol=null; window._VOID_RINGOUT_Y=undefined; if(window._SKY_SUNSET===false)window._SKY_SUNSET=undefined; if(window._PLAT_DEFORM===false)window._PLAT_DEFORM=undefined;   // let other zones paint their sunset + ripple their deck again
@@ -37079,6 +37088,212 @@ function _foundryTick(dt){ const F=window._foundry; if(!F||typeof GS==='undefine
 const MZ_HIT=186;   // tower hit volume: the whole shaft, floor to just over the projector head
 const ORB_Y2=255;   // orbiter deck height
 window._foundryTick=_foundryTick;
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ── THE RIFT (rumble stage -419) — an ALL-NEW WORLD, its own arena builder, zero cube/platform/synthwave content.
+//    A night-desert excavation site: a sculpted heightfield (nothing is flat) — two high plateaus split by a canyon,
+//    flat-top mesas, a crater rim for a horizon instead of walls. A colossal BORING MACHINE straddles the rift (its
+//    truss deck is a walkable bridge; the cutter stacks grind away beneath it). Two natural stone arches cross the
+//    canyon, crystal fields light the low ground, a ruined colonnade + a half-buried gate ring dress the plateaus,
+//    and steam fissures in the canyon floor launch you up to plateau height. Faceted flat-shaded terrain with baked
+//    lambert vertex colours (no scene lights needed), under a custom two-moon sky with warm horizon fog.
+//    NO weapons / power-ups / pickups planted — geometry + aesthetic first, per the design brief. ──
+function _terraH(x,z){   // the world's analytic heightfield — physics + mesh both sample THIS, so they can never disagree
+  const az=Math.abs(z), r=Math.hypot(x,z);
+  const sm=(a,b,t)=>{ t=(t-a)/(b-a); t=t<0?0:(t>1?1:t); return t*t*(3-2*t); };
+  let h=132*sm(130,340,az);                                                     // the rift: low canyon along X, high plateaus either side
+  h+=10*Math.sin(x*0.0041+1.7)*Math.sin(z*0.0037+0.6)                           // rolling dunes over everything
+    +7*Math.sin(x*0.009-0.4)*Math.sin(z*0.011+2.1)
+    +4*Math.sin(x*0.021+0.9)*Math.sin(z*0.017-1.2);
+  h+=105*sm(250,125,Math.hypot(x-560,z-470))+105*sm(250,125,Math.hypot(x+560,z+470));   // two flat-top mesas (spawn crowns)
+  h+=440*sm(1120,1500,r);                                                       // the crater rim IS the wall — no cage
+  return h<0?0:h;
+}
+window._terraH=_terraH;
+function buildTerraArena(){
+  _disposeCubeArena();
+  window._platformArena=false; window._arenaVoid=false; GS._gravFlip=false; window._SKY_SUNSET=false;
+  window._CUBE={hx:2600,hz:2600,h:5200,cham:80};   // push the invisible cube-physics shell (bomb-stick SDF etc.) far outside the crater
+  try{ if(typeof _skySunsetOff==='function')_skySunsetOff(); }catch(_){}
+  try{ if(typeof _skyPlanetOff==='function')_skyPlanetOff(); }catch(_){}
+  try{ if(typeof grid!=='undefined'&&grid){ for(const k of ['lines','glowLines','dots','perimeter','disc','glow']){ const o=grid[k]; if(o){ if(o._platPrevVis==null)o._platPrevVis=(o.visible!==false); o.visible=false; } } } }catch(_){}   // no endless neon world-grid under the desert (restored in _disposeCubeArena)
+  try{ const _swb=document.getElementById('synthwave-bg'); if(_swb){ _swb.dataset._platPrevDisp=(_swb.style.display||''); _swb.style.display='none'; } }catch(_){}
+  try{ scene.background=new THREE.Color(window._RIFT_BG!=null?window._RIFT_BG:0x080b1e); scene.environment=null;
+    scene.fog=new THREE.FogExp2((window._RIFT_FOG_COL!=null?window._RIFT_FOG_COL:0x2a1832),(window._RIFT_FOG!=null?window._RIFT_FOG:0.00042)); }catch(_){}
+  const grp=new THREE.Group(); scene.add(grp); _cubeGroup=grp;   // living in _cubeGroup means _disposeCubeArena tears the whole world down
+  window._cubePlatforms=[]; window._cubePadAnchors=[]; window._arenaAssetCols=[];
+  const T=window._terra={t:0, vents:[], cryMats:[], perch:[], drill:null};
+  const C3=(h2)=>new THREE.Color(h2);
+  const glow=(c,op)=>new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+  const solid=(c)=>new THREE.MeshBasicMaterial({color:c});
+  // ── THE GROUND: faceted heightfield, baked flat-shaded lambert in vertex colours (zero light dependency) ──
+  { const SEG=116, SPAN=3400;
+    let g=new THREE.PlaneGeometry(SPAN,SPAN,SEG,SEG); g.rotateX(-Math.PI/2);
+    const P=g.attributes.position;
+    for(let i=0;i<P.count;i++){ P.setY(i,_terraH(P.getX(i),P.getZ(i))); }
+    g=g.toNonIndexed();
+    const P2=g.attributes.position, N=P2.count, col=new Float32Array(N*3);
+    const sun=new THREE.Vector3(-0.45,0.62,0.28).normalize();
+    const A=new THREE.Vector3(),B=new THREE.Vector3(),Cv=new THREE.Vector3(),e1=new THREE.Vector3(),e2=new THREE.Vector3(),n=new THREE.Vector3();
+    const cLow=C3(0x262e4c), cSlope=C3(0x39305a), cPlat=C3(0x4a3a60), cRock=C3(0x5c4a58), cMesa=C3(0x8a6b4e), cCliff=C3(0x2c2340), cRim=C3(0x171226), mix=new THREE.Color();
+    for(let f=0;f<N/3;f++){ const i0=f*3;
+      A.fromBufferAttribute(P2,i0); B.fromBufferAttribute(P2,i0+1); Cv.fromBufferAttribute(P2,i0+2);
+      e1.subVectors(B,A); e2.subVectors(Cv,A); n.crossVectors(e1,e2).normalize(); if(n.y<0)n.negate();
+      const hC=(A.y+B.y+Cv.y)/3;
+      if(hC<35)mix.copy(cLow);
+      else if(hC<110)mix.copy(cLow).lerp(cSlope,(hC-35)/75);
+      else if(hC<170)mix.copy(cSlope).lerp(cPlat,(hC-110)/60);
+      else if(hC<235)mix.copy(cPlat).lerp(cRock,(hC-170)/65);
+      else if(hC<330)mix.copy(cRock).lerp(cMesa,(hC-235)/95);
+      else mix.copy(cMesa).lerp(cRim,Math.min(1,(hC-330)/220));
+      if(n.y<0.72)mix.lerp(cCliff,Math.min(1,(0.72-n.y)*2.2));                  // steep faces read as bare cliff rock
+      const lam=0.40+0.72*Math.max(0,n.dot(sun));                               // baked warm key + cool ambient
+      const rC=Math.min(1.1,mix.r*lam*1.10), gC=Math.min(1.1,mix.g*lam*0.98), bC=Math.min(1.1,mix.b*lam*1.02);
+      for(let k2=0;k2<3;k2++){ col[(i0+k2)*3]=rC; col[(i0+k2)*3+1]=gC; col[(i0+k2)*3+2]=bC; } }
+    g.setAttribute('color',new THREE.BufferAttribute(col,3));
+    const ter=new THREE.Mesh(g,new THREE.MeshBasicMaterial({vertexColors:true})); grp.add(ter); }
+  // ── THE SKY: gradient dome + two moons + stars (all fog:false so the fog can't eat the heavens) ──
+  { const dg=new THREE.SphereGeometry(4300,28,14);
+    const dp=dg.attributes.position, dc=new Float32Array(dp.count*3);
+    const zen=C3(0x080b1e), mid=C3(0x1c1140), hor=C3(0x77352c), und=C3(0x0d0816), m2=new THREE.Color();
+    for(let i=0;i<dp.count;i++){ const yy=dp.getY(i)/4300;
+      if(yy>0.42)m2.copy(zen); else if(yy>0.09)m2.copy(mid).lerp(zen,(yy-0.09)/0.33);
+      else if(yy>-0.02)m2.copy(hor).lerp(mid,(yy+0.02)/0.11); else m2.copy(und);
+      dc[i*3]=m2.r; dc[i*3+1]=m2.g; dc[i*3+2]=m2.b; }
+    dg.setAttribute('color',new THREE.BufferAttribute(dc,3));
+    grp.add(new THREE.Mesh(dg,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.BackSide,fog:false,depthWrite:false})));
+    const moon=(dir,R,c,op,halo)=>{ const d=dir.normalize().multiplyScalar(4100);
+      const mm=new THREE.Mesh(new THREE.CircleGeometry(R,36), new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:op,fog:false,depthWrite:false}));
+      mm.position.copy(d); mm.lookAt(0,0,0); grp.add(mm);
+      if(halo){ const hh=new THREE.Mesh(new THREE.CircleGeometry(R*1.7,36), glow(c,0.16)); hh.material.fog=false; hh.position.copy(d.clone().multiplyScalar(0.995)); hh.lookAt(0,0,0); grp.add(hh); } };
+    moon(new THREE.Vector3(0.55,0.34,-0.62),300,0xffb066,0.95,true);            // the big amber miner's moon
+    moon(new THREE.Vector3(-0.72,0.47,0.30),110,0x8fe8d8,0.85,true);            // its small teal companion
+    const sp=[]; for(let i=0;i<700;i++){ const a=Math.random()*Math.PI*2, e2b=Math.asin(Math.random()*0.92+0.06), rr=4180;
+      sp.push(Math.cos(a)*Math.cos(e2b)*rr, Math.sin(e2b)*rr, Math.sin(a)*Math.cos(e2b)*rr); }
+    const sg2=new THREE.BufferGeometry(); sg2.setAttribute('position',new THREE.BufferAttribute(new Float32Array(sp),3));
+    grp.add(new THREE.Points(sg2,new THREE.PointsMaterial({color:0xcfd8ff,size:7,sizeAttenuation:true,transparent:true,opacity:0.85,fog:false,depthWrite:false}))); }
+  const edgeOf=(geo,c,op)=>new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:c,transparent:true,opacity:(op!=null?op:0.5)}));
+  // ── THE BORING MACHINE — the landmark. Truss gantry straddling the canyon; the deck is a WALKABLE bridge; the
+  //    cutter stacks spin beneath it over an ember bore pit. Access ramps climb from each plateau shoulder. ──
+  { const D=new THREE.Group(); grp.add(D);
+    const steel=solid(0x232838), steelD=solid(0x161a28);
+    const leg=(sx,sz)=>{ const geo=new THREE.BoxGeometry(20,282,20); const m=new THREE.Mesh(geo,steel);
+      m.position.set(sx*0.82,120,sz); m.rotation.z=sx>0?-0.18:0.18; D.add(m);
+      const be=edgeOf(geo,0xffa04d,0.35); be.position.copy(m.position); be.rotation.copy(m.rotation); D.add(be); };
+    for(const sz of [-300,300]){ leg(120,sz); leg(-120,sz);
+      const brGeo=new THREE.BoxGeometry(196,14,14); const br=new THREE.Mesh(brGeo,steelD); br.position.set(0,150,sz); D.add(br); }
+    const deckGeo=new THREE.BoxGeometry(128,14,660);
+    const deck=new THREE.Mesh(deckGeo,steel); deck.position.set(0,245,0); D.add(deck);
+    const de=edgeOf(deckGeo,0xffb066,0.6); de.position.copy(deck.position); D.add(de);
+    for(const s of [-1,1]){ const rail=new THREE.Mesh(new THREE.BoxGeometry(4,10,660), glow(0xff9a4d,0.5)); rail.position.set(s*62,258,0); D.add(rail); }
+    window._cubePlatforms.push({x:0,z:0,hw:64,hd:330,top:252});
+    const house=new THREE.Mesh(new THREE.BoxGeometry(56,44,64),steelD); house.position.set(0,274,-210); D.add(house);
+    const he2=edgeOf(new THREE.BoxGeometry(56,44,64),0xffa04d,0.4); he2.position.copy(house.position); D.add(he2);
+    // access ramps: plateau shoulder -> deck (slope colliders + truss-walk visuals)
+    for(const s of [-1,1]){ const y0=150, y1=252, za=s*470, zb=s*335;
+      const L2=135, rgeo=new THREE.BoxGeometry(96,10,L2/Math.cos(Math.atan2(y1-y0,L2)));
+      const rm2=new THREE.Mesh(rgeo,steel); rm2.position.set(0,(y0+y1)/2,(za+zb)/2); rm2.rotation.x=s*Math.atan2(y1-y0,L2); D.add(rm2);
+      const re=edgeOf(rgeo,0xffa04d,0.4); re.position.copy(rm2.position); re.rotation.copy(rm2.rotation); D.add(re);
+      window._cubePlatforms.push({x:0,z:(za+zb)/2,hw:48,hd:L2/2,top:y1, slope:{y0:y0,y1:y1,ox:0,oz:za,nx:0,nz:1,perUnit:(y1-y0)/(zb-za)}}); }
+    // the drill string + three counter-rotating cutter stacks + the ember bore pit
+    const stem=new THREE.Mesh(new THREE.CylinderGeometry(9,9,150,10),steelD); stem.position.set(0,163,0); D.add(stem);
+    const mkCutter=(y,r1,r2,hh)=>{ const cg=new THREE.Group(); cg.position.set(0,y,0); D.add(cg);
+      const body=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,hh,8),solid(0x2e2434)); cg.add(body);
+      const beC=edgeOf(new THREE.CylinderGeometry(r1,r2,hh,8),0xff8a3a,0.75); cg.add(beC);
+      for(let i2=0;i2<6;i2++){ const fin=new THREE.Mesh(new THREE.BoxGeometry(r1*0.9,hh*0.75,5), glow(0xff8a3a,0.55));
+        fin.position.set(Math.cos(i2/6*Math.PI*2)*r1*0.72,0,Math.sin(i2/6*Math.PI*2)*r1*0.72);
+        fin.rotation.y=-i2/6*Math.PI*2+0.5; cg.add(fin); }
+      return cg; };
+    const cut1=mkCutter(96,34,26,34), cut2=mkCutter(64,27,20,28), cut3=mkCutter(36,20,10,26);
+    const pitM=glow(0xff7a3a,0.5);
+    const pit=new THREE.Mesh(new THREE.RingGeometry(16,46,26),pitM); pit.rotation.x=-Math.PI/2; pit.position.y=6.5; D.add(pit);
+    const pitD=new THREE.Mesh(new THREE.CircleGeometry(16,20),new THREE.MeshBasicMaterial({color:0x050308})); pitD.rotation.x=-Math.PI/2; pitD.position.y=6.4; D.add(pitD);
+    const beacons=[]; for(const [bx2,bz2] of [[58,320],[-58,320],[58,-320],[-58,-320]]){ const bb=new THREE.Mesh(new THREE.SphereGeometry(4,8,6),glow(0xff4d3a,0.9)); bb.position.set(bx2,262,bz2); D.add(bb); beacons.push(bb); }
+    const cw=new THREE.Mesh(new THREE.BoxGeometry(30,44,30),steelD); cw.position.set(96,190,120); D.add(cw);
+    const cwc=new THREE.Mesh(new THREE.CylinderGeometry(1.6,1.6,60,5),solid(0x3a4258)); cwc.position.set(96,235,120); D.add(cwc);
+    T.drill={cut1,cut2,cut3,pitM,beacons,cw,cwc,cwY:190}; }
+  // ── STONE ARCHES over the canyon (walk up-and-over) ──
+  for(const ax of [520,-520]){
+    const arc=new THREE.Group(); grp.add(arc);
+    const curve=new THREE.CatmullRomCurve3([ new THREE.Vector3(ax,110,-300), new THREE.Vector3(ax,215,0), new THREE.Vector3(ax,110,300) ]);
+    const tube=new THREE.Mesh(new THREE.TubeGeometry(curve,20,26,7,false),solid(0x453a55)); arc.add(tube);
+    arc.add(edgeOf(new THREE.TubeGeometry(curve,20,26,7,false),0x191322,0.5));
+    window._cubePlatforms.push({x:ax,z:-185,hw:36,hd:115,top:208, slope:{y0:118,y1:208,ox:ax,oz:-300,nx:0,nz:1,perUnit:90/230}});
+    window._cubePlatforms.push({x:ax,z:0,   hw:36,hd:70, top:208});
+    window._cubePlatforms.push({x:ax,z:185, hw:36,hd:115,top:208, slope:{y0:208,y1:118,ox:ax,oz:70, nx:0,nz:1,perUnit:-90/230}}); }
+  // ── CRYSTAL FIELDS — the teal accents lighting the low ground ──
+  { const put=(cx,cz,n2,sc)=>{ for(let i=0;i<n2;i++){ const a=i/n2*Math.PI*2+cx, rr=6+((i*37)%23), sx=cx+Math.cos(a)*rr*1.6, sz=cz+Math.sin(a)*rr*1.6;
+      const hh=(14+((i*53)%38))*sc, y=_terraH(sx,sz);
+      const sh=new THREE.Mesh(new THREE.ConeGeometry(3.5*sc+((i*29)%4),hh,5),solid(0x0e4b46));
+      sh.position.set(sx,y+hh*0.42,sz); sh.rotation.set(((i*13)%10-5)*0.05,i*1.7,((i*17)%10-5)*0.06); grp.add(sh);
+      const shellM=glow(0x35e8d0,0.30); T.cryMats.push(shellM);
+      const shell=new THREE.Mesh(new THREE.ConeGeometry(4.6*sc+((i*29)%4),hh*1.08,5),shellM);
+      shell.position.copy(sh.position); shell.rotation.copy(sh.rotation); grp.add(shell); } };
+    put(-260,30,6,1.6); put(180,-60,5,1.2); put(760,40,5,1.0); put(-780,-40,6,1.1); put(60,90,4,0.8); put(430,540,4,1.3); put(-430,-560,4,1.2); }
+  // ── RUINS: a broken colonnade (north plateau) + the half-buried gate ring (south plateau) ──
+  { const stone=solid(0x51445c), stoneD=solid(0x3b3148);
+    for(let i=0;i<8;i++){ const cx=-160+i*70, cz=-560, y=_terraH(cx,cz);
+      const broke=(i%3===1), hh=broke?(44+((i*31)%20)):88;
+      const cm=new THREE.Mesh(new THREE.CylinderGeometry(12,14.5,hh,7),stone); cm.position.set(cx,y+hh/2,cz); grp.add(cm);
+      if(!broke){ const cap=new THREE.Mesh(new THREE.BoxGeometry(34,10,34),stoneD); cap.position.set(cx,y+hh+5,cz); grp.add(cap); } }
+    for(const [fx,fz,ry] of [[-40,-480,0.5],[240,-505,-0.3]]){ const y=_terraH(fx,fz);
+      const fc=new THREE.Mesh(new THREE.CylinderGeometry(11,13,96,7),stone); fc.position.set(fx,y+13,fz); fc.rotation.z=Math.PI/2; fc.rotation.y=ry; grp.add(fc);
+      window._cubePlatforms.push({x:fx,z:fz,hw:44,hd:20,top:y+24}); }   // fallen columns = run-along beams
+    const gy=_terraH(420,560);
+    const gate=new THREE.Mesh(new THREE.TorusGeometry(150,20,9,42,4.3),stone); gate.position.set(420,gy+60,560); gate.rotation.set(0.12,0.6,2.4); grp.add(gate);
+    const glyph=new THREE.Mesh(new THREE.TorusGeometry(150,3.5,6,42,4.3),glow(0xffb066,0.5)); glyph.position.copy(gate.position); glyph.rotation.copy(gate.rotation); grp.add(glyph); }
+  // scattered boulders
+  for(let i=0;i<26;i++){ const a=i*2.399, rr=240+((i*97)%820), bx=Math.cos(a)*rr, bz=Math.sin(a)*rr;
+    if(Math.abs(bx)<170&&Math.abs(bz)<380)continue;   // keep the drill throat clear
+    const y=_terraH(bx,bz), s2=6+((i*41)%14);
+    const rk=new THREE.Mesh(new THREE.DodecahedronGeometry(s2,0),solid(i%2?0x352c48:0x2b2438)); rk.position.set(bx,y+s2*0.55,bz); rk.rotation.set(i,i*1.3,i*0.7); grp.add(rk); }
+  // ── STEAM FISSURES — the canyon's launchers: step on the crack, ride the pressure to plateau height ──
+  for(const [vx,vz] of [[300,60],[-300,-60],[640,-40],[-640,40]]){
+    const vy=_terraH(vx,vz), vg=new THREE.Group(); vg.position.set(vx,vy,vz); grp.add(vg);
+    const rim2=new THREE.Mesh(new THREE.TorusGeometry(26,5,7,9),solid(0x241d33)); rim2.rotation.x=Math.PI/2; rim2.scale.y=0.5; vg.add(rim2);
+    const emberM=glow(0xffc06a,0.55);
+    const ember=new THREE.Mesh(new THREE.CircleGeometry(20,12),emberM); ember.rotation.x=-Math.PI/2; ember.position.y=1.4; vg.add(ember);
+    const colM=glow(0xffd9a0,0.14);
+    const colm=new THREE.Mesh(new THREE.CylinderGeometry(10,20,120,10,1,true),colM); colm.position.y=62; vg.add(colm);
+    T.vents.push({x:vx,z:vz,y:vy,emberM,colM,cd:0,ph:vx*0.01}); }
+  // ── SPAWN PERCHES: four survey rings — two mesa crowns, two plateau corners ──
+  { const spots=[[560,470],[-560,-470],[640,-500],[-640,500]];
+    window._cubeSpawnPads=[];
+    for(const [px2,pz2] of spots){ const py2=_terraH(px2,pz2);
+      const ring2=new THREE.Mesh(new THREE.TorusGeometry(34,2.2,7,36),glow(0xffb066,0.8)); ring2.rotation.x=Math.PI/2; ring2.position.set(px2,py2+1.2,pz2); grp.add(ring2);
+      const disc=new THREE.Mesh(new THREE.CircleGeometry(32,24),glow(0xffb066,0.10)); disc.rotation.x=-Math.PI/2; disc.position.set(px2,py2+0.8,pz2); grp.add(disc);
+      T.perch.push(ring2);
+      window._cubeSpawnPads.push({x:px2,z:pz2,y:py2}); } }
+  window._cubeRandomSpawn=function(exclude){ const A2=window._cubeSpawnPads; if(!A2||!A2.length)return null; if(A2.length>1&&exclude!=null){ const pool=A2.filter((p3,i3)=>i3!==exclude); return pool.length?pool[(Math.random()*pool.length)|0]:A2[(Math.random()*A2.length)|0]; } return A2[(Math.random()*A2.length)|0]; };
+  { const _sp=window._cubeRandomSpawn();
+    if(_sp){ player.wx=_sp.x; player.wz=_sp.z; player.py=_sp.y; player._onPlatform=true; player._platformY=_sp.y; player._spawnPadIdx=window._cubeSpawnPads.indexOf(_sp); }
+    player.pvy=0; player.vx=0; player.vz=0; player._inPlanetGravity=false; if(player.model)player.model.visible=true; }
+  try{ if(CAM){ const _fyaw=Math.atan2(-player.wz,-player.wx); CAM.tyaw=-_fyaw-Math.PI/2; CAM.yaw=CAM.tyaw; if(CAM.tfocus)CAM.tfocus.set(player.wx,(player.py||0)+40,player.wz); if(CAM.focus)CAM.focus.copy(CAM.tfocus); } }catch(_){}
+  setTimeout(()=>{ try{ announce('THE RIFT — EXCAVATION SITE','#ffb066'); }catch(_){} },400);
+}
+window.buildTerraArena=buildTerraArena;
+function _terraTick(dt){ const T=window._terra; if(!T||typeof GS==='undefined'||GS.zone!==-19)return; T.t+=dt;
+  const D=T.drill;
+  if(D){ D.cut1.rotation.y+=dt*2.2; D.cut2.rotation.y-=dt*1.6; D.cut3.rotation.y+=dt*3.1;
+    D.pitM.opacity=0.38+0.2*Math.sin(T.t*5.2);
+    for(let i=0;i<D.beacons.length;i++)D.beacons[i].material.opacity=0.35+0.6*(0.5+0.5*Math.sin(T.t*3.4+i*1.7));
+    const bob=Math.sin(T.t*0.7)*9; D.cw.position.y=D.cwY+bob; D.cwc.scale.y=1-bob*0.012; D.cwc.position.y=D.cwY+45+bob*0.62; }
+  for(let i=0;i<T.cryMats.length;i++)T.cryMats[i].opacity=0.24+0.12*(0.5+0.5*Math.sin(T.t*1.3+i*0.9));
+  for(const p3 of T.perch)p3.rotation.z+=dt*0.5;
+  // steam fissures: launch anyone standing on the crack
+  const V2=(window._RIFT_VENT_V!=null?window._RIFT_VENT_V:520);
+  const ents=[]; try{ if(typeof player!=='undefined'&&player&&player.alive!==false)ents.push(player); }catch(_){}
+  try{ if(typeof GS_bots!=='undefined')for(const b of GS_bots){ if(b&&b.alive!==false)ents.push(b); } }catch(_){}
+  for(const v of T.vents){ if(v.cd>0)v.cd-=dt;
+    v.emberM.opacity=0.4+0.25*Math.sin(T.t*4+v.ph); v.colM.opacity=0.10+0.06*Math.sin(T.t*2.3+v.ph);
+    if(v.cd<=0 && GS.state==='playing'){ for(const e of ents){
+      if(Math.hypot(e.wx-v.x,e.wz-v.z)<30 && Math.abs((e.py||0)-v.y)<14 && (e.pvy||0)<=40){
+        e.py=v.y+2; e.pvy=V2; e._onPlatform=false; if(e===player)e._wasAirborne=true;
+        v.cd=0.6;
+        try{ if(typeof ps!=='undefined'){ ps.ring(v.x,v.z,[1,0.78,0.45],20,140,v.y); ps.burst(v.x,v.z,[1,0.85,0.55],16,150,v.y+8); } }catch(_){}
+        try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(150,0.16,'sine',0.2,90); Audio.blip(500,0.1,'square',0.1,900); } }catch(_){}
+        break; } } } }
+}
+window._terraTick=_terraTick;
 // ── DEBUG COLLIDER MENU — a button that pops a panel to toggle each collision visualizer ──
 function _ensureColliderMenu(){
   if(document.getElementById('dbg-col-btn')) return;
@@ -48359,7 +48574,7 @@ function mpBeginGame(){
   MP._prevSids=null; MP._goneSids=null; window._mpItemSeq=0;   // reset item-sync bookkeeping so a restart doesn't broadcast a flood of stale removals
   try{ _mpScoreReset(); }catch(_){}   // fresh kill/death board for the match
   GS.survival=false;
-  if(MP.cube){ MP.versus=true; window._PLATFORM_LEVEL=(MP.voidArena!==false); window._FOUNDRY_LEVEL=false; startGame(-19); }   // -19 arena; voidArena (default) = the floating VOID PLATFORM variant (same sentinel trick as rumble's -119), false = the classic caged ball cube
+  if(MP.cube){ MP.versus=true; window._PLATFORM_LEVEL=(MP.voidArena!==false); window._FOUNDRY_LEVEL=false; window._TERRA_LEVEL=false; startGame(-19); }   // -19 arena; voidArena (default) = the floating VOID PLATFORM variant (same sentinel trick as rumble's -119), false = the classic caged ball cube
   else if(MP.freeCity){ window._cityMode=window._cityMode||'random'; startGame(-16); }
   else { if(MP.coopSurvival) GS._wantSurvival=true; startGame(MP.coopSurvival? -5 : 0); }   // coop survival: same bullets-only + drops gating
   // Broadcast our own player data so everyone can add us as remote
@@ -49392,7 +49607,7 @@ window._deploy=function(){
   const go=(m==='survival')?()=>window._launchSurvival():
     (m==='training')?()=>window._launchLevel(-1):                     // HOW TO PLAY = guided walkthrough (zone -1)
     (m==='dojo')?()=>window._launchLevel(-2):                         // DOJO = old free-play training room
-    (m==='robitball')?()=>{ window._FOUNDRY_LEVEL=false; startGameAtLevel(-19); }:   // Robit Ball -> cube Rocket-League arena (never the foundry dressing)
+    (m==='robitball')?()=>{ window._FOUNDRY_LEVEL=false; window._TERRA_LEVEL=false; startGameAtLevel(-19); }:   // Robit Ball -> cube Rocket-League arena (never the foundry/rift dressing)
     (m==='rumble')?()=>window._rumbleStart():                         // Rumble -> free-for-all using the remembered _rumbleCfg
     (m==='basic')?()=>startGameAtLevel(-31):                          // BASIC construct lab: limbo -> the grid lays itself down
     null;
@@ -49451,6 +49666,7 @@ window._deployTurn=function(next,noSpin){ try{
 // bouncy landing, staggered piece by piece; the 3-2-1 waits until the last piece has settled.
 window._buildInStart=function(){ try{
   if(typeof _cubeGroup==='undefined'||!_cubeGroup||!_cubeGroup.children.length)return 0;
+  if(window._terra)return 0;   // THE RIFT is a landscape, not furniture — raining the terrain from the sky would be chaos
   const B=window._BUILDIN={items:[],t:0,done:false,cb:null};
   let i=0;
   for(const c of _cubeGroup.children){ if(!c.visible)continue; if((c.name||'')==='cageBackdrop')continue;   // the sky/backdrop is already there — the FURNITURE falls in
