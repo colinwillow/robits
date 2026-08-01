@@ -15863,8 +15863,9 @@ class Player{
     if(GS.zone===-19 && window._terra && typeof _terraH==='function' && !this._inPlanetGravity && !this._hang){   // THE RIFT: the ground IS the sculpted heightfield — solid everywhere (no pass-under), so it's an unconditional floor raise, not a catch window
       const _th=_terraH(this.wx,this.wz);
       if(_th>eFloor)eFloor=_th;
-      if(this.py<=_th+2){ this._onPlatform=true; this._platformY=_th; }   // grounded on the terrain -> jump/land systems read it like a deck
-    }
+      this._terraGround=(this.py<=_th+2);
+      if(this._terraGround){ this._onPlatform=true; this._platformY=_th; }   // grounded on the terrain -> jump/land systems read it like a deck
+    } else this._terraGround=false;
     if((GS.zone===-19||GS.zone===-20) && !this._inPlanetGravity && !this._hang && ((window._cubePlatforms&&window._cubePlatforms.length)||(window._arenaAssetCols&&window._arenaAssetCols.length))){   // CUBE LEVEL KIT + custom deform-asset platforms (incl. the DISC arena -20): land on platforms + run up ramps (same flat/slope math as the dojo)
       const _capC=Math.max(14, Math.abs(this.pvy||0)*dt+10); let _onPlat=false;
       // PASS-THROUGH platforms (Smash-style): rising -> pass up through the bottom; dropping (_dropThru, left-stick down-tap) -> fall through the top. Only CATCH when descending / standing.
@@ -15918,7 +15919,7 @@ class Player{
         if(!_passUp && !_dropping && this.py<=topY+2 && this.py>=topY-_cap && topY>=eFloor){ eFloor=topY; _onPlat=true; this._platformY=topY; } };
       if(window._cubePlatforms)for(const b of window._cubePlatforms)_chkPlat(b);
       if(window._arenaAssetCols)for(const b of window._arenaAssetCols)_chkPlat(b);   // walkable custom GLB assets (e.g. platform.glb floating center-map)
-      if(_onPlat) this._onPlatform=true; else if(this.py>1) this._onPlatform=false;
+      if(_onPlat) this._onPlatform=true; else if(this.py>1 && !this._terraGround) this._onPlatform=false;   // rift terrain grounding (set just above) survives the deck check — else standing on a plateau at py 130 read as "airborne" and the jump gate refused
     }
     // EDGE WALL — once you've committed to the plummet (walked/knocked off the rim, below deck level), the platform's SOLID BODY
     //   blocks re-entry: driving locomotion back INTO the disc's footprint shoves you out past the rim instead, so you must JET
@@ -36314,6 +36315,7 @@ function _shooterPadTick(dt){ const SP=window._shooterPads; if(!SP||!SP.length||
 window._shooterPadTick=_shooterPadTick;
 function buildCubeArena(){
   _disposeCubeArena();
+  if(window._terraGeySav){ window._GEYSER_ON=window._terraGeySav.v; window._terraGeySav=null; }   // the rift switched the centre updraft off — give the cube its fountain back
   const _noCage=(window._PLATFORM_LEVEL===true);   // Layer 1: strip the cage, float the flat platform as the floor
   window._platformArena=_noCage; if(_noCage){ window._arenaVoid=true; window._VOID_RINGOUT_Y=(window._PLATFORM_VOID_Y!=null?window._PLATFORM_VOID_Y:-3200); window._SKY_SUNSET=false; }   // DEEP kill floor: off the edge = a long dramatic plummet into the void, no jet recovery. _SKY_SUNSET=false -> startGame skips the synthwave sunset. The FLOOR itself is now the platform_02-style deforming asset (_buildPlatformFloor), so leave _PLAT_DEFORM on.
   GS._gravFlip=false;   // always enter the cube upright
@@ -37113,6 +37115,8 @@ function buildTerraArena(){
   _disposeCubeArena();
   window._platformArena=false; window._arenaVoid=false; GS._gravFlip=false; window._SKY_SUNSET=false;
   window._CUBE={hx:2600,hz:2600,h:5200,cham:80};   // push the invisible cube-physics shell (bomb-stick SDF etc.) far outside the crater
+  if(!window._terraGeySav)window._terraGeySav={v:window._GEYSER_ON};   // the cube's centre-updraft FORCE runs even with no geyser built — an invisible fountain at the world origin was flinging fighters off the drill deck. Off for the rift; restored by the next cube build.
+  window._GEYSER_ON=false;
   try{ if(typeof _skySunsetOff==='function')_skySunsetOff(); }catch(_){}
   try{ if(typeof _skyPlanetOff==='function')_skyPlanetOff(); }catch(_){}
   try{ if(typeof grid!=='undefined'&&grid){ for(const k of ['lines','glowLines','dots','perimeter','disc','glow']){ const o=grid[k]; if(o){ if(o._platPrevVis==null)o._platPrevVis=(o.visible!==false); o.visible=false; } } } }catch(_){}   // no endless neon world-grid under the desert (restored in _disposeCubeArena)
