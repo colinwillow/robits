@@ -501,7 +501,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-music" data-col="mid" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <button id="btn-audio-mix" onclick="window.toggleAudioMix&&window.toggleAudioMix()" title="SOLO: game keeps audio focus and plays through the silent switch. MIX: share audio so YouTube/Spotify can play alongside (silent switch must be OFF)." style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 8h4l3 8h4l3-4h2"/></svg><span id="mx-lbl">SOLO</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1309</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1310</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -703,7 +703,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </div>
       <div class="ts-card build">
         <div class="ts-ic" style="border-color:#2ff0e0;color:#2ff0e0;box-shadow:0 0 12px #2ff0e044,inset 0 0 10px #2ff0e022"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg></div>
-        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1309</div></div>
+        <div><div class="b1">BUILD</div><div class="b2">∞-CMB1310</div></div>
       </div>
     </div>
     <!-- SPOTLIGHT BEAM — a shaft of light that snaps down onto the hero during power-on (hidden until then) -->
@@ -3916,6 +3916,36 @@ function _retargetRotationOnly(clip){
   if(tracks.length===clip.tracks.length) return clip;
   const c=clip.clone(); c.tracks=tracks; return c;
 }
+// ── REST-POSE DELTA RETARGET ──────────────────────────────────────────────────────────────────
+// Rotation-only (above) keeps each bone's LENGTH, but it still writes the SOURCE rig's ABSOLUTE local
+// rotations onto the target. That only looks right when both rigs share a rest ORIENTATION. Measured
+// robot vs moussa: RightArm 93.6deg apart, RightShoulder 89.8, hands ~50, mean 19.5 across 25 bones —
+// so the raw rotations dragged his limbs into a hunched, knock-kneed stance (the same failure that made
+// the cyborg hunch, which was papered over with hand-tuned _POSE_ADJUST offsets).
+// The fix is the standard retarget identity: express the motion as a DELTA FROM THE SOURCE'S REST, then
+// replay that delta on the TARGET'S rest:   q_target = q_restTarget * inv(q_restSource) * q_animSource
+// i.e. a constant per-bone correction C = q_restT * inv(q_restS), premultiplied into every keyframe.
+function _restMapOf(root){ const m={}; try{ root.traverse(o=>{ if(o.isBone&&o.name)m[o.name]=o.quaternion.clone(); }); }catch(_){} return m; }
+const _rtQa=new THREE.Quaternion(), _rtQb=new THREE.Quaternion(), _rtQc=new THREE.Quaternion();
+function _retargetRestDelta(clip, srcRest, dstRest){
+  if(!srcRest||!dstRest) return clip;
+  const c=clip.clone(); let touched=0;
+  for(const t of c.tracks){
+    if(!/\.quaternion$/.test(t.name)) continue;
+    const bone=t.name.slice(0,t.name.indexOf('.'));
+    const s=srcRest[bone], d=dstRest[bone]; if(!s||!d) continue;
+    _rtQc.copy(d).multiply(_rtQa.copy(s).invert());          // C = restT * inv(restS)
+    if(1-Math.abs(_rtQc.w)<1e-8) continue;                   // identical rest -> nothing to correct
+    const v=t.values;
+    for(let i=0;i+3<v.length;i+=4){
+      _rtQb.set(v[i],v[i+1],v[i+2],v[i+3]).premultiply(_rtQc);
+      v[i]=_rtQb.x; v[i+1]=_rtQb.y; v[i+2]=_rtQb.z; v[i+3]=_rtQb.w;
+    }
+    touched++;
+  }
+  return touched?c:clip;
+}
+window._retargetRestDelta=_retargetRestDelta; window._restMapOf=_restMapOf;
 // ── POSTURE ADJUSTMENT LAYER ──────────────────────────────────────────────────────────────────
 // The robot's clips are retargeted (rotation-only) onto the other Mixamo skins, but the robot's baked
 // STANCE looks awkward on differently-built characters (e.g. the cyborg girl hunches). Rather than re-
@@ -3966,6 +3996,7 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
 
   // Clone the chosen SKIN (robot or alien) FIRST — if it throws, keep the old model rather than leaving the player invisible.
   // Animations always come from `gltf` (the robot rig); the alien shares the skeleton, so clips retarget by bone name.
+  try{ if(!window._robotRestMap && gltf && gltf.scene) window._robotRestMap=_restMapOf(gltf.scene); }catch(_){}   // SOURCE rig rest pose, cached from the pristine robot gltf (its own scene is never animated — the clones are)
   let robotScene;
   try{ robotScene=SkeletonUtils.clone((skinGltf||gltf).scene); }
   catch(e){ console.warn('[char] SkeletonUtils.clone failed — deep-clone fallback:',e);
@@ -4132,11 +4163,14 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
   // Load all clips by name
   const clipNames=['idle','run_forward','run_backward','floating','landing','strafe_right','strafe_left','ball','slide'];
   const clips={};
+  const _moussaRest=isMoussa?_restMapOf(robotScene):null;   // TARGET rig rest pose — read now, while the clone is still un-animated
   gltf.animations.forEach(clip=>{
     const raw=clip.name;
     const name=raw.split('|').pop().split(':').pop();   // strip "Armature|idle" / "rig:idle" -> "idle"
     if(raw==='CINEMA_4D_Main'||name.toLowerCase()==='main') return; // skip default/NLA take
-    const action=mixer.clipAction((()=>{ let _c = (isAlien||isRobit3)?_filterClipToScene(clip,robotScene):clip; if(isInterceptor && window._INTERCEPTOR_ROT_ONLY!==false) _c=_retargetRotationOnly(_c); else if(isCyber && window._CYBER_ROT_ONLY!==false) _c=_retargetRotationOnly(_c); else if(isAlien && window._ALIEN_ROT_ONLY!==false) _c=_retargetRotationOnly(_c); else if(isRobit3 && window._ROBIT3_ROT_ONLY!==false) _c=_retargetRotationOnly(_c); return _c; })());   // robit3: different proportions -> the robot clips' baked position tracks would stretch him; rotation-only keeps his own bone lengths
+    const action=mixer.clipAction((()=>{ let _c = (isAlien||isRobit3)?_filterClipToScene(clip,robotScene):clip; if(isInterceptor && window._INTERCEPTOR_ROT_ONLY!==false) _c=_retargetRotationOnly(_c); else if(isCyber && window._CYBER_ROT_ONLY!==false) _c=_retargetRotationOnly(_c); else if(isAlien && window._ALIEN_ROT_ONLY!==false) _c=_retargetRotationOnly(_c); else if(isRobit3 && window._ROBIT3_ROT_ONLY!==false) _c=_retargetRotationOnly(_c);
+      if(isMoussa && window._MOUSSA_RESTFIX!==false) _c=_retargetRestDelta(_c, window._robotRestMap, _moussaRest);   // his rest orientation differs from the robot's by up to 93.6deg -> replay the motion as a delta from EACH rig's own rest, or the raw rotations hunch him
+      return _c; })());   // robit3: different proportions -> the robot clips' baked position tracks would stretch him; rotation-only keeps his own bone lengths
     const isOneShot=['landing','dive_roll','roll','dash','dive','flip_','throw_bomb','throw','roll_landing'].some(n=>name.includes(n));
     if(isOneShot){
       action.setLoop(THREE.LoopOnce,1);
@@ -52069,7 +52103,8 @@ function _titleNeonize(model, opts){ opts=opts||{};
         if(window._ROBOT_HUE_ROTATE!==false && m.map){ m._heroSkin=true; m._gradMix=(window._PREVIEW_GRADMIX!=null?window._PREVIEW_GRADMIX:0.12); } }   // robot: accent glow in each part's own colour + heroSkin flag so colour picks hue-ROTATE his baked texture. LOW _gradMix: skip the complementary-shadow remap (purple's complement is chartreuse -> showed as a green/yellow fill once the emissive was dialled down) so the body stays a clean single hue
       else { if('emissive' in m && m.emissive){
           if(m.map){ m.emissiveMap=m.map; m.emissive=new THREE.Color(0xffffff); m._heroSkin=true;
-            if(opts.skinKey==='robit3') m._gradMix=(window._ROBIT3_GRADMIX!=null?window._ROBIT3_GRADMIX:0); }   // textured hero skin: self-illuminate + hue-rotate hook (robit3: PURE rotation, no shadow remap)
+            if(opts.skinKey==='robit3') m._gradMix=(window._ROBIT3_GRADMIX!=null?window._ROBIT3_GRADMIX:0);
+            else if(opts.skinKey==='moussa') m._gradMix=(window._MOUSSA_GRADMIX!=null?window._MOUSSA_GRADMIX:0); }   // moussa: PURE hue rotation. Without this he inherited the default _HERO_GRADMIX 0.7 near-black remap, which buried his painted texture under one flat GREEN fill
           else if(m.color){ m.emissive.copy(m.color); m._segCol0=m.color.clone(); m._segMat=true; _segM.push(m); }   // SEGMENT material (flat colour, no texture): self-lit in its own colour; picker rotates from originals
           m.emissiveIntensity=(window._BOT_SKIN_GLOW||0.9); } }
       if('toneMapped' in m)m.toneMapped=false; m.needsUpdate=true; return m; });
