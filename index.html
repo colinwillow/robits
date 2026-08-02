@@ -22983,6 +22983,7 @@ function _rumbleReset(){ const R=window.RUMBLE; R.active=false; R.over=false; R.
   ['rumble-hud','rumble-results','stock-hud'].forEach(id=>{ const el=document.getElementById(id); if(el)el.style.display='none'; }); }
 window._rumbleReset=_rumbleReset;
 window._startRumble=function(opts){ opts=opts||{}; const R=window.RUMBLE;
+  try{ if(window._ringPresenceStop)window._ringPresenceStop(); }catch(_){}   // a match never rides the hub-world presence socket
   R.rule=(opts.rule||'elim'); R.stocks=(opts.stocks!=null?opts.stocks:3); R.timeLimit=(opts.timeLimit!=null?opts.timeLimit:120);
   R.botCount=(opts.bots!=null?opts.bots:3); R.diff=(opts.diff||'soldier');
   R.foes=(Array.isArray(opts.foes)&&opts.foes.length)?opts.foes.slice():null;   // RIVAL UNITS pick; null = the default random mix
@@ -37446,8 +37447,23 @@ function buildRingWorld(){
   try{ if(CAM){ CAM.tyaw=-Math.PI/2; CAM.yaw=CAM.tyaw; if(CAM.tfocus)CAM.tfocus.set(0,40,40); if(CAM.focus)CAM.focus.copy(CAM.tfocus); } }catch(_){}
   setTimeout(()=>{ try{ announce('THE RING — STATION DECK','#39ffa0'); }catch(_){} },400);
   setTimeout(()=>{ try{ announce('WALK EAST TO THE ARENA GATE →','#ff8ab5'); }catch(_){} },2600);
+  // ── RING PRESENCE — the first shared-world rung: quietly join the public RINGHUB room on the existing relay. Everyone
+  //    in WORLD mode lands in the same room, so other pilots appear on the deck (real skin, hue, live animation) via the
+  //    battle-tested MP puppet layer. No lobby, no combat (versus stays off), silent when the server is unreachable.
+  //    window._RING_MP=false to explore offline. ──
+  RG.mpTries=0;
+  try{ if(window._RING_MP!==false && typeof MP!=='undefined' && !MP.active && typeof mpConnectWS==='function'){
+    MP.presence=true; MP.active=true; MP.cube=false; MP.versus=false; MP.coopSurvival=false; MP.freeCity=false; MP._quickMatch=false;
+    if(!MP.myName){ let nm=null; try{ nm=localStorage.getItem('gw3d_playername'); }catch(_){} MP.myName=nm||('PILOT-'+(100+((Math.random()*900)|0))); }
+    MP.roomCode=(window._RING_ROOM||'RINGHUB'); RG.mpTries=1;
+    mpConnectWS(MP.roomCode);
+  } }catch(_){}
 }
 window.buildRingWorld=buildRingWorld;
+window._ringPresenceStop=function(){ try{ if(typeof MP!=='undefined'&&MP.presence){ MP.presence=false; MP.active=false; MP.connected=false;
+  try{ if(MP.ws)MP.ws.close(); }catch(_){} MP.ws=null; MP.roomCode=null;
+  try{ for(const id in (MP.players||{})){ const rp=MP.players[id]; if(rp&&rp.mesh&&rp.mesh.parent)rp.mesh.parent.remove(rp.mesh); } }catch(_){}
+  MP.players={}; } }catch(_){} };
 function _ringTick(dt){ const RG=window._ring; if(!RG||typeof GS==='undefined'||GS.zone!==-19)return; RG.t+=dt;
   const p=(typeof player!=='undefined')?player:null; if(!p)return;
   // ── THE WRAP: cross the seam and the coordinates fold over — camera and model shift by the same delta, so nothing pops ──
@@ -47872,6 +47888,7 @@ let _mpWoke=false;
 function _mpPrewake(){ if(_mpWoke||!WAKE_URL) return; _mpWoke=true; try{ fetch(WAKE_URL,{mode:'no-cors',cache:'no-store'}).catch(()=>{}); }catch(e){} }
 window._mpPrewake=_mpPrewake;
 function _mpLoadingEl(){
+  if(window.MP&&MP.presence)return null;   // RING PRESENCE connects quietly in the background — never pop the matchmaking overlay in the world
   let o=document.getElementById('mp-loading');
   if(!o){
     o=document.createElement('div'); o.id='mp-loading';
@@ -48244,9 +48261,11 @@ function mpHandleMessage(msg){
         if(id!==MP.myId) mpAddRemotePlayer(id, state);
       }
       MP.isHost=(msg.hostId===MP.myId);
-      try{ const lob=document.getElementById('mp-lobby'); if(lob)lob.style.display='block'; for(const k of ['mp-browse','mp-create-opts','mp-join-input']){ const e=document.getElementById(k); if(e)e.style.display='none'; } }catch(_){}   // we're in a room -> show the lobby panel whatever path got us here
-      mpUpdateLobbyUI(msg.playerCount);
-      _mpQuickMaybeStart();
+      if(!MP.presence){   // RING PRESENCE has no lobby — the deck IS the lobby
+        try{ const lob=document.getElementById('mp-lobby'); if(lob)lob.style.display='block'; for(const k of ['mp-browse','mp-create-opts','mp-join-input']){ const e=document.getElementById(k); if(e)e.style.display='none'; } }catch(_){}   // we're in a room -> show the lobby panel whatever path got us here
+        mpUpdateLobbyUI(msg.playerCount);
+        _mpQuickMaybeStart();
+      } else { try{ const n=msg.playerCount?msg.playerCount-1:Object.keys(MP.players||{}).length; if(n>0&&typeof announce==='function')announce(n+' PILOT'+(n>1?'S':'')+' ON THE RING','#39ffa0'); }catch(_){} }
       break;
 
     // ── LOBBY SERVER v2 (room registry / passwords / approval / public list) ──
@@ -48488,6 +48507,7 @@ function _mpEquipRemoteWeapon(rp){
 }
 function mpAddRemotePlayer(id, state){
   if(MP.players[id]) return;
+  if(MP.presence){ try{ if(typeof announce==='function')announce('PILOT ONLINE — '+((state&&state.name)||'UNKNOWN').toUpperCase(),'#39ffa0'); }catch(_){} }   // someone else walked onto the ring
 
   const color=MP.PLAYER_COLORS[state.color||0];
 
