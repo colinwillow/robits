@@ -3557,6 +3557,26 @@ function loadRobit3GLB(){
   return _robit3Promise;
 }
 /* deferred below (off the splash): */ // loadRobit3GLB();
+// ── MOUSSA — moussa_robit.glb: a Tripo-generated character on the EXACT mixamorig_ naming (all 25 robot bones + finger
+//    bones), one BAKED texture, NO clips of its own -> the robot's clips drive him. The texture ships as an EXT_texture_webp
+//    with a JPEG fallback in the same glTF texture entry (extensionsRequired is unset), so r160's GLTFLoader takes the webp
+//    and anything older silently falls back — no decode work needed on our side. His bone LENGTHS differ from the robot's
+//    by up to ~270% (measured), so like robit3/alien he runs ROTATION-ONLY retarget or the baked position tracks would
+//    stretch him. Tunables: _MOUSSA_SCALE / _MOUSSA_GLOW / _MOUSSA_WIRE / _MOUSSA_GRADMIX. ──
+const MOUSSA_GLB=(window._MOUSSA_GLB||'models/moussa_robit.glb');
+let _moussaGltf=null, _moussaPromise=null;
+function loadMoussaGLB(){
+  if(_moussaGltf) return Promise.resolve(_moussaGltf);
+  if(_moussaPromise) return _moussaPromise;
+  _moussaPromise=new Promise((resolve)=>{ const loader=new GLTFLoader();
+    loader.load(MOUSSA_GLB, gltf=>{ _moussaGltf=gltf;
+      let _tex=0; try{ gltf.scene.traverse(o=>{ if(o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{ if(m&&m.map)_tex++; }); } }); }catch(_){}
+      console.log('Moussa loaded (mixamorig rig — steals robot clips, rotation-only). Own anims:',(gltf.animations||[]).map(a=>a.name),'| baked maps:',_tex);
+      resolve(gltf); },
+      undefined, (e)=>{ console.warn('moussa_robit GLB load failed — will RETRY on next request:',e&&e.message||e); _moussaPromise=null; resolve(null); }); });
+  return _moussaPromise;
+}
+window.loadMoussaGLB=loadMoussaGLB;
 
 // ── PORTAL 01 — portal_01.glb: a fold-out gateway. Segment-coloured (no texture). 4 STATIC-POSE clips = states:
 //    'closed' (folded disc) -> '1' (base arms lift) -> '2' (mid arms open) -> 'CINEMA_4D_Main' (fully open arch). Each arm
@@ -3599,7 +3619,7 @@ function loadThreeHeadedDogGLB(){
 // DEFERRED PRE-WARM: the zone/prop GLBs above are no longer parsed at boot (their sync parse hitched the MAJIA splash). Preload
 // them QUIETLY a few seconds later — after the splash — staggered so no two parses land on the same frame. They stay warm before
 // their zones open, just off the boot/splash critical path. (alien/interceptor/cybergirl stay fully lazy — phased out of play.)
-setTimeout(function(){ try{ const _q=[loadRobit2GLB,loadRobit3GLB,loadHoverboardGLB,loadDoorGLB,loadPortal01GLB,loadBlueDragonGLB,loadThreeHeadedDogGLB];
+setTimeout(function(){ try{ const _q=[loadRobit2GLB,loadRobit3GLB,loadMoussaGLB,loadHoverboardGLB,loadDoorGLB,loadPortal01GLB,loadBlueDragonGLB,loadThreeHeadedDogGLB];
   _q.forEach((fn,i)=>{ try{ setTimeout(()=>{ try{ if(typeof fn==='function')fn(); }catch(_){} }, i*420); }catch(_){} }); }catch(_){} }, (window._DEFER_PRELOAD_MS||3200));
 
 // ── PORTAL PROP (portal.glb) — a sci-fi portal to eyeball on the map. Metal + reflections, and any BAKED luminous/emissive map is
@@ -3866,6 +3886,8 @@ function _applySelectedCharacter(player, robotGltf){
       loadRobit2GLB().then(g2=>{ _applyRobotModel(player, rg, g2||undefined, 'robit2'); });
     } else if(window._playerChar==='robit3'){
       loadRobit3GLB().then(g3=>{ _applyRobotModel(player, rg, g3||undefined, 'robit3'); });
+    } else if(window._playerChar==='moussa'){
+      loadMoussaGLB().then(gm=>{ _applyRobotModel(player, rg, gm||undefined, 'moussa'); });
     } else {
       _applyRobotModel(player, rg);
     }
@@ -3935,8 +3957,9 @@ window._applyPoseAdjust=_applyPoseAdjust;
 function _applyRobotModel(player, gltf, skinGltf, skinType){
   // robit2 shares the EXACT robot rig+pose -> treat it like the default robot for clips/materials/wireframe (no retarget, no
   // flat-colour), but still CLONE its own mesh below (the clone uses skinGltf regardless of this flag).
-  const isRobit2=(skinType==='robit2'||skinType==='robit3');   // robit3 rides robit2's MATERIAL branches (painted texture, quad wire)...
-  const isRobit3=(skinType==='robit3');                        // ...but NOT its native-clip deal: robit3 has DIFFERENT proportions, so clips go rotation-only below
+  const isRobit2=(skinType==='robit2'||skinType==='robit3'||skinType==='moussa');   // robit3 + MOUSSA ride robit2's MATERIAL branches (painted texture, quad wire)...
+  const isRobit3=(skinType==='robit3'||skinType==='moussa');                        // ...but NOT its native-clip deal: their proportions DIFFER, so clips go rotation-only below (moussa measured up to ~270% off the robot's bone lengths)
+  const isMoussa=(skinType==='moussa');
   const isAlien=!!skinGltf && !isRobit2;
   const isInterceptor=(skinType==='interceptor');   // shares the robot rig like the alien, BUT keeps its own baked texture instead of a flat colour
   const isCyber=(skinType==='cybergirl');           // Mixamo-rigged textured skin (keeps her baked texture + a gentle glow, like the interceptor)
@@ -3961,7 +3984,8 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
   let autoScale=targetHeight/(size.y||1);
   if(isInterceptor){ autoScale*=(window._INTERCEPTOR_SCALE!=null?window._INTERCEPTOR_SCALE:0.82); console.log('[char] interceptor measured height='+size.y.toFixed(2)+' -> autoScale='+autoScale.toFixed(3)+'  (window._INTERCEPTOR_SCALE to fine-tune)'); }
   if(isCyber){ autoScale*=(window._CYBER_SCALE!=null?window._CYBER_SCALE:0.9); }   // cyborg runs a touch shorter than the robot so her muzzle sits lower + she stops shooting over low targets (window._CYBER_SCALE to fine-tune)
-  if(isRobit2){ autoScale*=(skinType==='robit3'?(window._ROBIT3_SCALE!=null?window._ROBIT3_SCALE:0.71):(window._ROBIT2_SCALE!=null?window._ROBIT2_SCALE:0.71)); }   // his mesh bbox hugs the bones tighter than the robot's, so targetHeight over-scales him ~40% -> bring him back to robot size (window._ROBIT2_SCALE/_ROBIT3_SCALE to fine-tune; 1 = "bigger" variety later)
+  if(isMoussa){ autoScale*=(window._MOUSSA_SCALE!=null?window._MOUSSA_SCALE:1); }   // his bbox IS the full figure (feet 0 -> crown 1.01), so the plain targetHeight normalize already lands him at robot height
+  else if(isRobit2){ autoScale*=(skinType==='robit3'?(window._ROBIT3_SCALE!=null?window._ROBIT3_SCALE:0.71):(window._ROBIT2_SCALE!=null?window._ROBIT2_SCALE:0.71)); }   // his mesh bbox hugs the bones tighter than the robot's, so targetHeight over-scales him ~40% -> bring him back to robot size (window._ROBIT2_SCALE/_ROBIT3_SCALE to fine-tune; 1 = "bigger" variety later)
   robotScene.scale.setScalar(autoScale);
   robotScene.position.y=-bbox.min.y*autoScale;
   if(isInterceptor) robotScene.position.y+=(window._INTERCEPTOR_Y!=null?window._INTERCEPTOR_Y:-2.5);   // bring interceptor down (bbox extends below visible feet)
@@ -4041,11 +4065,12 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
         const mats=Array.isArray(c.material)?c.material:[c.material];
         // LOWER self-illumination so the texture SHADES from lights again (defines the form + lets the quad wire read) instead of the
         // whole body blowing out as one lit-up colour — the same problem the robot's baked-emissive fix solved. robit3 ran especially hot.
-        const glow=isRobit3?(window._ROBIT3_GLOW!=null?window._ROBIT3_GLOW:0.42):(window._ROBIT2_GLOW!=null?window._ROBIT2_GLOW:0.5);
+        const glow=isMoussa?(window._MOUSSA_GLOW!=null?window._MOUSSA_GLOW:0.42):isRobit3?(window._ROBIT3_GLOW!=null?window._ROBIT3_GLOW:0.42):(window._ROBIT2_GLOW!=null?window._ROBIT2_GLOW:0.5);
         const out=mats.map(mt=>{ if(!mt) return mt;
           const m=new THREE.MeshStandardMaterial({ side:THREE.DoubleSide, roughness:0.5, metalness:0.2, emissiveIntensity:glow });
           if(mt.map){ m.map=mt.map; m.emissiveMap=mt.map; m.emissive=new THREE.Color(0xffffff); m._heroSkin=true;
-            if(isRobit3) m._gradMix=(window._ROBIT3_GRADMIX!=null?window._ROBIT3_GRADMIX:0); }   // PURE hue rotation for a hand-painted multi-hue palette — no shadow gradient-remap muddying it into one tone
+            if(isMoussa) m._gradMix=(window._MOUSSA_GRADMIX!=null?window._MOUSSA_GRADMIX:0);
+            else if(isRobit3) m._gradMix=(window._ROBIT3_GRADMIX!=null?window._ROBIT3_GRADMIX:0); }   // PURE hue rotation for a hand-painted multi-hue palette — no shadow gradient-remap muddying it into one tone
           else { try{ if(mt.color) m.color.copy(mt.color); }catch(_){ }
             // SEGMENT material (flat baseColorFactor per body part, textureless export): self-lit in its OWN colour, and the
             // hue picker rotates all segment colours together from their originals (see _segHueSet). No shader hooks needed.
@@ -4074,6 +4099,7 @@ function _applyRobotModel(player, gltf, skinGltf, skinType){
       // (alien, cyber, interceptor) it turns into a dense mesh-net over a high-poly body -> default OFF; only the LOW-POLY robot
       // was modelled for a clean quad wireframe. Re-enable per skin with window._ALIEN_WIRE/_INTERCEPTOR_WIRE/_CYBER_WIRE=true.
       const _wireOn = _isDefaultRobot ? (window._ROBOT_WIRE!==false)
+        : isMoussa ? (window._MOUSSA_WIRE===true)    // organic Tripo sculpt (4.9k tris, no quad topology) -> the wire reads as a mesh-net; OFF unless asked for
         : isRobit2 ? (window._ROBIT2_WIRE!==false)   // low-poly like the robot -> the quad wireframe reads great; ON by default (robit3 rides this too, at a gentler capped opacity below)
         : isAlien ? (window._ALIEN_WIRE===true)
         : isInterceptor ? (window._INTERCEPTOR_WIRE===true)
@@ -17570,7 +17596,7 @@ function _warmBotSkins(){
   const angle=(window._DRAGON_WIRE_ANGLE!=null?window._DRAGON_WIRE_ANGLE:0.30);
   let i=0;
   const warmOne=()=>{ if(i>=pool.length)return; const sk=pool[i++]; const isRobot=(sk==='robot'||sk==='robit2');   // robit2 = EXACT robot rig -> full clips, no retarget. robit3 has different PROPORTIONS -> rotation-only path like the alien.
-    const load = sk==='alien'?loadPlayerAlienGLB() : sk==='interceptor'?loadInterceptorGLB() : sk==='cybergirl'?loadCybergirlGLB() : sk==='robit2'?loadRobit2GLB() : sk==='robit3'?loadRobit3GLB() : loadRobotGLB();
+    const load = sk==='alien'?loadPlayerAlienGLB() : sk==='interceptor'?loadInterceptorGLB() : sk==='cybergirl'?loadCybergirlGLB() : sk==='robit2'?loadRobit2GLB() : sk==='robit3'?loadRobit3GLB() : sk==='moussa'?loadMoussaGLB() : loadRobotGLB();
     Promise.all([load, loadRobotGLB()]).then(([skinGltf,robotGltf])=>{
       try{ const gltf=skinGltf||robotGltf, clipSrc=robotGltf||skinGltf;
         if(gltf&&clipSrc){ const clone=SkeletonUtils.clone(gltf.scene);
@@ -17657,7 +17683,7 @@ class BotPilot{
     // bone name). Build it with the SAME glow + neon quad-wireframe the hero gets, then hue-tint the whole thing to this
     // rival's identity colour so you can tell them apart.
     const _sk=this._skinType;
-    const _skinLoad = _sk==='alien'?loadPlayerAlienGLB() : _sk==='interceptor'?loadInterceptorGLB() : _sk==='cybergirl'?loadCybergirlGLB() : _sk==='robit2'?loadRobit2GLB() : _sk==='robit3'?loadRobit3GLB() : loadRobotGLB();
+    const _skinLoad = _sk==='alien'?loadPlayerAlienGLB() : _sk==='interceptor'?loadInterceptorGLB() : _sk==='cybergirl'?loadCybergirlGLB() : _sk==='robit2'?loadRobit2GLB() : _sk==='robit3'?loadRobit3GLB() : _sk==='moussa'?loadMoussaGLB() : loadRobotGLB();
     Promise.all([_skinLoad, loadRobotGLB()]).then(([skinGltf, robotGltf])=>{
       const gltf=skinGltf||robotGltf; const clipSrc=robotGltf||skinGltf;
       if(!gltf||!clipSrc||!this.alive) return;
@@ -17672,6 +17698,7 @@ class BotPilot{
         else if(isCyber) sc*=(window._CYBER_SCALE!=null?window._CYBER_SCALE:0.9);
         else if(_sk==='robit2') sc*=(window._ROBIT2_SCALE!=null?window._ROBIT2_SCALE:0.71);   // same size-unify as the hero (his bbox hugs the bones tighter -> raw normalize over-scales him)
         else if(_sk==='robit3') sc*=(window._ROBIT3_SCALE!=null?window._ROBIT3_SCALE:0.71);
+        else if(_sk==='moussa') sc*=(window._MOUSSA_SCALE!=null?window._MOUSSA_SCALE:1);
         clone.scale.setScalar(sc);
         clone.position.y=-bbox.min.y*sc;
         this._emiMats=[];
@@ -17681,11 +17708,11 @@ class BotPilot{
             c.frustumCulled=false;
             const mats=Array.isArray(c.material)?c.material:[c.material];
             const out=mats.map(mt=>{ if(!mt)return mt; const m=mt.clone();
-              const _robitTex=(_sk==='robit2'||_sk==='robit3');   // robit2/3 are baked-texture skins like the hero — show the painted texture at a GENTLE glow (matching the player's 0.5/0.42) so his two/three colours read, NOT the robot's flat 2.5 colour-glow that washed the whole body into one lit-up colour
+              const _robitTex=(_sk==='robit2'||_sk==='robit3'||_sk==='moussa');   // robit2/3 are baked-texture skins like the hero — show the painted texture at a GENTLE glow (matching the player's 0.5/0.42) so his two/three colours read, NOT the robot's flat 2.5 colour-glow that washed the whole body into one lit-up colour
               if('emissive' in m && m.emissive&&m.emissive.isColor){
                 if(m.map && (!isRobot || _robitTex)){ m.emissiveMap=m.map; m.emissive=new THREE.Color(0xffffff); }   // textured skins (incl. robit2/3): self-illuminate the texture (like the hero build)
                 else { m.emissive=(this._emiDim?this._emiDim.clone():new THREE.Color(0xaa1100)); }     // robot: flat coloured glow (unchanged from before)
-                m.emissiveIntensity = _robitTex ? (_sk==='robit3'?(window._ROBIT3_GLOW!=null?window._ROBIT3_GLOW:0.42):(window._ROBIT2_GLOW!=null?window._ROBIT2_GLOW:0.5)) : (isRobot?2.5:(window._BOT_SKIN_GLOW||0.9));
+                m.emissiveIntensity = _robitTex ? (_sk==='moussa'?(window._MOUSSA_GLOW!=null?window._MOUSSA_GLOW:0.42):_sk==='robit3'?(window._ROBIT3_GLOW!=null?window._ROBIT3_GLOW:0.42):(window._ROBIT2_GLOW!=null?window._ROBIT2_GLOW:0.5)) : (isRobot?2.5:(window._BOT_SKIN_GLOW||0.9));
               }
               if(!isRobot || _robitTex)m._heroSkin=true;   // textured hero skin (incl. robit2/3) -> _tintAllyApply hue-ROTATES its texture to this rival's colour (not a flat overlay), same as the player
               if('toneMapped' in m)m.toneMapped=false; m.needsUpdate=true; return m; });
@@ -48567,6 +48594,7 @@ function _mpBuildRemoteSkin(rp, id, char){
     :(char==='cybergirl'&&typeof loadCybergirlGLB==='function')?loadCybergirlGLB()
     :(char==='robit2'&&typeof loadRobit2GLB==='function')?loadRobit2GLB()
     :(char==='robit3'&&typeof loadRobit3GLB==='function')?loadRobit3GLB()
+    :(char==='moussa'&&typeof loadMoussaGLB==='function')?loadMoussaGLB()
     :loadRobotGLB();
   Promise.all([loadRobotGLB(), skinLoad]).then(([rg, skin])=>{
     rp._skinLoading=false;
@@ -48578,6 +48606,7 @@ function _mpBuildRemoteSkin(rp, id, char){
     let autoScale=18/(size.y||1); if(char==='interceptor') autoScale*=(window._INTERCEPTOR_SCALE!=null?window._INTERCEPTOR_SCALE:0.82);
     else if(char==='robit2') autoScale*=(window._ROBIT2_SCALE!=null?window._ROBIT2_SCALE:0.71);   // same size-unify the hero/bots use (raw bbox normalize over-scales these rigs)
     else if(char==='robit3') autoScale*=(window._ROBIT3_SCALE!=null?window._ROBIT3_SCALE:0.71);
+    else if(char==='moussa') autoScale*=(window._MOUSSA_SCALE!=null?window._MOUSSA_SCALE:1);
     clone.scale.setScalar(autoScale); clone.position.y=-bbox.min.y*autoScale;
     clone.traverse(c=>{ if((c.isMesh||c.isSkinnedMesh)&&c.material){ const mats=Array.isArray(c.material)?c.material:[c.material]; c.material=(Array.isArray(c.material)?mats.map(m=>m.clone()):mats[0].clone());
       const out=Array.isArray(c.material)?c.material:[c.material]; out.forEach(m=>{ if(char==='robot'){ m.emissive=new THREE.Color(color); m.emissiveIntensity=1.8; } else if('emissive' in m){ m.emissive=new THREE.Color(color); m.emissiveIntensity=0.55; }   /* textured skins keep their look + a colour rim to tell pilots apart */ m.needsUpdate=true; }); c.frustumCulled=false; } });
@@ -52048,6 +52077,7 @@ function _titleNeonize(model, opts){ opts=opts||{};
     const wireOn = isRobot ? (window._ROBOT_WIRE!==false)
       : opts.skinKey==='robit2' ? (window._ROBIT2_WIRE!==false)   // robit2 is low-poly like the robot -> quad wire reads clean (same rule as in-game)
       : opts.skinKey==='robit3' ? (window._ROBIT3_WIRE!==false)   // robit3: wire ON like robit2, but at the gentler capped opacity (32k verts read as a film at full strength)
+      : opts.skinKey==='moussa' ? (window._MOUSSA_WIRE===true)     // organic sculpt -> wire reads as a mesh-net; OFF (same rule as in-game)
       : opts.skinKey==='interceptor' ? (window._INTERCEPTOR_WIRE===true)
       : opts.skinKey==='alien' ? (window._ALIEN_WIRE===true)
       : opts.skinKey==='cybergirl' ? (window._CYBER_WIRE===true) : false;   // only the low-poly robot is designed for the clean quad wireframe (same rule as in-game)
@@ -52921,6 +52951,10 @@ const _WHEEL_CHARS=[
     {name:'POWER CORE',   icon:'core',  col:0xc45aff, desc:'High output reactor balanced for all situations.'},
     {name:'SHIELD MATRIX',icon:'shield',col:0x2ff0e0, desc:'Deploys a frontal barrier that absorbs damage.'},
     {name:'BOOST JETS',   icon:'boost', col:0xff3df0, desc:'Short burst of speed for evasion and gap closing.'} ] },
+  { key:'moussa',      name:'MOUSSA', sub:'FIELD UNIT',   col:0x39ffa0, atk:4, def:4, spd:4, hp:4, weight:'MEDIUM', abilities:[
+    {name:'POWER CORE',   icon:'core',  col:0x39ffa0, desc:'High output reactor balanced for all situations.'},
+    {name:'SHIELD MATRIX',icon:'shield',col:0x2ff0e0, desc:'Deploys a frontal barrier that absorbs damage.'},
+    {name:'BOOST JETS',   icon:'boost', col:0xff3df0, desc:'Short burst of speed for evasion and gap closing.'} ] },
 ];
 function _wheelHex(n){ return '#'+('000000'+(n>>>0).toString(16)).slice(-6); }
 // Center a pilot's VISUAL bounding box on a common Y line so every pilot — short squat alien or tall interceptor — is framed
@@ -53091,13 +53125,13 @@ function _startCharWheel(canvasId){
       applyDance();   // this pilot just loaded (async) — if it's the current front one, start it dancing right away
     }catch(_){} };
     if(c.key==='robot'){ if(window._cachedRobotGltf)done(window._cachedRobotGltf,true); else { try{ new GLTFLoader().load('models/robot.glb',g=>{ try{_fixRobotMaterials(g.scene);}catch(_){} window._cachedRobotGltf=g; done(g,true); },null,()=>{}); }catch(_){} } return; }
-    if(c.key==='robit2'||c.key==='robit3'){ const _ld=(c.key==='robit3')?(typeof loadRobit3GLB==='function'&&loadRobit3GLB):(typeof loadRobit2GLB==='function'&&loadRobit2GLB); if(_ld){ _ld().then(g=>{ if(!g)return; try{
+    if(c.key==='robit2'||c.key==='robit3'||c.key==='moussa'){ const _ld=(c.key==='moussa')?(typeof loadMoussaGLB==='function'&&loadMoussaGLB):(c.key==='robit3')?(typeof loadRobit3GLB==='function'&&loadRobit3GLB):(typeof loadRobit2GLB==='function'&&loadRobit2GLB); if(_ld){ _ld().then(g=>{ if(!g)return; try{
       // robit2/robit3 = exact robot rig (full clips, no retarget) BUT a textured hero skin for materials (keeps its painted quadrants,
       // hue-rotatable) with the wireframe ON. So: heroSkin neonize + isRobot-TRUE idle (so the animation isn't rotation-retargeted).
       const model=SkeletonUtils.clone(g.scene); _framePreviewModel(model,{scale:scl});
       _titleNeonize(model,{robot:false, skinKey:c.key, emiMix:0, color:(window._PLAYER_HUE!=null?window._PLAYER_HUE:c.col), wireCol:(window._PLAYER_HUE!=null?window._PLAYER_HUE:0x7fd4ff)});   // emiMix 0: no unified-glow tint — their painted textures hue-ROTATE for real, like the robot
       slotFoot[i]=_wheelRecenter(model,CTR); place(i,model); slotModel[i]=model;
-      const mx=_titleRosterIdle(model, c.key==='robit2'); if(mx)mixers.push(mx); applyDance();   // robit2 = native clips; robit3's proportions differ -> rotation-only idle/dance
+      const mx=_titleRosterIdle(model, c.key==='robit2'); if(mx)mixers.push(mx); applyDance();   // robit2 = native clips; robit3/moussa proportions differ -> rotation-only idle/dance
     }catch(_){} },()=>{}); } return; }
     const cached=window[_cacheKey[c.key]]; if(cached){ done(cached,false); return; }
     try{ new GLTFLoader().load(_url[c.key], g=>{ window[_cacheKey[c.key]]=g; done(g,false); }, null, ()=>{}); }catch(_){}
