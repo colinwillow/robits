@@ -511,7 +511,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-music" data-col="mid" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <button id="btn-audio-mix" onclick="window.toggleAudioMix&&window.toggleAudioMix()" title="SOLO: game keeps audio focus and plays through the silent switch. MIX: share audio so YouTube/Spotify can play alongside (silent switch must be OFF)." style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 8h4l3 8h4l3-4h2"/></svg><span id="mx-lbl">SOLO</span></button>
-  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1328</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
+  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1329</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -52172,9 +52172,34 @@ window._stageNoFlipCam=function(){ try{
   if(typeof player==='undefined'||!player||typeof CAM==='undefined')return false;
   const a=(player.aim!=null?player.aim:0), y=-a+Math.PI/2;   // camera in FRONT of the pilot (mirror of the behind-the-back default)
   CAM.yaw=y; CAM.tyaw=y; CAM._rstickT=0;
+  // KILL EVERY EASING RESIDUE. yaw/tyaw alone weren't enough: the follow-ramp, the aim-align timer and
+  // the pitch/zoom lerps all carried state from the select screen, so the camera visibly FLICKED ~90°
+  // into position a beat after the cut. Snap the whole rig to its target instead of easing into it.
+  try{ if(CAM.tpitch!=null)CAM.pitch=CAM.tpitch; if(CAM.tzoom!=null){ CAM.zoom=CAM.tzoom; CAM.tzoom=0; } }catch(_){}
+  try{ player._camAimT=0; player._camAlignT=0; player._camAlignYaw=null; player._cwOrbitT=0; }catch(_){}
   try{ if(CAM.tfocus&&CAM.focus){ CAM.tfocus.set(player.wx,(4+(player.py||0)*0.55),player.wz); CAM.focus.copy(CAM.tfocus); } }catch(_){}
   return true;
 }catch(_){ return false; } };
+// DEPLOY FADE-UP — the world used to POP in fully lit the instant the arena built. This lays a black
+//   veil over the cut and lifts it, so the ground and backdrop rise into view instead of snapping.
+window._deployFadeUp=function(ms){
+  if(window._DEPLOY_FADE===false)return;
+  try{
+    let v=document.getElementById('deploy-veil');
+    if(!v){ v=document.createElement('div'); v.id='deploy-veil';
+      v.style.cssText='position:fixed;inset:0;z-index:88;pointer-events:none;background:#04060c;opacity:1;transition:opacity '+((ms||620)/1000)+'s ease-out';
+      document.body.appendChild(v); }
+    else { v.style.transition='none'; v.style.opacity='1'; }
+    const D=(ms||620);
+    requestAnimationFrame(()=>{ requestAnimationFrame(()=>{ try{
+      v.style.transition='opacity '+(D/1000)+'s ease-out'; v.style.opacity='0';
+    }catch(_){} }); });
+    // Cleanup is scheduled OFF the rAF chain: if rAF is throttled (backgrounded tab, a paused menu
+    // frame) the nested callback may never run and the veil would stay black over the game forever.
+    clearTimeout(window._deployVeilT);
+    window._deployVeilT=setTimeout(()=>{ try{ const e=document.getElementById('deploy-veil'); if(e)e.remove(); }catch(_){} }, D+260);
+  }catch(_){}
+};
 window._stageEnter=function(go){ try{
   const cv=document.getElementById('char-wheel-canvas');
   const scr=document.getElementById('screen-character');
@@ -52209,6 +52234,7 @@ window._stageEnter=function(go){ try{
     try{ startGameAtLevel(-32); }
     catch(e){ window._stageCinCam=null; window._gameMode=window._stageMode; return false; }
     try{ window._stageNoFlipCam(); }catch(_){}   // keep the camera in front of him (no 180 swing) — set AFTER the zone build so nothing resets it
+    try{ window._deployFadeUp(window._DEPLOY_FADE_MS||620); }catch(_){}   // ground/backdrop rises instead of popping
     try{ window._stageOverlay(true); }catch(_){}
     try{ if(window._deployTurnUndo){ window._deployTurnUndo(); window._deployTurnUndo=null; } }catch(_){}   // resets the (now hidden) original + chrome for the NEXT select visit; the overlay owns the camera per-frame
     return true;
@@ -52217,6 +52243,7 @@ window._stageEnter=function(go){ try{
   try{ startGameAtLevel(-32); }
   catch(e){ try{ home.insertBefore(cv,sib); if(css0!=null)cv.setAttribute('style',css0); }catch(__){} window._gameMode=window._stageMode; return false; }
   try{ window._stageNoFlipCam(); }catch(_){}
+  try{ window._deployFadeUp(window._DEPLOY_FADE_MS||620); }catch(_){}
   setTimeout(()=>{ try{ cv.style.opacity='0'; }catch(_){} },80);                       // engine is rendering underneath -> melt the frozen shot away
   setTimeout(()=>{ try{ home.insertBefore(cv,sib); if(css0!=null)cv.setAttribute('style',css0); cv.style.opacity=''; }catch(_){}
     try{ if(window._deployTurnUndo){ window._deployTurnUndo(); window._deployTurnUndo=null; } }catch(_){}   // wheel + chrome reset for the NEXT select visit
