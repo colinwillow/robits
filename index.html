@@ -509,7 +509,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-music" data-col="mid" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <button id="btn-audio-mix" onclick="window.toggleAudioMix&&window.toggleAudioMix()" title="SOLO: game keeps audio focus and plays through the silent switch. MIX: share audio so YouTube/Spotify can play alongside (silent switch must be OFF)." style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 8h4l3 8h4l3-4h2"/></svg><span id="mx-lbl">SOLO</span></button>
-  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1323</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
+  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1324</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -9964,6 +9964,340 @@ function _twBuildRoom(i){
   if(typeof TIME!=='undefined'){ TIME.scale=0.3; setTimeout(()=>{ if(typeof GS!=='undefined'&&GS.state==='playing'&&GS.zone===-1)TIME.scale=1; },1100); }
   _twCard(r.title, r.body);
 }
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+//  THE DOJO — the hands-on "HOW TO PLAY". Not a match: a small purpose-built showcase room that
+//  CONSTRUCTS itself around you, teaches one action at a time, and DECONSTRUCTS between lessons.
+//
+//  Every lesson teaches the same way, on three simultaneous channels:
+//    1. A THUMB graphic + arrow on-screen showing the gesture you make.
+//    2. The real HUD control RINGS + FLASHES, so you know which stick/button that is.
+//    3. A translucent GHOST of your robot performs the action ahead of you, along a dotted path.
+//  Then a TRIGGER (an archway you run through, a ring you jump through, a dummy you knock down)
+//  proves you did it — the room deconstructs and the next one builds.
+//
+//  Tunables: window._DOJO_R (room radius), _DOJO_GHOST (false = no ghost demo).
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+const DOJO={ active:false, i:0, phase:'idle', t:0, stepT:0, group:null, props:[], ghost:null,
+             done:false, _built:false, _cue:null, _hand:null, _passT:0, _conT:0 };
+const _DOJO_COL=0x33e8ff, _DOJO_ACC=0x39ffa0;
+
+// ── ROOM PERIMETER — a soft neon boundary so you can't run off into nothing (zone -1 has no arena clamp) ──
+function _dojoR(){ return (window._DOJO_R||300); }
+function _dojoFence(){
+  const R=_dojoR(), g=new THREE.Group();
+  const ringM=new THREE.MeshBasicMaterial({color:_DOJO_COL,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false,fog:false,toneMapped:false});
+  const rim=new THREE.Mesh(new THREE.TorusGeometry(R,1.6,8,72),ringM); rim.rotation.x=-Math.PI/2; rim.position.y=1.2; g.add(rim);
+  // hex posts + a faint containment curtain so the edge reads as a ROOM, not an invisible wall
+  for(let i=0;i<12;i++){ const a=i/12*Math.PI*2, px=Math.cos(a)*R, pz=Math.sin(a)*R;
+    const post=new THREE.Mesh(new THREE.BoxGeometry(3,52,3),ringM); post.position.set(px,26,pz); g.add(post);
+    const cap=new THREE.Mesh(new THREE.OctahedronGeometry(5,0), new THREE.MeshBasicMaterial({color:_DOJO_ACC,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false,fog:false,toneMapped:false})); cap.position.set(px,56,pz); g.add(cap); }
+  const wall=new THREE.Mesh(new THREE.CylinderGeometry(R,R,52,48,1,true), new THREE.MeshBasicMaterial({color:_DOJO_COL,transparent:true,opacity:0.05,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,fog:false,toneMapped:false}));
+  wall.position.y=26; g.add(wall);
+  return g;
+}
+// soft push-back at the rim (called each tick) — nudges rather than hard-stops, so it never feels like a snag
+function _dojoContain(){
+  if(typeof player==='undefined'||!player)return; const R=_dojoR()-14;
+  const d=Math.hypot(player.wx,player.wz); if(d<=R)return;
+  const nx=player.wx/d, nz=player.wz/d; player.wx=nx*R; player.wz=nz*R;
+  if((player.vx||0)*nx+(player.vz||0)*nz>0){ player.vx-=nx*((player.vx||0)*nx+(player.vz||0)*nz); player.vz-=nz*((player.vx||0)*nx+(player.vz||0)*nz); }
+}
+
+// ── TEACHING AID 1 — the THUMB + arrow overlay. Shows WHICH stick and WHICH WAY to push it. ──
+//    (placeholder art: a simple hand/thumb glyph — swap the SVG when the real art lands)
+function _dojoHand(side,dir,label){
+  _dojoHandClear(); if(!side)return;
+  const el=document.createElement('div'); el.id='dojo-hand';
+  const left=(side==='left');
+  el.style.cssText='position:fixed;'+(left?'left:calc(env(safe-area-inset-left,0px) + 14vw)':'right:calc(env(safe-area-inset-right,0px) + 14vw)')+
+    ';bottom:calc(env(safe-area-inset-bottom,0px) + 20vh);z-index:99;pointer-events:none;width:132px;height:132px;opacity:0;transition:opacity .35s ease';
+  const ang=Math.atan2(dir&&dir[1]||0, dir&&dir[0]||0)*180/Math.PI;
+  el.innerHTML=
+    '<svg viewBox="0 0 120 120" width="132" height="132" style="overflow:visible">'+
+      '<g style="transform-origin:60px 60px;transform:rotate('+ang.toFixed(0)+'deg)">'+
+        '<line x1="60" y1="60" x2="104" y2="60" stroke="'+'#39ffa0'+'" stroke-width="5" stroke-linecap="round" opacity="0.95"/>'+
+        '<polygon points="104,50 120,60 104,70" fill="#39ffa0" opacity="0.95"/>'+
+      '</g>'+
+      // thumb / hand glyph
+      '<g opacity="0.96">'+
+        '<ellipse cx="52" cy="66" rx="19" ry="25" fill="rgba(10,26,34,0.85)" stroke="#7fe8ff" stroke-width="3"/>'+
+        '<path d="M40 60 q-13 -5 -17 6 q-3 10 9 14" fill="none" stroke="#7fe8ff" stroke-width="3" stroke-linecap="round"/>'+
+        '<ellipse cx="52" cy="58" rx="9" ry="12" fill="none" stroke="#39ffa0" stroke-width="2" opacity="0.8"/>'+
+        '<path d="M47 54 q5 4 10 0 M46 60 q6 5 12 0 M47 66 q5 4 10 0" fill="none" stroke="#39ffa0" stroke-width="1.4" opacity="0.75"/>'+
+      '</g>'+
+      '<circle cx="52" cy="66" r="34" fill="none" stroke="#39ffa0" stroke-width="2" opacity="0.35">'+
+        '<animate attributeName="r" values="30;40;30" dur="1.5s" repeatCount="indefinite"/>'+
+        '<animate attributeName="opacity" values="0.42;0.06;0.42" dur="1.5s" repeatCount="indefinite"/></circle>'+
+    '</svg>'+
+    (label?'<div style="text-align:center;margin-top:2px;font:900 10px monospace;letter-spacing:2px;color:#9fe8ff;text-shadow:0 0 8px #33e8ff">'+label+'</div>':'');
+  document.body.appendChild(el); requestAnimationFrame(()=>{ el.style.opacity='1'; });
+  DOJO._hand=el;
+}
+function _dojoHandClear(){ if(DOJO._hand){ try{ DOJO._hand.remove(); }catch(_){} DOJO._hand=null; }
+  const o=document.getElementById('dojo-hand'); if(o)try{ o.remove(); }catch(_){} }
+
+// ── TEACHING AID 3 — the GHOST. A translucent copy of your robot that performs the action ahead of
+//    you, trailing a dotted path to wherever the trigger is. ──
+function _dojoGhost(path){
+  _dojoGhostClear(); if(window._DOJO_GHOST===false)return;
+  if(typeof player==='undefined'||!player||!player.model)return;
+  let g=null;
+  try{ g=SkeletonUtils.clone(player.model); }catch(_){ return; }
+  g.traverse(o=>{ if(o.material){ const ms=Array.isArray(o.material)?o.material:[o.material];
+    o.material=ms.map(m=>{ const c=m.clone(); c.transparent=true; c.opacity=(window._DOJO_GHOST_OP||0.3); c.depthWrite=false; c.fog=false; if(c.emissive)c.emissiveIntensity=(c.emissiveIntensity||1)*0.6; return c; });
+    o.material=Array.isArray(o.material)&&o.material.length===1?o.material[0]:o.material; } });
+  g.position.set(0,0,0); if(typeof scene!=='undefined')scene.add(g);
+  DOJO.ghost={obj:g, path:(path||[]), t:0};
+  // dotted ground trail from you to the goal
+  if(path&&path.length){ const trail=new THREE.Group();
+    const end=path[path.length-1], N=10;
+    for(let i=1;i<=N;i++){ const t=i/(N+1);
+      const d=new THREE.Mesh(new THREE.CircleGeometry(3.4,12), new THREE.MeshBasicMaterial({color:_DOJO_ACC,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false,fog:false,toneMapped:false}));
+      d.rotation.x=-Math.PI/2; d.position.set(end[0]*t,1.1,end[1]*t); d._ph=i*0.4; trail.add(d); }
+    if(typeof scene!=='undefined')scene.add(trail); DOJO.ghost.trail=trail; }
+}
+function _dojoGhostClear(){ const G=DOJO.ghost; if(!G)return;
+  try{ if(G.obj&&G.obj.parent)G.obj.parent.remove(G.obj); }catch(_){}
+  try{ if(G.trail&&G.trail.parent)G.trail.parent.remove(G.trail); }catch(_){}
+  DOJO.ghost=null; }
+function _dojoGhostTick(dt){ const G=DOJO.ghost; if(!G||!G.obj)return;
+  G.t+=dt; const loop=(window._DOJO_GHOST_LOOP||2.6), u=(G.t%loop)/loop;
+  if(G.path&&G.path.length){ const e=G.path[G.path.length-1];
+    const k=Math.min(1,u/0.8);                                   // walks out over 80% of the loop, then resets
+    G.obj.position.set(e[0]*k, 0, e[1]*k);
+    G.obj.rotation.y=Math.atan2(e[0],e[1]);
+    G.obj.visible=(u<0.86);                                       // blink out at the end -> reads as a repeating demo
+    const fade=(u<0.06)?(u/0.06):(u>0.8?Math.max(0,1-(u-0.8)/0.06):1);
+    G.obj.traverse(o=>{ if(o.material){ const ms=Array.isArray(o.material)?o.material:[o.material]; ms.forEach(m=>{ if(m.transparent)m.opacity=(window._DOJO_GHOST_OP||0.3)*fade; }); } });
+  }
+  if(G.trail)G.trail.children.forEach(d=>{ d.material.opacity=0.28+0.42*(0.5+0.5*Math.sin(G.t*4-(d._ph||0))); });
+}
+
+// ── CUE CARD — the dojo owns its OWN element (the old walkthrough shared #announce, which regular
+//    announcements kept wiping mid-lesson). ──
+function _dojoCue(title,body){
+  _dojoCueClear();
+  const el=document.createElement('div'); el.id='dojo-cue';
+  el.style.cssText='position:fixed;left:50%;transform:translateX(-50%) translateY(-8px);top:calc(env(safe-area-inset-top,0px) + 84px);z-index:98;pointer-events:none;text-align:center;opacity:0;transition:opacity .4s ease,transform .4s ease;max-width:86vw';
+  el.innerHTML='<div style="font:900 19px Orbitron,monospace;letter-spacing:6px;color:#eaffff;text-shadow:0 0 16px '+_hex(_DOJO_COL)+',0 0 34px '+_hex(_DOJO_COL)+'">'+title+'</div>'+
+    '<div style="margin-top:7px;font:700 12px monospace;letter-spacing:2px;color:#9fe8ff;text-shadow:0 0 10px rgba(51,232,255,0.7)">'+body+'</div>';
+  document.body.appendChild(el);
+  requestAnimationFrame(()=>{ el.style.opacity='1'; el.style.transform='translateX(-50%) translateY(0)'; });
+  DOJO._cue=el;
+}
+function _dojoCueClear(){ if(DOJO._cue){ try{ DOJO._cue.remove(); }catch(_){} DOJO._cue=null; }
+  const o=document.getElementById('dojo-cue'); if(o)try{ o.remove(); }catch(_){} }
+function _hex(c){ return '#'+('000000'+(c>>>0).toString(16)).slice(-6); }
+
+// ── THE FLOOR CONSTRUCT / DECONSTRUCT ──────────────────────────────────────────────────────────
+//    The signature move from the SECTOR mode: the lattice rains down from above, a wavefront sweeps
+//    rim→centre releasing nodes, and each one springs to rest. Deconstruct kicks them back up+out.
+//    That logic was inlined inside updateTransition() and gated to zone -5; this is a standalone,
+//    zone-agnostic copy so the dojo (and anything else) can build/unbuild its floor.
+const _DJ_H=140, _DJ_OFF=16, _DJ_BAND=70, _DJ_WAVE=1.25, _DJ_K=0.055, _DJ_D=0.86, _DJ_DECAY=0.90;
+function _dojoGridConstruct(){
+  if(typeof grid==='undefined'||!grid||!grid.n)return null;
+  const n=grid.n, st={mode:'build', t:0, ty:new Float32Array(n), tvy:new Float32Array(n), tox:new Float32Array(n), toz:new Float32Array(n), released:new Uint8Array(n), done:false};
+  for(let r=1;r<grid.nz-1;r++)for(let c=1;c<grid.nx-1;c++){ const i=r*grid.nx+c;
+    st.ty[i]=_DJ_H; st.tox[i]=Math.sin(i*1.3)*_DJ_OFF; st.toz[i]=Math.cos(i*0.9)*_DJ_OFF; }
+  try{ grid.dots.material.opacity=0; grid.perimeter.material.opacity=0; if(grid.glow)grid.glow.material.opacity=0; }catch(_){}
+  return st;
+}
+function _dojoGridDeconstruct(){
+  if(typeof grid==='undefined'||!grid||!grid.n)return null;
+  return {mode:'dissolve', t:0, kicked:new Uint8Array(grid.n), done:false};
+}
+function _dojoGridTick(st,dt){
+  if(!st||st.done||typeof grid==='undefined'||!grid||!grid.n)return;
+  st.t+=dt;
+  let maxR=0; for(let i=0;i<grid.n;i++){ const rr=Math.hypot(grid.rx[i],grid.rz[i]); if(rr>maxR)maxR=rr; }
+  const rev=Math.max(0,Math.min(1,st.t/_DJ_WAVE));
+  if(st.mode==='build'){
+    const F=maxR-rev*(maxR+_DJ_BAND); let maxY=0, all=true;
+    for(let r=1;r<grid.nz-1;r++)for(let c=1;c<grid.nx-1;c++){ const i=r*grid.nx+c;
+      const rad=Math.hypot(grid.rx[i],grid.rz[i]);
+      if(rad>=F)st.released[i]=1; else all=false;
+      if(st.released[i]){ st.tvy[i]=(st.tvy[i]+(0-st.ty[i])*_DJ_K)*_DJ_D; st.ty[i]+=st.tvy[i]; st.tox[i]*=_DJ_DECAY; st.toz[i]*=_DJ_DECAY; }
+      grid.y[i]=st.ty[i]; grid.x[i]=grid.rx[i]+st.tox[i]; grid.z[i]=grid.rz[i]+st.toz[i];
+      grid.vy[i]=0; grid.vx[i]=0; grid.vz[i]=0;
+      const ay=Math.abs(st.ty[i]); if(ay>maxY)maxY=ay; }
+    try{ if(typeof _transRippleColors==='function')_transRippleColors(F,'build');
+      grid.dots.material.opacity=0.9*rev;
+      grid.perimeter.material.opacity=0.9*Math.max(0,Math.min(1,(maxR-F)/_DJ_BAND));
+      if(grid.glow)grid.glow.material.opacity=0.18*Math.max(0,Math.min(1,(maxR-F)/_DJ_BAND)); }catch(_){}
+    if(all&&maxY<2.0){ st.done=true; try{ grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9; if(grid.glow)grid.glow.material.opacity=0.18; }catch(_){} }
+  } else {   // dissolve — nodes kick up + outward as the wavefront sweeps back out
+    const F=rev*(maxR+_DJ_BAND);
+    for(let r=1;r<grid.nz-1;r++)for(let c=1;c<grid.nx-1;c++){ const i=r*grid.nx+c;
+      const rad=Math.hypot(grid.rx[i],grid.rz[i]);
+      if(rad<=F&&!st.kicked[i]){ st.kicked[i]=1; grid.vy[i]+=5+Math.random()*4;
+        const l=rad||1; grid.vx[i]+=(grid.rx[i]/l)*(1.6+Math.random()*1.4); grid.vz[i]+=(grid.rz[i]/l)*(1.6+Math.random()*1.4); } }
+    const f=Math.max(0,1-rev);
+    try{ if(typeof _transRippleColors==='function')_transRippleColors(maxR-F,'dissolve');
+      grid.dots.material.opacity=0.9*f; grid.perimeter.material.opacity=0.9*f; if(grid.glow)grid.glow.material.opacity=0.18*f; }catch(_){}
+    if(rev>=1)st.done=true;
+  }
+}
+
+// ── LESSONS ────────────────────────────────────────────────────────────────────────────────────
+//   sign   : the shootable BLOCK TEXT headline that stands in the room
+//   cue    : the instruction line
+//   hud    : which real HUD control rings + flashes
+//   hand   : {side, dir, label} -> the thumb + arrow overlay
+//   build  : lays out this lesson's props (returns nothing; push meshes to DOJO.props)
+//   check  : poll -> true once the player has performed the action
+const DOJO_STEPS=[
+  { id:'move', sign:'MOVE', cue:'PUSH THE LEFT STICK  ·  RUN THROUGH THE GATE',
+    hud:'joystick-left', hand:{side:'left', dir:[0,-1], label:'MOVE'},
+    build(){ const gz=-190;
+      _dojoGate(gz);
+      _dojoGhost([[0,gz*0.86]]);   // ghost jogs out to the gate along a dotted line
+    },
+    check(){ return DOJO._gate && player && player.wz<DOJO._gate.z && Math.abs(player.wx)<DOJO._gate.hw+26; } },
+
+  { id:'jump', sign:'JUMP', cue:'TAP THE RIGHT STICK TO JUMP  ·  CLEAR THE RING',
+    hud:'joystick-right', hand:{side:'right', dir:[0,0], label:'TAP'},
+    build(){ _dojoRing(0,-110,64); _dojoGhost(null); },
+    check(){ return (player&&(player.py||0)>46); } },
+
+  { id:'jet', sign:'JETPACK', cue:'HOLD THE RIGHT STICK IN THE AIR  ·  FLY UP TO THE HIGH RING',
+    hud:'joystick-right', hand:{side:'right', dir:[0,-1], label:'HOLD'},
+    build(){ _dojoRing(0,-110,150); _dojoGhost(null); },
+    check(){ return (player&&(player.py||0)>128); } },
+];
+
+// ── LESSON PROPS ───────────────────────────────────────────────────────────────────────────────
+function _dojoGate(gz){
+  const HW=44, m=new THREE.MeshBasicMaterial({color:_DOJO_COL,transparent:true,opacity:0.92,blending:THREE.AdditiveBlending,depthWrite:false,fog:false,toneMapped:false});
+  const g=new THREE.Group(); g.position.set(0,0,gz);
+  const post=(x)=>{ const p=new THREE.Mesh(new THREE.BoxGeometry(7,96,7),m); p.position.set(x,48,0); g.add(p); };
+  post(-HW); post(HW);
+  const top=new THREE.Mesh(new THREE.BoxGeometry(HW*2+7,7,7),m); top.position.set(0,96,0); g.add(top);
+  const fill=new THREE.Mesh(new THREE.PlaneGeometry(HW*2,96), new THREE.MeshBasicMaterial({color:_DOJO_ACC,transparent:true,opacity:0.13,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,fog:false,toneMapped:false}));
+  fill.position.set(0,48,0); g.add(fill); g._fill=fill;
+  if(typeof scene!=='undefined')scene.add(g);
+  DOJO.props.push(g); DOJO._gate={z:gz, hw:HW, mesh:g};
+}
+function _dojoRing(x,z,y){
+  const m=new THREE.MeshBasicMaterial({color:_DOJO_ACC,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,fog:false,toneMapped:false});
+  const g=new THREE.Group(); g.position.set(x,y,z);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(30,2.4,10,40),m); g.add(ring);
+  const halo=new THREE.Mesh(new THREE.TorusGeometry(30,7,10,40), new THREE.MeshBasicMaterial({color:_DOJO_ACC,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false,fog:false,toneMapped:false})); g.add(halo);
+  // a light column down to the deck so you can see WHERE to stand before you jump
+  const col=new THREE.Mesh(new THREE.CylinderGeometry(28,28,y,20,1,true), new THREE.MeshBasicMaterial({color:_DOJO_COL,transparent:true,opacity:0.05,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,fog:false,toneMapped:false}));
+  col.position.y=-y/2; g.add(col);
+  if(typeof scene!=='undefined')scene.add(g);
+  DOJO.props.push(g); DOJO._ring=g;
+}
+function _dojoClearProps(){
+  for(const p of DOJO.props){ try{ if(p&&p.parent)p.parent.remove(p); }catch(_){} }
+  DOJO.props.length=0; DOJO._gate=null; DOJO._ring=null;
+}
+// hand the props to the bit-beam-out so nothing ever just POPS away
+function _dojoDeconstructProps(){
+  for(const p of DOJO.props){ try{ if(typeof _robitDeconstruct==='function')_robitDeconstruct(p.position.x,(p.position.y||30)+10,p.position.z,_DOJO_COL,p); p.visible=false; }catch(_){} }
+}
+
+// ── THE ROOM ───────────────────────────────────────────────────────────────────────────────────
+function buildDojo(){
+  _dojoDispose();
+  DOJO.active=true; DOJO.i=0; DOJO.done=false; DOJO.t=0; DOJO.stepT=0; DOJO.phase='construct'; DOJO._passT=0;
+  DOJO.group=new THREE.Group(); if(typeof scene!=='undefined')scene.add(DOJO.group);
+  DOJO.group.add(_dojoFence());
+  // hide the arena furniture — this is a clean showroom, not a level
+  try{ if(grid){ if(grid.perimeter)grid.perimeter.visible=true; } }catch(_){}
+  DOJO._grid=_dojoGridConstruct();                       // the floor rains in
+  // BEAM the pilot in on top of the construct
+  try{ if(player){ player.wx=0; player.wz=60; player.py=0; player.vx=0; player.vz=0;
+    if(player.model){ player.model.visible=false;
+      if(typeof spawnBeam==='function')spawnBeam(0,60,0x66d8ff,()=>{ try{ player.model.visible=true; }catch(_){} },0.35,0); else player.model.visible=true; } } }catch(_){}
+  _dojoDeclutter(true);
+  DOJO._built=true;
+}
+function _dojoDeclutter(on){
+  // the combat HUD is noise in a lesson — keep the sticks (you're learning them) and drop the rest
+  const ids=['score-bar','od-wrap','zone-display','boss-bar','ability-row','btn-bomb-arm'];
+  for(const id of ids){ const e=document.getElementById(id); if(!e)continue;
+    if(on){ if(e.dataset.dojoPrev===undefined)e.dataset.dojoPrev=e.style.display||''; e.style.display='none'; }
+    else if(e.dataset.dojoPrev!==undefined){ e.style.display=e.dataset.dojoPrev; delete e.dataset.dojoPrev; } }
+}
+function _dojoDispose(){
+  DOJO.active=false; DOJO._built=false;
+  _dojoClearProps(); _dojoGhostClear(); _dojoCueClear(); _dojoHandClear();
+  try{ if(typeof TUT_clearHighlight==='function')TUT_clearHighlight(); }catch(_){}
+  try{ if(DOJO.group&&DOJO.group.parent)DOJO.group.parent.remove(DOJO.group); }catch(_){}
+  DOJO.group=null; DOJO._grid=null; DOJO._gate=null; DOJO._ring=null;
+  _dojoDeclutter(false);
+}
+function _dojoEnterStep(i){
+  _dojoClearProps(); _dojoGhostClear();
+  const s=DOJO_STEPS[i]; if(!s){ _dojoFinish(); return; }
+  DOJO.i=i; DOJO.stepT=0; DOJO.phase='teach';
+  try{ s.build&&s.build(); }catch(e){ console.warn('dojo step',e); }
+  // the three teaching channels, fired together
+  _dojoCue(s.sign, s.cue);                                         // headline + instruction
+  if(s.hand)_dojoHand(s.hand.side, s.hand.dir, s.hand.label);      // 1. thumb + arrow
+  try{ if(typeof TUT_highlightButton==='function')TUT_highlightButton(s.hud); }catch(_){}   // 2. HUD control rings
+  // the shootable BLOCK TEXT headline standing in the room
+  try{ if(typeof spawnPhysicalText==='function'){ spawnPhysicalText(s.sign, _DOJO_ACC, -60); if(typeof _physText!=='undefined'&&_physText)_physText.userData.flash=true; } }catch(_){}
+  try{ if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(520,0.1,'sine',0.14,900); }catch(_){}
+}
+function _dojoFinish(){
+  DOJO.phase='done'; DOJO.done=true;
+  _dojoClearProps(); _dojoGhostClear(); _dojoHandClear();
+  try{ if(typeof TUT_clearHighlight==='function')TUT_clearHighlight(); }catch(_){}
+  _dojoCue('TRAINING COMPLETE','YOU\'RE READY, PILOT');
+  try{ localStorage.setItem('robits_dojo_done','1'); }catch(_){}    // first-run gate for later
+  // ...and actually LEAVE (the old walkthrough stranded you on an empty floor)
+  setTimeout(()=>{ try{ _dojoCueClear(); _dojoDispose();
+    if(typeof window._exitMatchToMenu==='function')window._exitMatchToMenu('gamemode');
+    else if(typeof zoneClear==='function')zoneClear(); }catch(_){} }, 2600);
+}
+function updateDojo(dt){
+  if(!DOJO.active)return;
+  DOJO.t+=dt; DOJO.stepT+=dt;
+  _dojoContain();
+  _dojoGhostTick(dt);
+  try{ if(typeof updateSpawnBeams==='function')updateSpawnBeams(dt); }catch(_){}
+  try{ if(typeof updatePhysicalText==='function')updatePhysicalText(dt); }catch(_){}   // the block text lives + crumbles
+  if(DOJO._grid){ _dojoGridTick(DOJO._grid,dt); if(DOJO._grid.done&&DOJO._grid.mode==='build')DOJO._grid=null; }
+  // gentle idle animation on the props
+  if(DOJO._ring)DOJO._ring.rotation.z+=dt*0.5;
+  if(DOJO._gate&&DOJO._gate.mesh&&DOJO._gate.mesh._fill)DOJO._gate.mesh._fill.material.opacity=0.10+0.07*Math.sin(DOJO.t*3);
+
+  if(DOJO.phase==='construct'){
+    // Hold only for the beam-in + the first beat of the floor raining down, then start teaching —
+    // the lattice keeps settling underneath you. (Never GATE on the spring finishing: the grid tick
+    // is driven by the shared game clock and can crawl, which would stall the whole tutorial.)
+    if(DOJO.stepT>(window._DOJO_CONSTRUCT_T||1.6)){ _dojoEnterStep(0); }
+    return;
+  }
+  if(DOJO.phase==='teach'){
+    const s=DOJO_STEPS[DOJO.i]; if(!s){ _dojoFinish(); return; }
+    let ok=false; try{ ok=!!s.check(); }catch(_){}
+    if(ok||DOJO._force){ DOJO._force=false; DOJO.phase='celebrate'; DOJO._passT=0;
+      _dojoHandClear(); try{ if(typeof TUT_clearHighlight==='function')TUT_clearHighlight(); }catch(_){}
+      _dojoCue(s.sign+'  ✓','NICE');
+      try{ if(typeof ps!=='undefined'&&player){ ps.ring(player.wx,player.wz,[0.22,1,0.63],28,150); ps.burst(player.wx,player.wz,[0.6,1,0.8],22,160,(player.py||0)+14); } }catch(_){}
+      try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(880,0.08,'square',0.16,1400); Audio.blip(1320,0.1,'sine',0.12,1800); } }catch(_){}
+      try{ if(typeof addTrauma==='function')addTrauma(0.06); }catch(_){}
+    }
+    return;
+  }
+  if(DOJO.phase==='celebrate'){
+    DOJO._passT+=dt;
+    if(DOJO._passT>(window._DOJO_CELEB||1.1)){ DOJO.phase='deconstruct'; DOJO._passT=0; _dojoCueClear(); _dojoDeconstructProps(); }
+    return;
+  }
+  if(DOJO.phase==='deconstruct'){
+    DOJO._passT+=dt;
+    if(DOJO._passT>(window._DOJO_DECON||0.9)) _dojoEnterStep(DOJO.i+1);
+    return;
+  }
+}
+window._dojoSkip=function(){ DOJO._force=true; };   // anti-softlock
+window.buildDojo=buildDojo; window.updateDojo=updateDojo; window._dojoDispose=_dojoDispose;
 
 function buildWalkthrough(){
   _twDispose();
@@ -25512,7 +25846,7 @@ function startGame(levelIdx){
   try{ if(typeof _disposeArenaDeformers==='function')_disposeArenaDeformers(); }catch(_){}
   try{ if(window._surfPlaneRoot){ if(typeof scene!=='undefined')scene.remove(window._surfPlaneRoot); window._surfPlaneRoot=null; } }catch(_){}
   try{ const kill=[]; if(typeof scene!=='undefined')scene.traverse(o=>{ if(o._isPlatformAsset)kill.push(o); }); for(const o of kill){ if(o.parent)o.parent.remove(o); o.traverse&&o.traverse(k=>{ if(k.geometry)k.geometry.dispose(); }); } if(kill.length){ window._platform2Root=null; window._platWire=null; window._platDeform=null; window._animPlatMixer=null; } }catch(_){}
-  if(GS.zone===-1){ buildWalkthrough(); }
+  if(GS.zone===-1){ if(window._DOJO_V2!==false) buildDojo(); else buildWalkthrough(); }   // THE DOJO (v2). window._DOJO_V2=false falls back to the old room walkthrough.
   else if(GS.zone===-2){ buildTrainingRoom(); }
   else if(GS.zone===-3){ buildPuzzleLab(); }
   else if(GS.zone===-4){ buildGalaxy(); }
@@ -31749,7 +32083,7 @@ function loop(ts){ requestAnimationFrame(loop);
       // Level objects: buttons/keys; platforms+blocks in updatePuzzleLevel (runs BEFORE player physics)
       GS_objects.forEach(o=>{ if(o instanceof LevelButton||o instanceof KeyPickup) o.update&&o.update(dt); });
       if(GS.zone===0) updatePuzzleLevel(dt);
-      if(GS.zone===-1) updateWalkthrough(dt);
+      if(GS.zone===-1){ if(window._DOJO_V2!==false) updateDojo(dt); else updateWalkthrough(dt); }
       if(GS.zone===-5) updateTransition(dt);
       if(GS.zone===-16) updateCityTest(dt);
       if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
