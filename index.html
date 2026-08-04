@@ -511,7 +511,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-music" data-col="mid" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <button id="btn-audio-mix" onclick="window.toggleAudioMix&&window.toggleAudioMix()" title="SOLO: game keeps audio focus and plays through the silent switch. MIX: share audio so YouTube/Spotify can play alongside (silent switch must be OFF)." style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 8h4l3 8h4l3-4h2"/></svg><span id="mx-lbl">SOLO</span></button>
-  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1333</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
+  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1334</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -10198,49 +10198,112 @@ function _bikePoseTick(){
 }
 window._bikeMount=_bikeMount; window._bikeDismount=_bikeDismount; window._bikeTick=_bikeTick; window._bikePoseTick=_bikePoseTick;
 
-// ── THE CIRCUIT (zone -34) — stage-1 track: a glowing loop with a start gate, checkpoint rings and pylons ──
-const CIRCUIT={ active:false, grp:null, rings:[], t:0 };
+// ── THE CIRCUIT (zone -34) — stage-2 track: a figure-8 (lemniscate) with a crest hill on the west
+// lobe, boost pads, ordered checkpoint rings and LAP TIMING. The X-crossing is flat (street-style);
+// elevation comes from window._rideSurfY, which the hover spring adds as an eased base height.
+const CIRCUIT={ active:false, grp:null, rings:[], pads:[], t:0, lap:{t0:0,best:0,n:0,next:0,run:false}, hud:null, _hudT:0 };
+const _CIR_A=880, _CIR_W=95;
+function _cirP(t){ const a=_CIR_A, sn=Math.sin(t), cs=Math.cos(t), d=1+sn*sn; return [a*cs/d, a*sn*cs/d]; }   // lemniscate of Bernoulli
+function _cirHill(x,z){ const dx=x+820; return (window._CIR_HILL_H||85)*Math.exp(-(dx*dx+z*z)/(310*310)); }
+function _cirTan(t){ const e=0.002, p1=_cirP(t+e), p0=_cirP(t-e); const dx=p1[0]-p0[0], dz=p1[1]-p0[1], L=Math.hypot(dx,dz)||1; return [dx/L,dz/L]; }
 function buildCircuit(){
   _circuitDispose();
   const G=new THREE.Group(); if(typeof scene!=='undefined')scene.add(G); CIRCUIT.grp=G; CIRCUIT.active=true; CIRCUIT.t=0;
-  const CY=0x33e8ff, MG=0xff2d95, MINT=0x39ffa0, TR=760, W=95;
+  CIRCUIT.lap={t0:0,best:0,n:0,next:0,run:false};
+  const CY=0x33e8ff, MG=0xff2d95, MINT=0x39ffa0, W=_CIR_W;
   window._RIDE_EDGE_R=1500;                                                     // widen the ride clamp for the track
+  window._rideSurfY=_cirHill;                                                   // the hover spring reads this as base height
   const MB=(c,o)=>new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:(o==null?1:o),depthWrite:false,fog:false,toneMapped:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide});
-  // the RIBBON — a flat ring you ride around
-  const ribbon=new THREE.Mesh(new THREE.RingGeometry(TR-W,TR+W,120), MB(0x0e2038,0.34)); ribbon.rotation.x=-Math.PI/2; ribbon.position.y=0.7; G.add(ribbon);
-  for(const [r,c] of [[TR-W,MG],[TR+W,CY]]){ const rail=new THREE.Mesh(new THREE.TorusGeometry(r,1.6,8,140),MB(c,0.8)); rail.rotation.x=-Math.PI/2; rail.position.y=1.1; G.add(rail); }
-  for(let i=0;i<64;i++){ const a=i/64*Math.PI*2; const dash=new THREE.Mesh(new THREE.PlaneGeometry(3,16),MB(0xeaffff,0.35));
-    dash.rotation.x=-Math.PI/2; dash.rotation.z=-a; dash.position.set(Math.cos(a)*TR,0.9,Math.sin(a)*TR); G.add(dash); }
-  // START GATE
-  const gate=new THREE.Group(); gate.position.set(TR,0,0); G.add(gate);
+  // ── the RIBBON — a strip swept along the figure-8, following the hill ──
+  const N=260, pos=[], idx=[];
+  for(let i=0;i<=N;i++){ const t=i/N*Math.PI*2, [px,pz]=_cirP(t), [tx,tz]=_cirTan(t), nx=-tz, nz=tx;
+    for(const sgn of [-1,1]){ const x=px+nx*W*sgn, z=pz+nz*W*sgn; pos.push(x, _cirHill(x,z)+0.7, z); } }
+  for(let i=0;i<N;i++){ const b=i*2; idx.push(b,b+1,b+2, b+1,b+3,b+2); }
+  const rg=new THREE.BufferGeometry(); rg.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); rg.setIndex(idx);
+  G.add(new THREE.Mesh(rg, MB(0x1a3a60,0.5)));
+  // ── RAILS — closed tubes along each edge (magenta left, cyan right) ──
+  for(const [sgn,c] of [[-1,MG],[1,CY]]){ const pts=[];
+    for(let i=0;i<N;i++){ const t=i/N*Math.PI*2, [px,pz]=_cirP(t), [tx,tz]=_cirTan(t); const x=px-tz*W*sgn, z=pz+tx*W*sgn;
+      pts.push(new THREE.Vector3(x,_cirHill(x,z)+1.1,z)); }
+    const cur=new THREE.CatmullRomCurve3(pts,true);
+    G.add(new THREE.Mesh(new THREE.TubeGeometry(cur,320,1.6,8,true), MB(c,0.8))); }
+  // centre dashes
+  for(let i=0;i<72;i++){ const t=i/72*Math.PI*2, [px,pz]=_cirP(t), [tx,tz]=_cirTan(t);
+    const dash=new THREE.Mesh(new THREE.PlaneGeometry(3,16),MB(0xeaffff,0.35));
+    dash.rotation.x=-Math.PI/2; dash.rotation.z=-Math.atan2(tx,tz)+Math.PI/2; dash.position.set(px,_cirHill(px,pz)+0.9,pz);
+    dash.rotation.order='YXZ'; dash.rotation.y=Math.atan2(tx,tz); dash.rotation.z=0; G.add(dash); }
+  // ── START GATE at the east tip, square to the path ──
+  const gate=new THREE.Group(); gate.position.set(_CIR_A,0,0); G.add(gate);
   for(const dr of [-1,1]){ const post=new THREE.Mesh(new THREE.BoxGeometry(5,74,5), MB(MG,0.85)); post.position.set(dr*W,37,0); gate.add(post); }
   const topb=new THREE.Mesh(new THREE.BoxGeometry(W*2+5,6,6),MB(MG,0.9)); topb.position.y=74; gate.add(topb);
   const banner=new THREE.Mesh(new THREE.PlaneGeometry(W*2,20),MB(CY,0.14)); banner.position.y=60; gate.add(banner);
-  gate.rotation.y=Math.PI/2;                                                    // spans the ribbon radially at angle 0
-  // CHECKPOINT RINGS you blast through (visual for now; timing next stage)
-  for(let i=1;i<8;i++){ const a=i/8*Math.PI*2;
+  // ── CHECKPOINT RINGS — ordered along the path; collect them in sequence to log a lap ──
+  const NR=10;
+  for(let i=1;i<=NR;i++){ const t=i/(NR+1)*Math.PI*2, [px,pz]=_cirP(t), [tx,tz]=_cirTan(t);
     const ring=new THREE.Mesh(new THREE.TorusGeometry(34,2.2,10,40), MB(i%2?CY:MINT,0.8));
-    ring.position.set(Math.cos(a)*TR, 34, Math.sin(a)*TR); ring.rotation.y=-a;
+    ring.position.set(px, _cirHill(px,pz)+34, pz); ring.rotation.y=Math.atan2(tx,tz);
     G.add(ring); CIRCUIT.rings.push(ring); }
-  // pylons around the outside
-  for(let i=0;i<14;i++){ const a=i/14*Math.PI*2, r=TR+230;
+  // ── BOOST PADS — chevron strips on the crossing diagonals; ride over = speed surge ──
+  for(const t of [0.5, Math.PI-0.5, Math.PI+0.5, Math.PI*2-0.5]){
+    const [px,pz]=_cirP(t), [tx,tz]=_cirTan(t);
+    const pg=new THREE.Group(); pg.position.set(px,_cirHill(px,pz)+0.9,pz); pg.rotation.y=Math.atan2(tx,tz); G.add(pg);
+    for(let k=0;k<3;k++){ const ch=new THREE.Mesh(new THREE.PlaneGeometry(30,10),MB(MINT,0.55));
+      ch.rotation.x=-Math.PI/2; ch.position.z=-14+k*14; pg.add(ch); }
+    CIRCUIT.pads.push({x:px,z:pz,g:pg,cd:0}); }
+  // decorative arch loops over the two crossing approaches
+  for(const t of [Math.PI/2, Math.PI*1.5]){ const [px,pz]=_cirP(t), [tx,tz]=_cirTan(t);
+    const arch=new THREE.Mesh(new THREE.TorusGeometry(120,4,10,50,Math.PI), MB(MG,0.4));
+    arch.position.set(px,_cirHill(px,pz),pz); arch.rotation.y=Math.atan2(tx,tz); G.add(arch); }
+  // pylons scattered outside
+  for(let i=0;i<16;i++){ const a=i/16*Math.PI*2, r=1180;
     const py=new THREE.Mesh(new THREE.BoxGeometry(7,90+((i%3)*40),7), MB(i%2?MG:CY,0.35));
-    py.position.set(Math.cos(a)*r,45+((i%3)*20),Math.sin(a)*r); G.add(py); }
-  // spawn ON the track, facing the tangent, and saddle up
-  try{ if(player){ player.wx=TR; player.wz=0; player.py=0; player.facing=0; } }catch(_){}
+    py.position.set(Math.cos(a)*r,45+((i%3)*20),Math.sin(a)*r*0.55); G.add(py); }
+  // ── LAP HUD ──
+  try{ const hud=document.createElement('div'); hud.id='circuit-hud';
+    hud.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);z-index:60;font:700 12px monospace;color:#9fe8ff;background:#04101caa;border:1px solid #33e8ff55;border-radius:8px;padding:4px 10px;letter-spacing:1px;pointer-events:none;white-space:nowrap';
+    hud.textContent='CROSS THE GATE TO START'; document.body.appendChild(hud); CIRCUIT.hud=hud; }catch(_){}
+  // spawn ON the track at the gate, facing the tangent, and saddle up
+  try{ if(player){ const t0=-0.22, [px,pz]=_cirP(t0), [tx,tz]=_cirTan(t0); player.wx=px; player.wz=pz; player.py=0; player.facing=Math.atan2(tx,tz); player._skHeading=player.facing; } }catch(_){}   // spawn a beat BEFORE the gate so crossing it arms the lap timer
   setTimeout(()=>{ try{ if(typeof GS!=='undefined'&&GS.zone===-34)_bikeMount(); }catch(_){} }, 700);
-  try{ if(typeof announce==='function')setTimeout(()=>announce('THE CIRCUIT · LEFT STICK = STEER + THROTTLE','#33e8ff'),1600); }catch(_){}
+  try{ if(typeof announce==='function')setTimeout(()=>announce('THE CIRCUIT · FOLLOW THE RINGS · HIT THE BOOST PADS','#33e8ff'),1600); }catch(_){}
 }
+function _cirFmt(t){ const m=Math.floor(t/60), sec=t-m*60; return m+':'+(sec<10?'0':'')+sec.toFixed(2); }
 function updateCircuit(dt){
   if(!CIRCUIT.active)return; CIRCUIT.t+=dt;
-  for(let i=0;i<CIRCUIT.rings.length;i++){ const r=CIRCUIT.rings[i]; r.rotation.z+=dt*0.6; r.material.opacity=0.55+0.3*Math.sin(CIRCUIT.t*2+i); }
+  for(let i=0;i<CIRCUIT.rings.length;i++){ const r=CIRCUIT.rings[i]; r.rotation.z+=dt*0.6;
+    r.material.opacity=(i===CIRCUIT.lap.next&&CIRCUIT.lap.run)?(0.75+0.25*Math.sin(CIRCUIT.t*8)):(0.4+0.2*Math.sin(CIRCUIT.t*2+i)); }
+  const L=CIRCUIT.lap, pl=(typeof player!=='undefined')?player:null;
+  if(pl&&pl._bikeMode){
+    // boost pads
+    for(const pd of CIRCUIT.pads){ pd.cd=Math.max(0,pd.cd-dt);
+      const dx=pl.wx-pd.x, dz=pl.wz-pd.z;
+      if(dx*dx+dz*dz<70*70){ pl._skSpeed=Math.min((window._BIKE_MAXV||620)*1.55,(pl._skSpeed||0)+(window._CIR_BOOST||1500)*dt);
+        if(pd.cd<=0){ pd.cd=1.1; try{ Audio.blip(880,0.09,'sawtooth',0.25,1400); }catch(_){ } try{ if(typeof flashScreen==='function')flashScreen('#39ffa044',90); }catch(_){ } } }
+      const on=pd.cd>0; pd.g.children.forEach((ch,k)=>{ ch.material.opacity=on?0.95:(0.35+0.3*Math.sin(CIRCUIT.t*6+k)); }); }
+    // ordered checkpoints -> lap timing
+    const r=CIRCUIT.rings[L.next];
+    if(L.run&&r){ const dx=pl.wx-r.position.x, dz=pl.wz-r.position.z;
+      if(dx*dx+dz*dz<90*90){ L.next++; try{ Audio.blip(1200,0.07,'sine',0.22,1800); }catch(_){ } } }
+    const gx=pl.wx-_CIR_A, gz=pl.wz;
+    if(gx*gx+gz*gz<95*95){
+      if(!L.run){ L.run=true; L.t0=CIRCUIT.t; L.next=0; }
+      else if(L.next>=CIRCUIT.rings.length){ const lt=CIRCUIT.t-L.t0; L.n++;
+        if(!L.best||lt<L.best){ L.best=lt; try{ if(typeof announce==='function')announce('NEW BEST LAP '+_cirFmt(lt),'#39ffa0'); }catch(_){ } }
+        else { try{ if(typeof announce==='function')announce('LAP '+L.n+' · '+_cirFmt(lt),'#33e8ff'); }catch(_){ } }
+        L.t0=CIRCUIT.t; L.next=0; }
+    }
+  }
+  if(CIRCUIT.hud&&(CIRCUIT._hudT+=dt)>0.12){ CIRCUIT._hudT=0;
+    CIRCUIT.hud.textContent = L.run ? ('LAP '+(L.n+1)+' · '+_cirFmt(CIRCUIT.t-L.t0)+' · '+L.next+'/'+CIRCUIT.rings.length+(L.best?(' · BEST '+_cirFmt(L.best)):'')) : 'CROSS THE GATE TO START'; }
 }
 function _circuitDispose(){
-  CIRCUIT.active=false; window._RIDE_EDGE_R=undefined;
+  CIRCUIT.active=false; window._RIDE_EDGE_R=undefined; window._rideSurfY=undefined;
+  try{ if(CIRCUIT.hud&&CIRCUIT.hud.parentNode)CIRCUIT.hud.parentNode.removeChild(CIRCUIT.hud); }catch(_){}
+  CIRCUIT.hud=null;
   try{ if(CIRCUIT.grp&&CIRCUIT.grp.parent)CIRCUIT.grp.parent.remove(CIRCUIT.grp); }catch(_){}
-  CIRCUIT.grp=null; CIRCUIT.rings.length=0;
+  CIRCUIT.grp=null; CIRCUIT.rings.length=0; CIRCUIT.pads.length=0;
 }
-window.buildCircuit=buildCircuit; window.updateCircuit=updateCircuit; window._circuitDispose=_circuitDispose;
+window.buildCircuit=buildCircuit; window.updateCircuit=updateCircuit; window._circuitDispose=_circuitDispose; window.CIRCUIT=CIRCUIT;
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 //  THE DECK — the music room (zone -33). A DJ booth on a floating stage: your robit stands behind
@@ -16976,7 +17039,9 @@ class Player{
       const _ceil=(window._HB_JET_CEIL||700); if(this._hbHopY>_ceil){ this._hbHopY=_ceil; if(this._hbHopVy>0)this._hbHopVy=0; }
       const _dip=(window._HB_DIP||22); if(this._hbHopY<-_dip){ this._hbHopY=-_dip; if(this._hbHopVy<0)this._hbHopVy=0; }   // can rebound BELOW hover height (bounce) but never reaches the ground
       const _tb=performance.now()*0.001, _bob=Math.sin(_tb*(window._HB_BOB_SPD||2.1))*(window._HB_BOB_AMP||3.4)+Math.sin(_tb*(window._HB_BOB_SPD2||3.3)+1.7)*(window._HB_BOB_AMP2||1.3);   // floaty two-tone pulse
-      this.py=(window._HB_HOVER_Y||15)+_bob+this._hbHopY;
+      let _surf=0; if(typeof window._rideSurfY==='function'){ try{ _surf=window._rideSurfY(this.wx,this.wz)||0; }catch(_){} }   // track elevation (CIRCUIT hill etc.)
+      this._rsY=(this._rsY==null)?_surf:this._rsY+(_surf-this._rsY)*Math.min(1,dt*7);   // eased so crests FLOAT instead of popping
+      this.py=(window._HB_HOVER_Y||15)+_bob+this._hbHopY+this._rsY;
     }   // anti-grav: pin float + bob, poppable hop, full-throttle jetpack climb; override gravity
     else if(this._hang){ this.pvy=0; }                                                 // hanging: position pinned by the handler, no gravity
     else { let _g=GRAV; if(this._airSlam){ _g*=(window._SLAM_FALL_MULT!=null?window._SLAM_FALL_MULT:1.8); if(this.pvy>0)this.pvy*=0.5; }   // air slam: accelerate the dive so he really smashes down
