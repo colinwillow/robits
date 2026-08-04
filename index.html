@@ -511,7 +511,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-music" data-col="mid" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <button id="btn-audio-mix" onclick="window.toggleAudioMix&&window.toggleAudioMix()" title="SOLO: game keeps audio focus and plays through the silent switch. MIX: share audio so YouTube/Spotify can play alongside (silent switch must be OFF)." style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 8h4l3 8h4l3-4h2"/></svg><span id="mx-lbl">SOLO</span></button>
-  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1331</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
+  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1332</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -9988,6 +9988,53 @@ function _twBuildRoom(i){
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 const BIKE={ grp:null, flame:null, pods:[], glow:null, riding:false, sav:null };
 function _buildRideBike(){
+  // THE REAL MOTORCYCLE, HOVER-CONVERTED. The detailed chopper build (the one that actually reads as
+  // a bike) with the ground running-gear stripped: rubber, spokes, hubs and brake discs go, the neon
+  // rim RINGS stay floating where the wheels were = repulsor rings. Then boosters + jets fatten it up.
+  // Falls back to the simple procedural speeder if the chopper builder is ever missing.
+  BIKE.pods.length=0;
+  if(window._BIKE_PROC===true) return _buildRideBikeProc();                    // A/B: force the simple procedural speeder
+  let chop=null; try{ chop=(typeof _buildChopper==='function')?_buildChopper():null; }catch(_){ chop=null; }
+  if(!chop) return _buildRideBikeProc();
+  const g=new THREE.Group();
+  const inner=new THREE.Group(); inner.add(chop); inner.rotation.y=-Math.PI/2; g.add(inner);   // chopper noses +X -> ride system wants +Z
+  chop.scale.setScalar(1);                                                     // undo the garage-showcase 1.4x baked into _buildChopper — ride scale is _BIKE_SCALE's job
+  const MB=(c,o)=>new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:(o==null?1:o),depthWrite:false,fog:false,toneMapped:false,blending:THREE.AdditiveBlending});
+  // strip the ground running-gear around each axle, keep the glowing rings
+  const AXLES=[{x:-24,y:7,z:0,r:7.2},{x:33,y:6.4,z:0,r:6.6}];
+  const kill=[];
+  chop.traverse(o=>{ if(!o.isMesh)return;
+    for(const A of AXLES){ const d=Math.hypot(o.position.x-A.x,o.position.y-A.y,o.position.z-A.z);
+      if(d<A.r+3.5){
+        const isNeonRing=(o.geometry&&o.geometry.type==='TorusGeometry'&&o.material&&o.material.isMeshBasicMaterial);
+        if(!isNeonRing)kill.push(o);
+      } } });
+  for(const o of kill){ try{ if(o.parent)o.parent.remove(o); }catch(_){} }
+  // repulsor pods: glow disc + downward wash at each axle (in chopper-local space, so add to `chop`)
+  for(const A of AXLES){
+    const disc=new THREE.Mesh(new THREE.CircleGeometry(A.r*0.62,26),MB(0x33e8ff,0.35)); disc.position.set(A.x,A.y,A.z); chop.add(disc);
+    const disc2=disc.clone(); disc2.rotation.y=Math.PI; chop.add(disc2);
+    const wash=new THREE.Mesh(new THREE.ConeGeometry(A.r*0.8,8,16,1,true),MB(0x33e8ff,0.15)); wash.rotation.x=Math.PI; wash.position.set(A.x,A.y-6.5,A.z); chop.add(wash);
+    BIKE.pods.push(wash);
+  }
+  // BOOSTERS — twin jet pods flanking the tail + the main flame (this is the "fatter, jet stuff")
+  const SH=(c,e)=>new THREE.MeshStandardMaterial({color:c,metalness:0.85,roughness:0.3,emissive:(e||0x203050),emissiveIntensity:0.7,toneMapped:false});
+  for(const sz of [-1,1]){
+    const pod=new THREE.Mesh(new THREE.CylinderGeometry(2.2,2.8,9,14),SH(0x1a2440,0x2a3a60)); pod.rotation.z=Math.PI/2; pod.position.set(-27,10.5,sz*5.4); chop.add(pod);
+    const lip=new THREE.Mesh(new THREE.TorusGeometry(2.5,0.5,8,20),MB(0xff2d95,0.85)); lip.rotation.y=Math.PI/2; lip.position.set(-31.6,10.5,sz*5.4); chop.add(lip);
+    const fl=new THREE.Mesh(new THREE.ConeGeometry(1.9,7,12,1,true),MB(0x39ffa0,0.5)); fl.rotation.z=Math.PI/2; fl.position.set(-35,10.5,sz*5.4); chop.add(fl);
+    BIKE.pods.push(fl);
+  }
+  BIKE.flame=new THREE.Mesh(new THREE.ConeGeometry(2.6,10,14,1,true),MB(0x39ffa0,0.5));
+  BIKE.flame.rotation.z=Math.PI/2; BIKE.flame.position.set(-33,8,0); chop.add(BIKE.flame);
+  // underglow
+  BIKE.glow=new THREE.Mesh(new THREE.PlaneGeometry(52,13),MB(0xff2d95,0.13)); BIKE.glow.rotation.x=-Math.PI/2; BIKE.glow.rotation.z=Math.PI/2; BIKE.glow.position.set(0,1.4,0);
+  g.add(BIKE.glow);
+  g.traverse(o=>{ o.frustumCulled=false; });
+  return g;
+}
+function _buildRideBikeProc(){
+
   const g=new THREE.Group();
   const CY=0x33e8ff, MG=0xff2d95, MINT=0x39ffa0;
   const MB=(c,o)=>new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:(o==null?1:o),depthWrite:false,fog:false,toneMapped:false,blending:THREE.AdditiveBlending});
@@ -10027,12 +10074,12 @@ function _buildRideBike(){
 // mount = the hoverboard ride (physics) + the bike mesh + the ride pose + hotter tunables
 function _bikeMount(){
   if(!player||BIKE.riding)return;
-  if(!BIKE.grp){ BIKE.pods.length=0; BIKE.grp=_buildRideBike(); BIKE.grp.scale.setScalar(window._BIKE_SCALE||1.45); if(typeof scene!=='undefined')scene.add(BIKE.grp); }
+  if(!BIKE.grp){ BIKE.pods.length=0; BIKE.grp=_buildRideBike(); BIKE.grp.scale.setScalar(window._BIKE_SCALE||1.05); if(typeof scene!=='undefined')scene.add(BIKE.grp); }
   BIKE.grp.visible=true;
   BIKE.sav={ MAXV:window._HB_MAXV, ACCEL:window._HB_ACCEL, TURN:window._HB_TURN, STRAFE:window._HB_STRAFE, HOVER:window._HB_HOVER_Y, DROP:window._HB_RIDER_DROP, CTRL:window._HB_CTRL };
   window._HB_MAXV=(window._BIKE_MAXV||620); window._HB_ACCEL=(window._BIKE_ACCEL||3.1);
   window._HB_TURN=(window._BIKE_TURN||2.2); window._HB_STRAFE=(window._BIKE_STRAFE||120);
-  window._HB_HOVER_Y=(window._BIKE_HOVER_Y||16); window._HB_RIDER_DROP=(window._BIKE_RIDER_DROP!=null?window._BIKE_RIDER_DROP:6);   // sink the rider onto the SEAT (the straddle pose hips sit ~11 over his origin; seat tops out ~16 over the bike base)
+  window._HB_HOVER_Y=(window._BIKE_HOVER_Y||16); window._HB_RIDER_DROP=(window._BIKE_RIDER_DROP!=null?window._BIKE_RIDER_DROP:9);   // sink the rider onto the SEAT (the straddle pose hips sit ~11 over his origin; seat tops out ~16 over the bike base)
   if(typeof _mountHoverboard==='function')_mountHoverboard();
   // resolve the baked ride/straddle clips NOW (normally only the creature-mount flow does this) so the
   // animation selector plays ride_idle instead of falling through to the skate pose
@@ -10053,6 +10100,12 @@ function _bikeDismount(silent){
 function _bikeTick(dt){
   if(!BIKE.riding||!BIKE.grp||!player){ return; }
   if(!player._onHoverboard){ _bikeDismount(true); return; }
+  // resolve the baked ride clips LAZILY — the auto-mount can fire before the robot GLB finishes
+  // loading, so a mount-time lookup finds no clips and the pose falls back to the skate idle
+  try{ const ud=player.model&&player.model.userData;
+    if(ud&&ud.clips&&!ud._rideIdleName){ const ks=Object.keys(ud.clips).filter(k=>!k.startsWith('_'));
+      if(ks.length){ ud._rideIdleName = ud.clips['ride_idle']?'ride_idle':(ks.find(k=>/ride/i.test(k)&&/idle/i.test(k))||ks.find(k=>/ride/i.test(k)&&!/shoot|shot|fire|aim/i.test(k))||null);
+        ud._rideShootName = ud.clips['ride_shoot']?'ride_shoot':(ks.find(k=>/ride/i.test(k)&&/(shoot|shot|fire)/i.test(k))||null); } } }catch(_){}
   const g=BIKE.grp, nth=player._skHeading||0, F=(window._BIKE_FWD!=null?window._BIKE_FWD:7);
   g.position.set(player.wx+Math.sin(nth)*F, (player.py||0)-14, player.wz+Math.cos(nth)*F);   // bike sits a touch AHEAD so the seat (rear of centre) lands under the straddle
   g.rotation.y=nth;
@@ -10068,7 +10121,7 @@ function _bikeTick(dt){
 // RIDING POSE — layered on top of the rig's baked ride_idle straddle (played by the mount branch):
 // a forward lean + arms reaching to the bars. Runs post-mixer. Tunable live via window._BIKE_POSE.
 const _BIKE_POSE_DEF={ Spine:[0.16,0,0], Spine1:[0.15,0,0], Spine2:[0.10,0,0], Neck:[-0.28,0,0], Head:[-0.10,0,0],
-  LeftArm:[0.38,0,0.14], RightArm:[0.38,0,-0.14], LeftForeArm:[0.22,0,0], RightForeArm:[0.22,0,0] };
+  LeftArm:[0.62,0,0.10], RightArm:[0.62,0,-0.10], LeftForeArm:[0.30,0,0], RightForeArm:[0.30,0,0] };
 const _bkQ=null;
 function _bikePoseTick(){
   if(!BIKE.riding||!player||!player.model)return;
