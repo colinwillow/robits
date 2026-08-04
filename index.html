@@ -529,7 +529,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-music" data-col="mid" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <button id="btn-audio-mix" onclick="window.toggleAudioMix&&window.toggleAudioMix()" title="SOLO: game keeps audio focus and plays through the silent switch. MIX: share audio so YouTube/Spotify can play alongside (silent switch must be OFF)." style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 8h4l3 8h4l3-4h2"/></svg><span id="mx-lbl">SOLO</span></button>
-  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1343</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
+  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1344</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -3997,9 +3997,20 @@ window._retargetRestDelta=_retargetRestDelta; window._restMapOf=_restMapOf;
 //   world DELTA from the source rest; replay it on the target's AUTHORED import pose (his real T-pose);
 //   convert back to locals against the already-corrected parent. This carries the parent term the old
 //   per-bone _retargetRestDelta lacked (which is what splayed the arms/legs). Toggle: _MOUSSA_TPOSE=false.
+function _tposeSymmetrize(src, keep){   // the robot rig's L/R shoulder frames differ ~73deg — mirror the GOOD side's rest onto the other so the delta doesn't inject a one-sided twist
+  const out={}; for(const k in src)out[k]=src[k].clone?src[k].clone():src[k];
+  const pairs=[['LeftShoulder','RightShoulder'],['LeftArm','RightArm'],['LeftForeArm','RightForeArm'],['LeftHand','RightHand'],['LeftUpLeg','RightUpLeg'],['LeftLeg','RightLeg'],['LeftFoot','RightFoot']];
+  for(const [L,R] of pairs){ const ln='mixamorig_'+L, rn='mixamorig_'+R;
+    if(!out[ln]||!out[rn])continue;
+    if(keep==='R'){ const q=out[rn]; out[ln]=new THREE.Quaternion(q.x,-q.y,-q.z,q.w); }
+    else { const q=out[ln]; out[rn]=new THREE.Quaternion(q.x,-q.y,-q.z,q.w); } }
+  return out;
+}
 function _tposePrep(model){
   const ud=model.userData; if(ud._tpPrep!==undefined)return ud._tpPrep;
-  const src=window._robotRestMap, dst=ud._dstRest; if(!src||!dst){ ud._tpPrep=null; return null; }
+  let src=window._robotRestMap; const dst=ud._dstRest; if(!src||!dst){ ud._tpPrep=null; return null; }
+  const sym=(window._TPOSE_SYM!==undefined?window._TPOSE_SYM:'L');   // 'L' mirror left->right (A/B'd best: level shoulders, arms hang true), 'R' the other way, null = raw
+  if(sym)src=_tposeSymmetrize(src,sym);
   const rws={}, rwd={}, list=[];
   model.traverse(b=>{ if(!b.isBone||!b.name)return; const nm=b.name, pn=(b.parent&&b.parent.isBone)?b.parent.name:null;
     const dL=dst[nm]; if(!dL)return; const sL=src[nm]||dL;
