@@ -529,7 +529,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-music" data-col="mid" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <button id="btn-audio-mix" onclick="window.toggleAudioMix&&window.toggleAudioMix()" title="SOLO: game keeps audio focus and plays through the silent switch. MIX: share audio so YouTube/Spotify can play alongside (silent switch must be OFF)." style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 8h4l3 8h4l3-4h2"/></svg><span id="mx-lbl">SOLO</span></button>
-  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1353</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
+  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1354</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -10228,13 +10228,36 @@ function _buildRideBikeProc(){
   return g;
 }
 // mount = the hoverboard ride (physics) + the bike mesh + the ride pose + hotter tunables
+// park the bike in the world so you walk up to it and interact (the normal right-stick tap prompt)
+function _bikePark(x,z,h,y){
+  if(!BIKE.grp){ BIKE.pods.length=0; BIKE.grp=_buildRideBike(); BIKE.grp.scale.setScalar(window._BIKE_SCALE||1.6); if(typeof scene!=='undefined')scene.add(BIKE.grp); }
+  BIKE.grp.visible=true; BIKE.riding=false; BIKE._hop=null;
+  BIKE.park={x:x||0, z:(z||0), h:(h||0), y:(y||0)};
+  return BIKE.park;
+}
+// tap-to-mount: he JUMPS, arcs across, and lands in the saddle (no teleport)
+function _bikeMountHop(){
+  if(!player||BIKE.riding||BIKE._hop)return false;
+  const P=BIKE.park; if(!P)return false;
+  BIKE._hop={t:0, dur:(window._BIKE_HOP_DUR!=null?window._BIKE_HOP_DUR:0.52), x0:player.wx, z0:player.wz, y0:(player.py||0)};
+  try{ const ud=player.model&&player.model.userData;
+    if(ud&&ud.clips){ const jc=ud.clips['jump']||ud.clips['front_flip']||ud.clips['jump_up'];
+      if(jc){ Object.values(ud.clips).forEach(a=>a.fadeOut(0.1)); jc.reset().setEffectiveWeight(1).setLoop(THREE.LoopOnce,1); jc.clampWhenFinished=true; jc.fadeIn(0.1).play(); ud.currentClip='jump'; } } }catch(_){}
+  try{ if(!(window._uiSfx&&window._uiSfx('ping',0.35,1.2)))Audio.blip(560,0.09,'square',0.16,880); }catch(_){}
+  try{ if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.3,0.92,1],16,110); }catch(_){}
+  window._nearBike=null;
+  return true;
+}
+window._bikePark=_bikePark; window._bikeMountHop=_bikeMountHop;
 function _bikeMount(){
   if(!player||BIKE.riding)return;
+  BIKE.park=null; window._nearBike=null;
   if(!BIKE.grp){ BIKE.pods.length=0; BIKE.grp=_buildRideBike(); BIKE.grp.scale.setScalar(window._BIKE_SCALE||1.6); if(typeof scene!=='undefined')scene.add(BIKE.grp); }
   BIKE.grp.visible=true;
   BIKE.sav={ MAXV:window._HB_MAXV, ACCEL:window._HB_ACCEL, TURN:window._HB_TURN, STRAFE:window._HB_STRAFE, HOVER:window._HB_HOVER_Y, DROP:window._HB_RIDER_DROP, CTRL:window._HB_CTRL };
   window._HB_MAXV=(window._BIKE_MAXV||620); window._HB_ACCEL=(window._BIKE_ACCEL||3.1);
   window._HB_TURN=(window._BIKE_TURN||2.2); window._HB_STRAFE=(window._BIKE_STRAFE||120);
+  window._HB_STRAFE=(window._BIKE_STRAFE!=null?window._BIKE_STRAFE:430);       // side-step with real authority (was a nudge)
   window._HB_HOVER_Y=(window._BIKE_HOVER_Y||16); window._HB_RIDER_DROP=(window._BIKE_RIDER_DROP!=null?window._BIKE_RIDER_DROP:1);
   window._HB_CTRL=(window._BIKE_CTRL||'ghost');                                 // Halo-Ghost scheme on the bike: L throttle+strafe, R turn, R deep-up fires   // seat the rider on the torpedo saddle (seat top ~py+8 at ride scale; hips sit right at his origin in the straddle)
   if(typeof _mountHoverboard==='function')_mountHoverboard();
@@ -10250,12 +10273,33 @@ function _bikeMount(){
 function _bikeDismount(silent){
   if(player){ player._bikeMode=false; if(player._onHoverboard&&typeof _dismountHoverboard==='function'&&!silent)_dismountHoverboard(); else if(player)player._onHoverboard=false; }
   if(BIKE.sav){ window._HB_MAXV=BIKE.sav.MAXV; window._HB_ACCEL=BIKE.sav.ACCEL; window._HB_TURN=BIKE.sav.TURN; window._HB_STRAFE=BIKE.sav.STRAFE; window._HB_HOVER_Y=BIKE.sav.HOVER; window._HB_RIDER_DROP=BIKE.sav.DROP; window._HB_CTRL=BIKE.sav.CTRL; BIKE.sav=null; }
-  if(BIKE.grp)BIKE.grp.visible=false;
-  BIKE.riding=false;
+  BIKE.riding=false; BIKE._hop=null;
+  if(BIKE.grp){ if(window._BIKE_REPARK!==false && player){ _bikePark(player.wx+Math.sin(player._skHeading||0)*26, player.wz+Math.cos(player._skHeading||0)*26, player._skHeading||0, 0); }
+    else BIKE.grp.visible=false; }
 }
 // per-frame: park the bike under the rider, bank it with the lean, pitch it with the carve, run the FX
 function _bikeTick(dt){
-  if(!BIKE.riding||!BIKE.grp||!player){ return; }
+  if(!player){ return; }
+  // ── PARKED — the bike waits in the world; walk up and tap to mount (registers with the normal interact prompt) ──
+  if(!BIKE.riding && BIKE.grp && BIKE.park && !BIKE._hop){
+    const P=BIKE.park; BIKE.grp.position.set(P.x,(P.y||0)-14+Math.sin(performance.now()*0.0016)*1.6, P.z);
+    BIKE.grp.rotation.set(0,P.h||0,Math.sin(performance.now()*0.0011)*0.03);
+    const d=Math.hypot(player.wx-P.x, player.wz-P.z);
+    window._nearBike=(d<(window._BIKE_GRAB_R||70) && Math.abs((player.py||0)-(P.y||0))<70 && !player._skydive && !player._onHoverboard)?P:null;
+    if(BIKE.glow)BIKE.glow.material.opacity=0.10+0.05*Math.sin(performance.now()*0.004);
+    return;
+  }
+  // ── MOUNT HOP — he JUMPS and lands on the seat instead of teleporting aboard ──
+  if(BIKE._hop){ const H=BIKE._hop; H.t+=dt; const k=Math.min(1,H.t/H.dur), P=BIKE.park||{x:H.x0,z:H.z0};
+    player.wx=H.x0+(P.x-H.x0)*k; player.wz=H.z0+(P.z-H.z0)*k;
+    const seat=(window._BIKE_HOVER_Y||16);
+    player.py=H.y0+(seat-H.y0)*k+Math.sin(k*Math.PI)*(window._BIKE_HOP_H||52);
+    player.pvy=0; player.vx=0; player.vz=0;
+    if(BIKE.grp){ BIKE.grp.position.set(P.x,(P.y||0)-14,P.z); BIKE.grp.rotation.set(0,P.h||0,0); }
+    if(k>=1){ BIKE._hop=null; window._nearBike=null; _bikeMount(); }
+    return;
+  }
+  if(!BIKE.riding||!BIKE.grp){ return; }
   if(!player._onHoverboard){ _bikeDismount(true); return; }
   // resolve the baked ride clips LAZILY — the auto-mount can fire before the robot GLB finishes
   // loading, so a mount-time lookup finds no clips and the pose falls back to the skate idle
@@ -10270,7 +10314,7 @@ function _bikeTick(dt){
   g.rotation.z=lean*(window._BIKE_BANK||1.5);                                   // bikes BANK into the turn harder than the rider
   const carve=THREE.MathUtils.clamp((player._hbHopVy||0)*0.0016,-0.3,0.3);
   const _lp=(window.CIRCUIT&&CIRCUIT.loop&&CIRCUIT.loop.riding)?CIRCUIT.loop.th:0;
-  g.rotation.x=-(player._skThrottle||0)*(window._BIKE_PITCH||0.10)+carve-_lp;   // nose dips on throttle, lifts on the hop; the LOOP pitches the whole bike around
+  g.rotation.x=-(player._skThrottle||0)*(window._BIKE_PITCH||0.10)+carve-_lp+(player._bikeWheelie||0)*(window._BIKE_WHEELIE!=null?window._BIKE_WHEELIE:0.55);   // nose dips on throttle, lifts on the hop, LOOP pitches it around — and pulling back pops a WHEELIE
   const sp=Math.abs(player._skSpeed||0)/((window._BIKE_MAXV||620));
   if(BIKE.flame){ BIKE.flame.scale.set(1,0.5+sp*1.6+Math.random()*0.15,1); BIKE.flame.material.opacity=0.3+sp*0.55; }
   for(const p2 of BIKE.pods){ if(p2.geometry&&p2.geometry.type==='TorusGeometry')p2.rotation.z+=dt*(2+sp*9); else p2.material.opacity=0.08+sp*0.22; }
@@ -10297,7 +10341,7 @@ function _bikeTick(dt){
       const b=new Bullet(mw.x, mw.z, fx2*sp+ (player.vx||0)*0.4, fz2*sp+(player.vz||0)*0.4, 'laser', mw.y, 0, true);
       b.dmg=(window._BIKE_SHOT_DMG!=null?window._BIKE_SHOT_DMG:2.5); b.pierce=1; GS.bullets.push(b);
       if(BIKE.boostJet)BIKE.boostJet.material.opacity=Math.max(BIKE.boostJet.material.opacity,0.4);
-      try{ Audio.blip(1250,0.045,'square',0.16,700); }catch(_){}
+      try{ if(Audio.shoot)Audio.shoot(); else Audio.blip(1250,0.045,'square',0.16,700); }catch(_){}   // the real gunshot (custom bike sample drops in here later)
       try{ ps.spark(mw.x,mw.z,[0.62,0.91,1],mw.y); }catch(_){}
     }catch(_){}
   }
@@ -10319,7 +10363,7 @@ function _bikePoseTick(){
   for(const k in tbl){ const b=bones['mixamorig_'+k], base=BIKE._poseBase[k]; if(!b||!base)continue; const e=tbl[k];
     b.quaternion.copy(base).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(e[0]||0,e[1]||0,e[2]||0))); }
 }
-window._bikeMount=_bikeMount; window._bikeDismount=_bikeDismount; window._bikeTick=_bikeTick; window._bikePoseTick=_bikePoseTick;
+window._bikeMount=_bikeMount; window._bikeDismount=_bikeDismount; window._bikeTick=_bikeTick; window._bikePoseTick=_bikePoseTick; window.BIKE=BIKE;
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 //  THE APEX (zone -34) — the full 3-D circuit. A ~12,000-unit closed spline that climbs, dives and
@@ -10452,7 +10496,10 @@ function buildCircuit(){
   // spawn a beat before the gate, facing along the track
   try{ if(player){ const k0=N-14; player.wx=S.x[k0]; player.wz=S.z[k0]; player.py=S.y[k0]; player.facing=S.h[k0]; player._skHeading=S.h[k0]; player._rsY=S.y[k0]; } }catch(_){}
   CIRCUIT.lastCk={x:S.x[N-14],z:S.z[N-14],h:S.h[N-14]};
-  setTimeout(()=>{ try{ if(typeof GS!=='undefined'&&GS.zone===-34)_bikeMount(); }catch(_){} }, 700);
+  setTimeout(()=>{ try{ if(typeof GS!=='undefined'&&GS.zone===-34&&window._bikePark&&player){
+    const h=player._skHeading||player.facing||0;                                   // park it a few steps AHEAD of wherever the level actually spawned you
+    window._bikePark(player.wx+Math.sin(h)*70, player.wz+Math.cos(h)*70, h, (player.py||0));
+    if(typeof announce==='function')announce('WALK UP TO THE BIKE · TAP TO MOUNT','#39ffa0'); } }catch(_){} }, 700);
   try{ if(typeof announce==='function')setTimeout(()=>announce('THE APEX · GATE ▸ RINGS ▸ GATE · HIT THE LOOP FAST','#33e8ff'),1600); }catch(_){}
 }
 function _apexNearest(x,z){ const S=CIRCUIT.S, grid=CIRCUIT.grid; if(!S||!grid)return null;
@@ -10542,6 +10589,7 @@ function _circuitDispose(){
   CIRCUIT.hud=null;
   try{ if(CIRCUIT.grp&&CIRCUIT.grp.parent)CIRCUIT.grp.parent.remove(CIRCUIT.grp); }catch(_){}
   CIRCUIT.grp=null; CIRCUIT.rings.length=0; CIRCUIT.pads.length=0; CIRCUIT.S=null; CIRCUIT.grid=null; CIRCUIT.loop=null; CIRCUIT._beacon=null;
+  try{ window._nearBike=null; if(typeof BIKE!=='undefined'){ BIKE.park=null; BIKE._hop=null; if(BIKE.grp)BIKE.grp.visible=false; } }catch(_){}
 }
 window.buildCircuit=buildCircuit; window.updateCircuit=updateCircuit; window._circuitDispose=_circuitDispose; window.CIRCUIT=CIRCUIT;
 
@@ -16093,7 +16141,15 @@ class Player{
     let steerIn, throttle, strafe; const _ctrl=(window._HB_CTRL||'hover');
     if(_ctrl==='twin'){ steerIn=rx; throttle=-ly; strafe=lx; this._hbJetInput=0; this._hbDescInput=0; }   // right stick drives
     else if(_ctrl==='car'){ steerIn=lx; throttle=-ry; strafe=rx; this._hbJetInput=0; this._hbDescInput=0; }   // left steers, right throttles+strafes
-    else if(_ctrl==='ghost'){ steerIn=rx; throttle=-ly; strafe=lx; this._hbJetInput=Math.max(0,-ry); this._hbDescInput=Math.max(0,ry); this._bikeFireIn=Math.max(0,-ry); }   // 'ghost' (Halo-style): LEFT = throttle + STRAFE, RIGHT X = turn (chase cam follows), RIGHT deep-up = FIRE the bike guns (gentle up still climbs), down = sink
+    else if(_ctrl==='ghost'){ steerIn=rx; throttle=-ly; strafe=lx;
+      // RIGHT stick: X turns · UP fires the bike guns · DOWN pops a wheelie · PRESS-AND-HOLD THE CENTRE lifts off.
+      // (Up no longer climbs — that was hover-board residue riding along with the fire input.)
+      const _rTouch=!!(window._jR&&window._jR.id!==null), _rMag=Math.hypot(rx,ry);
+      this._hbJetInput=(_rTouch&&_rMag<(window._BIKE_LIFT_DEAD!=null?window._BIKE_LIFT_DEAD:0.42))?1:0;   // centre hold = fly up (a quick centre TAP is still the interact tap)
+      this._hbDescInput=0;
+      this._bikeFireIn=Math.max(0,-ry);
+      this._bikeWheelie=Math.max(0,ry);
+    }
     else { steerIn=lx; throttle=-ly; strafe=rx; this._hbJetInput=Math.max(0,-ry); this._hbDescInput=Math.max(0,ry); }   // 'hover' (DEFAULT): LEFT stick steers + drives forward/back; RIGHT stick UP = vertical jet, DOWN = sink/brake, sideways = strafe. No jump.
     this._skThrottle=throttle;                                    // feeds the skate animation
     const MAXV=(window._HB_MAXV||430), accel=(window._HB_ACCEL||2.6);
@@ -17585,7 +17641,7 @@ class Player{
     this._gflipActive=_gflip;   // draw() reads this to flip the model upside-down (feet on the ceiling)
     if(this._onHoverboard){ this.pvy=0;
       const jetIn=clamp(this._hbJetInput||0,0,1), descIn=clamp(this._hbDescInput||0,0,1);   // right-stick UP = jet boost up, DOWN = sink/brake
-      if(jetIn>0.06 && (this.boostFuel>0||this._bikeMode)){ this._hbHopVy=(this._hbHopVy||0)+(window._HB_JET_FORCE||760)*jetIn*dt;
+      if(jetIn>0.06 && (this.boostFuel>0||this._bikeMode)){ this._hbHopVy=(this._hbHopVy||0)+(this._bikeMode?(window._BIKE_JET_FORCE!=null?window._BIKE_JET_FORCE:1250):(window._HB_JET_FORCE||760))*jetIn*dt;
         if(this._bikeMode){ this._jetting=false; this._bikeJetK=jetIn; }   // the BIKE boosts (its own jets, no fuel, no backpack flame)
         else { this.boostFuel=Math.max(0,this.boostFuel-(window._HB_JET_BURN||45)*jetIn*dt); this._jetting=true; if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(this.wx+rand(-6,6),this.wz+rand(-6,6),[0.2,0.9,1],this.py); } }
       else { this._jetting=false; this._bikeJetK=0; }
@@ -22325,6 +22381,7 @@ function _nearestGrab(){
   if(!player||player._carryPayload) return null;
   const cands=[];
   if(window._nearBoard) cands.push({kind:'board',ref:window._nearBoard, d:Math.hypot(player.wx-window._nearBoard.x,player.wz-window._nearBoard.z)});
+  if(window._nearBike) cands.push({kind:'bike',ref:window._nearBike, d:Math.hypot(player.wx-window._nearBike.x,player.wz-window._nearBike.z)});   // parked hover bike -> tap to hop aboard
   if(window._nearPad) cands.push({kind:'weapon',ref:window._nearPad, d:Math.hypot(player.wx-window._nearPad.x,player.wz-window._nearPad.z)});
   if(window._nearJewelPod && !window._nearJewelPod.taken) cands.push({kind:'jewelpod',ref:window._nearJewelPod, d:Math.hypot(player.wx-window._nearJewelPod.x,player.wz-window._nearJewelPod.z)});   // pod dispenser -> tap to take the companion
   if(window._nearConvGun) cands.push({kind:'convgun',ref:window._nearConvGun, d:Math.hypot(player.wx-window._nearConvGun.x,player.wz-window._nearConvGun.z)});
@@ -22360,6 +22417,7 @@ function _grabItem(fromSlide){
   if(g.kind==='armory'){ if(typeof _armoryEnter2==='function')_armoryEnter2(); return true; }   // standing on the forge pad -> ride up into the workshop
   if(g.kind==='jewelpod'){ if(typeof _takePod==='function')_takePod(g.ref); return true; }   // tap at an open pod dispenser -> spend jewels + unlock the companion
   if(g.kind==='board'){ _mountHoverboard(); return true; }   // walk up to the hoverboard + interact -> ride
+  if(g.kind==='bike'){ if(window._bikeMountHop)window._bikeMountHop(); return true; }   // walk up to the parked bike + interact -> jump aboard
   if(g.kind==='weapon'){ const st=g.ref; if(typeof _equipWeapon==='function')_equipWeapon(st.weapon, st.ammo); if(typeof _padConsume==='function')_padConsume(st); window._nearPad=null; return true; }   // grab a weapon pad -> equip the gun (keeps its remaining ammo if it was a drop), no carrying
   if(g.kind==='convgun'){ const st=g.ref; if(typeof _equipWeapon==='function')_equipWeapon(st.weapon); if(window._gunConveyor)window._gunConveyor.grabCd=(window._CONVEYOR_GRAB_CD||0.8); window._nearConvGun=null; if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[1,0.85,0.3],22,150); return true; }   // grab the gun parked at the conveyor station -> equip it (belt restocks; display gun keeps circling)
   if(g.kind==='meleepad'){ const st=g.ref; if(typeof _collectHammer==='function'&&_collectHammer(st)){ if(typeof _padConsume==='function')_padConsume(st); } window._nearHammer=null; return true; }   // grab a melee station -> equip the melee weapon
