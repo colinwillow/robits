@@ -529,7 +529,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-music" data-col="mid" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <button id="btn-audio-mix" onclick="window.toggleAudioMix&&window.toggleAudioMix()" title="SOLO: game keeps audio focus and plays through the silent switch. MIX: share audio so YouTube/Spotify can play alongside (silent switch must be OFF)." style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 8h4l3 8h4l3-4h2"/></svg><span id="mx-lbl">SOLO</span></button>
-  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1348</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
+  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1349</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -4028,10 +4028,15 @@ function _tposeRetargetTick(model){
   for(const e of pr.list){
     const pe=e.pn?byName[e.pn]:null;
     const q=e.b.quaternion;
-    // untracked bones keep OUR previous output — re-correcting it would compound (the bike-pose trap).
-    // If the mixer didn't rewrite this bone, fall back to the last SOURCE local we saw for it.
-    const same=Math.abs(q.x*e.lastOut.x+q.y*e.lastOut.y+q.z*e.lastOut.z+q.w*e.lastOut.w)>0.9999995;
-    const srcQ=same?e.lastSrc:e.lastSrc.copy(q);
+    // Which value is this? (a) the mixer rewrote the bone -> a fresh SOURCE local; (b) the mixer is
+    // silent on a hold pose and a LATER layer (aim IK, recoil) modified OUR output -> re-retargeting
+    // that compounds every frame (the 'spinning arm'). Strict equality with our own output missed
+    // case (b) once IK nudged it — classify by NEAREST reference instead: closer to our last output
+    // means post-layers touched it (reuse the stable source), closer to the last source means the
+    // mixer really wrote it.
+    const dOut=Math.abs(q.x*e.lastOut.x+q.y*e.lastOut.y+q.z*e.lastOut.z+q.w*e.lastOut.w);
+    const dSrc=Math.abs(q.x*e.lastSrc.x+q.y*e.lastSrc.y+q.z*e.lastSrc.z+q.w*e.lastSrc.w);
+    const srcQ=(dOut>=dSrc)?e.lastSrc:e.lastSrc.copy(q);
     _tpW.copy(pe?pe.was:_tpI.identity()).multiply(srcQ);             // world ANIM (source locals), parent-first
     e.was.copy(_tpW);
     // SHOULDER LOCK — these robots have no clavicle segment: shoulder-bone motion just shifts where the
@@ -33051,7 +33056,7 @@ function loop(ts){ requestAnimationFrame(loop);
             let q=new THREE.Quaternion().setFromUnitVectors(localCurrent,localTarget);
             // CLAMP the per-frame correction: a big one-frame snap on a divergent pose is where the axis
             // flips sign frame-to-frame (the "trippy spinning" upper arm). Eased steps converge instead.
-            const _maxStep=(window._ARM_IK_MAX_STEP!=null?window._ARM_IK_MAX_STEP:0.35);
+            const _maxStep=(window._ARM_IK_MAX_STEP!=null?window._ARM_IK_MAX_STEP:1.2);   // with the retarget/IK feedback loop fixed, a near-full step is stable again (the true antipodal flip is caught by the dot guard above)
             const _ang=2*Math.acos(Math.min(1,Math.abs(q.w)));
             if(_ang>_maxStep) q=new THREE.Quaternion().slerp(q,_maxStep/_ang);
             bone.quaternion.premultiply(q);
