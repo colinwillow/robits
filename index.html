@@ -13966,6 +13966,28 @@ window._updateFlame=_updateFlame;
 
 // ───────── SINGULARITY (gravity well) ─────────
 // A placed black-hole that drags enemies + warps the grid inward for a couple seconds, then collapses with a burst.
+// ── HELD = AIRBORNE ── anything the well has hold of is FLYING, so it plays the floating clip, not whatever
+// ground pose it was in. The state machines keep trying to take the clip back (a stunned bot wants its stagger,
+// the player wants his idle), so this re-asserts every frame while the grip is on and hands back the moment it
+// lets go. window._SING_AIR_POSE=false to leave poses alone.
+function _singAirPose(e,on){ try{
+  if(window._SING_AIR_POSE===false)return;
+  const m=e&&e.model, ud=m&&m.userData; if(!ud)return;
+  if(!on){ if(ud._singPose){ ud._singPose=false; ud._voidTumble=false;
+    try{ const c0=ud.clips||{}, fc0=c0['floating']||c0['flying'], bk=c0['idle'];      // hand back explicitly rather than hoping the state machine notices — it only re-picks on a transition, and being dropped isn't one
+      if(fc0&&fc0.isRunning&&fc0.isRunning())fc0.fadeOut(0.22);
+      if(bk){ if(!bk.isRunning())bk.reset().play(); bk.fadeIn(0.22); ud.currentClip='idle'; } }catch(_){} }
+    return; }
+  const cl=ud.clips; if(!cl)return;
+  const fc=cl['floating']||cl['flying']||cl['front_flip']; if(!fc)return;
+  ud._voidTumble=true; ud._flippingTimer=0;
+  if(!ud._singPose||ud.currentClip!=='floating'){
+    ud._singPose=true;
+    try{ Object.values(cl).forEach(a=>{ if(a!==fc&&a.isRunning&&a.isRunning())a.fadeOut(0.18); }); }catch(_){}
+    try{ if(!fc.isRunning())fc.reset().play(); fc.setEffectiveTimeScale(1); if(typeof THREE!=='undefined')fc.setLoop(THREE.LoopRepeat,Infinity); fc.fadeIn(0.18); }catch(_){}
+    ud.currentClip='floating';
+  }
+}catch(_){} }
 class Singularity{
   constructor(wx,wz,od){
     this.wx=wx; this.wz=wz; this.y=22; this.t=0; this.dead=false; this.fade=0; this.form=0; this.od=!!od;
@@ -14064,7 +14086,7 @@ class Singularity{
   //   when someone reaches the middle. Nothing targets the centre now — a captured body spirals onto a RING of
   //   radius _SING_HOLD_R and simply flies it, lifted and rolling, with its velocity and AI frozen so nothing
   //   fights the transform. No point of convergence, no oscillation, and it reads better anyway.
-  _orbit(e,dt){
+  _orbit(e,dt,isPlayer){
     const K=(this.R/255);
     if(e._singA==null){ e._singA=Math.atan2(e.wz-this.wz,e.wx-this.wx); e._singLA=Math.random()*TAU; e._singR=null; }
     e._singA+=dt*(window._SING_HOLD_SPIN||1.9);
@@ -14075,19 +14097,40 @@ class Singularity{
     e.wx=this.wx+Math.cos(e._singA)*e._singR;
     e.wz=this.wz+Math.sin(e._singA)*e._singR;
     const LY=(window._SING_LIFT!=null?window._SING_LIFT:44)+Math.sin(e._singLA)*(window._SING_LIFT_WOB||12);
-    if(e.py!==undefined){ e.py+=(LY-e.py)*Math.min(1,dt*(window._SING_LIFT_EASE||3.2)); if(e.pvy!==undefined)e.pvy=0; if(e._onPlatform!==undefined)e._onPlatform=false; e._singHeld=true; }
+    if(isPlayer){
+      // PUBLISH A SEAT, don't write his transform. Wells update after the player's own physics, so anything written
+      // here is undone before it is ever drawn — that vertical tug-of-war is the other half of the chop. Player.update
+      // reads this seat and pins him to it, exactly the way the spawn pad's anti-grav field holds him during the count.
+      e._singSeat={ x:this.wx+Math.cos(e._singA)*e._singR, z:this.wz+Math.sin(e._singA)*e._singR, y:LY };
+      e._singHoldF=2;   // FRAME lease, not a millisecond one: wells update after the player, and a wall-clock window
+                        // expires on any slow frame before he ever reads it. Two frames of credit, re-issued every
+                        // frame the grip is on, and it decays to nothing on its own if the well dies without a release.
+      e._singHeld=true;
+    }
+    else if(e.py!==undefined){ e.py+=(LY-e.py)*Math.min(1,dt*(window._SING_LIFT_EASE||3.2)); if(e.pvy!==undefined)e.pvy=0; if(e._onPlatform!==undefined)e._onPlatform=false; e._singHeld=true; }
     else if(e.y!==undefined){ e.y+=(LY-e.y)*Math.min(1,dt*(window._SING_LIFT_EASE||3.2)); }
     if(e.vx!==undefined)e.vx=0; if(e.vz!==undefined)e.vz=0;
-    const _hold=(window._SING_UNIT_STUN||6);
-    if(e._stun!==undefined)e._stun=Math.max(e._stun||0,_hold); if(e._stunT!==undefined)e._stunT=Math.max(e._stunT||0,_hold);
-    try{ if(e.model)e.model.rotation.z=Math.sin(e._singLA*0.8)*0.5; }catch(_){}
+    if(!isPlayer){
+      const _hold=(window._SING_UNIT_STUN||6);
+      if(e._stun!==undefined)e._stun=Math.max(e._stun||0,_hold); if(e._stunT!==undefined)e._stunT=Math.max(e._stunT||0,_hold);
+      try{ if(e.model)e.model.rotation.z=Math.sin(e._singLA*0.8)*0.5; }catch(_){}   // (the player's model rotation belongs to the orientation chain — the clip carries his roll)
+    }
+    _singAirPose(e,true);                                                            // he is FLYING, so he flies
     if(e.syncMesh)e.syncMesh();
+  }
+  _release(e){ if(!e)return;
+    if(e._singA==null && !e._singHeld){ try{ _singAirPose(e,false); }catch(_){} return; }
+    e._singA=null; e._singSeat=null; e._singHoldF=0;
+    if(e._singHeld){ e._singHeld=false; if(e.pvy!==undefined)e.pvy=-20; try{ if(e.model)e.model.rotation.z=0; }catch(_){} }
+    try{ _singAirPose(e,false); }catch(_){}
   }
   _hurt(e,i,dmg){ const pts=(e.hit?e.hit(dmg):0);
     if(pts>0||!e.alive){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); } }
   _hurtExtra(e,dmg){ if(!e||e.alive===false)return; try{ if(e.hit)e.hit(dmg,this.wx,this.wz); }catch(_){} }   // bots + training dummy live outside GS.enemies and handle their own death — just deal damage, no splice
   _collapse(){ this.dead=true;
-    try{ for(const e of (typeof _extraHostiles==='function'?_extraHostiles():[])){ if(e&&e._singHeld){ e._singHeld=false; e._singA=null; if(e.pvy!==undefined)e.pvy=40; try{ if(e.model)e.model.rotation.z=0; }catch(_){} } } }catch(_){}   // the well lets go — everything it was holding falls
+    try{ for(const e of (typeof _extraHostiles==='function'?_extraHostiles():[])){ if(e&&e._singHeld){ this._release(e); if(e.pvy!==undefined)e.pvy=40; } } }catch(_){}
+    try{ for(const e of ((typeof GS!=='undefined'&&GS.enemies)||[])){ if(e&&e._singHeld){ this._release(e); if(e.pvy!==undefined)e.pvy=40; } } }catch(_){}
+    try{ if(typeof player!=='undefined'&&player&&player._singHeld){ this._release(player); player.pvy=40; } }catch(_){}   // the well lets go — everything it was holding falls
     if(typeof ps!=='undefined'){ ps.ring(this.wx,this.wz,[0.8,0.45,1],40,this.R); ps.ring(this.wx,this.wz,[1,1,1],26,this.R*0.6); ps.burst(this.wx,this.wz,[1,0.8,1],52,this.R*0.85,this.y); }
     if(grid){ if(grid.shock)grid.shock(this.wx,this.wz,3.4); if(grid.push)grid.push(this.wx,this.wz,6,this.R); }
     if(typeof addTrauma==='function')addTrauma(0.16); if(typeof Audio!=='undefined'){ Audio.blip(74,0.45,'sawtooth',0.32,28); Audio.blip(180,0.2,'square',0.14,60); }
@@ -14192,7 +14235,7 @@ class Singularity{
       if(!this._remote){
       for(const e of GS.enemies){ if(!e.alive||e._captured||e.isBoss) continue;
         const dx=this.wx-e.wx, dz=this.wz-e.wz, d=Math.hypot(dx,dz);
-        if(d>=this.R){ if(e._singA!=null){ e._singA=null; if(e._singHeld){ e._singHeld=false; if(e.pvy!==undefined)e.pvy=-20; try{ if(e.model)e.model.rotation.z=0; }catch(_){} } } continue; }
+        if(d>=this.R){ this._release(e); continue; }
         if(d<=0.01) continue;
         if(d<(window._SING_CAPTURE_R||26)*(this.R/255)){ this._orbit(e,dt); }        // captured -> stable ring, never the centre
         else { const f=this.pull*(0.32+0.68*(1-d/this.R)), nx=dx/d, nz=dz/d, tx=-nz, tz=nx;
@@ -14207,10 +14250,10 @@ class Singularity{
       // damage without moving). It swirls them in like a black hole; near the very centre it stops nudging (no jitter).
       for(const e of (typeof _extraHostiles==='function'?_extraHostiles():[])){ if(!e||e.alive===false)continue;
         const dx=this.wx-e.wx, dz=this.wz-e.wz, d=Math.hypot(dx,dz);
-        if(d>=this.R){ if(e._singA!=null){ e._singA=null; if(e._singHeld){ e._singHeld=false; if(e.pvy!==undefined)e.pvy=-20; try{ if(e.model)e.model.rotation.z=0; }catch(_){} } } }
+        if(d>=this.R){ this._release(e); }
         else if(d>0.01){ const f=this.pull*(0.32+0.68*(1-d/this.R)), nx=dx/d, nz=dz/d, tx=-nz, tz=nx;
           const K=(window._SING_UNIT_PULL||150), SW=(window._SING_UNIT_SWIRL||0.5);
-          const CAP=(window._SING_CAPTURE_R||26);
+          const CAP=(window._SING_CAPTURE_R||26)*(this.R/255);   // scale with the well, same as the GS.enemies branch (this one never did)
           if(d<CAP){ this._orbit(e,dt); }
           else {
             const ease=Math.min(1,d/(window._SING_SETTLE_R||16)), cap=d*(window._SING_STEP_CAP||0.35);   // K=150 meant a body 2 units out got flung 2.5 units THROUGH the centre every frame
@@ -14281,19 +14324,54 @@ class Singularity{
     if(typeof GS!=='undefined'){ sweep(GS.gems, K*1.3);
       sweep(GS.bullets, K*0.55, false); sweep(GS.enemyBullets, K*0.55, false); }   // rounds CURVE toward it (space bending) but aren't deleted mid-flight
     // THE PLAYER — pulled, never eaten. Skipped while balled / launched / dying so it can't fight those systems.
+    // THE PLAYER — pulled, and now CAUGHT like everything else. He was the one body with no step cap and no capture
+    // ring: the pull wrote straight into wx/wz with only a d>4 dead zone, so any frame whose step exceeded the
+    // remaining distance threw him THROUGH the middle, the direction vector flipped sign, and the next frame threw
+    // him back. That is the +1 / -1 / +1 chatter at the centre. He now spirals onto the same hold ring every other
+    // body flies, lifted into the air on the floating pose, and the approach can never step more than a third of the
+    // way in. window._SING_HOLD_PLAYER=false caps the pull without catching him.
     if(window._SING_PULL_PLAYER!==false && typeof player!=='undefined' && player && player.alive!==false
        && !player._ballActive && !player._launched && !player._deathSeq){
       const dx=this.wx-player.wx, dz=this.wz-player.wz, d=Math.hypot(dx,dz);
-      if(d<this.R && d>4){
+      const PCAP=(window._SING_CAPTURE_R||26)*(this.R/255);
+      if(d>=this.R){ this._release(player); }
+      else if(d<PCAP && window._SING_HOLD_PLAYER!==false){ this._orbit(player,dt,true); if(typeof addTrauma==='function')addTrauma(0.012); }
+      else if(d>0.01){
+        if(player._singHeld)this._release(player);
         const f=this.pull*(0.30+0.70*(1-d/this.R))*(window._SING_PLAYER_PULL||95);
         const nx=dx/d, nz=dz/d, tx=-nz, tz=nx;
-        player.wx+=(nx*f+tx*f*SW)*dt; player.wz+=(nz*f+tz*f*SW)*dt;
+        let ix=nx*f*dt+tx*f*SW*dt, iz=nz*f*dt+tz*f*SW*dt;                 // cap the WHOLE step, swirl included — a capped pull with an uncapped tangent still throws him past the middle
+        const cap=d*(window._SING_STEP_CAP||0.35), mv=Math.hypot(ix,iz);
+        if(mv>cap&&mv>1e-6){ const sC=cap/mv; ix*=sC; iz*=sC; }
+        player.wx+=ix; player.wz+=iz;
         if(typeof addTrauma==='function')addTrauma(0.01);
       }
-    }
+    } else { try{ if(typeof player!=='undefined'&&player&&player._singHeld)this._release(player); }catch(_){} }
   }
   remove(){ if(typeof scene!=='undefined')scene.remove(this.group); this.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
 }
+// ── SEAT TICK ── the well publishes where it is holding the player; this is what actually puts him there.
+// It has to be the LAST thing to touch his transform before the camera reads it. Writing his position from inside
+// the well's own update put it upstream of the deck glue, the platform-landing capture and the ground clamp, all of
+// which yanked him back down within the same frame — that fight is what the middle of the well felt like. From here
+// nothing gets a second say. The lease is counted in FRAMES, not milliseconds, so a slow frame can't drop the grip,
+// and it decays to nothing on its own if a well ever disappears without releasing.
+window._singSeatTick=function(dt){ try{
+  if(typeof player==='undefined'||!player)return;
+  const ss=player._singSeat;
+  const on=!!(ss && (player._singHoldF||0)>0 && !player._deathSeq && !player._ballActive && !player._launched);
+  player._singSeatOn=on;
+  if(player._singHoldF)player._singHoldF--;
+  if(!on){ if(player._singSeatWas){ player._singSeatWas=0; player.pvy=-20; } if(ss)player._singSeat=null; return; }
+  if(!player._singSeatWas){ player._singSeatWas=1;
+    player.py=Math.max(player.py||0,(window._SING_SEAT_KICK||18)); }                    // snatched clear of every landing-capture window in one beat
+  player.wx+=(ss.x-player.wx)*Math.min(1,dt*(window._SING_SEAT_K||9));
+  player.wz+=(ss.z-player.wz)*Math.min(1,dt*(window._SING_SEAT_K||9));
+  player.py+=(ss.y-player.py)*Math.min(1,dt*(window._SING_LIFT_EASE||3.2));
+  player.pvy=(window._PLAT_LAND_VY||16)+8;                                              // reads as RISING so nothing underfoot re-captures him
+  player._stuckMesh=null; player._dropThru=Math.max(player._dropThru||0,0.25);
+  player.vx=0; player.vz=0; player._onPlatform=false;
+}catch(_){} };
 // Hold-to-aim preview ghost for the singularity — shows the drop point + blast radius while you hold, before release.
 let _singGhost=null;
 function _singPreview(x,z,R,show){
@@ -15389,6 +15467,33 @@ const bulletMats={ normal:new THREE.MeshStandardMaterial({color:0xffffff,emissiv
 const _bulletTailHex={ normal:0xffbb22, laser:0x22fff0, homing:0xff66cc };
 const bulletTailMats={}; for(const _k in _bulletTailHex){ bulletTailMats[_k]=new THREE.MeshBasicMaterial({color:_bulletTailHex[_k],transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}); }
 const _bulletTrailCol={ normal:[1,0.78,0.2], laser:[0.25,1,0.94], homing:[1,0.5,0.86] };
+// ── MUZZLE FLASH ── a real one, in the world. Particles alone read as sparks; what sells a heavy round going off is
+// a bright cone of burning gas standing out of the crown for two frames plus a hard star. Short-lived, self-ticking,
+// pooled nowhere on purpose (a flash is three frames). window._MUZZLE_FX=false turns it off.
+window._muzzleFX=[];
+window._muzzleFlash=function(x,y,z,dx,dy,dz,col,scale){
+  try{ if(window._MUZZLE_FX===false||typeof scene==='undefined'||typeof THREE==='undefined')return;
+    const S=scale||1, C=(col!=null?col:0xffd7a0);
+    const g=new THREE.Group(); g.position.set(x,y,z);
+    const d=new THREE.Vector3(dx||0,dy||0,dz||0); if(d.lengthSq()<1e-6)d.set(0,0,1); d.normalize();
+    g.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),d);
+    const mC=new THREE.MeshBasicMaterial({color:C,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,fog:false});
+    const mW=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,fog:false});
+    { const cone=new THREE.Mesh(new THREE.ConeGeometry(3.6*S,12*S,12,1,true),mC); cone.rotation.x=Math.PI/2; cone.position.z=6*S; g.add(cone); }
+    { const inner=new THREE.Mesh(new THREE.ConeGeometry(1.9*S,7*S,10,1,true),mW); inner.rotation.x=Math.PI/2; inner.position.z=3.5*S; g.add(inner); }
+    for(let i=0;i<3;i++){ const p=new THREE.Mesh(new THREE.PlaneGeometry(17*S,1.5*S),mW); p.rotation.z=i*Math.PI/3; p.position.z=2*S; g.add(p); }   // hard star
+    { const r=new THREE.Mesh(new THREE.RingGeometry(2.4*S,5.2*S,22),mC); r.position.z=1.6*S; g.add(r); }
+    g.traverse(o=>{ o.frustumCulled=false; o.renderOrder=3; }); scene.add(g);
+    window._muzzleFX.push({g,t:0,d:(window._MUZZLE_MS||95)/1000,mC,mW});
+  }catch(_){}
+};
+window._muzzleFXTick=function(dt){ const A=window._muzzleFX; if(!A||!A.length)return;
+  for(let i=A.length-1;i>=0;i--){ const f=A[i]; f.t+=dt; const k=f.t/f.d;
+    if(k>=1||!f.g){ try{ if(f.g){ if(f.g.parent)f.g.parent.remove(f.g); f.g.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } f.mC.dispose(); f.mW.dispose(); }catch(_){} A.splice(i,1); continue; }
+    const e=1-k;
+    f.g.scale.set(0.6+k*1.1, 0.6+k*1.1, 0.75+k*0.55);
+    f.mC.opacity=0.95*e*e; f.mW.opacity=0.95*e*e*e;
+  } };
 // ══ HIGH-QUALITY FIRE EXPLOSION ══ built from the same particle-fire language as the dragon's breath / the dog's fire
 //   comets, so blasts match the creatures. Five layers: a white-hot FLASH at the seat, a blooming SHELL whose particles
 //   lead-and-lag (wide speed spread = the ball CHURNS outward instead of popping as one clean sphere) with buoyancy so
@@ -17788,6 +17893,7 @@ class Player{
       this.pvy=0; this._onPlatform=false;   // held OFF the deck -> the airborne/float pose reads while the field has you
     } else if(this._spawnHoverT){ this._spawnHoverT=0; this.pvy=Math.min(this.pvy||0,-20); this._onPlatform=false;   // GO! -> field cuts, gravity takes you the last two feet down onto the pad
       try{ if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.3,1,0.9],14,90,(this._platformY||0)+2); }catch(_){} }
+
     const _gflip=(GS.zone===-19 && GS._gravFlip && !(this._hasBoots&&this._bootsEquipped));   // CUBE gravity-flip: boots-off = fall toward the CEILING (computed here so the jet thrust below can flip with gravity)
     // Jetpack force — continuous push AWAY from the current floor (flips with gravity in the cube)
     if(this._jetting&&!this._onPlatform&&!this._ballActive&&(this.py>4 || this._platVoidAir)){   // ball mode runs its OWN jetpack in _ballUpdate. Normally jet only fires in the air (py>4); over the PLATFORM void it fires at ANY height so you can jet/jump back onto the deck the whole way down (fuel-limited: run dry and you fall).
@@ -17876,6 +17982,7 @@ class Player{
       this.py=(window._HB_HOVER_Y||15)+_bob+this._hbHopY+this._rsY;
     }   // anti-grav: pin float + bob, poppable hop, full-throttle jetpack climb; override gravity
     else if(this._hang){ this.pvy=0; }                                                 // hanging: position pinned by the handler, no gravity
+    else if(this._singSeatOn){ /* the well is carrying you: no gravity, the seat owns your height */ }
     else { let _g=GRAV; if(this._airSlam){ _g*=(window._SLAM_FALL_MULT!=null?window._SLAM_FALL_MULT:1.8); if(this.pvy>0)this.pvy*=0.5; }   // air slam: accelerate the dive so he really smashes down
       this.pvy -= _g*dt*(_gflip?-1:1); this.py += this.pvy*dt; }
     // Track peak height while airborne for landing impact scaling
@@ -18878,15 +18985,25 @@ class Player{
     const b=new Bullet(sx,sz,dirX*spd,dirZ*spd,'normal',y0,dirY*spd,true);
     b.dmg=(window._REV_DMG||9)*(od?1.5:1); b.pierce=(window._REV_PIERCE!=null?window._REV_PIERCE:1);   // HAND CANNON: ~3x the old round. Bullet knockback scales with dmg (see the bullet-hit path), so each slug also SHOVES hard — a heavy iron, not a slow peashooter. Punches through one body.
     b.decay=(window._REV_DECAY||0.017);   // SHORTER range than the main gun (normal bullets decay 0.008) -> a big close-range revolver, per the ask
-    try{ b.mesh.scale.setScalar(window._REV_BULLET_SCALE||1.75); }catch(_){}   // chunky slug so the round reads as heavy
+    // ── THE SLUG ── the standard round is a sleek 13-long dart; scaled up it was still just a bigger dart, which is
+    //    why the revolver read like the starter gun. Squash it along flight and blow it out sideways instead: a short
+    //    fat slug with a stubby wide flame behind it. Its own copper materials go on per shot — the bullet group is
+    //    pooled and reassigns materials from the tables on reuse, so nothing leaks onto ordinary rounds.
+    try{ b.mesh.scale.set((window._REV_SLUG_FAT||3.0),(window._REV_SLUG_FAT||3.0),(window._REV_SLUG_LONG||0.62)); }catch(_){}
+    try{ if(!window._revSlugMat){
+        window._revSlugMat=new THREE.MeshStandardMaterial({color:0xfff0d0,emissive:(window._REV_SLUG_COL||0xff9a2a),emissiveIntensity:3.4,toneMapped:false});
+        window._revSlugTail=new THREE.MeshBasicMaterial({color:(window._REV_SLUG_TAIL||0xff6a1a),transparent:true,opacity:0.62,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}); }
+      b.mesh.children[0].material=window._revSlugMat; b.mesh.children[1].material=window._revSlugTail; }catch(_){}
     b._gridCol=(typeof _WPN_COLORS!=='undefined'&&_WPN_COLORS.revolver)||0xffd7a0;
     GS.bullets.push(b);
     this._consumeAmmo('revolver',1);
-    if(typeof ps!=='undefined'){ ps.ring(sx,sz,[1,0.85,0.6],13,120,y0); ps._spawn(sx+dirX*10,y0,sz+dirZ*10, dirX*160,24,dirZ*160, 1,0.9,0.6,0.22);
-      for(let f=0;f<8;f++){ const fa=(Math.random()-0.5)*1.1; ps._spawn(sx+dirX*8,y0,sz+dirZ*8, dirX*120+Math.cos(a+fa)*60, 30+Math.random()*40, dirZ*120+Math.sin(a+fa)*60, 1,0.82,0.5,0.16+Math.random()*0.06); } }   // fat muzzle FLASH
+    try{ if(window._muzzleFlash)window._muzzleFlash(sx+dirX*3,y0+(dirY||0)*3,sz+dirZ*3, dirX,dirY,dirZ, (window._REV_FLASH_COL||0xffb44a), (window._REV_FLASH_SCALE||1.5)); }catch(_){}   // the real thing, in the world
+    if(typeof ps!=='undefined'){ ps.ring(sx,sz,[1,0.8,0.45],18,150,y0); ps._spawn(sx+dirX*10,y0,sz+dirZ*10, dirX*160,24,dirZ*160, 1,0.9,0.6,0.22);
+      for(let f=0;f<16;f++){ const fa=(Math.random()-0.5)*1.5; ps._spawn(sx+dirX*8,y0,sz+dirZ*8, dirX*140+Math.cos(a+fa)*110, 20+Math.random()*70, dirZ*140+Math.sin(a+fa)*110, 1,0.7+Math.random()*0.25,0.35,0.14+Math.random()*0.1); }
+      for(let f=0;f<5;f++){ const fa=(Math.random()-0.5)*2.6; ps._spawn(sx-dirX*4,y0+3,sz-dirZ*4, -dirX*40+Math.cos(a+fa)*70, 40+Math.random()*50, -dirZ*40+Math.sin(a+fa)*70, 0.75,0.72,0.7,0.3+Math.random()*0.15); } }   // gas cloud kicking back out of the cylinder gap
     if(typeof MP!=='undefined'&&MP.active) mpSend('event',{event:'shot',data:{x:sx,z:sz,a,od:!!od}});
     if(typeof Audio!=='undefined'){ try{ Audio.blip(150,0.12,'sawtooth',0.42,55); Audio.blip(1300,0.04,'square',0.2,700); if(typeof _boomSfx==='function')_boomSfx('small',1.3,sx,sz); }catch(_){} }   // heavy hand-cannon BANG (much louder) + a small boom body
-    if(typeof addTrauma==='function')addTrauma(0.14);
+    if(typeof addTrauma==='function')addTrauma(window._REV_KICK!=null?window._REV_KICK:0.22);   // it should shove the camera
     this._revRounds--;
     if(this._revRounds<=0){ this._revRounds=6; this._revReloadUntil=now+(window._REV_RELOAD_MS||1150);
       try{ if(typeof Audio!=='undefined'&&Audio.blip){ Audio.blip(700,0.28,'square',0.07,1600); } }catch(_){}   // cylinder whirr
@@ -32901,12 +33018,14 @@ function loop(ts){ requestAnimationFrame(loop);
     _camRestoreTick();
     // GRAVITY-FLIP view factor — computed here (before updateCamera) so the bootless mirror can read it, and applied as a universal 180° roll AFTER, so the view flips even when the boots/wall-walk camera owns the frame.
     if(typeof GS!=='undefined'){ const _gfTgt=(GS.zone===-19 && GS._gravFlip && player && !player._ballActive)?1:0; GS._gfCamF=lerp(GS._gfCamF||0, _gfTgt, 0.06); }
+    if(window._singSeatTick){ try{ window._singSeatTick(rawDt); }catch(_){} }   // a singularity has hold of him: seat him on its ring AFTER every other system has had its say
     if(typeof GS!=='undefined'&&GS.zone===-32&&window._stageLiftTick){ try{ window._stageLiftTick(rawDt); }catch(_){} }   // ride the platform BEFORE the camera reads his pose, so the descent is one smooth move
     updateCamera(rawDt);
 
     if(typeof GS!=='undefined' && (GS._gfCamF||0)>0.001 && typeof camera!=='undefined'){ camera.rotateZ((GS._gfCamF)*Math.PI); }   // roll the whole view 180° (always, incl. boots) so a flipped ceiling reads as the floor
     if(typeof _armoryCamTick==='function')_armoryCamTick(rawDt);   // ARMORY close-up: blends the just-computed camera toward the over-the-shoulder weapon view (real-time, works through the pause)
     if(typeof _updateOffscreenIndicators==='function') _updateOffscreenIndicators();   // color-coded edge arrows for off-screen AI characters
+    if(window._muzzleFXTick){ try{ window._muzzleFXTick(rawDt); }catch(_){} }
     grid.update(dt); ps.update(dt); if(ps2)ps2.update(dt); if(window._victoryJetTick){try{window._victoryJetTick(rawDt);}catch(_vje){}} if(window._rollWeaponHide&&typeof player!=='undefined'&&player){try{window._rollWeaponHide(player, !!player._ballActive||((player._rollLockT||0)>0));}catch(_rwe){}} if(typeof _updateRobitShards==='function')_updateRobitShards(dt); if(GS.zone===-18 && typeof _updateCustomGrid==='function') _updateCustomGrid(dt); if(GS.zone===-2 && typeof _updateDojoPlatform==='function') _updateDojoPlatform(dt); if(typeof _updateMushrooms==='function')_updateMushrooms(dt); if(typeof _sentryTick==='function')_sentryTick(dt); if(GS.zone===-2 && typeof _updateDojoSpeakers==='function')_updateDojoSpeakers(dt); if(GS.zone===-2 && typeof _updateGunConveyor==='function')_updateGunConveyor(dt); if(GS.zone===-2 && typeof _edUpdate==='function')_edUpdate(dt);
     for(const p of GS_portals){ if(GS.zone===-19||GS.zone===-20){ if(p.group&&p.group.parent)scene.remove(p.group); } else { if(p.group&&!p.group.parent)scene.add(p.group); p.update(dt,player); } }   // no teleporters in the RL cube arena OR the disc/platform stage (removed from scene, restored elsewhere)
     // Tick robot animation mixer
@@ -47472,6 +47591,7 @@ function _buildOverUnderCannon(o){
   return g;
 }
 // ── per-weapon hand model factory (business end faces +Z, aligned to facing by _orientHandLauncher) ──
+window._makeWeaponHandModel=function(w,sd){ return _makeWeaponHandModel(w,sd); };   // harness hook: build a gun in isolation to look at it
 function _makeWeaponHandModel(weapon,side){
   if(weapon==='bullets' && window._ROTARY_BULLETS!==false){   // OVER/UNDER wrist-cannon: square upper barrel + ammo drum spinning underneath (window._ROTARY_STYLE='classic' = old all-rotor gatling)
     const _c=(typeof _WPN_COLORS!=='undefined'&&_WPN_COLORS['bullets'])||0x00ccff;
@@ -47632,15 +47752,45 @@ function _makeWeaponHandModel(weapon,side){
     grip(); add(new THREE.BoxGeometry(1.4,2.3,1.2),METAL,0,-2.3,8.2);                   // forward grip
     g.userData._extraScale=(window._FLAK_GUN_SCALE!=null?window._FLAK_GUN_SCALE:1.0);
   } else if(weapon==='revolver'){
-    // REVOLVER — classic heavy iron: frame, long barrel with vent rib, visible six-shot cylinder, spur hammer
-    add(new THREE.BoxGeometry(1.5,2.0,3.2),METAL,0,-0.1,1.4);                           // frame
-    add(new THREE.CylinderGeometry(0.55,0.55,6.5,12),METAL,0,0.45,6.2,HP);              // barrel
-    add(new THREE.BoxGeometry(0.5,0.4,6.2),ACC,0,1.15,6.1);                             // top vent rib
-    add(new THREE.CircleGeometry(0.42,10),GLOW,0,0.45,9.5);                             // muzzle
-    { const cyl=new THREE.Mesh(new THREE.CylinderGeometry(1.05,1.05,1.7,6),ACC); cyl.rotation.x=HP; cyl.position.set(0,0.35,2.9); g.add(cyl);   // the six-round CYLINDER (hex reads as chambers)
-      const ce=new THREE.LineSegments(new THREE.EdgesGeometry(cyl.geometry), new THREE.LineBasicMaterial({color:COL,transparent:true,opacity:0.9})); ce.rotation.x=HP; ce.position.copy(cyl.position); g.add(ce); }
-    add(new THREE.BoxGeometry(0.4,1.0,0.5),ACC,0,1.0,0.2);                              // spur hammer
-    grip();
+    // ── THE SNUBNOSE ── it used to be a 0.55-thin barrel six and a half units long, which is almost exactly the
+    //    starter pistol's silhouette — that is why it never read as its own weapon. Built the other way round now:
+    //    barely any barrel, and the CYLINDER is the gun. It stands proud of a deliberately narrow frame so you can
+    //    count six glowing chambers from across the arena, with a slab underlug under a stub barrel and a raked
+    //    grip behind it. Short, wide, top-heavy. window._REV_BULK scales the whole iron.
+    const B=(window._REV_BULK||1.35);
+    // FRAME — kept NARROW on purpose: anything wider swallows the cylinder and the gun goes back to reading as a block
+    add(new THREE.BoxGeometry(1.45*B,2.7*B,2.8*B),METAL,0,-0.1*B,0.7*B);
+    add(new THREE.BoxGeometry(1.15*B,0.55*B,4.4*B),METAL,0,1.95*B,2.6*B);               // top strap arching over the cylinder
+    // THE CYLINDER — fully exposed, fat, six countable chambers, flutes between them
+    { const CR=1.75*B, CZ=3.0*B;
+      const cyl=new THREE.Mesh(new THREE.CylinderGeometry(CR,CR,2.7*B,12),METAL); cyl.rotation.x=HP; cyl.position.set(0,0.25*B,CZ); g.add(cyl);
+      const ce=new THREE.LineSegments(new THREE.EdgesGeometry(cyl.geometry), new THREE.LineBasicMaterial({color:COL,transparent:true,opacity:0.95})); ce.rotation.x=HP; ce.position.copy(cyl.position); g.add(ce);
+      add(new THREE.CylinderGeometry(CR*1.06,CR*1.06,0.3*B,12),METAL,0,0.25*B,CZ-1.4*B,HP);
+      add(new THREE.CylinderGeometry(CR*1.06,CR*1.06,0.3*B,12),METAL,0,0.25*B,CZ+1.4*B,HP);
+      for(let i=0;i<6;i++){ const a=(i/6)*Math.PI*2;
+        add(new THREE.CylinderGeometry(0.40*B,0.40*B,2.85*B,8),ACC, Math.cos(a)*1.06*B, 0.25*B+Math.sin(a)*1.06*B, CZ, HP);
+        const a2=a+Math.PI/6;
+        add(new THREE.BoxGeometry(0.34*B,0.34*B,2.6*B),METAL, Math.cos(a2)*1.6*B, 0.25*B+Math.sin(a2)*1.6*B, CZ); } }
+    // SNUB BARREL + slab UNDERLUG — two clearly separate shapes, the lug wider than the tube
+    add(new THREE.CylinderGeometry(0.62*B,0.62*B,3.0*B,14),METAL,0,0.55*B,6.0*B,HP);
+    add(new THREE.CylinderGeometry(0.34*B,0.34*B,3.1*B,10),ACC,0,0.55*B,6.0*B,HP);      // bore
+    add(new THREE.BoxGeometry(1.35*B,1.15*B,2.9*B),METAL,0,-0.55*B,5.9*B);              // UNDERLUG slab
+    add(new THREE.BoxGeometry(0.5*B,0.34*B,2.8*B),ACC,0,1.28*B,5.9*B);                  // vent rib
+    for(let i=0;i<3;i++)add(new THREE.BoxGeometry(0.62*B,0.42*B,0.26*B),METAL,0,1.28*B,(5.0+i*0.85)*B);
+    { const cr=new THREE.Mesh(new THREE.TorusGeometry(0.78*B,0.22*B,8,18),METAL); cr.position.set(0,0.55*B,7.55*B); g.add(cr); }   // crowned muzzle
+    add(new THREE.CircleGeometry(0.5*B,12),GLOW,0,0.55*B,7.7*B);
+    add(new THREE.CylinderGeometry(0.28*B,0.28*B,3.6*B,10),ACC,0,-1.25*B,3.6*B,HP);     // ejector rod under the cylinder
+    // HAMMER SPUR + sights
+    add(new THREE.BoxGeometry(0.5*B,1.25*B,0.55*B),METAL,0,1.55*B,-0.5*B,0,0,-0.28);
+    add(new THREE.BoxGeometry(0.62*B,0.36*B,1.0*B),ACC,0,2.2*B,-0.95*B,0,0,-0.22);      // the spur
+    add(new THREE.BoxGeometry(0.85*B,0.42*B,0.36*B),ACC,0,2.05*B,0.6*B);                // rear notch
+    add(new THREE.BoxGeometry(0.3*B,0.85*B,0.42*B),ACC,0,1.35*B,7.3*B);                 // front blade
+    // GRIP — long and RAKED back, with a palm swell and a guard; nothing like the stock block
+    { const gr=new THREE.Mesh(new THREE.BoxGeometry(1.5*B,3.8*B,1.7*B),METAL); gr.position.set(0,-2.35*B,-0.15*B); gr.rotation.x=0.30; g.add(gr);
+      const sw=new THREE.Mesh(new THREE.BoxGeometry(1.75*B,1.7*B,1.95*B),METAL); sw.position.set(0,-1.35*B,0.25*B); sw.rotation.x=0.30; g.add(sw);
+      const bt=new THREE.Mesh(new THREE.BoxGeometry(1.6*B,0.4*B,1.85*B),ACC); bt.position.set(0,-4.05*B,-0.75*B); bt.rotation.x=0.30; g.add(bt); }
+    { const gd=new THREE.Mesh(new THREE.TorusGeometry(0.85*B,0.16*B,8,16),METAL); gd.position.set(0,-1.45*B,1.5*B); gd.rotation.y=HP; g.add(gd); }
+    add(new THREE.BoxGeometry(0.22*B,0.75*B,0.22*B),ACC,0,-1.25*B,1.5*B);               // trigger
   } else if(weapon==='flamethrower'){
     // BIG exaggerated flamethrower wand — chunky mixing body, wide flared nozzle w/ pilot light, strapped-on
     // pressurized gas bottles (blue/red/white), a hose curling back toward the worn backpack tank. Held two-handed (minigun stance).
