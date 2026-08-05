@@ -529,7 +529,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-music" data-col="mid" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <button id="btn-audio-mix" onclick="window.toggleAudioMix&&window.toggleAudioMix()" title="SOLO: game keeps audio focus and plays through the silent switch. MIX: share audio so YouTube/Spotify can play alongside (silent switch must be OFF)." style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 8h4l3 8h4l3-4h2"/></svg><span id="mx-lbl">SOLO</span></button>
-  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1351</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
+  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1352</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -16012,8 +16012,17 @@ class Player{
     this._skSteer=lerp(this._skSteer, steerIn, 0.2);
     this._skHeading -= this._skSteer*turn*dt*(0.55+0.45*clamp(Math.abs(this._skSpeed)/MAXV,0,1));   // pivots even slow, sharper with speed
     const nth=this._skHeading, v=this._skSpeed, strafeV=-strafe*(window._HB_STRAFE||240);   // negated: right-stick right now strafes right
-    this.vx=Math.sin(nth)*v + Math.cos(nth)*strafeV;
-    this.vz=Math.cos(nth)*v - Math.sin(nth)*strafeV;
+    // ── DRIFT — a hover vehicle doesn't turn on rails: the VELOCITY heading lags the nose, so a hard
+    //    turn slides wide (visible slip angle) and the grip 'catches up'. Less grip the faster you go.
+    let vh=nth;
+    if(this._bikeMode&&window._RIDE_SLIP!==false){
+      const sk=clamp(Math.abs(v)/MAXV,0,1);
+      const grip=(window._BIKE_GRIP!=null?window._BIKE_GRIP:4.4)*(1-(window._BIKE_SLIP_K!=null?window._BIKE_SLIP_K:0.62)*sk);
+      vh=(this._vHead==null?nth:this._vHead); let dvh=nth-vh; dvh=Math.atan2(Math.sin(dvh),Math.cos(dvh));
+      vh+=dvh*Math.min(1,grip*dt); this._vHead=vh; this._slipA=Math.atan2(Math.sin(nth-vh),Math.cos(nth-vh));
+    } else { this._vHead=nth; this._slipA=0; }
+    this.vx=Math.sin(vh)*v + Math.cos(nth)*strafeV;
+    this.vz=Math.cos(vh)*v - Math.sin(nth)*strafeV;
     let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
     if(GS.zone===-19){ const yh=(this.py||0)+(window._CUBE_RIDE||14), c=_cubeClampXZ(nx,nz,yh,(window._CUBE_SKIN||14));
       if(c){ nx=c.x; nz=c.z; this._skSpeed*=0.6; }
@@ -16021,7 +16030,7 @@ class Player{
       if(dd>edge){ const ix=(nx-_zc.x)/dd,iz=(nz-_zc.z)/dd; nx=_zc.x+ix*edge; nz=_zc.z+iz*edge; this._skSpeed*=0.6; } }
     this.wx=nx; this.wz=nz;
     this._hbSway=Math.sin(performance.now()*0.001*(window._HB_SWAY_SPD||1.25))*(window._HB_SWAY_AMP||0.05);   // gentle idle roll
-    const targetLean=clamp(this._skSteer*0.6 + strafe*0.45, -0.7, 0.7);
+    const targetLean=clamp(this._skSteer*0.6 + strafe*0.45 + (this._slipA||0)*(window._BIKE_SLIP_LEAN!=null?window._BIKE_SLIP_LEAN:1.1), -0.85, 0.85);   // sliding banks the bike harder into the drift
     this._hbLeanVel=((this._hbLeanVel||0)+(targetLean-(this._skLean||0))*(window._HB_LEAN_K||0.34))*(window._HB_LEAN_D||0.80);   // spring: overshoots then settles = horizontal rebound / wobble when you strafe & turn
     this._skLean=(this._skLean||0)+this._hbLeanVel;
     this.facing=nth; this.aim=(Math.PI/2 - nth)+(window._HB_RIDER_YAW||0); this.inX=Math.sin(nth); this.inZ=Math.cos(nth);   // aim=π/2−nth makes rotation.y(=−aim+π/2)=nth → robot faces the actual travel direction (forward, away from chase cam)
@@ -17491,13 +17500,16 @@ class Player{
         else { this.boostFuel=Math.max(0,this.boostFuel-(window._HB_JET_BURN||45)*jetIn*dt); this._jetting=true; if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(this.wx+rand(-6,6),this.wz+rand(-6,6),[0.2,0.9,1],this.py); } }
       else { this._jetting=false; this._bikeJetK=0; }
       if(descIn>0.06) this._hbHopVy=(this._hbHopVy||0)-(window._HB_DESC||440)*descIn*dt;
-      const _K=(window._HB_SPRING_K||8.5), _D=(window._HB_SPRING_D||3.0);   // SPRING back to hover height -> springy rebound/bounce instead of a hard landing
+      const _K=this._bikeMode?(window._BIKE_SPRING_K!=null?window._BIKE_SPRING_K:11):(window._HB_SPRING_K||8.5),
+            _D=this._bikeMode?(window._BIKE_SPRING_D!=null?window._BIKE_SPRING_D:1.7):(window._HB_SPRING_D||3.0);   // bike: UNDERDAMPED — landings compress the cushion, overshoot once, settle (the gravity-beam feel)
       this._hbHopVy=(this._hbHopVy||0)+(-(this._hbHopY||0)*_K-(this._hbHopVy||0)*_D)*dt;
       this._hbHopY=(this._hbHopY||0)+this._hbHopVy*dt;
       const _ceil=(window._HB_JET_CEIL||700); if(this._hbHopY>_ceil){ this._hbHopY=_ceil; if(this._hbHopVy>0)this._hbHopVy=0; }
       const _dip=(window._HB_DIP||22); if(this._hbHopY<-_dip){ this._hbHopY=-_dip; if(this._hbHopVy<0)this._hbHopVy=0; }   // can rebound BELOW hover height (bounce) but never reaches the ground
       const _tb=performance.now()*0.001, _bob=Math.sin(_tb*(window._HB_BOB_SPD||2.1))*(window._HB_BOB_AMP||3.4)+Math.sin(_tb*(window._HB_BOB_SPD2||3.3)+1.7)*(window._HB_BOB_AMP2||1.3);   // floaty two-tone pulse
       let _surf=0; if(typeof window._rideSurfY==='function'){ try{ _surf=window._rideSurfY(this.wx,this.wz)||0; }catch(_){} }   // track elevation (CIRCUIT hill etc.)
+      if(this._bikeMode){ const dS=(this._lastSurf==null)?0:(_surf-this._lastSurf); this._lastSurf=_surf;
+        if(Math.abs(dS)<40) this._hbHopVy=(this._hbHopVy||0)+dS*(window._BIKE_BUMP_K!=null?window._BIKE_BUMP_K:0.55); }   // bumps PUMP the suspension: climbing loads it, cresting pops it, drops dip it before the spring catches
       this._rsY=(this._rsY==null)?_surf:this._rsY+(_surf-this._rsY)*Math.min(1,dt*7);   // eased so crests FLOAT instead of popping
       this.py=(window._HB_HOVER_Y||15)+_bob+this._hbHopY+this._rsY;
     }   // anti-grav: pin float + bob, poppable hop, full-throttle jetpack climb; override gravity
