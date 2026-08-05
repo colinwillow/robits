@@ -529,7 +529,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
   <button id="btn-mute-music" data-col="mid" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
   <button id="btn-audio-mix" onclick="window.toggleAudioMix&&window.toggleAudioMix()" title="SOLO: game keeps audio focus and plays through the silent switch. MIX: share audio so YouTube/Spotify can play alongside (silent switch must be OFF)." style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 8h4l3 8h4l3-4h2"/></svg><span id="mx-lbl">SOLO</span></button>
-  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1347</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
+  <div id="build-badge" style="display:none;position:fixed;right:6px;bottom:64px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-CMB1348</div><script>try{ if(window._DEV){ var _bb=document.getElementById('build-badge'); if(_bb)_bb.style.display=''; } }catch(_){}</script><!-- build stamp: DEV only -->
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="display:none;position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
   <button id="gfx-btn" onclick="window._toggleGfx()" style="display:none;position:fixed;top:10px;left:162px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">GFX: HIGH</button>
   <button id="grapple-btn" ontouchstart="event.preventDefault();window._fireGrapple&&window._fireGrapple()" onclick="window._fireGrapple&&window._fireGrapple()" style="position:fixed;right:16px;top:52%;z-index:120;width:60px;height:60px;border-radius:50%;border:1px solid #39e0ffaa;background:radial-gradient(circle at 50% 40%,#39e0ff33,#39e0ff11);color:#7fe8ff;font:bold 10px monospace;letter-spacing:1px;cursor:pointer;pointer-events:all;box-shadow:0 0 10px #39e0ff44;-webkit-tap-highlight-color:transparent;touch-action:manipulation">HOOK</button>
@@ -10901,24 +10901,161 @@ function _dojoGridTick(st,dt){
 //   hand   : {side, dir, label} -> the thumb + arrow overlay
 //   build  : lays out this lesson's props (returns nothing; push meshes to DOJO.props)
 //   check  : poll -> true once the player has performed the action
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+//  THE GAUNTLET — the LOCOMOTION playground (HOW TO PLAY stage 1). One continuous ascending obstacle
+//  course: run -> gap jump -> stairs -> jetpack tower -> GRIND RAIL down -> WALL-RUN across a void ->
+//  SLIDE under a barrier -> boots + jump-pad finale. Sequential popping rings gate each leg; big
+//  billboard signs name every move; the drone + thumb overlay re-cue per leg. All colliders/rails/
+//  pads/stations are tagged and torn down when the stage deconstructs.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+const CRS={active:false, leg:0, rings:[], props:[], rails:0, done:false, _lastZ:0};
+function _crsMat(c,o){ return new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:(o==null?1:o),depthWrite:(o==null),fog:false,toneMapped:false,blending:(o==null?THREE.NormalBlending:THREE.AdditiveBlending)}); }
+function _crsBox(x,z,w,d,h,col){
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshStandardMaterial({color:0x101c30,metalness:0.3,roughness:0.5,emissive:(col||0x14304a),emissiveIntensity:0.5,toneMapped:false}));
+  m.position.set(x,h/2,z); scene.add(m); DOJO.props.push(m);
+  const e=new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({color:_DOJO_ACC,transparent:true,opacity:0.7}));
+  e.position.copy(m.position); scene.add(e); DOJO.props.push(e);
+  (window._arenaObstacles=window._arenaObstacles||[]).push({x,z,w,d,h,t:1,static:true,_crs:true});   // solid sides (+ wall-runnable faces)
+  (window._dojoPlatforms=window._dojoPlatforms||[]).push({x,z,hw:w/2,hd:d/2,top:h,_crs:true});       // standable top
+  return m;
+}
+function _crsRing(x,y,z,r){
+  const g=new THREE.Group(); g.position.set(x,y,z);
+  const tor=new THREE.Mesh(new THREE.TorusGeometry(r,2.4,10,40), _crsMat(_DOJO_ACC,0.85));
+  const halo=new THREE.Mesh(new THREE.TorusGeometry(r+5,0.9,8,40), _crsMat(0xffffff,0.25));
+  g.add(tor); g.add(halo); scene.add(g); DOJO.props.push(g);
+  CRS.rings.push({x,y,z,r,hit:false,g,tor,halo});
+  return g;
+}
+function _crsSign(text,x,y,z,col){
+  try{ if(typeof _goalLabelSprite!=='function')return; const sp=_goalLabelSprite(text,(col!=null?col:_DOJO_ACC));
+    sp.position.set(x,y,z); sp.scale.multiplyScalar(window._CRS_SIGN_K||0.6); scene.add(sp); DOJO.props.push(sp); }catch(_){}
+}
+function _crsRail(pts){
+  try{
+    const curve=new THREE.CatmullRomCurve3(pts,false,'centripetal');
+    const N=Math.max(60,pts.length*22);
+    const samples=[]; for(let k=0;k<=N;k++){ const t=k/N; samples.push({u:t,t,p:curve.getPointAt(t)}); }
+    const frame=(typeof _railFrame==='function')?_railFrame(curve,N):null;
+    const tube=new THREE.Mesh(new THREE.TubeGeometry(curve,N,2,8,false), _crsMat(0x9fe8ff,0.9));
+    scene.add(tube); DOJO.props.push(tube);
+    const glow=new THREE.Mesh(new THREE.TubeGeometry(curve,N,3.6,8,false), _crsMat(_DOJO_ACC,0.18));
+    scene.add(glow); DOJO.props.push(glow);
+    let L=0; for(let k=1;k<samples.length;k++)L+=samples[k].p.distanceTo(samples[k-1].p);
+    (window._grindRails=window._grindRails||[]).push({curve, samples, frame, _len:L, _crs:true});
+    CRS.rails++;
+  }catch(_){}
+}
+const _CRS_LEGS=[
+  { cue:'PUSH THE LEFT STICK · RUN TO THE RING',       hand:{side:'left', dir:[0,-1], label:'MOVE'},  hud:'joystick-left'  },
+  { cue:'TAP TO JUMP THE GAP',                          hand:{side:'right',dir:[0,0],  label:'JUMP'},  hud:'joystick-right' },
+  { cue:'HOP UP THE STAIRS',                            hand:{side:'right',dir:[0,0],  label:'JUMP'},  hud:'joystick-right' },
+  { cue:'HOLD JUMP · JETPACK TO THE TOP',               hand:{side:'right',dir:[0,0],  label:'HOLD'},  hud:'joystick-right' },
+  { cue:'JUMP ONTO THE RAIL · GRIND IT DOWN',           hand:null,                                     hud:null },
+  { cue:'JUMP AT THE WALL · RUN ACROSS IT',             hand:{side:'left', dir:[0,-1], label:'RUN'},   hud:'joystick-left'  },
+  { cue:'FLICK THE RIGHT STICK · SLIDE UNDER',          hand:{side:'right',dir:[0,-1], label:'FLICK'}, hud:'joystick-right' },
+  { cue:'GRAB THE BOOTS · RIDE THE PADS TO THE LAST RING', hand:{side:'right',dir:[0,0],label:'GRAB'}, hud:'joystick-right' },
+];
+function _dojoCourseBuild(){
+  CRS.active=true; CRS.leg=0; CRS.done=false; CRS.rings.length=0; CRS.rails=0;
+  window._DOJO_R=880;                                                          // the playground needs ROOM
+  try{ if(DOJO._fence&&DOJO._fence.parent)DOJO._fence.parent.remove(DOJO._fence); DOJO._fence=_dojoFence(); DOJO.group.add(DOJO._fence); }catch(_){}
+  // LEG 1 — RUN
+  _crsSign('MOVE', 0,70,150);
+  _crsRing(0,16,40,26);
+  // LEG 2 — GAP JUMP
+  _crsBox(0,-60,90,90,22); _crsBox(0,-190,90,90,22);
+  _crsSign('JUMP', 0,80,-125);
+  _crsRing(0,48,-125,24);
+  // LEG 3 — STAIRS
+  _crsBox(110,-190,70,70,48); _crsBox(190,-150,70,70,78); _crsBox(270,-110,70,70,108);
+  _crsSign('CLIMB', 270,150,-110);
+  _crsRing(270,124,-110,24);
+  // LEG 4 — JETPACK TOWER
+  _crsBox(270,-260,84,84,230,0x1a2f52);
+  _crsSign('JETPACK', 270,300,-260);
+  _crsRing(270,250,-260,28);
+  // LEG 5 — GRIND RAIL down and around
+  _crsRail([ new THREE.Vector3(270,236,-300), new THREE.Vector3(210,214,-390), new THREE.Vector3(60,178,-480),
+             new THREE.Vector3(-120,140,-520), new THREE.Vector3(-300,100,-500), new THREE.Vector3(-430,66,-440) ]);
+  _crsSign('GRIND', 60,220,-480);
+  _crsRing(-120,146,-520,30);
+  // LEG 6 — WALL RUN across the void
+  _crsBox(-460,-400,90,90,55);                                                // landing platform off the rail
+  _crsBox(-520,-270,16,240,120,0x24123a);                                      // the WALL (long face along z)
+  _crsBox(-460,-120,110,150,55);                                               // far deck
+  _crsSign('WALL RUN', -520,150,-270,0xff2d95);
+  _crsRing(-496,78,-270,24);
+  // LEG 7 — SLIDE GATE on the far deck
+  { const bar=new THREE.Mesh(new THREE.BoxGeometry(110,10,10), new THREE.MeshStandardMaterial({color:0x101c30,metalness:0.3,roughness:0.5,emissive:0xff2d95,emissiveIntensity:0.7,toneMapped:false}));
+    bar.position.set(-460,55+16,-120); scene.add(bar); DOJO.props.push(bar);   // low bar over the deck — slide under it (visual; the gate check enforces)
+    for(const sx of [-1,1]){ const post=new THREE.Mesh(new THREE.BoxGeometry(8,26,8), _crsMat(0xff2d95,0.8)); post.position.set(-460+sx*55,55+13,-120); scene.add(post); DOJO.props.push(post); } }
+  CRS._slideZ=-120; CRS._slideDeck={x:-460,z:-120};
+  _crsSign('SLIDE', -460,140,-90,0xffe23a);
+  _crsRing(-460,72,-60,24);
+  // LEG 8 — BOOTS + JUMP-PAD FINALE
+  try{ if(typeof _spawnBootStation==='function')_spawnBootStation(-460,20); }catch(_){}
+  try{ if(typeof _spawnJumpPad==='function'){ _spawnJumpPad(-340,120,0); _spawnJumpPad(-180,200,0); } }catch(_){}
+  _crsSign('BOOTS', -460,120,20,0x39ffa0);
+  _crsSign('FINISH', -120,220,260,0xffe23a);
+  _crsRing(-120,150,260,34);
+  _dojoCourseLegCue();
+}
+function _dojoCourseLegCue(){
+  const L=_CRS_LEGS[Math.min(CRS.leg,_CRS_LEGS.length-1)]; if(!L)return;
+  try{ _dojoCue('THE GAUNTLET · '+(CRS.leg+1)+'/'+CRS.rings.length, L.cue); }catch(_){}
+  try{ _dojoDroneSay('LEG '+(CRS.leg+1)+'/'+CRS.rings.length, L.cue); }catch(_){}
+  try{ if(L.hand)_dojoHand(L.hand); else if(DOJO._hand&&DOJO._hand.el){ DOJO._hand.el.remove(); DOJO._hand=null; } }catch(_){}
+  try{ if(L.hud)_dojoRing2(L.hud); else _dojoRing2Clear(); }catch(_){}
+}
+function _dojoCourseTick(dt){
+  if(!CRS.active)return;
+  // rings: only the CURRENT one is live — it pulses; hit -> pop, advance, re-cue
+  for(let i=0;i<CRS.rings.length;i++){ const R=CRS.rings[i];
+    if(R.hit){ if(R.g.visible){ R.g.scale.multiplyScalar(1+dt*4); R.tor.material.opacity*=Math.pow(0.02,dt); if(R.tor.material.opacity<0.03)R.g.visible=false; } continue; }
+    const cur=(i===CRS.leg);
+    R.tor.material.opacity=cur?(0.7+0.3*Math.sin(performance.now()*0.008)):0.18;
+    R.halo.material.opacity=cur?0.35:0.06;
+    R.g.rotation.y+=dt*(cur?1.6:0.3);
+    if(cur&&player){ const dx=player.wx-R.x, dz=player.wz-R.z, dy=(player.py||0)+12-R.y;
+      if(Math.hypot(dx,dz)<R.r+16 && Math.abs(dy)<34){
+        R.hit=true; CRS.leg++;
+        try{ ps.ring(R.x,R.z,[0.3,1,0.85],20,150,R.y); }catch(_){ try{ ps.ring(R.x,R.z,[0.3,1,0.85],20,150); }catch(__){} }
+        try{ Audio.blip(900+CRS.leg*80,0.09,'sine',0.22,1400); }catch(_){}
+        try{ if(typeof flashScreen==='function')flashScreen('#39ffa033',80); }catch(_){}
+        if(CRS.leg>=CRS.rings.length){ CRS.done=true; }
+        else _dojoCourseLegCue();
+      } }
+  }
+  // SLIDE GATE enforcement: crossing the bar's plane on the deck without sliding pushes you back
+  if(CRS._slideDeck&&player&&CRS.leg===6){
+    const D=CRS._slideDeck;
+    if(Math.abs(player.wx-D.x)<58 && (player.py||0)>40 && (player.py||0)<80){
+      const was=CRS._lastZ, now2=player.wz;
+      if(was<=CRS._slideZ && now2>CRS._slideZ && !player._sliding){ player.wz=CRS._slideZ-4; try{ Audio.blip(220,0.08,'square',0.14,140); }catch(_){}
+        try{ if(typeof announce==='function')announce('SLIDE UNDER IT','#ffe23a'); }catch(_){} }
+    }
+    CRS._lastZ=player.wz;
+  }
+  // rails only tick in city/platform zones by default — drive them here
+  try{ if(CRS.rails&&typeof updateGrindRail==='function')updateGrindRail(dt); }catch(_){}
+}
+function _dojoCourseClear(){
+  if(!CRS.active)return; CRS.active=false; CRS.rings.length=0; CRS._slideDeck=null;
+  try{ if(window._arenaObstacles)window._arenaObstacles=window._arenaObstacles.filter(o=>!o._crs); }catch(_){}
+  try{ if(window._dojoPlatforms)window._dojoPlatforms=window._dojoPlatforms.filter(o=>!o._crs); }catch(_){}
+  try{ if(window._grindRails)window._grindRails=window._grindRails.filter(r=>!r._crs); }catch(_){}
+  try{ if(typeof _removeBootStation==='function')_removeBootStation(); }catch(_){}
+  try{ if(typeof _disposeJumpPads==='function')_disposeJumpPads(); }catch(_){}
+  window._DOJO_R=300;
+  try{ if(DOJO._fence&&DOJO._fence.parent)DOJO._fence.parent.remove(DOJO._fence); if(DOJO.group){ DOJO._fence=_dojoFence(); DOJO.group.add(DOJO._fence); } }catch(_){}
+}
+window._dojoCourseTick=_dojoCourseTick; window._dojoCourseClear=_dojoCourseClear; window.CRS=CRS;
 const DOJO_STEPS=[
-  { id:'move', sign:'MOVE', cue:'PUSH THE LEFT STICK  ·  RUN THROUGH THE GATE',
+  { id:'course', sign:'THE GAUNTLET', cue:'RUN THE COURSE  ·  POP EVERY RING',
     hud:'joystick-left', hand:{side:'left', dir:[0,-1], label:'MOVE'},
-    build(){ const gz=-190;
-      _dojoGate(gz);
-      _dojoGhost([[0,gz*0.86]],'run');   // ghost RUNS out to the gate along a dotted line
-    },
-    check(){ return DOJO._gate && player && player.wz<DOJO._gate.z && Math.abs(player.wx)<DOJO._gate.hw+26; } },
-
-  { id:'jump', sign:'JUMP', cue:'TAP THE RIGHT STICK TO JUMP  ·  CLEAR THE RING',
-    hud:'joystick-right', hand:{side:'right', dir:[0,0], label:'TAP'},
-    build(){ _dojoRing(0,-110,64); _dojoGhost(null,'jump'); },
-    check(){ return (player&&(player.py||0)>46); } },
-
-  { id:'jet', sign:'JETPACK', cue:'HOLD THE RIGHT STICK IN THE AIR  ·  FLY UP TO THE HIGH RING',
-    hud:'joystick-right', hand:{side:'right', dir:[0,-1], label:'HOLD'},
-    build(){ _dojoRing(0,-110,150); _dojoGhost(null,'float'); },
-    check(){ return (player&&(player.py||0)>128); } },
+    build(){ _dojoCourseBuild(); _dojoGhost([[0,60]],'run'); },
+    check(){ return CRS.done===true; } },
 
   { id:'aim', sign:'AIM', cue:'PUSH THE RIGHT STICK TO AIM  ·  POINT AT THE DUMMY',
     hud:'joystick-right', hand:{side:'right', dir:[1,0], label:'AIM'},
@@ -11044,6 +11181,7 @@ function _dojoRing(x,z,y){
   DOJO.props.push(g); DOJO._ring=g;
 }
 function _dojoClearProps(){
+  try{ _dojoCourseClear(); }catch(_){}
   for(const p of DOJO.props){ try{ if(p&&p.parent)p.parent.remove(p); }catch(_){} }
   DOJO.props.length=0; DOJO._gate=null; DOJO._ring=null;
   // retire the training dummy with the rest of the room
@@ -11129,7 +11267,7 @@ function buildDojo(){
   _dojoDispose();
   DOJO.active=true; DOJO.i=0; DOJO.done=false; DOJO.t=0; DOJO.stepT=0; DOJO.phase='construct'; DOJO._passT=0;
   DOJO.group=new THREE.Group(); if(typeof scene!=='undefined')scene.add(DOJO.group);
-  DOJO.group.add(_dojoFence());
+  DOJO._fence=_dojoFence(); DOJO.group.add(DOJO._fence);
   // hide the arena furniture — this is a clean showroom, not a level
   try{ if(grid){ if(grid.perimeter)grid.perimeter.visible=true; } }catch(_){}
   DOJO._grid=_dojoGridConstruct();                       // the floor rains in
@@ -11200,6 +11338,7 @@ function updateDojo(dt){
   if(!DOJO.active)return;
   DOJO.t+=dt; DOJO.stepT+=dt;
   _dojoContain();
+  try{ _dojoCourseTick(dt); }catch(_){}
   _dojoGhostTick(dt);
   _dojoDroneTick(dt);
   _dojoRing2Place();                       // the halo tracks the control's live rect
@@ -17354,7 +17493,7 @@ class Player{
       for(const b of _SE.buildings){ if(b.state==='deconstruct'||b.kind==='sphere'||b.isCube) continue; const dx=this.wx-(b.x||0), dz=this.wz-(b.z||0), top=(b.h||0);
         if(Math.abs(dx)<(b.w||0)*0.5 && Math.abs(dz)<(b.d||0)*0.5 && this.py<=top+2 && this.py>=top-_capSE && top>eFloor) eFloor=top; }
     }
-    if(GS.zone===-2 && window._dojoPlatforms && window._dojoPlatforms.length && !this._inPlanetGravity && !this._hang){
+    if((GS.zone===-2||GS.zone===-1) && window._dojoPlatforms && window._dojoPlatforms.length && !this._inPlanetGravity && !this._hang){
       const _capD=Math.max(12, Math.abs(this.pvy||0)*dt+8); let _onPlat=false;
       for(const b of window._dojoPlatforms){ const dx=this.wx-b.x, dz=this.wz-b.z; if(Math.abs(dx)>=b.hw||Math.abs(dz)>=b.hd) continue;
         let topY=b.top;
