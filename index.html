@@ -12069,8 +12069,18 @@ class EnemyMissile{
     this._glowMat.opacity=0.2+0.2*Math.sin(this.t*10);
     if(this._deflected||this._allyRocket){
       // friendly-to-you projectile (parried, or an ally dog's rocket): detonate on the nearest foe it reaches — never the player
-      if(GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false)continue; if(Math.hypot(e.wx-this.wx,e.wz-this.wz)<((e.size||14)+14)){ this.detonate(); return 0; } }
-      if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false||b._netMirror)continue; if(Math.hypot(b.wx-this.wx,b.wz-this.wz)<((b.size||18)+14)){
+      // HEIGHT COUNTS. These two proximity tests were flat XZ, so a parried rocket skimming the deck detonated the moment
+      // it passed UNDER a foe who had jumped or been launched — it looked like a hit on someone standing well above it.
+      // Everything else in the game (the hero's own rockets included) tests in 3D; these two never did.
+      // window._ROCKET_3D=false restores the flat test.
+      const _r3=(window._ROCKET_3D!==false);
+      const _hy=(o)=>{ try{ if(o.mesh&&o.mesh.position)return o.mesh.position.y; }catch(_){} return (o.py!=null?o.py+12:this.y); };
+      const _near=(o,rad)=>{ const dx=o.wx-this.wx, dz=o.wz-this.wz;
+        if(!_r3)return Math.hypot(dx,dz)<rad;
+        const dy=(_hy(o)-this.y)*(window._ROCKET_Y_K||1);
+        return Math.hypot(dx,dy,dz)<rad; };
+      if(GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false)continue; if(_near(e,(e.size||14)+14)){ this.detonate(); return 0; } }
+      if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false||b._netMirror)continue; if(_near(b,(b.size||18)+16)){
         // ── ROCKET VOLLEYBALL: the returned rocket reaches its OWNER, who has a melee weapon out -> it SMACKS it right
         //    back at you, faster. Parry it again and the rally keeps going, gaining pace each pass. ──
         if(b===this._ownerBot && b._botMeleeWeapon && (this._volleys||0)<(window._VOLLEY_MAX||6) && Math.random()<(window._VOLLEY_P||0.6)){
@@ -12114,8 +12124,14 @@ class EnemyMissile{
         if(this._fireComet&&window._BURN!==false){ const _was=(player._burnT||0)>0; player._burnT=(window._BURN_S||2.2); player._burnNext=Math.min(player._burnNext||0.5,0.5);   // the dog's fire STICKS — you burn for a couple seconds after
           if(!_was)try{ if(typeof announce==='function')announce('🔥 ON FIRE','#ff7a1a'); }catch(_){} } }
     }
-    if(GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false)continue; const d=Math.hypot(e.wx-this.wx,e.wz-this.wz); if(d<R){ if(e.hit)try{e.hit(Math.max(1,Math.ceil(3*(1-d/R)+1)),this.wx,this.wz);}catch(_){} if(e.knock)try{e.knock(e.wx-this.wx,e.wz-this.wz,2,120,10);}catch(_){} } }
-    if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false||b._netMirror)continue; const d=Math.hypot(b.wx-this.wx,b.wz-this.wz); if(d<R&&b.hit)try{b.hit(Math.max(1,Math.ceil(3*(1-d/R)+1)));}catch(_){} }
+    // the BLAST is a sphere, not an infinite column. It was flat XZ too, so a rocket going off at deck level chipped
+    // anyone directly overhead at any height. Vertical distance is softened (not ignored) so it stays forgiving.
+    const _bR3=(window._ROCKET_3D!==false), _bYK=(window._ROCKET_BLAST_Y_K||0.7);
+    const _bd=(o)=>{ const dx=o.wx-this.wx, dz=o.wz-this.wz; if(!_bR3)return Math.hypot(dx,dz);
+      let oy=this.y; try{ oy=(o.mesh&&o.mesh.position)?o.mesh.position.y:((o.py!=null)?o.py+12:this.y); }catch(_){}
+      return Math.hypot(dx,(oy-this.y)*_bYK,dz); };
+    if(GS.enemies)for(const e of GS.enemies){ if(!e||e.alive===false)continue; const d=_bd(e); if(d<R){ if(e.hit)try{e.hit(Math.max(1,Math.ceil(3*(1-d/R)+1)),this.wx,this.wz);}catch(_){} if(e.knock)try{e.knock(e.wx-this.wx,e.wz-this.wz,2,120,10);}catch(_){} } }
+    if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(!b||b.alive===false||b._netMirror)continue; const d=_bd(b); if(d<R&&b.hit)try{b.hit(Math.max(1,Math.ceil(3*(1-d/R)+1)));}catch(_){} }
     if(typeof Audio!=='undefined')try{ if(Audio.samples&&Audio.samples['explosion_small']&&Audio.samples['explosion_small']!=='pending'&&Audio.playSample)Audio.playSample('explosion_small',(window._EM_BOOM_VOL||0.5),1.0); else if(Audio.blip)Audio.blip(80,0.16,'sawtooth',0.16,60); }catch(_){}
     this.remove();
   }
@@ -29707,6 +29723,31 @@ if(window._HDRI_BG==null)window._HDRI_BG=true;
 if(window._HDRI_BG_INTENSITY==null)window._HDRI_BG_INTENSITY=1.0;   // SKYBOX brightness only (reflections stay full). Back to FULL brightness — the brighter sky read better; the blur + firmer floor-disc below now handle the wash/see-through the dim was fighting. Dial 0..1.
 if(window._HDRI_BLUR==null)window._HDRI_BLUR=true;   // soft-blur the SKYBOX (reflections stay sharp-source); window._HDRI_BLUR_PX tunes strength
 if(window._FLOOR_DISC_OP==null)window._FLOOR_DISC_OP=0.72;   // firm up the arena floor-disc fill while the HDRI sky is behind it (was 0.35 -> the bright sky read through it as "see-through floor")
+// ── THE COLOUR OF THE AIR ── linear fog does not make distant geometry INVISIBLE, it paints it flat fog-colour. So a
+// hand-picked violet haze turns the arena into a flat violet slab hanging under a bright sky: you see its shape from the
+// first frame and then watch detail switch on, which is the "it pops into existence" and not a fade at all. Read the
+// actual sky instead: the blurred skybox is a canvas, so average its horizon band and fog to THAT. Fully-fogged geometry
+// then IS the sky, and coming down through it is a real dissolve. window._DROP_MIST_COL forces a fixed colour again.
+window._hdriHazeColor=function(){
+  try{
+    if(window._hdriHazeC)return window._hdriHazeC;
+    const t=window._hdriBgTex||null, cv=t&&t.image;
+    if(!cv||!cv.getContext)return null;
+    const cx=cv.getContext('2d',{willReadFrequently:true}); if(!cx)return null;
+    const W=cv.width, H=cv.height;
+    const y0=Math.max(0,Math.floor(H*(window._HAZE_BAND0!=null?window._HAZE_BAND0:0.50)));
+    const y1=Math.min(H,Math.floor(H*(window._HAZE_BAND1!=null?window._HAZE_BAND1:0.80)));
+    const d=cx.getImageData(0,y0,W,Math.max(1,y1-y0)).data;
+    let r=0,g=0,b=0,n=0;
+    for(let i=0;i<d.length;i+=4*11){ r+=d[i]; g+=d[i+1]; b+=d[i+2]; n++; }
+    if(!n)return null;
+    let ii=1; try{ if(typeof scene!=='undefined'&&('backgroundIntensity' in scene))ii=(scene.backgroundIntensity!=null?scene.backgroundIntensity:1); }catch(_){}
+    const c=new THREE.Color();
+    const _r=(r/n/255)*ii, _g=(g/n/255)*ii, _b=(b/n/255)*ii;
+    if(c.setRGB.length>3&&THREE.SRGBColorSpace)c.setRGB(_r,_g,_b,THREE.SRGBColorSpace); else c.setRGB(_r,_g,_b);
+    window._hdriHazeC=c; return c;
+  }catch(_){ return null; }
+};
 function _hdriBuild(cb){ if(window._hdriEnv){ cb&&cb(window._hdriEnv,window._hdriTex); return; }
   if(window._hdriLoading||window._hdriFailed)return; window._hdriLoading=true;   // _hdriFailed stops per-frame retry after a bad/missing file; window._hdri(true) clears it
   try{ new THREE.TextureLoader().load(window._HDRI_URL, tex=>{
@@ -53273,7 +53314,10 @@ window._shipLimboTick=function(dt){
       let az=Math.PI, dist=150, hh=64;
       try{ const cdx=camera.position.x-player.wx, cdz=camera.position.z-player.wz;          // seed the spring camera from the LIVE pose -> frame one of the owned sequence is pixel-identical
         az=Math.atan2(cdx,cdz); dist=Math.hypot(cdx,cdz); hh=camera.position.y-(player.py||0); }catch(_){}
-      window._DROPSEQ={ phase:'fall', t:0, vy:0, az:az, dist:dist, h:hh, hx:tx, hz:tz,
+      let _y0=null;   // HIS heading, right now. He has been running TOWARD the lens since the customize screen, and the
+      try{ _y0=(player.model)?player.model.rotation.y:null; }catch(_){}                        // drop used to overwrite that with a camera-relative "face away", which is the 180 you see the instant you go through the hatch.
+      if(_y0==null){ try{ _y0=-(player.facing||0)+Math.PI/2; }catch(_){ _y0=0; } }
+      window._DROPSEQ={ phase:'fall', t:0, vy:0, az:az, dist:dist, h:hh, hx:tx, hz:tz, yaw0:_y0,
         go:g2, mode:md, stage:!inLimbo, lastPy:(player.py||0) };
       if(!inLimbo){ try{ window._stageOvArming=false; clearTimeout(window._stageOvFadeT); window._stageOvFade=false; if(window._stageOverlay)window._stageOverlay(false); }catch(_){}   // fallback only — the deck walk normally dissolved it out long before this
         try{ if(window._stagePuppet){ if(window._stagePuppet.G&&window._stagePuppet.G.parent)window._stagePuppet.G.parent.remove(window._stagePuppet.G); window._stagePuppet=null; } }catch(_){}
@@ -53382,10 +53426,15 @@ function _dropSeqTick(dt){
     const _rate=S.y0/Math.max(0.5,S.dDur);
     S._dv=(S._dv==null)?Math.max(_rate,(window._DROP_VMAX||620)):S._dv+(_rate-S._dv)*Math.min(1,dt*1.2);   // enter at space-fall speed, settle to the steady rate — never a hover
     S.landY=_dropLandY(player.wx,player.wz);                                                 // re-read every frame: steering mid-fall changes what you're going to hit
-    try{ if(S._mist&&scene.fog===S._mist){                                                    // the haze thins as the ground comes up -> the world resolves instead of popping
-      const _k=Math.max(0,Math.min(1,(player.py-200)/Math.max(1,(S.y0-200))));
-      S._mist.far=(window._DROP_MIST_FAR||1500)+(1-_k)*(window._DROP_MIST_CLEAR||4200);
-      S._mist.near=10+(1-_k)*400; } }catch(_){}
+    try{ if(S._mist&&scene.fog===S._mist){
+      // The far plane RIDES HIS ALTITUDE instead of running on a fixed ramp. The old schedule opened to 3600 while he
+      // was still 1600 up, so the arena went from fully hazed to 60% visible in the middle of the fall — that step is
+      // what reads as popping. Tying far to his own height keeps the ground a constant distance INTO the haze and only
+      // lets it out near the end, so it comes up out of the mist continuously the whole way down.
+      const _k=Math.max(0,Math.min(1,(player.py-120)/Math.max(1,(S.y0-120))));                 // 1 at the top, 0 at touchdown
+      const _F=(window._DROP_MIST_K0||0.55)+(1-_k)*(1-_k)*(window._DROP_MIST_K1||2.0);
+      S._mist.far=Math.max(500,(player.py||0)*_F+300);
+      S._mist.near=Math.max(8,S._mist.far*0.12); } }catch(_){}
     player.py=Math.max(S.landY+3, player.py-S._dv*dt);
     const _slamH=(window._DROP_SLAM_H!=null?window._DROP_SLAM_H:90);
     if(window._DROP_SLAM!==false && player.py<=S.landY+_slamH){ S.phase='slam';               // the last stretch is a REAL fall again — he hits the deck, he doesn't tiptoe onto it
@@ -53426,6 +53475,22 @@ function _dropSeqTick(dt){
     try{ let rx=0; if(typeof shootIn!=='undefined'&&shootIn)rx=shootIn.x||0;
       if(typeof IS_TOUCH!=='undefined'&&!IS_TOUCH&&typeof keys!=='undefined'){ if(keys['KeyQ'])rx-=1; if(keys['KeyE'])rx+=1; }
       if(Math.abs(rx)>0.12){ S.spin=(S.spin||0)+rx*(window._DROP_SPIN_ACC||6.5)*dt; }
+      // ── FLICK IT UP OR DOWN AND HE FLIPS ── a full rotation about his own pitch axis, run off the transform rather
+      //    than a clip, so there is no hip translation to fight and it composes with the steer, the spin and the bank.
+      //    Flick, don't hold: it arms on the crossing so leaning on the stick doesn't spin him forever.
+      //    _DROP_FLIP=false off; _DROP_FLIP_TRIG the flick threshold; _DROP_FLIP_S how long one rotation takes.
+      if(window._DROP_FLIP!==false){
+        let ry=0; if(typeof shootIn!=='undefined'&&shootIn)ry=shootIn.y||0;
+        if(typeof IS_TOUCH!=='undefined'&&!IS_TOUCH&&typeof keys!=='undefined'){ if(keys['KeyR'])ry-=1; if(keys['KeyF'])ry+=1; }
+        const _tr=(window._DROP_FLIP_TRIG||0.6);
+        if((S.flipT||0)<=0 && Math.abs(ry)>_tr && Math.abs(S._ryP||0)<=_tr*0.55){
+          S.flipT=1; S.flipDir=(ry<0?1:-1);
+          try{ if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(360,0.1,'square',0.09,820); }catch(_){}
+          try{ if(typeof ps!=='undefined')ps.ring(player.wx,player.wz,[0.7,0.95,1],10,60,(player.py||0)+10); }catch(_){}
+        }
+        S._ryP=ry;
+        if((S.flipT||0)>0)S.flipT=Math.max(0,S.flipT-dt/(window._DROP_FLIP_S||0.62));
+      }
       S.spin=(S.spin||0)*Math.exp(-dt*(window._DROP_SPIN_DRAG||2.2));
       const _sm=(window._DROP_SPIN_MAX||5.0); if(S.spin>_sm)S.spin=_sm; else if(S.spin<-_sm)S.spin=-_sm;
       S.yaw=(S.yaw||0)+S.spin*dt; }catch(_){}
@@ -53435,12 +53500,16 @@ function _dropSeqTick(dt){
   try{ if(player.model){ player.model.position.set(player.wx, 9+(player.py||0), player.wz);
     // SKYDIVER ATTITUDE: face away from the lens, pitched well over into the dive, rolling with the steer.
     // Built as yaw -> local pitch -> local roll (a plain Euler would pitch about the WORLD axis and skew).
-    const _fx=-Math.sin(S.az), _fz=-Math.cos(S.az);
-    const _yaw=-Math.atan2(_fz,_fx)+Math.PI/2+(S.yaw||0);   // camera-relative facing + whatever spin the player has wound on
+    const _yaw=(S.yaw0||0)+(S.yaw||0);   // CONTINUE his heading from the hatch (+ whatever spin he has wound on). This used
+                                         // to be camera-relative, so a pilot running toward the lens flipped to face away the
+                                         // instant he dropped through. window._DROP_KEEP_FACE=false restores the old snap.
     const _dive=(window._DROP_DIVE_PITCH!=null?window._DROP_DIVE_PITCH:0.95);    // ~55 deg over: head leads, back to the sky
     const _bk=(window._DROP_BANK!=null?window._DROP_BANK:0.55);
-    const _pitch=(S.phase==='slam')?_dive*0.35:_dive+(S._fwd||0)*_bk*0.7;        // stands back up as he flares into the landing
+    let _pitch=(S.phase==='slam')?_dive*0.35:_dive+(S._fwd||0)*_bk*0.7;        // stands back up as he flares into the landing
+    if((S.flipT||0)>0){ const _fp=1-S.flipT, _fe=_fp*_fp*(3-2*_fp);              // eased 360 about the same local axis the dive pitch uses
+      _pitch+=(S.flipDir||1)*_fe*Math.PI*2; }
     player.model.rotation.set(0,_yaw,0);
+    if(window._DROP_KEEP_FACE===false){ const _cfx=-Math.sin(S.az),_cfz=-Math.cos(S.az); player.model.rotation.set(0,-Math.atan2(_cfz,_cfx)+Math.PI/2+(S.yaw||0),0); }
     if(!S._qx)S._qx=new THREE.Quaternion(); if(!S._qz)S._qz=new THREE.Quaternion();
     if(!S._ax)S._ax=new THREE.Vector3(1,0,0); if(!S._az2)S._az2=new THREE.Vector3(0,0,1);
     player.model.quaternion.multiply(S._qx.setFromAxisAngle(S._ax,_pitch));
@@ -53512,15 +53581,50 @@ function _dropSeqTick(dt){
         for(const rk of S.fxR){ rk._yo+=sp*dt*0.55; if(rk._yo>400)rk._yo-=800;
           rk.position.set(player.wx+rk._ox, pyN+rk._yo, player.wz+rk._oz);
           rk.rotation.x+=rk._rx*dt; rk.rotation.z+=rk._rz*dt; rk.visible=S._fxRMat.opacity>0.03; } }
-      if(S.phase==='descend'&&!S.clG&&typeof THREE!=='undefined'){                          // CLOUD LAYER — he punches through it on the way down to the match
+      if(S.phase==='descend'&&!S.clG&&typeof THREE!=='undefined'){
+        // ── A REAL CLOUD DECK ── the old clouds were twenty 16%-opacity spheres scattered over a 300-unit circle: from a
+        //    camera looking straight down past him they hid nothing, so the arena was on show the whole way. This is a
+        //    LAYER — a wide field of soft overlapping billboards at one altitude, dense enough to actually occlude what
+        //    is under it. He falls into it, it whites out the ground, and it fades off as he comes through the bottom,
+        //    by which point he is close enough for the haze to carry the rest. _DROP_DECK_* tune it; N=0 turns it off.
         const cg=new THREE.Group(); S.clG=cg; scene.add(cg);
-        S._clMat=new THREE.MeshBasicMaterial({color:0xe6efff,transparent:true,opacity:(window._DROP_CLOUD_OP!=null?window._DROP_CLOUD_OP:0.16),depthWrite:false,fog:false});
-        const sg2=new THREE.SphereGeometry(1,10,8);
-        for(let i=0;i<(window._DROP_CLOUD_N||20);i++){ const cl=new THREE.Mesh(sg2,S._clMat);
-          const a=Math.random()*Math.PI*2, r=40+Math.random()*260, y=(S.y0||600)*(0.35+Math.random()*0.4);
-          cl.scale.set(30+Math.random()*60, 14+Math.random()*22, 30+Math.random()*60);
-          cl.position.set(player.wx+Math.cos(a)*r, y, player.wz+Math.sin(a)*r); cg.add(cl); } }
-      if(S.clG&&!S.clG.parent)scene.add(S.clG); } }catch(_){}
+        // ONE SHEET PER LAYER, not a field of billboards. A field big enough to actually cover the ground was ~130
+        // large transparent quads and dozens of screens of overdraw — fine here, ruinous on a phone. A single wide
+        // sheet carrying a painted cloud texture covers everything at one screen of fill per layer.
+        if(!window._dropCloudTex){
+          const SZ=512, c=document.createElement('canvas'); c.width=c.height=SZ; const x=c.getContext('2d');
+          x.clearRect(0,0,SZ,SZ);
+          const blob=(bx,by,br,al)=>{ const g2=x.createRadialGradient(bx,by,br*0.06,bx,by,br);
+            g2.addColorStop(0,'rgba(255,255,255,'+al+')'); g2.addColorStop(0.5,'rgba(246,250,255,'+(al*0.72)+')'); g2.addColorStop(1,'rgba(238,246,255,0)');
+            x.fillStyle=g2; x.beginPath(); x.arc(bx,by,br,0,Math.PI*2); x.fill(); };
+          for(let i2=0;i2<70;i2++){ const a2=Math.random()*Math.PI*2, rr=Math.pow(Math.random(),0.65)*SZ*0.42;   // packed core, ragged edge
+            blob(SZ/2+Math.cos(a2)*rr, SZ/2+Math.sin(a2)*rr, SZ*(0.07+Math.random()*0.13), 0.5+Math.random()*0.4); }
+          for(let i2=0;i2<26;i2++){ const a2=Math.random()*Math.PI*2, rr=SZ*(0.40+Math.random()*0.10); blob(SZ/2+Math.cos(a2)*rr, SZ/2+Math.sin(a2)*rr, SZ*(0.05+Math.random()*0.09), 0.35+Math.random()*0.3); }
+          { const fade=x.createRadialGradient(SZ/2,SZ/2,SZ*0.34,SZ/2,SZ/2,SZ*0.5);                                // feather the rim so the sheet has no visible edge
+            fade.addColorStop(0,'rgba(0,0,0,0)'); fade.addColorStop(1,'rgba(0,0,0,1)');
+            x.globalCompositeOperation='destination-out'; x.fillStyle=fade; x.fillRect(0,0,SZ,SZ); x.globalCompositeOperation='source-over'; }
+          window._dropCloudTex=new THREE.CanvasTexture(c);
+        }
+        S._clMat=new THREE.MeshBasicMaterial({map:window._dropCloudTex,color:0xeef4ff,transparent:true,
+          opacity:(window._DROP_DECK_OP!=null?window._DROP_DECK_OP:0.95),depthWrite:false,depthTest:true,fog:false,side:THREE.DoubleSide,toneMapped:false});
+        S.deckY=(S.y0||600)*(window._DROP_DECK_K!=null?window._DROP_DECK_K:0.46);
+        const pg=new THREE.PlaneGeometry(1,1);
+        const LAY=(window._DROP_DECK_LAYERS||3), SPR=(window._DROP_DECK_SPREAD||170);
+        S.deckLow=S.deckY-SPR*(LAY-1)*0.5;
+        for(let L=0;L<LAY;L++){ const ly=S.deckLow+L*SPR;
+          const w=(window._DROP_DECK_W||3000)*(1-L*0.06);
+          const cl=new THREE.Mesh(pg,S._clMat);
+          cl.scale.set(w,w,1); cl.rotation.x=-Math.PI/2; cl.rotation.z=L*2.1+Math.random();
+          cl.position.set(player.wx+(Math.random()*2-1)*140, ly, player.wz+(Math.random()*2-1)*140);
+          cl.renderOrder=(window._DROP_DECK_ORDER||900); cl.frustumCulled=false; cg.add(cl); }   // drawn after EVERYTHING: it writes no depth, so anything drawn later just paints over it
+      }
+      if(S.clG){ if(!S.clG.parent)scene.add(S.clG);
+        // fade the deck off as he comes out of the bottom of it — otherwise it sits between the camera and him
+        const _ab=(player.py||0)-((S.deckLow!=null?S.deckLow:S.deckY)||0);   // measured off the BOTTOM layer: it only clears once he is out the underside of the whole stack
+        const _dop=(window._DROP_DECK_OP!=null?window._DROP_DECK_OP:0.55);
+        const _tgt=(_ab>0)?_dop:Math.max(0,_dop*(1+_ab/(window._DROP_DECK_FADE||190)));
+        if(S._clMat)S._clMat.opacity+=(_tgt-S._clMat.opacity)*Math.min(1,dt*4);
+        S.clG.visible=(S._clMat?S._clMat.opacity:0)>0.01; } } }catch(_){}
   // drain the staged material batches while he falls — and never let one still be staged once the ground
   // is close enough to read through the mist (the queue normally empties within a second of real frames)
   try{ if(window._warmQ){ if(S.phase==='descend'&&S.y0&&player.py<S.y0*(window._WARM_FLUSH_K||0.6))window._warmFlush(); else window._warmTick(); } }catch(_){}
@@ -53549,8 +53653,9 @@ function _dropSeqTick(dt){
         try{ player._respawnBlink=0; if(player._spawnAura){ if(player._spawnAura.parent)player._spawnAura.parent.remove(player._spawnAura); player._spawnAura=null; } }catch(_){}
         S2.phase='descend'; S2.y0=alt; S2.dT=0;
         try{ S2._fog0=scene.fog;                                                                  // hold the arena's own fog...
-          const FC=new THREE.Color(window._DROP_MIST_COL!=null?window._DROP_MIST_COL:0x8f7fd8);
-          scene.fog=new THREE.Fog(FC,10,(window._DROP_MIST_FAR||1500));                           // ...and drop a sky-toned haze over it: everything that just built is beyond the far plane, so it is INVISIBLE, then it resolves out of the mist as he closes in
+          const FC=(window._DROP_MIST_COL!=null)?new THREE.Color(window._DROP_MIST_COL)
+                   :((window._hdriHazeColor&&window._hdriHazeColor())||new THREE.Color(0x8f7fd8));   // ...and haze it in the SKY's own colour, so fully-fogged geometry is indistinguishable from the background
+          scene.fog=new THREE.Fog(FC.clone(),10,(window._DROP_MIST_FAR||1500));
           S2._mist=scene.fog; }catch(_){}
         S2.dDur=Math.max((window._SHIP_MIN_FALL||13)-S2.t, 8.0);                              // a real skydive: the match builds so far below that it is never seen appearing
         setTimeout(()=>{ try{ _fallVeil(false); }catch(_){} }, 350);
