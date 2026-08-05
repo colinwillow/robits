@@ -13578,6 +13578,7 @@ class PlasmaBeam{
     if(typeof ps!=='undefined'){ const sc=friendly?[0.6,1,0.4]:[1,0.55,1]; for(let k=0;k<10;k++){ const tt=Math.random()*LEN; ps.spark(x+dir.x*tt+rand(-7,7), z+dir.z*tt+rand(-7,7), sc, y+dir.y*tt+rand(-7,7)); } }
     // hitscan — pierces every enemy along the line
     const dmg=od?6:3;
+    this._ox=x; this._oy=y; this._oz=z; this._dir=dir.clone(); this._len=LEN; this._r=R; this._dmg=dmg;   // kept for the hostile pass, which has to wait for the first update (see _hitHostiles)
     for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; if(!e||!e.alive||e._captured) continue;
       const ey=(e.mesh?e.mesh.position.y:9);
       const ex=e.wx-x, ee=ey-y, ez=e.wz-z, t=ex*dir.x+ee*dir.y+ez*dir.z;
@@ -13588,12 +13589,36 @@ class PlasmaBeam{
         const pts=(e.hit?e.hit(dmg):0);
         if(typeof spawnDmgNum==='function')spawnDmgNum(e.wx,ey+18,e.wz,dmg,'#ff66ff');
         if(typeof ps!=='undefined')ps.burst(e.wx,e.wz,[1,0.4,1],9,95,ey);
+        if(typeof _hitSfx==='function')_hitSfx(null,{wx:e.wx,wz:e.wz,size:e.size});   // it hit metal: it should CLANG
         if(pts>0||!e.alive){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); }
       }
     }
     if(typeof addTrauma==='function') addTrauma(od?0.06:0.03);
   }
+  // ── THE BEAM vs THE ROSTER ── it only ever ran its hitscan against GS.enemies, and the rival pilots in a rumble are
+  // NOT in that list — they live in GS_bots. So the laser flew straight through every AI character doing precisely
+  // nothing: measured five beams at ninety units, target HP 100 -> 100. No damage is also why there was no clang.
+  // Runs on the first update rather than in the constructor because a remote pilot's beam is flagged _remote AFTER it
+  // is built, and that one must not deal damage locally.
+  _hitHostiles(){
+    const list=(typeof _extraHostiles==='function')?_extraHostiles():null; if(!list||!list.length)return;
+    const x=this._ox, y=this._oy, z=this._oz, d=this._dir, LEN=this._len, R=this._r, dmg=this._dmg;
+    if(!d)return;
+    for(const e of list){ if(!e||e.alive===false||e._captured)continue;
+      const ey=(typeof _hostileY==='function')?_hostileY(e):((e.py!=null?e.py+9:9));
+      const ex=e.wx-x, ee=ey-y, ez=e.wz-z, t=ex*d.x+ee*d.y+ez*d.z;
+      if(t<0||t>LEN)continue;
+      const perp=Math.hypot(ex-d.x*t, ee-d.y*t, ez-d.z*t);
+      if(perp >= R + (e.size||16)*0.5 + (window._BEAM_PAD||10))continue;
+      try{ if(e.knock)e.knock(d.x,d.z,dmg,1.3,0); }catch(_){}
+      try{ if(e.hit)e.hit(dmg,x,z); }catch(_){}
+      if(typeof spawnDmgNum==='function')spawnDmgNum(e.wx,ey+18,e.wz,dmg,'#ff66ff');
+      if(typeof ps!=='undefined')ps.burst(e.wx,e.wz,[1,0.4,1],11,110,ey);
+      if(typeof _hitSfx==='function')_hitSfx(null,{wx:e.wx,wz:e.wz,size:e.size});
+    }
+  }
   update(dt){
+    if(!this._hitDone){ this._hitDone=true; if(!this._remote){ try{ this._hitHostiles(); }catch(_){} } }
     this.life-=dt; const f=Math.max(0,this.life/this.maxLife);
     this._mats[0].opacity=0.34*f; this._mats[1].opacity=0.95*f; this._mats[2].opacity=0.9*f;
     for(const h of this._helices) h.rotation.z += dt*this._spin;            // swirl
@@ -47419,7 +47444,17 @@ function _orientLargeWeapon(obj,bone,_o){
     const _mNow=!!((_ud._meleeTimer>0) || P._meleeAdditive || _ud._slamHold || P._swingAction || _ud._swActive || (_ud._rollingTimer>0) || (_ud._flippingTimer>0) || P._airSlam);
     if(_mNow) P._lgMeleeT=_nowMs;
     const _melee=(window._LARGE_MELEE_HAND!==false) && (_mNow || (_nowMs-(P._lgMeleeT||-1e9) < (window._LARGE_MELEE_HOLD||280)));
-    const _loose=_melee||!!(P._launched || (P._kbStun||0)>0 || _ud._voidTumble || (typeof P._flungActive==='function'&&P._flungActive()) || (P._downT||0)>0);
+    // ── AND ASK THE CLIP ── the flags above are all STATE flags (launched, stunned, tumbling), and a bot that simply
+    // JUMPED holds none of them: it is upright, in control, playing jump/land — and those clips park weapon_1 out past
+    // the hand exactly like the flung ones do, so the span placement leaves the launcher hanging in space beside him.
+    // The real question was never "what happened to him", it is "does the clip that is playing pose the weapon bones
+    // sanely", so read the clip. Same test for the hero and every bot, since they share this function.
+    // window._LARGE_CLIP_HAND=false reverts to flags-only.
+    const _clipNow=String(_ud.currentClip||'');
+    const _clipAir=(window._LARGE_CLIP_HAND!==false) && (window._LARGE_AIR_CLIPS||/jump|flip|float|fly|fall|land|dive|roll|dodge|dash|slide|hang|climb|grind|get_up|ball/i).test(_clipNow);
+    if(_clipAir) P._lgAirT=_nowMs;
+    const _air=_clipAir || (_nowMs-(P._lgAirT||-1e9) < (window._LARGE_AIR_HOLD||220));   // same crossfade grace the melee hold uses — the bones stay posed through the blend out
+    const _loose=_melee||_air||!!(P._launched || (P._kbStun||0)>0 || _ud._voidTumble || (typeof P._flungActive==='function'&&P._flungActive()) || (P._downT||0)>0);
     if(_loose){
       if(obj.parent!==bone) bone.add(obj);
       const _d0=(typeof _resolveGunDir==='function')?_resolveGunDir(P):null;
