@@ -2322,10 +2322,20 @@ window._stageFrameSync=function(dt){ try{
       const gy=Math.atan2(OV._v1.x,OV._v1.z);
       OV.legs.cl.getWorldPosition(OV._v1); OV.legs.cr.getWorldPosition(OV._v2); OV._v1.sub(OV._v2);
       const cy=Math.atan2(OV._v1.x,OV._v1.z);
-      let e=gy-cy; e=Math.atan2(Math.sin(e),Math.cos(e));
-      if(e<-(Math.PI-0.12))e+=Math.PI*2;   // the from-rest 180 sits exactly on the +/-PI boundary — always take the same direction the old wheel turn took, never coin-flip
+      let e=gy-cy;
+      // BRANCH ONCE, THEN STAY CONTINUOUS. The from-rest 180 puts this error exactly on the +/-PI boundary, and
+      // the old code re-picked the branch every frame off a fixed threshold — so hip sway of a few degrees while
+      // he turns could flip the correction by a full 2*PI from one frame to the next. That is the little "look to
+      // his left and back" kick at deploy: not the camera, not the model, a sign flip in the mirror's yaw error.
+      // Pick the direction on the first frame (same rule as before, so the turn still goes the way it always did)
+      // and afterwards unwrap relative to the previous frame — the error path can never jump again.
+      if(OV._eP==null){ e=Math.atan2(Math.sin(e),Math.cos(e)); if(e<-(Math.PI-0.12))e+=Math.PI*2; }
+      else { while(e-OV._eP>Math.PI)e-=Math.PI*2; while(e-OV._eP<-Math.PI)e+=Math.PI*2; }
+      OV._eP=e;
       if(OV.heroYaw==null)OV.heroYaw=OV._eul.setFromQuaternion(OV.hero.quaternion,'YXZ').y;
-      OV.heroYaw+=e*pk; OV.hero.rotation.set(0,OV.heroYaw,0); }catch(_){} }
+      let _step=e*pk;                                                              // and cap the per-frame correction: nothing may ever pop the clone round in one frame
+      const _mx=(window._STAGE_YAW_RATE||10)*dt; if(_step>_mx)_step=_mx; else if(_step<-_mx)_step=-_mx;
+      OV.heroYaw+=_step; OV.hero.rotation.set(0,OV.heroYaw,0); }catch(_){} }
     if(OV.hips&&OV.cam){ OV.hero.updateMatrixWorld(true); pm.updateMatrixWorld(true);
       const hw=OV.hips[0].getWorldPosition(_walkTmp.clone()), hp=OV.hips[1].getWorldPosition(_walkTmp.clone());
       const tx=hw.x+(camera.position.x-hp.x)/OV.s, ty=hw.y+(camera.position.y-hp.y)/OV.s, tz=hw.z+(camera.position.z-hp.z)/OV.s;
@@ -32891,6 +32901,7 @@ function loop(ts){ requestAnimationFrame(loop);
     _camRestoreTick();
     // GRAVITY-FLIP view factor — computed here (before updateCamera) so the bootless mirror can read it, and applied as a universal 180° roll AFTER, so the view flips even when the boots/wall-walk camera owns the frame.
     if(typeof GS!=='undefined'){ const _gfTgt=(GS.zone===-19 && GS._gravFlip && player && !player._ballActive)?1:0; GS._gfCamF=lerp(GS._gfCamF||0, _gfTgt, 0.06); }
+    if(typeof GS!=='undefined'&&GS.zone===-32&&window._stageLiftTick){ try{ window._stageLiftTick(rawDt); }catch(_){} }   // ride the platform BEFORE the camera reads his pose, so the descent is one smooth move
     updateCamera(rawDt);
 
     if(typeof GS!=='undefined' && (GS._gfCamF||0)>0.001 && typeof camera!=='undefined'){ camera.rotateZ((GS._gfCamF)*Math.PI); }   // roll the whole view 180° (always, incl. boots) so a flipped ceiling reads as the floor
@@ -52783,7 +52794,8 @@ window._basicConstructStart=function(){ try{
 //    select stage (synthwave backdrop + his pad), and the wheel canvas — carrying the exact post-turn shot — crossfades
 //    away over the live engine. From that moment locomotion, run/strafe/jump animations, jetpack, chase camera, right-
 //    stick orbit are all the SHIPPED systems. No reinvented wheels. window._stageGo holds the mode launcher for later.
-window._disposeStageSet=function(){ try{ if(window._stagePad){ if(window._stagePad.parent)window._stagePad.parent.remove(window._stagePad);
+window._disposeStageSet=function(){ try{ window._stageLift=null;   // the lift leaves with the set
+  if(window._stagePad){ if(window._stagePad.parent)window._stagePad.parent.remove(window._stagePad);
   window._stagePad.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); window._stagePad=null; }
   try{ if(window._stagePortal){ const gp=window._stagePortal.grp; if(gp){ if(gp.parent)gp.parent.remove(gp); gp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); }
     const sg=window._stagePortal.sign; if(sg){ if(sg.parent)sg.parent.remove(sg); if(sg.geometry)sg.geometry.dispose(); if(sg.material){ if(sg.material.map)sg.material.map.dispose(); sg.material.dispose(); } }
@@ -54303,9 +54315,41 @@ window._stageBuild=function(){ try{
     { const disc=new THREE.Mesh(new THREE.CircleGeometry(1.55*K,48),pm(0.06)); disc.rotation.x=-Math.PI/2; pad.add(disc); }
     [[0.8,0.55],[1.16,0.36],[1.5,0.22]].forEach(rr=>{ const ring=new THREE.Mesh(new THREE.RingGeometry((rr[0]-0.035)*K,rr[0]*K,72),pm(rr[1])); ring.rotation.x=-Math.PI/2; pad.add(ring); });
     { const tm=pm(0.5); for(let k=0;k<44;k++){ const a=k/44*Math.PI*2; const t=new THREE.Mesh(new THREE.PlaneGeometry(0.04*K,0.13*K),tm); t.position.set(Math.cos(a)*1.7*K,0.002,Math.sin(a)*1.7*K); t.rotation.x=-Math.PI/2; t.rotation.z=-a; pad.add(t); } }
-    pad.position.y=0.12; SG.add(pad); SG._pad=pad; SG._padMats=mats;
+    // ── THE LIFT ── the selection pad is a real riser, the same idea as the armory platform: you arrive on
+    //    it RAISED, exactly as you were standing on the select screen, and it lowers you onto the deck. Walk
+    //    back onto it later and it takes you back up into the forge. The descent is what replaces the cut
+    //    between "customizing" and "standing in the deploy bay" — it is one continuous physical move.
+    //    window._STAGE_LIFT=false keeps the old flat holo disc pinned to the floor.
+    if(window._STAGE_LIFT!==false){
+      const R=1.62*K;
+      const lift=new THREE.Group(); SG.add(lift); SG._lift=lift;
+      const met=(c,e,ei)=>new THREE.MeshStandardMaterial({color:c,emissive:e,emissiveIntensity:ei,metalness:0.7,roughness:0.36,toneMapped:false});
+      { const plate=new THREE.Mesh(new THREE.CylinderGeometry(R,R*0.96,3.2,40), met(0x121a2c,col,0.30)); plate.position.y=-1.6; lift.add(plate); }
+      { const under=new THREE.Mesh(new THREE.CylinderGeometry(R*0.86,R*0.7,1.6,40), met(0x0a1020,col,0.5)); under.position.y=-3.6; lift.add(under); }
+      { const edge=new THREE.Mesh(new THREE.TorusGeometry(R,0.85,8,54), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+        edge.rotation.x=Math.PI/2; edge.position.y=-0.15; lift.add(edge); SG._liftEdge=edge; }
+      { const wm=new THREE.MeshBasicMaterial({color:0xffe23a,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});   // hazard chevrons round the rim of the deck plate
+        for(let k2=0;k2<18;k2++){ const a2=k2/18*Math.PI*2; const ch=new THREE.Mesh(new THREE.PlaneGeometry(R*0.12,2.4),wm);
+          ch.position.set(Math.cos(a2)*R*0.93,-1.7,Math.sin(a2)*R*0.93); ch.rotation.y=-a2+Math.PI/2; lift.add(ch); } }
+      pad.position.y=0.12; lift.add(pad);                                          // the holo disc rides ON the plate
+      // the TELESCOPING STEM — two nested columns that stretch out of the deck as the platform climbs
+      const sA=new THREE.Mesh(new THREE.CylinderGeometry(R*0.40,R*0.40,1,22,1,true), met(0x0d1422,col,0.14));
+      const sB=new THREE.Mesh(new THREE.CylinderGeometry(R*0.25,R*0.25,1,18,1,true), met(0x1a2740,col,0.28));
+      SG.add(sA); SG.add(sB); SG._stem=[sA,sB];
+      // the HOUSING it comes out of: a collar sunk into the deck plus a ring of runway lights
+      { const col2=new THREE.Mesh(new THREE.CylinderGeometry(R*0.56,R*0.62,2.6,28), met(0x0b1120,col,0.22)); col2.position.y=1.3; SG.add(col2);
+        const cr=new THREE.Mesh(new THREE.TorusGeometry(R*0.6,0.6,8,40), new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+        cr.rotation.x=Math.PI/2; cr.position.y=2.7; SG.add(cr); SG._liftCollar=cr;
+        const lm=new THREE.MeshBasicMaterial({color:0xffe23a,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false}); SG._liftLampMat=lm;
+        for(let k2=0;k2<12;k2++){ const a2=k2/12*Math.PI*2; const lp=new THREE.Mesh(new THREE.CircleGeometry(1.1,10),lm);
+          lp.rotation.x=-Math.PI/2; lp.position.set(Math.cos(a2)*R*1.22,0.5,Math.sin(a2)*R*1.22); SG.add(lp); } }
+      SG.traverse(o=>{ o.frustumCulled=false; });
+      window._stageLift={ k:1, phase:'hold', t:0, armed:false, R:R, H:(window._STAGE_LIFT_H!=null?window._STAGE_LIFT_H:30) };
+    } else { pad.position.y=0.12; SG.add(pad); }
+    SG._pad=pad; SG._padMats=mats;
   }catch(_){}
-  try{ player.wx=0; player.wz=0; player.py=0; player.vx=0; player.vz=0;
+  try{ player.wx=0; player.wz=0; player.py=((window._STAGE_LIFT!==false)?(window._STAGE_LIFT_H!=null?window._STAGE_LIFT_H:30):0); player.vx=0; player.vz=0;
+    player.pvy=0; player._onPlatform=(window._STAGE_LIFT!==false); player._platformY=player.py;   // he arrives STANDING ON the raised platform, exactly where he was on the select screen
     const _fa=(window._STAGE_FACE!=null?window._STAGE_FACE:0);   // FACE THE CAMERA (+x) — same way he faced on select, and where the machine + portal now stand. No 180 hero turn, and the overlay's camera orbit stays on the select side instead of sweeping half the circle ("the camera flips 180"). Legacy turn-away: window._STAGE_FACE=Math.PI.
     player.facing=_fa; player.aim=_fa; player._visAim=_fa;                // (old note: away-from-camera needed aim=PI — that was the flip-era setup)ay' but actually parked him staring screen-right (_visAim snapped too so the eased body yaw doesn't swing in from a stale menu value)
     try{ CAM.yaw=Math.PI/2; if('tyaw' in CAM)CAM.tyaw=Math.PI/2; CAM.focus.x=0; CAM.focus.z=0; CAM.tfocus.x=0; CAM.tfocus.z=0; }catch(_){}   // chase camera parked BEHIND his back from frame one — he keeps facing away after the 180, no flip-back
@@ -54393,6 +54437,52 @@ window._stageOverlay=function(on){ try{
 // So hand over early and as a dissolve: show the real machine UNDERNEATH, fade the overlay canvas out,
 // then tear it down. It happens while he is walking around the deck with nothing else going on.
 // window._STAGE_OV_RETIRE=false keeps the old hold-until-the-hatch behaviour.
+// ── THE DEPLOY LIFT ─────────────────────────────────────────────────────────────────────────────────
+// You never "arrive" in the deploy bay — you were already standing on the platform, up in the light, which
+// is what the customize screen has always been. Hitting DEPLOY lowers the platform and sets you down on the
+// deck. Walk back onto it and it takes you up again, into the forge. Same language as the armory riser.
+// window._STAGE_LIFT=false restores the old flat pad on the floor.
+window._stageLiftTick=function(dt){ try{
+  if(window._STAGE_LIFT===false)return;
+  const SG=window._stagePad, L=window._stageLift;
+  if(!SG||!L||typeof player==='undefined'||!player)return;
+  if(window._DROPSEQ){ L.phase='off'; return; }                                   // the drop owns everything; the set is about to be torn down anyway
+  const H=L.H, S=(window._STAGE_LIFT_S||1.9);
+  if(L.phase==='hold'){ L.t+=dt;
+    if(L.t>(window._STAGE_LIFT_HOLD!=null?window._STAGE_LIFT_HOLD:1.0)){ L.phase='down'; L.t=0;
+      try{ Audio.blip(78,0.55,'sawtooth',0.15,42); }catch(_){} } }                // servo lets go
+  else if(L.phase==='down'){ L.k=Math.max(0,L.k-dt/S);
+    if(L.k<=0){ L.k=0; L.phase='idle'; try{ Audio.blip(150,0.24,'square',0.13,92); }catch(_){}   // clunk as it seats
+      try{ if(typeof ps!=='undefined'&&ps.ring)ps.ring(0,0,[0,1,0.85],14,L.R*1.3); }catch(_){} } }
+  else if(L.phase==='up'){ L.k=Math.min(1,L.k+dt/S);
+    if(L.k>=1&&!L._fired){ L._fired=true; try{ if(window._armoryEnter)window._armoryEnter(); }catch(_){} } }
+  else if(L.phase==='idle'){
+    const d=Math.hypot(player.wx||0,player.wz||0);
+    if(!L.armed){ if(d>L.R*1.7)L.armed=true; }                                    // he has to step OFF before it will take him back up
+    else if(d<L.R*0.55 && (player.py||0)<6){ L.phase='up'; L._fired=false;
+      try{ Audio.blip(96,0.45,'sawtooth',0.18,58); }catch(_){}
+      try{ if(typeof announce==='function')announce('RETURNING TO THE FORGE','#33e8ff'); }catch(_){} }
+  }
+  const e=L.k*L.k*(3-2*L.k), y=e*H;
+  try{ if(SG._lift)SG._lift.position.y=y;
+    if(SG._stem){ const h=Math.max(0.35,y);
+      SG._stem[0].scale.y=h; SG._stem[0].position.y=h*0.5;
+      SG._stem[1].scale.y=h*0.72; SG._stem[1].position.y=h*0.36; }
+    const moving=(L.phase==='down'||L.phase==='up');
+    const _t=(typeof performance!=='undefined'?performance.now():0)*0.001;
+    if(SG._liftLampMat)SG._liftLampMat.opacity=moving?(0.35+0.55*(0.5+0.5*Math.sin(_t*9))):0.28;   // runway lights chase while it travels
+    if(SG._liftCollar)SG._liftCollar.material.opacity=moving?(0.5+0.4*(0.5+0.5*Math.sin(_t*7))):0.42;
+    if(SG._liftEdge)SG._liftEdge.material.opacity=moving?0.95:0.75;
+  }catch(_){}
+  if(L.phase==='hold'||L.phase==='down'||L.phase==='up'){                          // riding: he is cargo, not a walker
+    player.wx+=(0-player.wx)*Math.min(1,dt*6); player.wz+=(0-player.wz)*Math.min(1,dt*6);
+    player.vx=0; player.vz=0; player.pvy=0;
+    player.py=y; player._onPlatform=true; player._platformY=y;
+  } else if(L.phase==='idle'){
+    const d=Math.hypot(player.wx||0,player.wz||0);                                 // seated at deck level it is just a low step he can stand on
+    if(d<L.R && (player.py||0)<4){ player.py=0; player._onPlatform=true; player._platformY=0; }
+  }
+}catch(_){} };
 window._stageOvRetire=function(ms){ try{
   if(!window._stageOv||window._stageOvFade)return !!window._stageOv;
   const cv=window._stageOv.cv, D=(ms!=null?ms:(window._STAGE_OV_FADE_MS||600));
