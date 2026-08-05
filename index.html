@@ -2305,7 +2305,7 @@ window._stageFrameSync=function(dt){ try{
         if(_drift>(window._STAGE_REARM_DRIFT!=null?window._STAGE_REARM_DRIFT:0.22)){ OV._driftN=(OV._driftN||0)+1; if(OV._driftN>=2)_rearm=true; }   // pose-sensitive measure: demand a BIG drift twice in a row (walk-cycle bone sway tripped the old 12% once-only check -> mid-walk-in re-clone = the visible double-take)
         else OV._driftN=0; }catch(_){} } }
     if(_rearm){ try{ window._stageOvSnap=true; window._stageOverlay(false); window._stageOverlay(true); }finally{ window._stageOvSnap=false; } return; }
-    pm.visible=false;
+    if(!window._stageOvFade)pm.visible=false;   // ...unless the overlay is dissolving out, in which case the REAL machine is drawing underneath it
     try{ for(let i=0;i<OV.W.slotModel.length;i++){ const m=OV.W.slotModel[i]; if(m&&i!==OV.W.idx&&m.visible)m.visible=false; } }catch(_){}   // neighbours load ASYNC — keep the roster off the stage every frame
     // EASE, don't snap: bones + yaw ramp from the turn-cinematic pose onto the live game skeleton...
     OV.poseK=Math.min(1,(OV.poseK==null?1:OV.poseK)+dt/(window._STAGE_POSE_EASE||0.85));   // the ease now carries the WHOLE 180 (no wheel pre-flip) — paced like the old turn
@@ -25080,9 +25080,22 @@ function _matchCountdown(guard){   // GENERIC 3-2-1-FIGHT (freezes input via GS.
       for(const _k in bulletMats){ if(bulletMats[_k]&&typeof bulletGeo!=='undefined') _warmG.add(new THREE.Mesh(bulletGeo,bulletMats[_k])); }
       if(typeof bulletTailMats!=='undefined')for(const _k in bulletTailMats){ if(bulletTailMats[_k]&&typeof bulletTailGeo!=='undefined') _warmG.add(new THREE.Mesh(bulletTailGeo,bulletTailMats[_k])); }
       _warmG.position.set(0,-99999,0); scene.add(_warmG); } }catch(_){}
+    // ── MID-DROP THIS COMPILE *IS* THE STUTTER ──────────────────────────────────────────────────────
+    // renderer.compile() builds every shader program the freshly-built arena needs in ONE blocking call.
+    // At a normal match start that is exactly right: it runs inside the frozen 3-2-1 where nothing moves.
+    // But a deploy builds the match while the pilot is falling, so the same call stops the game dead a
+    // beat after he goes through the hatch — the hang the drop was supposed to hide. It also defeats the
+    // drop's own progressive warm-up, because compile() traverses the scene ignoring visibility, so
+    // hiding the new world buys nothing while this runs.
+    // During a drop, hand the whole job to _warmBegin/_warmTick: a material or two compiled per frame,
+    // spread across the entire descent, with kilometres of mist over it. window._MATCH_WARMUP=false kills
+    // both paths; window._DROP_WARMUP_SPLIT=false forces the old blocking compile even mid-drop.
+    if(window._DROPSEQ && window._DROP_WARMUP_SPLIT!==false){
+      try{ if(_warmG){ _warmG.traverse(o=>{ o.frustumCulled=false; }); window._warmProtoG=_warmG; } }catch(_){}   // bullet/tail prototypes stay parked off-screen and get staged with everything else (the drop removes them at touchdown)
+    } else {
     renderer.compile(scene,camera);
     try{ if(_warmG){ scene.remove(_warmG); _warmG.traverse(o=>{ if(o.geometry&&o.geometry!==bulletGeo&&o.geometry!==bulletTailGeo)try{o.geometry.dispose();}catch(_){} }); } }catch(_){}
-    setTimeout(()=>{ try{ if(GS&&(GS.state==='countdown'||GS.state==='playing'))renderer.compile(scene,camera); }catch(_){} }, (window._WARMUP_COMPILE_MS||1400)); } }catch(_){} }
+    setTimeout(()=>{ try{ if(window._DROPSEQ)return; if(GS&&(GS.state==='countdown'||GS.state==='playing'))renderer.compile(scene,camera); }catch(_){} }, (window._WARMUP_COMPILE_MS||1400)); } } }catch(_){} }
   let count=3;
   const cd=document.createElement('div');
   cd.style.cssText='position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);font-family:Orbitron,monospace;font-size:5.5em;font-weight:900;color:#fff;letter-spacing:8px;text-align:center;pointer-events:none;z-index:120;text-shadow:0 0 44px #00ffc8';
@@ -32819,6 +32832,7 @@ function loop(ts){ requestAnimationFrame(loop);
       try{ _dropSeqTick(Math.min(0.05,rawDt||0.016)); }catch(_e){ window._DROPSEQ=null; }   //    camera, not the arena intro, not spawn logic, not the animation state machine.
       try{ if(!window._glLost){ if(typeof composer!=='undefined'&&composer&&!window._gfxPerf&&!window.LIGHT_MODE&&!window._BW_MODE)composer.render(); else renderer.render(scene,camera); } }catch(_){}
       return; }
+    if(window._warmQ){ try{ window._warmTick(); }catch(_){} }                       // staged material batches keep draining outside the drop too
     if(typeof player!=='undefined'&&player&&player._deathSeq&&window._deathSeqTick){ try{ window._deathSeqTick(dt); }catch(_dse){ try{ if(typeof _deathFinish==='function')_deathFinish(player._deathSeq); }catch(_){} } }   // run the death cinematic FIRST -> it always advances even if later per-frame code throws
     if(typeof player!=='undefined'&&player&&player._skydive&&window._skydiveTick){ try{ window._skydiveTick(dt); }catch(_sde){ try{ if(player)player._skydive=null; }catch(_){} } }   // SKYDIVE DEPLOY: advance the drop-in BEFORE updateCamera so the chase cam reads this frame's fall position
     if(typeof GS!=='undefined'&&(GS.zone===-32||window._stageJack)&&window._stageJackTick){ try{ window._stageJackTick(dt); }catch(_){} }   // STAGE QUANTUM UNIT: the freestanding jack-in fixture in the deploy room (self-disposes off-zone)
@@ -52847,6 +52861,7 @@ window._stagePaintBackdrop=function(){ try{
 //  window._SHIP_LIMBO=false restores the plain limbo. Tunables: _SHIP_HATCH_D/_R, _SHIP_FALL_* below.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 const SHIPL={ grp:null, streaks:[], hatch:null, built:false, iris:null, irisK:0, fall:null, hull:null };
+window._SHIPL=SHIPL;   // debug handle (harness reads the hatch position + iris state)
 window._shipLimboClear=function(){ try{ if(SHIPL.grp&&SHIPL.grp.parent)SHIPL.grp.parent.remove(SHIPL.grp); }catch(_){}
   try{ if(SHIPL._dome){ if(SHIPL._dome.parent)SHIPL._dome.parent.remove(SHIPL._dome); if(SHIPL._dome.geometry)SHIPL._dome.geometry.dispose(); if(SHIPL._dome.material)SHIPL._dome.material.dispose(); SHIPL._dome=null; } }catch(_){}
   try{ if(SHIPL._sunset){ SHIPL._sunset=false; window._shipSunsetHold=false;
@@ -53034,6 +53049,14 @@ window._shipLimboTick=function(dt){
   // ── ANIMATE — shared with the owned drop frames (see _shipLimboAnim) ──
   window._shipLimboAnim(dt);
   const H=SHIPL.hatch; if(!H||!player)return;
+  // ── HAND THE PILOT OVER EARLY ── the select-render overlay has done its job the moment he is walking
+  //    around the deck. Dissolve it out here, in the calm, instead of destroying it in the frame he jumps.
+  if(inStage && window._STAGE_OV_RETIRE!==false && window._stageOv && !window._stageOvFade){
+    if(!SHIPL._ovW || SHIPL._ovW.ov!==window._stageOv)SHIPL._ovW={ov:window._stageOv, x:player.wx, z:player.wz, t:0};
+    SHIPL._ovW.t+=dt;
+    const _mv=Math.hypot(player.wx-SHIPL._ovW.x, player.wz-SHIPL._ovW.z);
+    if(_mv>(window._STAGE_OV_MOVE||30) || SHIPL._ovW.t>(window._STAGE_OV_HOLD||2.6)){ try{ window._stageOvRetire(); }catch(_){} }
+  }
   // ── IRIS: grinds open as you approach, seals again if you wander off ──
   if(!SHIPL.fall){
     const d=Math.hypot(player.wx-H.x,player.wz-H.z);
@@ -53055,7 +53078,7 @@ window._shipLimboTick=function(dt){
         az=Math.atan2(cdx,cdz); dist=Math.hypot(cdx,cdz); hh=camera.position.y-(player.py||0); }catch(_){}
       window._DROPSEQ={ phase:'fall', t:0, vy:0, az:az, dist:dist, h:hh, hx:tx, hz:tz,
         go:g2, mode:md, stage:!inLimbo, lastPy:(player.py||0) };
-      if(!inLimbo){ try{ window._stageOvArming=false; if(window._stageOverlay)window._stageOverlay(false); }catch(_){}   // the frozen overlay would BE the screen otherwise
+      if(!inLimbo){ try{ window._stageOvArming=false; clearTimeout(window._stageOvFadeT); window._stageOvFade=false; if(window._stageOverlay)window._stageOverlay(false); }catch(_){}   // fallback only — the deck walk normally dissolved it out long before this
         try{ if(window._stagePuppet){ if(window._stagePuppet.G&&window._stagePuppet.G.parent)window._stagePuppet.G.parent.remove(window._stagePuppet.G); window._stagePuppet=null; } }catch(_){}
         try{ if(player.model)player.model.visible=true; }catch(_){} }
       try{ Audio.blip(90,0.5,'sawtooth',0.22,40); }catch(_){}
@@ -53075,6 +53098,57 @@ window._shipLimboTick=function(dt){
 //    REALLY falls (py goes negative through the deck — no lifts, no illusions); at the swap, player and
 //    camera are moved by the SAME delta in the same owned frame (rendered image identical), and he then
 //    descends onto the arena spawn and is released to the normal game at ground level. ──
+// ── PROGRESSIVE WARM-UP — the world stops arriving as one blocking frame ─────────────────────────────
+// Building a match is cheap (~0.26s measured). The freeze is the FIRST FRAME THAT DRAWS IT: every material
+// the build introduced compiles its shader program and uploads its textures right there, all in one batch.
+// Measured on the drop: 22 new programs, and the six frames after the build cost 1856/1560/1624/241/220/190ms
+// — five seconds of dead frames landing mid-fall, which is exactly the "it pauses the moment you go through
+// the hatch" hang. Nothing about it is a load: the assets are already in memory, it is GPU compilation.
+// So the build hands the world over a material at a time. Everything it introduced starts hidden (a hidden
+// mesh is never submitted, so it never compiles), and the queue releases a batch per frame, budgeted against
+// the frame time we actually just measured. Each frame pays for one or two compiles instead of twenty-two,
+// and the whole drain happens while he is still kilometres up inside the mist with nothing to see.
+// window._WARM_REVEAL=false restores the old one-frame slam.
+window._warmBegin=function(skip){
+  try{
+    if(window._WARM_REVEAL===false||typeof scene==='undefined'||typeof renderer==='undefined')return;
+    window._warmFlush();
+    const roots=(skip||[]).filter(Boolean);
+    const props=renderer.properties;
+    const hot=(m)=>{ try{ const p=props.get(m); return !!(p&&p.currentProgram); }catch(_){ return true; } };   // already compiled -> leave it alone
+    const byMat=new Map();
+    scene.traverse(o=>{
+      if(!o.visible||!o.material)return;
+      for(const r of roots){ let a=o; while(a){ if(a===r)return; a=a.parent; } }                 // the player, the drop FX and the sky are never staged
+      const ms=Array.isArray(o.material)?o.material:[o.material];
+      if(ms.every(m=>!m||hot(m)))return;
+      const key=ms.map(m=>m?m.uuid:'-').join('|');                                              // one batch per material set = one program compile per batch
+      if(!byMat.has(key))byMat.set(key,[]);
+      byMat.get(key).push(o);
+    });
+    if(!byMat.size)return;
+    const g=[...byMat.values()];
+    for(const grp of g)for(const o of grp)o.visible=false;
+    window._warmQ={ g:g, i:0, rate:1, last:performance.now(), n:g.length,
+      dead:performance.now()+(window._WARM_MAX_MS||6000) };
+    try{ window._dbglog&&window._dbglog('WARM '+g.length+' material batches staged'); }catch(_){}
+  }catch(_){ try{ window._warmFlush(); }catch(__){} }
+};
+window._warmTick=function(){
+  const Q=window._warmQ; if(!Q)return;
+  try{
+    const now=performance.now(), ft=now-Q.last; Q.last=now;
+    if(now>Q.dead){ window._warmFlush(); return; }                                              // hard deadline: never leave the world half-hidden
+    if(ft>(window._WARM_SLOW_MS||42))Q.rate=1;                                                  // that frame already cost too much — back off to one
+    else if(ft<(window._WARM_FAST_MS||24))Q.rate=Math.min((window._WARM_MAX_RATE||4),Q.rate+1);
+    for(let k=0;k<Q.rate&&Q.i<Q.g.length;k++,Q.i++){ const grp=Q.g[Q.i]; for(const o of grp)o.visible=true; }
+    if(Q.i>=Q.g.length)window._warmQ=null;
+  }catch(_){ window._warmFlush(); }
+};
+window._warmFlush=function(){
+  const Q=window._warmQ; window._warmQ=null;
+  try{ if(Q)for(let i=Q.i;i<Q.g.length;i++)for(const o of Q.g[i])o.visible=true; }catch(_){}
+};
 function _dropLandY(x,z){   // the highest solid TOP under (x,z): steer over a platform mid-fall and you land on IT, not the floor
   let y=0;
   const cand=(arr)=>{ if(!arr||!arr.length)return;
@@ -53250,6 +53324,9 @@ function _dropSeqTick(dt){
           cl.scale.set(30+Math.random()*60, 14+Math.random()*22, 30+Math.random()*60);
           cl.position.set(player.wx+Math.cos(a)*r, y, player.wz+Math.sin(a)*r); cg.add(cl); } }
       if(S.clG&&!S.clG.parent)scene.add(S.clG); } }catch(_){}
+  // drain the staged material batches while he falls — and never let one still be staged once the ground
+  // is close enough to read through the mist (the queue normally empties within a second of real frames)
+  try{ if(window._warmQ){ if(S.phase==='descend'&&S.y0&&player.py<S.y0*(window._WARM_FLUSH_K||0.6))window._warmFlush(); else window._warmTick(); } }catch(_){}
   if(S.phase==='fall'&&!S.veil&&S.t>(window._SHIP_VEIL_T||3.4)){ S.veil=true; try{ _fallVeil(true); }catch(_){} }   // a short whoosh accent right before the swap — the space fall itself plays in the open
   if(S.phase==='wait'&&S.t>12){ _dropSeqRelease(); return; }                                 // watchdog: if the match build ever dies, hand back to the game rather than fall forever
   // FIRE the match build shortly into the fall; the world swaps in a frame WE own
@@ -53266,6 +53343,10 @@ function _dropSeqTick(dt){
         S2.hx=nx; S2.hz=nz; S2._lwx=nx; S2._lwz=nz; player.py=alt;                          // refresh the external-move baseline too, or the descend tick re-adopts this same delta
         try{ window._HDRI_IN_LIMBO=true; if(window._hdriReassert)window._hdriReassert(); }catch(_){}   // dome is at full opacity by now: swapping to the real skybox underneath it is invisible
         try{ window._shipLimboClear(); }catch(_){}                                            // the dressing leaves in the SAME owned frame as the world swap — never on screen
+        // STAGE THE NEW WORLD: hide every material the build just introduced and release them a batch per
+        // frame from here on. The arena is 3200+ units below him behind the mist, so nothing about the
+        // staggered reveal is visible — it just stops the first draw from compiling 22 shaders at once.
+        try{ window._warmBegin&&window._warmBegin([player.model, S2.fxG, S2.clG, (window._shipDome&&window._shipDome())||null]); }catch(_){}
         try{ window._dropDelivered=performance.now(); }catch(_){}                             // late spawn-correction logic (shooter-pad reseat etc.) must leave him where the drop put him
         try{ player._skydive=null; }catch(_){}                                               // the arena's own drop-in intro must not fight the owned fall
         try{ player._respawnBlink=0; if(player._spawnAura){ if(player._spawnAura.parent)player._spawnAura.parent.remove(player._spawnAura); player._spawnAura=null; } }catch(_){}
@@ -53283,6 +53364,10 @@ function _dropSeqTick(dt){
 }
 function _dropSeqRelease(slam){
   const S=window._DROPSEQ; window._DROPSEQ=null;
+  try{ window._warmFlush&&window._warmFlush(); }catch(_){}                       // touchdown: whatever is still staged goes on screen now
+  try{ const _pg=window._warmProtoG; window._warmProtoG=null;                    // the bullet-material prototypes have served their purpose during the fall
+    if(_pg){ if(_pg.parent)_pg.parent.remove(_pg);
+      _pg.traverse(o=>{ if(o.geometry&&(typeof bulletGeo==='undefined'||o.geometry!==bulletGeo)&&(typeof bulletTailGeo==='undefined'||o.geometry!==bulletTailGeo)){ try{ o.geometry.dispose(); }catch(_){} } }); } }catch(_){}
   try{ window._dropDelivered=performance.now(); }catch(_){}
   try{ if(S&&S.fxG){ if(S.fxG.parent)S.fxG.parent.remove(S.fxG); S.fxG.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); if(S._fxMat)S._fxMat.dispose(); if(S._fxRMat)S._fxRMat.dispose(); if(S._fxRWire)S._fxRWire.dispose(); } }catch(_){}
   try{ if(S&&S.clG){ if(S.clG.parent)S.clG.parent.remove(S.clG); S.clG.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); if(S._clMat)S._clMat.dispose(); } }catch(_){}
@@ -54297,6 +54382,33 @@ window._stageOverlay=function(on){ try{
     try{ st.par.appendChild(st.cv); st.cv.style.cssText=st.css; }catch(_){}
     try{ if(typeof player!=='undefined'&&player&&player.model)player.model.visible=true; }catch(_){}
   } }catch(e){ try{ console.warn('stageOverlay',e); }catch(_){} } };
+// ── RETIRE THE OVERLAY UNDER A CROSS-FADE ───────────────────────────────────────────────────────────
+// The select-render overlay is a SECOND full-screen WebGL canvas drawing a clone of the pilot out of the
+// character-select scene, with the real combat model hidden underneath it. Its whole job is to make the
+// arrival on the deploy deck pixel-identical to the select screen — which is over within a second of
+// landing. It used to stay up for the entire deck walk and then be destroyed IN ONE FRAME AT THE HATCH:
+// a second renderer torn down, a clone disposed and the real machine revealed at game framing, all on the
+// frame you jump. That is the "it pauses the moment I go through the hole, and when it comes back the
+// camera is farther away" — the camera never moved, the thing being drawn changed.
+// So hand over early and as a dissolve: show the real machine UNDERNEATH, fade the overlay canvas out,
+// then tear it down. It happens while he is walking around the deck with nothing else going on.
+// window._STAGE_OV_RETIRE=false keeps the old hold-until-the-hatch behaviour.
+window._stageOvRetire=function(ms){ try{
+  if(!window._stageOv||window._stageOvFade)return !!window._stageOv;
+  const cv=window._stageOv.cv, D=(ms!=null?ms:(window._STAGE_OV_FADE_MS||600));
+  window._stageOvArming=false;
+  window._stageOvFade=true;                                            // _stageFrameSync stops re-hiding him
+  try{ if(typeof player!=='undefined'&&player&&player.model)player.model.visible=true; }catch(_){}
+  try{ cv.style.transition='opacity '+(D/1000)+'s linear'; cv.style.opacity='0'; }catch(_){}
+  clearTimeout(window._stageOvFadeT);
+  window._stageOvFadeT=setTimeout(()=>{ try{
+    try{ const c=window._stageOv&&window._stageOv.cv; if(c){ c.style.transition=''; c.style.opacity=''; } }catch(_){}
+    if(window._stageOverlay)window._stageOverlay(false);
+    window._stageOvFade=false;
+    try{ if(typeof player!=='undefined'&&player&&player.model)player.model.visible=true; }catch(_){}
+  }catch(_){ window._stageOvFade=false; } }, D+40);
+  return true;
+}catch(_){ window._stageOvFade=false; return false; } };
 window._boneSpanY=function(model){ try{ let mn=1e9,mx=-1e9,any=false; const v=new THREE.Vector3();
   model.updateWorldMatrix(true,true);
   model.traverse(o=>{ if(o.isBone){ o.getWorldPosition(v); if(v.y<mn)mn=v.y; if(v.y>mx)mx=v.y; any=true; } });
