@@ -1,0 +1,34 @@
+CMB1513 - kill the giant white lattice laid over the ground during the drop
+
+It is the STAGE PORTAL's energy-field visualiser - the spoke-mandala reused from zone -17, sitting in
+the portal lens. Two facts about it combine badly:
+
+  · it is authored at ROOM scale (outer radius ~2580, geometry bbox +/-4721) and is only brought down
+    to lens size by a per-frame fit inside _stagePortalTick;
+  · it is frustumCulled=false, renderOrder 2, additive - so at that raw scale it paints across the
+    whole screen from anywhere in the world, over everything.
+
+And the reason it appears exactly during the fall and vanishes exactly on touchdown: THE ZONE UPDATE
+IS PAUSED for the whole drop - only the ship's own visuals are ticked - so _stagePortalTick stops
+running and whatever it last wrote just persists. Landing tears the stage down, which is what
+"removes" it.
+
+That last part is why my first fix did nothing. Gating visibility inside the portal tick is
+unreachable code during a drop. It has to be switched off from the drop side, where code is
+actually running.
+
+Two changes:
+  1. the mesh is BORN HIDDEN and only turned on by the tick once it has actually been fitted to the
+     lens - nothing may draw it before it has been sized;
+  2. _dropStart switches it off explicitly.
+
+  measured: mid-fall, a scan for any visible LineSegments with radius 2000-4000 and opacity >0.5
+  went from finding it (8544 verts, white, op 0.95, renderOrder 2) to "not found".
+  On the stage before the drop it is still visible:true - the portal is unchanged in normal use.
+
+Found by trapping Object3D.add and reading the construction stack, after four rounds of guessing
+from geometry measurements got nowhere. Worth remembering: for "what IS this object", trap where it
+is created rather than trying to identify it from its shape.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018E59Wnrd86WzhTJXdwNo7H
