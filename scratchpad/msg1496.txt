@@ -1,0 +1,47 @@
+CMB1496 - plasma orb wake: narrow and deep instead of field-wide; manta perception lag
+
+PLASMA ORB FLIGHT WAKE
+The wake radius came off a fixed constant, not off the ball: (85 + charge*70) * 2.3 = ~356 units at
+full charge, against a ball whose own radius is 18. Twenty ball-widths of grid churning on every
+shot, re-armed 20 times a second, which is why the whole field went crazy rather than the ball
+leaving a mark.
+
+Measured before/after (fully charged orb, flat shot, floor sheet):
+  displaced nodes   345 -> 47
+  median lateral    176u -> ~44u (one cell)
+  footprint radius  356u -> 73u
+  max Y depth       253u -> 151u over a 5x smaller area
+
+The blocker was that power and width were the same dial: impactLocal derived its crater radius as
+40 + power*10, so the only way to press deeper was to press wider. impactLocal/gridSheetsBlast now
+take an options object that decouples them - opt.rad sets the crater width outright, opt.shockMul
+scales (or silences) the expanding ripple, opt.noAsset keeps a per-frame travel wake out of the
+heavy asset/platform deform fan-out. _gridBowl/_gridSpiral forward it and take a separate vertical
+reach, so a ball flying at chest height still bites the floor without that reach dictating width.
+All existing callers pass neither and are byte-for-byte unchanged.
+
+Honest limit: the floor grid's cell is 44 units. A crater smaller than one cell can only grab a
+node or two, so depth stops reading as a trench and starts reading as single-vertex spikes -
+verified on screenshots, not just numbers. 73u (~1.7 cells) is the tightest that still draws as a
+bowl.
+
+MANTA RAY TRACKING
+It read your transform every frame, so it rose and fell with a jump on the same frame you did.
+Measured: a 0.9s hop moved it 85 of your 110 units - 77% mirror, half-follow in 0.29s.
+
+It now flies at where it BELIEVES you are: a short dead time (it is still acting on what it saw a
+beat ago), then a first-order follow toward that stale reading, with altitude lagging hardest since
+that was the worst tell. The attenuation falls out for free and is the point - a fast hop barely
+moves the belief before you have landed again, while standing on a ledge still brings it all the
+way up.
+
+  0.9s hop         77% mirror -> 24%
+  half-follow      0.29s -> 4.61s
+  sustained climb  still follows fully (85%)
+  horizontal chase 4.35s -> 4.38s (untouched)
+
+Contact and damage tests still use your true position; only where it chooses to fly is lagged.
+_MANTA_LAG=0 restores instant tracking.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018E59Wnrd86WzhTJXdwNo7H
