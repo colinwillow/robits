@@ -1,0 +1,36 @@
+CMB1505 - hover bike: second-order motion on every axis (momentum builds, and it overshoots)
+
+The core of "it should start off slow and then build fast" is that lerp(speed, target, accel*dt) does
+the opposite: a first-order response moves FASTEST on its very first frame and decays from there.
+No amount of tuning that constant produces a build - the curve shape is wrong, not its rate.
+
+Every axis is a damped spring now, deliberately under-damped so acceleration ramps in, carries
+through the middle, and overshoots when the input changes. The strafe was worse than first-order -
+it was an instantaneous step sideways with no easing at all. _RIDE_SPRING=false restores the old
+response everywhere.
+
+  FORWARD/BACK  measured from rest, same throttle:
+                  old  120 217 296 385 483 531   peak acceleration at sample 2 (immediately)
+                  new    9  82 196 326 555 673   peak acceleration at sample 20 (mid-curve)
+                overshoot past the speed cap: -14% (never reached it) -> +8.5%
+                on release it now coasts PAST: 673 -> 678 before it decays
+
+  SIDE TO SIDE  old: -260 on the first sample, a hard step
+                new: -5, -13, -24, -54, -107 - it builds
+
+  UP            the jet was full thrust on frame one and zero on release. The thrust now ramps
+                (asymmetric: builds slower than it lets go) and velocity, being its integral, gets
+                the slow-then-fast build for free plus a coast at the top.
+
+  TURNING       grip 4.4 -> 3.1 and slip 0.62 -> 0.72, so the velocity heading lags the nose
+                further and you carve through a visible slip angle: 46.5deg -> 60deg peak.
+
+ONE BUG CAUGHT BY MEASURING, NOT BY READING
+Ramping the jet thrust against the full sink meant the first ~0.12s of a press was still
+net-DOWNWARD - press up, sink first, the exact opposite of an ease-in (measured vy negative through
+the entire ramp). A running jet holds its own weight, so thrusting is now its OWN case: no sink,
+only drag. Three cases (hold / thrusting / falling), not two - conflating the last two was the bug.
+_BIKE_FLY_LIFT is rebalanced to 484 to match, so terminal climb is unchanged at 186/s.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018E59Wnrd86WzhTJXdwNo7H
