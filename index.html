@@ -5298,7 +5298,10 @@ class DragonFireball{
         if(bp&&bp[0]&&bp[1]){ const base=bp[0], tip=bp[1], seg=tip.clone().sub(base), sl2=Math.max(seg.lengthSq(),1e-4), fb=new THREE.Vector3(this.wx,this.y,this.wz);
           const tp=Math.max(0,Math.min(1,fb.clone().sub(base).dot(seg)/sl2)), closest=base.clone().addScaledVector(seg,tp), dd=closest.distanceTo(fb);
           if(dd < this.R+(window._FIREBALL_DEFLECT_R||26)) hit=true;   // REAL blade collision — the fireball has to reach the swinging blade
-        } else {   // FISTS only (no blade mesh): a tight body-block in front, not a wide bubble
+        }
+        if(!hit){   // ...and ALWAYS also test the body-block. _slashBladePoints returns a pose even when the blade is
+          //           nowhere near the ball, so as an `else` this never ran with a weapon equipped and a fireball into
+          //           your chest went undeflected. Same fix the plasma-orb return already carries.
           const fa=(typeof player.aim==='number'?player.aim:0), fx=Math.cos(fa), fz=Math.sin(fa);
           const cx=player.wx+fx*(window._FIREBALL_FIST_REACH||22), cz=player.wz+fz*(window._FIREBALL_FIST_REACH||22), cy=(player.py||0)+16;
           const dx=this.wx-cx, dy=this.y-cy, dz=this.wz-cz, fr=(window._FIREBALL_FIST_R||26)+this.R;
@@ -25711,31 +25714,80 @@ function _shieldBlockScan(dt){
   }
   if(window._itemShots){ for(const s of window._itemShots){ if(!s||s._deflected)continue; if(_front(s.x,s.z,s.vx||0,s.vz||0)){ if(perfect){ s._deflected=true; const pd=_parryDir(s,px,pz,fx,fz); s.vx=pd.x*SPD; s.vz=pd.z*SPD; s.vy=Math.max(s.vy||0,150); _fx(s.x,s.z,true);} else { s._deflected=true; s.vx*=0.1; s.vz*=0.1; _fx(s.x,s.z,false);} } } }   // thrown bombs/nukes RETURN TO SENDER (was flung along the player's facing)
 }
-// ── MELEE DEFLECTS ROCKETS ── swing your melee near an incoming rocket and you knock it away (heat-seeks a foe now, not you).
+// ── MELEE CONTACT TEST ── one shared answer to "did the swing actually TOUCH this?", used by every melee parry below.
+//   Blade out: real segment collision against the RENDERED blade (base->tip from _slashBladePoints) — the same math the
+//   plasma-orb return (_PORB_PARRY) and the dragon-fireball parry already use. Fists / slide kick: a tight body-block in
+//   front. The two are OR'd, never if/else: _slashBladePoints returns a pose even when the blade is nowhere near the
+//   target, so an if/else swallows the fist check and the parry silently never lands (that bug already cost the orb
+//   parry once — see the note at _PORB_PARRY).
+//   window._MELEE_CONTACT=false restores the old proximity bubble.
+function _meleeContact(x,z,y,r){
+  if(!player||player.alive===false) return false;
+  const py=(y!=null?y:9), R=(r||0);
+  if(window._MELEE_CONTACT===false){   // legacy bubble — kept as an escape hatch, not the default
+    const bx=x-player.wx, bz=z-player.wz, BR=(window._MELEE_ROCKET_R||72);
+    return bx*bx+bz*bz<BR*BR && Math.abs(py-((player.py||0)+12))<(window._MELEE_PARRY_DY||56);
+  }
+  // Blade segment ONLY when a weapon is actually equipped. On bare fists _slashBladePoints returns a VFX slash STREAK off
+  // the hand (_FIST_SLASH_REACH, ~28 long) — treating that as a collider and adding a weapon-sized radius to it gave fists
+  // ~48 units of lateral reach, which is a bubble wearing a blade's clothes. Fists get the body-block below and nothing else.
+  if(player._hammer && typeof _slashBladePoints==='function' && typeof THREE!=='undefined'){
+    let bp=null; try{ bp=_slashBladePoints(); }catch(_){}
+    if(bp&&bp[0]&&bp[1]){
+      const base=bp[0], tip=bp[1], seg=tip.clone().sub(base), sl2=Math.max(seg.lengthSq(),1e-4), P=new THREE.Vector3(x,py,z);
+      const tp=Math.max(0,Math.min(1,P.clone().sub(base).dot(seg)/sl2));
+      if(base.clone().addScaledVector(seg,tp).distanceTo(P) < R+(window._MELEE_BLADE_R||26)) return true;
+    }
+  }
+  const fa=(typeof player.aim==='number'?player.aim:0);
+  const cx=player.wx+Math.cos(fa)*(window._MELEE_FIST_REACH||24), cz=player.wz+Math.sin(fa)*(window._MELEE_FIST_REACH||24), cy=(player.py||0)+16;
+  const dx=x-cx, dy=py-cy, dz=z-cz, fr=R+(window._MELEE_FIST_R||28);
+  return dx*dx+dy*dy+dz*dz < fr*fr;
+}
+// ── MELEE SWING WINDOW ── "melee is happening" is not the same as "the weapon is moving through the strike". The swing
+//   phase runs 0 (wind-up) -> 1 (recovery), the convention _CHAIN_CRACK already uses. Only the middle of it can parry, so
+//   a wind-up or a recovery frame no longer knocks things away. Every clip-driven swing goes through here, the slide kick
+//   included. The procedural parry swing (_procMeleeT) is the one exception: it has no clip phase to read, so it stays
+//   armed for its own already-short duration. _MELEE_WINDOW=false reopens the whole swing; _MELEE_WIN_A/_B move the edges.
+function _meleeSwingLive(){
+  const ud=player&&player.model&&player.model.userData;
+  if(!ud) return false;
+  if(!(ud._meleeTimer>0||ud._swActive)) return false;
+  if(window._MELEE_WINDOW===false) return true;
+  if(!(ud._meleeMax>0)) return true;                                  // no measured duration -> don't gate it out
+  const ph=Math.max(0,Math.min(1, 1-(ud._meleeTimer/ud._meleeMax)));  // 0 at swing start -> 1 at end
+  return ph>=(window._MELEE_WIN_A!=null?window._MELEE_WIN_A:0.12) && ph<=(window._MELEE_WIN_B!=null?window._MELEE_WIN_B:0.82);
+}
+// ── MELEE DEFLECTS ROCKETS ── swing your melee INTO an incoming rocket and you knock it away (heat-seeks a foe now, not you).
 //    Same idea as parrying bombs/nukes, extended to enemy/bot rockets. window._MELEE_DEFLECT_ROCKET=false to disable.
 function _meleeDeflectRockets(dt){
   if(window._MELEE_DEFLECT_ROCKET===false || !player || player.alive===false || GS.state!=='playing') return;
-  const ud=player.model&&player.model.userData; const swinging=!!(ud&&(ud._meleeTimer>0||ud._swActive))||((window._procMeleeT||0)>0) || (player._sliding);
+  // `player._sliding` used to be its own term here, and it was the last hole in the gate: a STATE, not a window, so the
+  // slide kick stayed armed through its wind-up and recovery and quietly re-opened the "melee is happening" behaviour
+  // that the window above exists to close. It is gone rather than narrowed — the slide kick drives the same melee clip
+  // as every other swing, so _meleeSwingLive() already covers it, and now covers it on the same terms as the rest.
+  const swinging=_meleeSwingLive()||((window._procMeleeT||0)>0);
   if(!swinging) return;
-  const px=player.wx, pz=player.wz, R=(window._MELEE_ROCKET_R||72), R2=R*R, fx=Math.cos(player.aim||0), fz=Math.sin(player.aim||0), S=Math.max(360,(window._PARRY_SPEED||560));
+  const px=player.wx, pz=player.wz, fx=Math.cos(player.aim||0), fz=Math.sin(player.aim||0), S=Math.max(360,(window._PARRY_SPEED||560));
   const _do=(m, label)=>{ m._deflected=true; const pd=_parryReturn(m,px,pz,fx,fz); m.vx=pd.x*S; m.vz=pd.z*S; if('speed' in m)m.speed=S;   // RETURN TO SENDER
     if(typeof ps!=='undefined'){ ps.ring(m.wx,m.wz,[0.6,1,1],14,170,(m.y||9)); ps.burst(m.wx,m.wz,[0.6,1,1],22,170,(m.y||9)); }
     if(typeof grid!=='undefined'&&grid.shock)try{grid.shock(m.wx,m.wz,2);}catch(_){}
     if(typeof addTrauma==='function')addTrauma(0.12); if(typeof hitStop==='function')hitStop(5);
     if(window._pingSfx)window._pingSfx(m.wx,m.wz);   // ricochet ping
     if(typeof announce==='function')announce((label||'DEFLECT')+'!','#7dffd0'); };
-  const _inR=(x,z,y)=>{ const dx=x-px,dz=z-pz; return dx*dx+dz*dz<R2 && Math.abs((y!=null?y:9)-((player.py||0)+12))<(window._MELEE_PARRY_DY||56); };
-  if(GS.enemyMissiles)for(const m of GS.enemyMissiles){ if(!m||m._deflected)continue; if(_inR(m.wx,m.wz,m.y)){ _do(m,'ROCKET DEFLECT'); m._ownerBot=null; } }
-  if(GS.missiles)for(const m of GS.missiles){ if(!m||m._deflected||(!m._homePlayer&&!m._fromCannon))continue; if(_inR(m.wx,m.wz,m.y)){ m.target=null; _do(m,'ROCKET DEFLECT'); } }
+  const _inR=(x,z,y,r)=>_meleeContact(x,z,y,r);   // the swing must reach it now — no bubble
+  const RK=(window._MELEE_R_ROCKET||12), BM=(window._MELEE_R_BOMB||12), BL=(window._MELEE_R_BULLET||5), IT=(window._MELEE_R_ITEM||10);
+  if(GS.enemyMissiles)for(const m of GS.enemyMissiles){ if(!m||m._deflected)continue; if(_inR(m.wx,m.wz,m.y,RK)){ _do(m,'ROCKET DEFLECT'); m._ownerBot=null; } }
+  if(GS.missiles)for(const m of GS.missiles){ if(!m||m._deflected||(!m._homePlayer&&!m._fromCannon))continue; if(_inR(m.wx,m.wz,m.y,RK)){ m.target=null; _do(m,'ROCKET DEFLECT'); } }
   // MELEE now parries the rest too — bombs, fireballs, enemy bullets — each sent back at whoever launched it (window._MELEE_PARRY_ALL=false to limit to rockets)
   if(window._MELEE_PARRY_ALL!==false){
-    if(GS.dropBombs)for(const b of GS.dropBombs){ if(!b||b.dead||b._deflected||(b._fromCannon===false))continue; if(_inR(b.wx,b.wz,b.y)){ b._deflected=true; b._fromCannon=false; const pd=_parryReturn(b,px,pz,fx,fz); b.vx=pd.x*S; b.vz=pd.z*S; if(b.vy!=null)b.vy=Math.max(b.vy||0,150); if(b.timer!=null)b.timer=Math.max(b.timer,1.4); if(typeof ps!=='undefined')ps.ring(b.wx,b.wz,[0.6,1,1],14,150,(b.y||9)); if(window._pingSfx)window._pingSfx(b.wx,b.wz); if(typeof addTrauma==='function')addTrauma(0.1); if(typeof hitStop==='function')hitStop(5); if(typeof announce==='function')announce('BOMB PARRY!','#7dffd0'); } }
-    if(GS.dragonFireballs)for(const f of GS.dragonFireballs){ if(!f||f.dead||f._deflected)continue; if(_inR(f.wx,f.wz,f.y)){ if(typeof f._deflect==='function')f._deflect(); if(typeof hitStop==='function')hitStop(5); if(typeof announce==='function')announce('FIREBALL PARRY!','#8fe0ff'); } }
-    if(GS.bullets)for(let i=GS.bullets.length-1;i>=0;i--){ const b=GS.bullets[i]; if(!b||b._deflected||!(b._fromBot||b._ownerBot))continue; if(_inR(b.wx,b.wz,b.y)){ const s=Math.hypot(b.vx||0,b.vz||0)||300; const pd=_parryDir(b,px,pz,fx,fz); b.vx=pd.x*s; b.vz=pd.z*s; b._deflected=true; b._ownerBot=null; b._fromBot=false; if(window._pingSfx&&Math.random()<0.4)window._pingSfx(b.wx,b.wz); } }
-    if(GS.enemyBullets)for(let i=GS.enemyBullets.length-1;i>=0;i--){ const b=GS.enemyBullets[i]; if(!b||b._deflected)continue; if(_inR(b.wx,b.wz,b.y)){ const s=Math.hypot(b.vx||0,b.vz||0)||300; const pd=_parryDir(b,px,pz,fx,fz); b.vx=pd.x*s; b.vz=pd.z*s; b._deflected=true; b._ownerBot=null; } }
+    if(GS.dropBombs)for(const b of GS.dropBombs){ if(!b||b.dead||b._deflected||(b._fromCannon===false))continue; if(_inR(b.wx,b.wz,b.y,BM)){ b._deflected=true; b._fromCannon=false; const pd=_parryReturn(b,px,pz,fx,fz); b.vx=pd.x*S; b.vz=pd.z*S; if(b.vy!=null)b.vy=Math.max(b.vy||0,150); if(b.timer!=null)b.timer=Math.max(b.timer,1.4); if(typeof ps!=='undefined')ps.ring(b.wx,b.wz,[0.6,1,1],14,150,(b.y||9)); if(window._pingSfx)window._pingSfx(b.wx,b.wz); if(typeof addTrauma==='function')addTrauma(0.1); if(typeof hitStop==='function')hitStop(5); if(typeof announce==='function')announce('BOMB PARRY!','#7dffd0'); } }
+    if(GS.dragonFireballs)for(const f of GS.dragonFireballs){ if(!f||f.dead||f._deflected)continue; if(_inR(f.wx,f.wz,f.y,(f.R||14))){ if(typeof f._deflect==='function')f._deflect(); if(typeof hitStop==='function')hitStop(5); if(typeof announce==='function')announce('FIREBALL PARRY!','#8fe0ff'); } }
+    if(GS.bullets)for(let i=GS.bullets.length-1;i>=0;i--){ const b=GS.bullets[i]; if(!b||b._deflected||!(b._fromBot||b._ownerBot))continue; if(_inR(b.wx,b.wz,b.y,BL)){ const s=Math.hypot(b.vx||0,b.vz||0)||300; const pd=_parryDir(b,px,pz,fx,fz); b.vx=pd.x*s; b.vz=pd.z*s; b._deflected=true; b._ownerBot=null; b._fromBot=false; if(window._pingSfx&&Math.random()<0.4)window._pingSfx(b.wx,b.wz); } }
+    if(GS.enemyBullets)for(let i=GS.enemyBullets.length-1;i>=0;i--){ const b=GS.enemyBullets[i]; if(!b||b._deflected)continue; if(_inR(b.wx,b.wz,b.y,BL)){ const s=Math.hypot(b.vx||0,b.vz||0)||300; const pd=_parryDir(b,px,pz,fx,fz); b.vx=pd.x*s; b.vz=pd.z*s; b._deflected=true; b._ownerBot=null; } }
     // THROWN POWER-UPS (a rival's quake/nuke/bomb/mine sailing at you) — BAT them right back at the thrower. The item flips
     // ownership mid-air: it lands as YOUR blast (and a batted mine arms as YOURS, tripping for them). _BAT_ITEMS=false off.
-    if(window._BAT_ITEMS!==false && window._itemShots)for(const s2 of window._itemShots){ if(!s2||!s2._fromBot||s2._batted)continue; if(_inR(s2.x,s2.z,s2.y)){ s2._batted=true;
+    if(window._BAT_ITEMS!==false && window._itemShots)for(const s2 of window._itemShots){ if(!s2||!s2._fromBot||s2._batted)continue; if(_inR(s2.x,s2.z,s2.y,IT)){ s2._batted=true;
       const _thr=s2._ownerBot; let bdx,bdz;
       if(_thr&&_thr.wx!=null&&_thr.alive!==false){ bdx=_thr.wx-s2.x; bdz=_thr.wz-s2.z; } else { bdx=Math.cos(player.aim||0); bdz=Math.sin(player.aim||0); }
       const bdl=Math.hypot(bdx,bdz)||1, BS=Math.max(300,(window._BAT_ITEM_SPD||420));
@@ -25745,6 +25797,32 @@ function _meleeDeflectRockets(dt){
       if(window._pingSfx)window._pingSfx(s2.x,s2.z);
       if(typeof addTrauma==='function')addTrauma(0.1); if(typeof announce==='function')announce('BATTED BACK!','#ffd23a');
     } }
+    // ── EVERYTHING ELSE THAT FLIES ── the melee scan grew one hand-written branch per projectile type and had quietly
+    //   missed most of them: acid globs, arrows, big-bills and bouncy balls all sailed straight through a swing. One
+    //   generic pass over the rest instead, mirroring the shield's (_SHIELD_BLOCK_ALL). Anything friendly/ally is skipped
+    //   so covering fire doesn't die on your own blade, and BOOMERANGS are excluded by default — yours returning to you
+    //   is not an attack (window._MELEE_PARRY_BOOMERANG=true to include them). PLASMA ORBS are excluded on purpose: they
+    //   already run their own blade-contact return (_PORB_PARRY), and a second generic path here would bypass the
+    //   ownership flip that makes a returned orb yours. window._MELEE_PARRY_REST=false to disable this pass.
+    if(window._MELEE_PARRY_REST!==false){
+      const _lists=[GS.acid, GS.arrows, GS.bigBills, GS.bouncyBalls];
+      if(window._MELEE_PARRY_BOOMERANG===true && GS.boomerangs)_lists.push(GS.boomerangs);
+      for(const L of _lists){ if(!L||!L.length)continue;
+        for(let i=L.length-1;i>=0;i--){ const o=L[i];
+          if(!o||o._deflected||o.dead||o.alive===false)continue;
+          if(o.friendly===true||o._friendly===true||o._ally===true)continue;                  // ours / an ally's — let it through
+          const ox=(o.wx!=null?o.wx:o.x), oz=(o.wz!=null?o.wz:o.z); if(ox==null||oz==null)continue;
+          if(!_inR(ox,oz,(o.y!=null?o.y:9),(o.R||o.r||(window._MELEE_R_MISC||10))))continue;
+          if(typeof o._deflect==='function'){ o._deflect(); o._deflected=true; if(window._pingSfx)window._pingSfx(ox,oz); continue; }   // types that retarget themselves do it better than anything generic
+          const sp2=Math.hypot(o.vx||0,o.vz||0)||S, pd=_parryReturn(o,px,pz,fx,fz);
+          o.vx=pd.x*sp2; o.vz=pd.z*sp2; if('speed' in o)o.speed=sp2;
+          o._deflected=true; o._ownerBot=null; o._enemy=false;                                // disowned -> it belongs to you on the way back
+          if(typeof ps!=='undefined'){ ps.ring(ox,oz,[0.6,1,1],12,150,(o.y||9)); ps.burst(ox,oz,[0.6,1,1],16,150,(o.y||9)); }
+          if(window._pingSfx)window._pingSfx(ox,oz);
+          if(typeof addTrauma==='function')addTrauma(0.1); if(typeof hitStop==='function')hitStop(5);
+          if(typeof announce==='function')announce('DEFLECT!','#7dffd0');
+        } }
+    }
   }
 }
 // ── SHOOT DOWN ROCKETS ── your gun helps: a slight aim-assist curves your bullets toward an incoming rocket that's roughly
@@ -25776,6 +25854,8 @@ function _bulletsVsRockets(dt){
   }
 }
 window._bulletsVsRockets=_bulletsVsRockets; window._meleeDeflectRockets=_meleeDeflectRockets;
+window._meleeContact=_meleeContact; window._meleeSwingLive=_meleeSwingLive;   // debug/headless: the parry's hit test and swing gate, so contact can be MEASURED (distance-vs-outcome) instead of eyeballed
+window._bladePts=function(){ try{ const b=_slashBladePoints(); return b?[{x:b[0].x,y:b[0].y,z:b[0].z},{x:b[1].x,y:b[1].y,z:b[1].z}]:null; }catch(_){ return null; } };   // ...and the weapon segment those tests run against (_showWeaponCollider draws this same line)
 function _ensureShieldHold(){
   const b=document.getElementById('btn-shield'); if(!b||b._heldWired)return; b._heldWired=true;
   // BETWEEN the sticks (bottom-centre) so it's the natural thumb-block, not tucked in a corner over the action buttons
@@ -51012,6 +51092,7 @@ window._dropMelee=function(type,dist){
     return 'dropped '+(type||'axes')+' at '+Math.round(x)+','+Math.round(z);
   }catch(e){ return 'failed: '+e.message; } };
 window._giveMelee=function(type){ try{ return _equipMeleeType(type||'axes')?('equipped '+(type||'axes')):'equip failed (no rig yet?)'; }catch(e){ return 'failed: '+e.message; } };
+window._doMeleeTap=function(){ try{ return _doMeleeTap(); }catch(e){ return 'failed: '+e.message; } };   // debug/headless: swing on demand, so the melee parry can be driven END-TO-END against the training cannon instead of by poking swing state
 window._axes=function(){ return window._dropMelee('axes'); };
 window._clawchain=function(){ return window._dropMelee('clawchain'); };   // DEBUG: drop the claw chain in front of you
 function _equipMeleeType(type){
