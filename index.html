@@ -20181,17 +20181,33 @@ class Player{
     // target-snap toward the nearest live foe inside a tight cone of the aim line, so a steady aim rewards a
     // one-tap delete at any range. Pierces a couple of bodies. Knobs: _SNIPER_DMG/_SPD/_SNAP/_SNAP_R/_PIERCE/_FIRE_RATE.
     let a=this.aim;
+    // KEEP THE TARGET, NOT JUST THE ANGLE. This snap used to record only Math.atan2(dz,dx) and throw the entity away,
+    // which made a vertical shot structurally impossible: by the time the direction was built there was nothing left
+    // that knew how high he was. A man ten feet off the ground with the ring on him ate a flat round under his boots.
+    let _snapE=null;
     try{ const SN=(window._SNIPER_SNAP!=null?window._SNIPER_SNAP:0.11); let best=null,bd=1e9;
-      const consider=(ex,ez,alive)=>{ if(alive===false||ex==null)return; const dx=ex-this.wx,dz=ez-this.wz,d=Math.hypot(dx,dz); if(d<40||d>(window._SNIPER_SNAP_R||1400))return; let da=Math.atan2(dz,dx)-a; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI; if(Math.abs(da)<SN&&d<bd){ bd=d; best=Math.atan2(dz,dx); } };
-      if(GS.enemies)for(const e of GS.enemies){ if(e)consider(e.wx,e.wz,e.alive); }
-      if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(b)consider(b.wx,b.wz,b.alive); }
+      const consider=(e,ex,ez,alive)=>{ if(alive===false||ex==null)return; const dx=ex-this.wx,dz=ez-this.wz,d=Math.hypot(dx,dz); if(d<40||d>(window._SNIPER_SNAP_R||1400))return; let da=Math.atan2(dz,dx)-a; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI; if(Math.abs(da)<SN&&d<bd){ bd=d; best=Math.atan2(dz,dx); _snapE=e; } };
+      if(GS.enemies)for(const e of GS.enemies){ if(e)consider(e,e.wx,e.wz,e.alive); }
+      if(typeof GS_bots!=='undefined'&&GS_bots)for(const b of GS_bots){ if(b)consider(b,b.wx,b.wz,b.alive); }
       if(best!=null)a=best;
     }catch(_){}
+    // ...and if the RING is on somebody, that beats the snap's own tight cone outright — the ring is what you were
+    // reading when you pulled, so it is what the shot belongs to. Same rule as the plasma cannon's release.
+    if(window._SNIPER_LOCK_FIRE!==false){ const L=this._softLock;
+      if(L && L.alive!==false && L.wx!=null){ _snapE=L; a=Math.atan2(L.wz-this.wz, L.wx-this.wx); this.aim=a; } }
     let sx=this.wx+Math.cos(a)*14, sz=this.wz+Math.sin(a)*14, y0=9+this.py;
     const _rm=new THREE.Vector3(); if((typeof _stanceMuzzle==='function')&&_stanceMuzzle(this,0,_rm)){ sx=_rm.x; sz=_rm.z; y0=_rm.y; }
     const spd=(window._SNIPER_SPD||2400);
     let dirX=Math.cos(a), dirZ=Math.sin(a), dirY=0;
     if(this._aim3DActive&&this._aim3D){ dirX=this._aim3D.x; dirZ=this._aim3D.z; dirY=this._aim3D.y||0; }
+    // SHOOT UP AT HIM. dirY only ever came from the desktop 3D crosshair, so on a touch stick every sniper round left
+    // the barrel dead level no matter what it was pointed at. With a target in hand the whole direction is just the
+    // vector to his chest — the vertical falls out for free, which is the point of having a lock at all.
+    if(_snapE && _snapE.wx!=null){
+      const _ty=(_snapE.mesh&&_snapE.mesh.position)?_snapE.mesh.position.y:((_snapE.py!=null?_snapE.py:0)+9);
+      const _dx=_snapE.wx-sx, _dy=(_ty+(window._SNIPER_LOCK_YOFF||4))-y0, _dz=_snapE.wz-sz, _dl=Math.hypot(_dx,_dy,_dz)||1;
+      if(_dl>8){ dirX=_dx/_dl; dirY=_dy/_dl; dirZ=_dz/_dl; }
+    }
     // HITSCAN: at this muzzle velocity a stepped projectile TUNNELS straight through bodies between frames, so the
     // damage is a ray sweep down the shot line (first 1+pierce victims). The flying round stays as a visual tracer
     // that carries only a light chip.
