@@ -6577,7 +6577,8 @@ window._mantaMount=function(m,ox,oz,mode){ try{
   m._rideRefY=Math.max(30,m.y||62); m._wanderA=Math.atan2(m.vz||0,(m.vx||1));   // HOLD this altitude while ridden (cruise seeks 62 ABOVE THE PLAYER, and the rider's height IS the manta -> feedback loop climbed it into the stratosphere, then dropped you from 1500+ up = "the camera goes crazy"); wander starts along its current heading
   m._stagger=0; m._tumble=0; m._tumblePh=0; m._rollSpin=0; m._rollPh=0; m._flyVy=0; m._roll=0;   // mounting a manta MID-TUMBLE inherited the spin and it never wound down — land on it and it levels out
   m._state='orbit'; m._swoopT=Math.max(m._swoopT||0,1.2);
-  player.py=m.y+(window._MANTA_DECK||9); player.pvy=0; player._onPlatform=false;
+  { const _dk=m._deckPoint?m._deckPoint():{x:m.wx,y:m.y+(window._MANTA_DECK||9),z:m.wz}; player.py=_dk.y; }   // land ON the saddle, not at a fixed height above the origin
+  player.pvy=0; player._onPlatform=false;
   try{ if(typeof announce==='function')announce('RIDING THE MANTA','#9d5cff'); if(typeof ps!=='undefined')ps.ring(m.wx,m.wz,[0.66,0.4,1],18,120,m.y); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(500,0.14,'sine',0.18,900); }catch(_){}
   return true;
 }catch(_){ return false; } };
@@ -6851,8 +6852,9 @@ class MantaRay extends Enemy{
     if(this._riderOn||this._hangOn){ if(this._hitR0==null){ this._hitR0=this._hitR; this._size0=this.size; } this._hitR=0; this.size=0; }
     else if(this._hitR0!=null){ this._hitR=this._hitR0; this.size=this._size0; this._hitR0=null; this._size0=null; }
     if(window._MANTA_RIDE!==false && typeof player!=='undefined'&&player&&player.alive&&!player._mount&&!player._ballActive&&!player._deathSeq){
-      const overX=player.wx-this.wx, overZ=player.wz-this.wz, overD=Math.hypot(overX,overZ);
-      const deckY=this.y+(window._MANTA_DECK||9);
+      const _dk=this._deckPoint();
+      const overX=player.wx-_dk.x, overZ=player.wz-_dk.z, overD=Math.hypot(overX,overZ);   // measured to the SADDLE, not the origin — on a tall body those are not the same place
+      const deckY=_dk.y;
       // ── HANGING OFF THE BELLY ── the other half of the mount. You are not driving it and you are not standing on
       // it: you are holding on underneath while it flies its own path. JUMP lets go — and unlike hopping off the back
       // there is no boost, because letting go of something is a fall, not a jump.
@@ -6895,7 +6897,7 @@ class MantaRay extends Enemy{
             try{ if(typeof ps!=='undefined')ps.ring(this.wx,this.wz,[0.66,0.4,1],14,90,deckY); }catch(_){} }
           try{ const ud=player.model&&player.model.userData; if(ud&&ud.clips){ const gc=ud.clips['grind']||ud.clips['grinding']; if(gc)gc.fadeOut(0.15); if(ud.currentClip==='grind')ud.currentClip=null; } }catch(_){}
         } else {
-          player.wx=this.wx+(this._riderOX||0); player.wz=this.wz+(this._riderOZ||0);
+          player.wx=_dk.x+(this._riderOX||0); player.wz=_dk.z+(this._riderOZ||0);
           player.py=deckY; player.pvy=0; player.vx=this.vx; player.vz=this.vz; player._onPlatform=false; player._voidCommit=false;
           player._mantaRide=this;
           // ── TURN WITH IT ── you kept your own facing while the creature banked away underneath, which is why it read
@@ -6924,7 +6926,7 @@ class MantaRay extends Enemy{
           try{ const ud=player.model&&player.model.userData; if(ud&&ud.clips){ const gc=ud.clips['grind']||ud.clips['grinding']; if(gc&&ud.currentClip!=='grind'){ const cur=ud.clips[ud.currentClip]; if(cur)cur.fadeOut(0.15); gc.reset().setEffectiveWeight(1).fadeIn(0.15).play(); ud.currentClip='grind'; }
             ud._rollingTimer=Math.max(ud._rollingTimer||0,0.1); } }catch(_){}   // surf stance = the rails' grind pose — AND their _rollingTimer pin, without which the locomotion machine sees "airborne" and re-picks floating right over it (the armed upper-body override still layers gun poses on top, so shooting from its back reads correctly for free)
         }
-      } else if(overD<(window._MANTA_RIDE_R||52*_mantaK()) && player.py>this.y-8 && player.py<this.y+56 && (player.pvy||0)<=(window._MANTA_CATCH_VY||80)
+      } else if(overD<(window._MANTA_RIDE_R||52*_mantaK()) && player.py>deckY-17 && player.py<deckY+47 && (player.pvy||0)<=(window._MANTA_CATCH_VY||80)
         && !(this._noBoardT&&(performance.now()||0)<this._noBoardT)
         && !(player._noMountT&&(performance.now()||0)<player._noMountT)
         && !(player.model&&player.model.userData&&(player.model.userData._meleeTimer||0)>0)){   // MID-SWING = you're BEATING it, not boarding it — the widened catch was converting air-melees into instant rides. Swing ends -> the next touch mounts as usual (and the tap-mount stays deliberate).
@@ -6952,6 +6954,11 @@ class MantaRay extends Enemy{
       }
     } else if(this._riderOn){ this._riderOn=false; if(typeof player!=='undefined'&&player)player._mantaRide=null; }
   }
+  // ── WHERE THE SADDLE IS ── one answer, asked by the mount test, the rider's per-frame placement and the hop-off.
+  //   The manta is a flat ray centred on its origin, so "a few units above the middle" was the whole story and the
+  //   +_MANTA_DECK constant was fine. It stops being the story the moment a body with real height inherits this rig:
+  //   see MechDragon, whose back is ~76 units above its origin, so a fixed +9 stood the rider in mid-air below it.
+  _deckPoint(){ return {x:this.wx, y:this.y+(window._MANTA_DECK||9), z:this.wz}; }
   die(){ if(this._riderOn){ this._riderOn=false; try{ if(typeof player!=='undefined'&&player){ player._mantaRide=null; const ud=player.model&&player.model.userData; if(ud&&ud.clips){ const gc=ud.clips['grind']||ud.clips['grinding']; if(gc)gc.fadeOut(0.15); if(ud.currentClip==='grind')ud.currentClip=null; } } }catch(_){} }
     ps.burst(this.wx,this.wz,this.glow,40,220,this.y); ps.ring(this.wx,this.wz,this.glow,30,200,this.y); ps.burst(this.wx,this.wz,[1,1,1],16,160,this.y); addTrauma(0.16);
     try{ if(typeof _boomSfx==='function')_boomSfx('small',0.9,this.wx,this.wz); }catch(_){} }
@@ -7050,8 +7057,59 @@ class MechDragon extends MantaRay{
     }catch(e){ console.warn('dragon fit',e); } }, undefined, (e)=>{ console.warn('dragon load',e); });
   }catch(_){} }
   hit(dmg=1){ try{ if(this._dragon)this._dragonFlash=(window._DRAGON_FLASH||0.16); }catch(_){} return super.hit(dmg); }
+  // ── THE SADDLE IS A BONE ── the export ships a 'ride' bone; it was captured above and then never used by anything, so
+  //   the rider inherited the manta's flat +_MANTA_DECK and stood ~67 units UNDER the dragon, in open air. Measured on
+  //   the posed rig: the ride bone sits ~76 above this creature's origin, the fixed offset put him at +9. The skeleton
+  //   knows where its own back is — ask it. window._DRAGON_RIDE_BONE=false falls back to the inherited offset.
+  _deckPoint(){
+    if(window._DRAGON_RIDE_BONE!==false && this._rideNode && typeof THREE!=='undefined'){
+      try{ const v=this._rideV||(this._rideV=new THREE.Vector3());
+        this._rideNode.getWorldPosition(v);
+        if(isFinite(v.x)&&isFinite(v.y)&&isFinite(v.z)) return {x:v.x, y:v.y+(window._DRAGON_SADDLE_UP||0), z:v.z};
+      }catch(_){}
+    }
+    return super._deckPoint();
+  }
+  // ── COLLIDERS FROM THE POSED SKELETON ── every hit figure here came off _DRAGON_SPAN/68, and that fit measures the
+  //   BIND-POSE mesh, which for this export spans 0.001 units — so nothing derived from it describes what is on screen,
+  //   and the size knob has been guessed four times (150 -> 68 -> 24 -> 6) without ever being anchored to anything.
+  //   Measured against the posed bones the real body is ~246 long x 108 wide x 84 tall and sits entirely ABOVE the
+  //   origin, while _hitR was 7.4 and _tall 15: a 7-unit target on a 246-unit creature, which is why shots went through
+  //   it. The bones are the only thing that knows where this animal actually is. window._DRAGON_FIT=false keeps the old
+  //   span-derived numbers; _DRAGON_FIT_K scales the fitted radius.
+  _fitFromBones(){
+    const d=this._dragon; if(!d||typeof THREE==='undefined') return false;
+    let mnx=1e30,mny=1e30,mnz=1e30,mxx=-1e30,mxy=-1e30,mxz=-1e30,n=0;
+    const v=this._fitV||(this._fitV=new THREE.Vector3());
+    try{ d.updateMatrixWorld(true); }catch(_){}
+    d.traverse(o=>{ if(!o.isBone)return; o.getWorldPosition(v); n++;
+      if(v.x<mnx)mnx=v.x; if(v.x>mxx)mxx=v.x; if(v.y<mny)mny=v.y; if(v.y>mxy)mxy=v.y; if(v.z<mnz)mnz=v.z; if(v.z>mxz)mxz=v.z; });
+    if(n<2||mxx<mnx) return false;
+    // RADIUS. Not the bounding half-extents: those are set by the WINGTIPS, and a radius drawn round a spread wing
+    // scores hits on open air well off the flank. Take a high percentile of how far the bones actually sit from the
+    // creature's own axis instead - "most of the animal is inside this" - which stays put whether the wings are spread
+    // or folded. _DRAGON_FIT_P moves the percentile, _DRAGON_FIT_K scales the result.
+    const ds=[];
+    d.traverse(o=>{ if(!o.isBone)return; o.getWorldPosition(v); ds.push(Math.hypot(v.x-this.wx, v.z-this.wz)); });
+    ds.sort((a,b)=>a-b);
+    const pk=ds[Math.min(ds.length-1, Math.max(0, Math.round((ds.length-1)*(window._DRAGON_FIT_P!=null?window._DRAGON_FIT_P:0.85))))]||0;
+    this._hitR=Math.max(this._hitR||0, pk*(window._DRAGON_FIT_K||1));
+    // VERTICAL. Measured off the y the bullet test actually reads (mesh.position.y, i.e. the origin), with headroom so a
+    // wingbeat lifting the back between the fit and the shot can't put the top of the body outside the band.
+    const _top=(mxy-this.y)*(window._DRAGON_FIT_UP||1.15);
+    this._tall=Math.max(this._tall||0, _top);        // body is all ABOVE the origin, so this is the true vertical band
+    this._barY=Math.max(this._barY||0, _top+10);     // health bar clears the back instead of floating inside the chest
+    this._fitDone=true;
+    return true;
+  }
   update(p,dt){
     super.update(p,dt);
+    // Fit once the clips have actually posed the skeleton — a bind-pose measurement is what got us here. Never while
+    // ridden: the ride collapses _hitR to 0 and stashes the old value, so fitting mid-ride would bank a zero.
+    if(window._DRAGON_FIT!==false && !this._fitDone && this._dragon && !this._riderOn && !this._hangOn){
+      this._fitT=(this._fitT||0)+dt;
+      if(this._fitT>(window._DRAGON_FIT_T||0.4)) this._fitFromBones();
+    }
     // ── STAY IN FRAME ── the inherited cruise is prey-relative (_MANTA_CRUISE + believed prey height), which for this
     // creature settled around y=196 - more than twice the manta's ~88, i.e. above the top of a phone screen, so it
     // could arrive perfectly and still never be seen. A CEILING rather than a servo: dives and swoops still take it
